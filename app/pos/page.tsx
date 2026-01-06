@@ -1238,12 +1238,13 @@ export default function PosPage() {
       const allSalesMap = new Map<number, ClosureSale>();
       sales.forEach((sale) => allSalesMap.set(sale.id, sale));
       const pendingSales = sales.filter((sale) => sale.closure_id == null);
-      const filteredPendingSales =
-        activeStationId && activeStationId !== ""
-          ? pendingSales.filter(
-              (sale) => sale.station_id === activeStationId
-            )
-          : pendingSales;
+      const shouldFilterByStation =
+        Boolean(activeStationId) &&
+        activeStationId !== "" &&
+        activeStationId !== "pos-web";
+      const filteredPendingSales = shouldFilterByStation
+        ? pendingSales.filter((sale) => sale.station_id === activeStationId)
+        : pendingSales;
       const filteredSaleIds = new Set(filteredPendingSales.map((sale) => sale.id));
       let totalCollected = 0;
       let totalRefunds = 0;
@@ -1276,7 +1277,7 @@ export default function PosPage() {
           const pendingPayments =
             order.payments?.filter((payment) => payment.closure_id == null) ?? [];
           const saleMatches = filteredSaleIds.has(order.sale_id);
-          const paymentMatches = activeStationId
+          const paymentMatches = shouldFilterByStation
             ? pendingPayments.some(
                 (payment) =>
                   payment.station_id === activeStationId ||
@@ -1460,12 +1461,12 @@ export default function PosPage() {
         const { order, baseSale, pendingPayments } = entry;
         const relatedSale = saleMap.get(order.sale_id);
         pendingPayments.forEach((payment) => {
-          const paymentMatches =
-            !activeStationId ||
-            payment.station_id === activeStationId ||
-            (!payment.station_id &&
-              (relatedSale?.station_id ?? baseSale?.station_id) ===
-                activeStationId);
+          const paymentMatches = shouldFilterByStation
+            ? payment.station_id === activeStationId ||
+              (!payment.station_id &&
+                (relatedSale?.station_id ?? baseSale?.station_id) ===
+                  activeStationId)
+            : true;
           if (!paymentMatches) return;
           addMethodAmount(payment.method, payment.amount);
           totalCollected += payment.amount;
