@@ -1,14 +1,16 @@
 "use client";
 
+const normalizeUrl = (value: string): string => value.replace(/\/$/, "");
+
 export function getApiBase(): string {
-  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
-    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl) {
+    return normalizeUrl(envUrl);
   }
-  if (typeof window !== "undefined") {
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    const port = window.location.port === "3000" ? "8000" : window.location.port || "8000";
-    return `${protocol}//${hostname}:${port}`;
+
+  if (process.env.NODE_ENV !== "production") {
+    return "http://127.0.0.1:8000";
   }
-  return "http://127.0.0.1:8000";
+
+  throw new Error("NEXT_PUBLIC_API_URL is not defined");
 }
