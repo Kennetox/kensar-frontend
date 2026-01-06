@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  --background: #020617;
+  --foreground: #f8fafc;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  position: relative;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body[data-theme="light"] {
+  --background: #f6f8fc;
+  --foreground: #0f172a;
+  color: var(--foreground);
+}
+
+body[data-theme="light"] [class*="bg-slate-95"],
+body[data-theme="light"] [class*="bg-slate-90"],
+body[data-theme="light"] [class*="bg-slate-80"] {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  color: var(--foreground) !important;
+}
+
+body[data-theme="light"] [class*="text-slate-1"],
+body[data-theme="light"] [class*="text-white"] {
+  color: var(--foreground) !important;
+}
+
+body[data-theme="light"] [class*="text-slate-4"],
+body[data-theme="light"] [class*="text-slate-3"] {
+  color: #475569 !important;
+}
+
+body[data-theme="light"] [class*="border-slate"],
+body[data-theme="light"] [class*="border-white"] {
+  border-color: rgba(15, 23, 42, 0.12) !important;
+}
+
+body[data-theme="light"] .bg-gradient-to-r,
+body[data-theme="light"] .bg-gradient-to-br {
+  background-image: linear-gradient(135deg, rgba(226, 232, 240, 0.9), rgba(244, 247, 252, 0.95)) !important;
+  color: var(--foreground);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.12), transparent 45%),
+    radial-gradient(circle at 80% 0%, rgba(99, 102, 241, 0.15), transparent 50%),
+    radial-gradient(circle at 50% 80%, rgba(6, 182, 212, 0.1), transparent 55%);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: -2;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg width='160' height='160' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-opacity='0.08'%3E%3Cpath d='M0 0h160v160H0z'/%3E%3Cpath d='M80 0v160M0 80h160' stroke='%23FFFFFF' stroke-dasharray='1 11' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  opacity: 0.25;
+  pointer-events: none;
+  mix-blend-mode: lighten;
+  z-index: -1;
+}
+
+@keyframes float-soft {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.animate-float-soft {
+  animation: float-soft 8s ease-in-out infinite;
+}
