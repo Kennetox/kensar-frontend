@@ -129,6 +129,7 @@ export default function ProductsPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<ProductForm>(emptyForm);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   // filtros / orden
   const [searchInput, setSearchInput] = useState("");
@@ -167,6 +168,10 @@ export default function ProductsPage() {
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const imageManagerFileInputRef = useRef<HTMLInputElement | null>(null);
   const productImageInputRef = useRef<HTMLInputElement | null>(null);
+  const tableWrapperRef = useRef<HTMLDivElement | null>(null);
+  const topScrollRef = useRef<HTMLDivElement | null>(null);
+  const tableRef = useRef<HTMLTableElement | null>(null);
+  const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const { token } = useAuth();
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
@@ -269,6 +274,7 @@ export default function ProductsPage() {
     setProductAppearanceLoading(false);
     setProductTileColorValue(DEFAULT_TILE_COLOR);
     setShowAppearanceSettings(false);
+    setConfirmDeleteOpen(false);
     if (productImageInputRef.current) {
       productImageInputRef.current.value = "";
     }
@@ -1114,12 +1120,16 @@ export default function ProductsPage() {
   }
 
   // eliminar producto
-  async function handleDelete(id: number) {
-    const confirmDelete = window.confirm(
-      "¿Seguro que quieres eliminar este producto?",
-    );
-    if (!confirmDelete) return;
-
+  async function handleDelete(
+    id: number,
+    options?: { skipPrompt?: boolean; closeOnSuccess?: boolean },
+  ) {
+    if (!options?.skipPrompt) {
+      const confirmDelete = window.confirm(
+        "¿Seguro que quieres eliminar este producto?",
+      );
+      if (!confirmDelete) return;
+    }
     try {
       setError(null);
       if (!authHeaders) throw new Error("Sesión expirada.");
@@ -1138,6 +1148,9 @@ export default function ProductsPage() {
       }
 
       setProducts((prev) => prev.filter((p) => p.id !== id));
+      if (options?.closeOnSuccess) {
+        handleCloseEditModal();
+      }
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
       else setError("Error desconocido al eliminar");
@@ -1286,6 +1299,39 @@ export default function ProductsPage() {
   const endIndex = startIndex + PAGE_SIZE;
   const paginatedProducts = sortedProducts.slice(startIndex, endIndex);
 
+  // sincronizar scroll horizontal entre barra superior y tabla
+  useEffect(() => {
+    const wrapper = tableWrapperRef.current;
+    const table = tableRef.current;
+    if (!wrapper || !table) return;
+    const updateWidth = () => {
+      setTableScrollWidth(table.scrollWidth);
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(table);
+    observer.observe(wrapper);
+    return () => observer.disconnect();
+  }, [paginatedProducts, sortedProducts]);
+
+  const syncTopScroll = useCallback(() => {
+    const wrapper = tableWrapperRef.current;
+    const top = topScrollRef.current;
+    if (!wrapper || !top) return;
+    if (top.scrollLeft !== wrapper.scrollLeft) {
+      top.scrollLeft = wrapper.scrollLeft;
+    }
+  }, []);
+
+  const syncMainScroll = useCallback(() => {
+    const wrapper = tableWrapperRef.current;
+    const top = topScrollRef.current;
+    if (!wrapper || !top) return;
+    if (wrapper.scrollLeft !== top.scrollLeft) {
+      wrapper.scrollLeft = top.scrollLeft;
+    }
+  }, []);
+
   // UI
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6">
@@ -1422,15 +1468,72 @@ export default function ProductsPage() {
         )}
 
         {!loading && !error && (
-          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/70 shadow-lg">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-900/90 border-b border-slate-800">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold">ID</th>
-                  <th className="px-4 py-3 text-left font-semibold">SKU</th>
-                  <th className="px-4 py-3 text-left font-semibold">
-                    Nombre
-                  </th>
+          <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 shadow-lg">
+            <div
+              ref={topScrollRef}
+              onScroll={syncMainScroll}
+              className="overflow-x-auto scrollbar-thin border-b border-slate-800"
+            >
+              <div
+                style={{ width: tableScrollWidth || "100%" }}
+                className="h-3"
+              />
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 text-xs text-slate-400 border-b border-slate-800">
+              <div>
+                Página{" "}
+                <span className="font-semibold text-slate-100">
+                  {currentPage}
+                </span>{" "}
+                de{" "}
+                <span className="font-semibold text-slate-100">
+                  {totalPages}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage(1)}
+                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                >
+                  ⇤ Primera
+                </button>
+                <button
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                >
+                  ← Anterior
+                </button>
+                <button
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                >
+                  Siguiente →
+                </button>
+                <button
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage(totalPages)}
+                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                >
+                  Última ⇥
+                </button>
+              </div>
+            </div>
+            <div
+              ref={tableWrapperRef}
+              onScroll={syncTopScroll}
+              className="overflow-x-auto"
+            >
+              <table ref={tableRef} className="min-w-full text-sm">
+                <thead className="bg-slate-900/90 border-b border-slate-800">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold">ID</th>
+                    <th className="px-4 py-3 text-left font-semibold">SKU</th>
+                    <th className="px-4 py-3 text-left font-semibold">
+                      Nombre
+                    </th>
                   <th className="px-4 py-3 text-left font-semibold">
                     Grupo
                   </th>
@@ -1479,19 +1582,9 @@ export default function ProductsPage() {
                   <th className="px-4 py-3 text-center font-semibold">
                     Acciones
                   </th>
-                </tr>
-              </thead>
-              <tbody>
-                {!paginatedProducts.length && (
-                  <tr>
-                    <td
-                      colSpan={19}
-                      className="px-4 py-6 text-center text-sm text-slate-400"
-                    >
-                      No hay productos que coincidan con este filtro.
-                    </td>
                   </tr>
-                )}
+                </thead>
+                <tbody>
                 {paginatedProducts.map((p) => (
                   <tr
                     key={p.id}
@@ -1574,7 +1667,8 @@ export default function ProductsPage() {
                   </tr>
                 )}
               </tbody>
-            </table>
+              </table>
+            </div>
 
             <div className="flex items-center justify-between px-4 py-3 text-xs text-slate-400">
               <div>
@@ -1590,6 +1684,13 @@ export default function ProductsPage() {
               <div className="flex items-center gap-2">
                 <button
                   disabled={currentPage <= 1}
+                  onClick={() => setPage(1)}
+                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                >
+                  ⇤ Primera
+                </button>
+                <button
+                  disabled={currentPage <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
                 >
@@ -1602,11 +1703,45 @@ export default function ProductsPage() {
                 >
                   Siguiente →
                 </button>
+                <button
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage(totalPages)}
+                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                >
+                  Última ⇥
+                </button>
               </div>
             </div>
           </div>
         )}
       </section>
+
+      {/* Modal confirmación eliminar (edición) */}
+      {confirmDeleteOpen && editId != null && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70">
+          <div className="w-full max-w-sm rounded-xl bg-slate-900 border border-slate-700 p-5 shadow-2xl space-y-4">
+            <div className="text-sm text-slate-200">
+              ¿Eliminar el producto #{editId}? Esta acción no se puede deshacer.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteOpen(false)}
+                className="px-3 py-2 text-xs rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDelete(editId, { skipPrompt: true, closeOnSuccess: true })}
+                className="px-3 py-2 text-xs rounded-md bg-red-500 text-white font-semibold hover:bg-red-400"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL CREACIÓN */}
       {createOpen && (
@@ -2221,21 +2356,30 @@ export default function ProductsPage() {
                 </div>
               )}
 
-              <div className="md:col-span-2 flex justify-end mt-2 gap-2">
+              <div className="md:col-span-2 flex justify-between items-center mt-2 gap-2">
                 <button
                   type="button"
-                  onClick={handleCloseEditModal}
-                  className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800"
+                  onClick={() => setConfirmDeleteOpen(true)}
+                  className="px-3 py-2 text-xs rounded-lg border border-red-400/60 text-red-200 hover:bg-red-500/10"
                 >
-                  Cancelar
+                  Eliminar producto
                 </button>
-                <button
-                  type="submit"
-                  disabled={savingEdit}
-                  className="px-4 py-2 text-sm rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-700 font-semibold text-slate-950"
-                >
-                  {savingEdit ? "Guardando..." : "Guardar cambios"}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCloseEditModal}
+                    className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEdit}
+                    className="px-4 py-2 text-sm rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-700 font-semibold text-slate-950"
+                  >
+                    {savingEdit ? "Guardando..." : "Guardar cambios"}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
