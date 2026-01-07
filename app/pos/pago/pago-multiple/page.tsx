@@ -963,10 +963,35 @@ export default function PagoMultiplePage() {
       }
     };
 
+    const waitForImages = async () => {
+      const imgs = Array.from(win.document.images ?? []);
+      if (!imgs.length) return;
+      await Promise.all(
+        imgs.map(
+          (img) =>
+            img.complete
+              ? Promise.resolve()
+              : new Promise((resolve) => {
+                  img.onload = () => resolve(null);
+                  img.onerror = () => resolve(null);
+                })
+        )
+      );
+    };
+
+    const handleReady = async () => {
+      try {
+        await waitForImages();
+      } catch (err) {
+        console.warn("No se pudieron precargar las imágenes del ticket", err);
+      }
+      setTimeout(triggerPrint, 50);
+    };
+
     if (win.document.readyState === "complete") {
-      triggerPrint();
+      void handleReady();
     } else {
-      win.onload = triggerPrint;
+      win.onload = () => void handleReady();
     }
   }
 

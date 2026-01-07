@@ -118,6 +118,16 @@ const TABLE_ROWS_PER_PAGE = 12;
 const PAGE_WIDTH_MM = 205;
 const PAGE_HEIGHT_MM = 260;
 const MM_TO_PX = 96 / 25.4;
+
+const getDefaultDates = () => {
+  const now = new Date();
+  return {
+    fromDate: new Date(now.getFullYear(), now.getMonth(), 1)
+      .toISOString()
+      .slice(0, 10),
+    toDate: now.toISOString().slice(0, 10),
+  };
+};
 const FAVORITES_STORAGE_KEY = "kensar_report_favorites";
 const HOURLY_CHART_BAR_MAX_HEIGHT = 260; // px for chart bars height
 const LINE_CHART_WIDTH = 780;
@@ -2005,15 +2015,10 @@ export default function ReportsPage() {
     [getPaymentLabel]
   );
 
+  const defaultDates = useMemo(getDefaultDates, []);
   const [range, setRange] = useState<QuickRange>("month");
-  const [fromDate, setFromDate] = useState<string>(
-    new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-      .toISOString()
-      .slice(0, 10)
-  );
-  const [toDate, setToDate] = useState<string>(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [fromDate, setFromDate] = useState<string>(defaultDates.fromDate);
+  const [toDate, setToDate] = useState<string>(defaultDates.toDate);
   const [posFilter, setPosFilter] = useState<string>("todos");
   const [sellerFilter, setSellerFilter] = useState<string>("");
   const [methodFilter, setMethodFilter] = useState<string>("todos");
@@ -2531,13 +2536,18 @@ export default function ReportsPage() {
 
             {/* Columna derecha: filtros + resumen */}
             <section className="space-y-4">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 md:p-6 space-y-4 backdrop-blur supports-[backdrop-filter]:bg-slate-950/50 shadow-lg sticky top-[4.5rem]">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-slate-100">
-                    Filtros del informe
-                  </h3>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 md:p-6 space-y-5 backdrop-blur supports-[backdrop-filter]:bg-slate-950/55 shadow-lg sticky top-[4.5rem]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                      Filtros del informe
+                    </p>
+                    <h3 className="text-base font-semibold text-slate-50">
+                      Rango y alcance
+                    </h3>
+                  </div>
                   {currentPreset && (
-                    <span className="text-[11px] text-slate-400">
+                    <span className="text-[11px] text-slate-400 text-right">
                       Informe seleccionado:{" "}
                       <strong className="text-slate-100">
                         {currentPreset.title}
@@ -2546,99 +2556,151 @@ export default function ReportsPage() {
                   )}
                 </div>
 
-                <div className="grid md:grid-cols-4 gap-4 text-sm">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-slate-400 uppercase tracking-wide">
-                      Desde
-                    </span>
-                    <input
-                      type="date"
-                      value={fromDate}
-                      onChange={(e) => setFromDate(e.target.value)}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-slate-400 uppercase tracking-wide">
-                      Hasta
-                    </span>
-                    <input
-                      type="date"
-                      value={toDate}
-                      onChange={(e) => setToDate(e.target.value)}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-slate-400 uppercase tracking-wide">
-                      POS
-                    </span>
-                    <select
-                      value={posFilter}
-                      onChange={(e) => setPosFilter(e.target.value)}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                    >
-                      <option value="todos">Todos los POS</option>
-                      <option value="pos1">POS 1</option>
-                      <option value="pos2">POS 2</option>
-                      <option value="online">Ventas online</option>
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-slate-400 uppercase tracking-wide">
-                      Método de pago
-                    </span>
-                    <select
-                      value={methodFilter}
-                      onChange={(e) => setMethodFilter(e.target.value)}
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                    >
-                      <option value="todos">Todos</option>
-                      {paymentOptions.map((method) => (
-                        <option key={method.id} value={method.slug}>
-                          {method.name}
-                        </option>
+                <div className="grid gap-4 text-sm md:grid-cols-2">
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Fechas
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                          Desde
+                        </span>
+                        <input
+                          type="date"
+                          value={fromDate}
+                          onChange={(e) => setFromDate(e.target.value)}
+                          onFocus={(e) => e.target.showPicker?.()}
+                          className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                          Hasta
+                        </span>
+                        <input
+                          type="date"
+                          value={toDate}
+                          onChange={(e) => setToDate(e.target.value)}
+                          onFocus={(e) => e.target.showPicker?.()}
+                          className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(
+                        [
+                          { id: "today", label: "Hoy" },
+                          { id: "yesterday", label: "Ayer" },
+                          { id: "week", label: "Últimos 7 días" },
+                          { id: "month", label: "Este mes" },
+                          { id: "year", label: "Este año" },
+                        ] as { id: QuickRange; label: string }[]
+                      ).map((quick) => (
+                        <button
+                          key={quick.id}
+                          onClick={() => handleQuickRange(quick.id)}
+                          className={`px-3 py-1.5 rounded-full border text-xs transition ${
+                            range === quick.id
+                              ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                              : "border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-400/50"
+                          }`}
+                        >
+                          {quick.label}
+                        </button>
                       ))}
-                    </select>
-                  </label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Alcance
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                          POS
+                        </span>
+                        <select
+                          value={posFilter}
+                          onChange={(e) => setPosFilter(e.target.value)}
+                          className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
+                        >
+                          <option value="todos">Todos los POS</option>
+                          <option value="pos1">POS 1</option>
+                          <option value="pos2">POS 2</option>
+                          <option value="online">Ventas online</option>
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                          Método de pago
+                        </span>
+                        <select
+                          value={methodFilter}
+                          onChange={(e) => setMethodFilter(e.target.value)}
+                          className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
+                        >
+                          <option value="todos">Todos</option>
+                          {paymentOptions.map((method) => (
+                            <option key={method.id} value={method.slug}>
+                              {method.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <label className="flex flex-col gap-1 text-sm">
+                      <span className="text-xs text-slate-400 uppercase tracking-wide">
+                        Vendedor / responsable
+                      </span>
+                      <input
+                        type="text"
+                        value={sellerFilter}
+                        onChange={(e) => setSellerFilter(e.target.value)}
+                        placeholder="Buscar por nombre o documento"
+                        className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
+                      />
+                    </label>
+                  </div>
                 </div>
 
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-xs text-slate-400 uppercase tracking-wide">
-                    Vendedor / responsable
-                  </span>
-                  <input
-                    type="text"
-                    value={sellerFilter}
-                    onChange={(e) => setSellerFilter(e.target.value)}
-                    placeholder="Buscar por nombre o documento"
-                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                  />
-                </label>
-
-                <div className="flex flex-wrap gap-2 items-center">
-                  <button
-                    className="px-4 py-2 text-xs rounded-md border border-slate-700 hover:border-emerald-400"
+                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                  <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                    <span>
+                      <strong className="text-slate-200">POS:</strong>{" "}
+                      {posFilter}
+                    </span>
+                    <span>·</span>
+                    <span>
+                      <strong className="text-slate-200">Método:</strong>{" "}
+                      {methodFilterLabel}
+                    </span>
+                    <span>·</span>
+                    <span>
+                      <strong className="text-slate-200">Vendedor:</strong>{" "}
+                      {sellerFilter || "todos"}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                    className="px-4 py-2.5 text-xs rounded-lg border border-slate-700/80 bg-slate-950/70 hover:border-emerald-400 hover:bg-slate-900/60 transition"
                     disabled
                   >
                     Guardar filtro (próximamente)
                   </button>
                   <button
-                    className="px-4 py-2 text-xs rounded-md border border-slate-700 hover:border-emerald-400"
+                    className="px-4 py-2.5 text-xs rounded-lg border border-slate-700/80 bg-slate-950/70 hover:border-emerald-400 hover:bg-slate-900/60 transition"
                     disabled
                   >
                     Compartir (próximamente)
                   </button>
-                  <span className="text-[11px] text-slate-500">
-                    <strong>POS:</strong> {posFilter} ·{" "}
-                    <strong>Método:</strong> {methodFilterLabel} ·{" "}
-                    <strong>Vendedor:</strong> {sellerFilter || "todos"}
-                  </span>
+                  </div>
                 </div>
 
                 <div className="flex flex-col gap-3 pt-2 border-t border-slate-800">
                   <button
-                    className="px-4 py-2 text-xs rounded-md bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-4 py-3 text-sm rounded-lg bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={handleOpenReport}
                     disabled={
                       !currentPreset ||
@@ -2652,6 +2714,19 @@ export default function ReportsPage() {
                       : !currentPreset
                       ? "Selecciona un informe en la lista"
                       : "Mostrar reporte"}
+                  </button>
+                  <button
+                    type="button"
+                    className="px-4 py-2 text-xs rounded-lg border border-slate-700 text-slate-200 hover:border-emerald-400/80 bg-slate-950/70 transition"
+                    onClick={() => {
+                      setFromDate(defaultDates.fromDate);
+                      setToDate(defaultDates.toDate);
+                      setPosFilter("todos");
+                      setMethodFilter("todos");
+                      setSellerFilter("");
+                    }}
+                  >
+                    Restablecer filtros
                   </button>
                   {salesError && (
                     <p className="text-xs text-rose-300">

@@ -1302,6 +1302,7 @@ export default function SalesHistoryContent({
                 type="date"
                 value={filterFrom}
                 onChange={(e) => handleManualFromChange(e.target.value)}
+                onFocus={(e) => e.target.showPicker?.()}
                 className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
@@ -1311,6 +1312,7 @@ export default function SalesHistoryContent({
                 type="date"
                 value={filterTo}
                 onChange={(e) => handleManualToChange(e.target.value)}
+                onFocus={(e) => e.target.showPicker?.()}
                 className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>

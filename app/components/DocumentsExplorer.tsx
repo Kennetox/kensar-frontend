@@ -1266,6 +1266,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
               type="date"
               value={filterFrom}
               onChange={(e) => setFilterFrom(e.target.value)}
+              onFocus={(e) => e.target.showPicker?.()}
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
             />
           </label>
@@ -1275,6 +1276,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
               type="date"
               value={filterTo}
               onChange={(e) => setFilterTo(e.target.value)}
+              onFocus={(e) => e.target.showPicker?.()}
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
             />
           </label>
