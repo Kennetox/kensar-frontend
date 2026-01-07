@@ -130,6 +130,15 @@ export default function PagoPage() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
+  const [printerConfig, setPrinterConfig] = useState<{
+    mode: "browser" | "qz-tray";
+    printerName: string;
+    width: "58mm" | "80mm";
+  }>({
+    mode: "browser",
+    printerName: "",
+    width: "80mm",
+  });
   const handleConfirmRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const parseEmails = (value: string) =>
     value
@@ -165,6 +174,66 @@ export default function PagoPage() {
     [stationInfo]
   );
   const activeStationId = stationInfo?.id ?? null;
+  const printerStorageKey = useMemo(
+    () => `kensar_pos_printer_${activeStationId ?? "pos-web"}`,
+    [activeStationId]
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(printerStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (err) {
+      console.warn("No se pudo cargar la configuración de impresora", err);
+    }
+  }, [printerStorageKey]);
+  type QzType = {
+    websocket: { isActive: () => boolean; connect: () => Promise<void> };
+    printers: { find: () => Promise<string[]> };
+    configs: { create: (printer: string, options?: Record<string, unknown>) => unknown };
+    print: (config: unknown, data: unknown) => Promise<void>;
+  };
+  const [qzClient, setQzClient] = useState<QzType | null>(() => {
+    if (typeof window !== "undefined") {
+      const w = window as unknown as { qz?: QzType };
+      return w.qz ?? null;
+    }
+    return null;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const setIfPresent = () => {
+      if (cancelled) return;
+      const w = window as unknown as { qz?: QzType };
+      if (w.qz) setQzClient(w.qz);
+    };
+    const w = window as unknown as { qz?: QzType };
+    if (w.qz) {
+      setIfPresent();
+      return () => {
+        cancelled = true;
+      };
+    }
+    const existing = document.querySelector('script[data-qz-tray]') as HTMLScriptElement | null;
+    const script = existing ?? document.createElement("script");
+    if (!existing) {
+      script.src = "https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
+      script.async = true;
+      script.dataset.qzTray = "1";
+      script.onerror = () =>
+        console.warn("No se pudo cargar el script de QZ Tray desde la CDN.");
+      document.head.appendChild(script);
+    }
+    script.addEventListener("load", setIfPresent);
+    return () => {
+      cancelled = true;
+      script.removeEventListener("load", setIfPresent);
+    };
+  }, []);
   const [paymentCatalog, setPaymentCatalog] = useState<PaymentMethodRecord[]>(
     DEFAULT_PAYMENT_METHODS
   );
@@ -888,9 +957,46 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
     }
   }
 
-  function handlePrintTicket() {
+  async function printTicketWithQz(html: string): Promise<boolean> {
+    if (printerConfig.mode !== "qz-tray") return false;
+    if (!printerConfig.printerName.trim()) {
+      setError("Selecciona la impresora en Configurar impresora.");
+      return false;
+    }
+    if (!qzClient) {
+      setError("No detectamos QZ Tray. Ábrelo y autoriza este dominio.");
+      return false;
+    }
+    try {
+      if (!qzClient.websocket.isActive()) {
+        await qzClient.websocket.connect();
+      }
+      const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+      const cfg = qzClient.configs.create(printerConfig.printerName, {
+        altPrinting: true,
+        units: "mm",
+        size: { width: sizeWidth },
+        margins: { top: 0, right: 0, bottom: 0, left: 0 },
+      });
+      await qzClient.print(cfg, [{ type: "html", format: "plain", data: html }]);
+      setError(null);
+      return true;
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error
+          ? `No se pudo imprimir con QZ Tray: ${err.message}`
+          : "No se pudo imprimir con QZ Tray."
+      );
+      return false;
+    }
+  }
+
+  async function handlePrintTicket() {
     const html = buildSaleDocumentHtml("ticket");
     if (!html) return;
+    const printedWithQz = await printTicketWithQz(html);
+    if (printedWithQz) return;
     openSaleDocumentWindow(html, { width: 420, height: 640 });
   }
 
@@ -1488,7 +1594,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       <div className="grid grid-cols-3 gap-6 mb-6">
 
         <button
-          onClick={handlePrintTicket}
+          onClick={() => void handlePrintTicket()}
           className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
         >
           <div className="text-4xl mb-3">🖨️</div>
