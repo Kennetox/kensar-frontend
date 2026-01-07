@@ -362,6 +362,7 @@ const GRID_TILE_TARGET_WIDTH = 240;
 const GRID_TILE_MIN_WIDTH = 190;
 const GRID_GAP_PX = 16;
 const GRID_TILE_HEIGHT_BASE = 190;
+const OPENED_NEW_TAB_STORAGE_KEY = "metrik_pos_opened_new_tab";
 
 const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   switch (method) {
@@ -388,12 +389,17 @@ function splitGroupPath(groupName: string | null): string[] | null {
 export default function PosPage() {
   // --------- Datos base ---------
   const searchParams = useSearchParams();
-  const openedAsNewTab = searchParams.get("newTab") === "1";
+  const newTabQuery = searchParams.get("newTab") === "1";
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
+  const [openedAsNewTab, setOpenedAsNewTab] = useState<boolean>(() => {
+    if (typeof window === "undefined") return newTabQuery;
+    const stored = window.sessionStorage.getItem(OPENED_NEW_TAB_STORAGE_KEY);
+    return newTabQuery || stored === "1";
+  });
   const resolvedPosName = useMemo(
     () => formatPosDisplayName(stationInfo, POS_DISPLAY_NAME),
     [stationInfo]
@@ -413,6 +419,30 @@ export default function PosPage() {
   const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const imageBaseUrl = useMemo(() => getApiBase(), []);
+  const [printerModalOpen, setPrinterModalOpen] = useState(false);
+  const [availablePrinters, setAvailablePrinters] = useState<string[]>([]);
+  const [printerScanMessage, setPrinterScanMessage] = useState<string | null>(null);
+  const [printerScanning, setPrinterScanning] = useState(false);
+  const [printerConfig, setPrinterConfig] = useState<{
+    mode: "browser" | "qz-tray";
+    printerName: string;
+    width: "58mm" | "80mm";
+    autoOpenDrawer: boolean;
+    showDrawerButton: boolean;
+  }>({
+    mode: "browser",
+    printerName: "",
+    width: "80mm",
+    autoOpenDrawer: false,
+    showDrawerButton: true,
+  });
+  const printerWidthOptions = useMemo(
+    () => [
+      { value: "80mm", label: "80 mm" },
+      { value: "58mm", label: "58 mm" },
+    ],
+    []
+  );
 
   const {
     cart,
@@ -430,6 +460,8 @@ export default function PosPage() {
     setCartSurcharge,
     saleNumber,
     clearSale,
+    selectedCustomer,
+    setSelectedCustomer,
   } = usePos();
   const paymentMethodsCatalog = usePaymentMethodsCatalog();
   const paymentMethodIndex = useMemo(() => {
@@ -457,6 +489,89 @@ export default function PosPage() {
     const timer = setTimeout(() => setSyncStatus(null), 4000);
     return () => clearTimeout(timer);
   }, [syncStatus]);
+
+  const printerStorageKey = useMemo(() => {
+    const base = activeStationId ?? "pos-web";
+    return `kensar_pos_printer_${base}`;
+  }, [activeStationId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(printerStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (err) {
+      console.warn("No se pudo cargar la configuración de impresora", err);
+    }
+  }, [printerStorageKey]);
+
+  const savePrinterConfig = useCallback(
+    (next: typeof printerConfig) => {
+      setPrinterConfig(next);
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(printerStorageKey, JSON.stringify(next));
+      } catch (err) {
+        console.warn("No se pudo guardar la configuración de impresora", err);
+      }
+    },
+    [printerStorageKey]
+  );
+
+  type QzType = {
+    websocket: { isActive: () => boolean; connect: () => Promise<void> };
+    printers: { find: () => Promise<string[]> };
+    configs: { create: (printer: string, options?: Record<string, unknown>) => unknown };
+    print: (config: unknown, data: unknown) => Promise<void>;
+  };
+  const qzInstance: QzType | null =
+    typeof window !== "undefined" && "qz" in window
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((window as any).qz as QzType | undefined) ?? null
+      : null;
+
+  const handleScanPrinters = useCallback(async () => {
+    if (!qzInstance) {
+      setPrinterScanMessage("Instala QZ Tray y autoriza este dominio para listar impresoras.");
+      return;
+    }
+    try {
+      setPrinterScanning(true);
+      setPrinterScanMessage(null);
+      if (!qzInstance.websocket.isActive()) {
+        await qzInstance.websocket.connect();
+      }
+      const list: string[] = await qzInstance.printers.find();
+      setAvailablePrinters(list ?? []);
+      if (!list?.length) {
+        setPrinterScanMessage("No se detectaron impresoras en QZ Tray.");
+      }
+    } catch (err) {
+      console.error(err);
+      setPrinterScanMessage(
+        err instanceof Error
+          ? err.message
+          : "No se pudieron listar las impresoras con QZ Tray."
+      );
+    } finally {
+      setPrinterScanning(false);
+    }
+  }, [qzInstance]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (newTabQuery) {
+      setOpenedAsNewTab(true);
+      window.sessionStorage.setItem(OPENED_NEW_TAB_STORAGE_KEY, "1");
+      return;
+    }
+    const stored = window.sessionStorage.getItem(OPENED_NEW_TAB_STORAGE_KEY);
+    if (stored === "1" && !openedAsNewTab) {
+      setOpenedAsNewTab(true);
+    }
+  }, [newTabQuery, openedAsNewTab]);
   const modeQuery = searchParams.get("mode");
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -560,6 +675,8 @@ export default function PosPage() {
   const [cartPanelWidthPercent, setCartPanelWidthPercent] = useState<number>(CART_PANEL_DEFAULT_PERCENT);
   const [isResizingCartPanel, setIsResizingCartPanel] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
+  const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const cartWidthStorageKey = useMemo(
     () =>
       activeStationId
@@ -674,6 +791,20 @@ export default function PosPage() {
       window.removeEventListener("touchcancel", stopResizing);
     };
   }, [isResizingCartPanel, clampCartPanelPercent]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 1023px)");
+    const update = (match: boolean) => {
+      setIsMobile(match);
+      if (!match) {
+        setCartDrawerOpen(false);
+      }
+    };
+    update(media.matches);
+    const handler = (e: MediaQueryListEvent) => update(e.matches);
+    media.addEventListener("change", handler);
+    return () => media.removeEventListener("change", handler);
+  }, []);
   useEffect(() => {
     if (typeof document === "undefined") return;
     if (!isResizingCartPanel) return;
@@ -2883,7 +3014,57 @@ export default function PosPage() {
     setPriceChangeProduct(null);
   }
 
+  function handleSavePrinterModal() {
+    savePrinterConfig(printerConfig);
+    setPrinterModalOpen(false);
+  }
+
+  function handleClosePrinterModal() {
+    setPrinterModalOpen(false);
+  }
+
+  async function handleOpenDrawerCommand() {
+    if (printerConfig.mode !== "qz-tray") {
+      setError("Configura QZ Tray para abrir el cajón automáticamente.");
+      return;
+    }
+    if (!printerConfig.printerName) {
+      setError("Selecciona la impresora en Configurar impresora antes de abrir el cajón.");
+      return;
+    }
+    if (!qzInstance) {
+      setError("No detectamos QZ Tray. Ábrelo y autoriza este dominio.");
+      return;
+    }
+    try {
+      if (!qzInstance.websocket.isActive()) {
+        await qzInstance.websocket.connect();
+      }
+      const cfg = qzInstance.configs.create(printerConfig.printerName, {
+        altPrinting: true,
+      });
+      const drawerPulse = "\x1B\x70\x00\x19\xFA";
+      await qzInstance.print(cfg, [{ type: "raw", format: "command", data: drawerPulse }]);
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error
+          ? `No se pudo abrir el cajón: ${err.message}`
+          : "No se pudo abrir el cajón. Revisa QZ Tray y la conexión de la impresora."
+      );
+    }
+  }
+
   // --------- Render ---------
+  const cartPanelStyle = isMobile
+    ? undefined
+    : {
+        flexBasis: `${cartPanelWidthPercent}%`,
+        width: `${cartPanelWidthPercent}%`,
+        minWidth: CART_PANEL_MIN_WIDTH_PX,
+        flexShrink: 0,
+      };
   return (
     <main className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
       {loading && (
@@ -2921,6 +3102,12 @@ export default function PosPage() {
       <header className="bg-slate-900 border-b border-slate-800">
         <div className="h-14 flex items-center justify-between px-4">
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
+              onClick={() => setCartDrawerOpen(true)}
+            >
+              ☰ Carrito
+            </button>
             {/* Botones estilo Aronium arriba de la pantalla */}
           <button
             className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
@@ -2979,6 +3166,12 @@ export default function PosPage() {
           >
             Abono de separados
           </button>
+          <button
+            className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
+            onClick={() => router.push("/pos/clientes")}
+          >
+            Asignar cliente
+          </button>
         </div>
 
         <div className="flex items-center gap-4">
@@ -3021,8 +3214,8 @@ export default function PosPage() {
               </div>
             </button>
             {userMenuOpen && (
-              <div className="absolute right-0 mt-2 w-60 rounded-2xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden z-30">
-                <div className="px-4 py-2 text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-800">
+              <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden z-30">
+                <div className="px-5 py-3 text-[12px] uppercase tracking-wide text-slate-500 border-b border-slate-800">
                   Acciones de caja
                 </div>
                 <button
@@ -3031,29 +3224,45 @@ export default function PosPage() {
                     setUserMenuOpen(false);
                     handleOpenClosureModal();
                   }}
-                  className="w-full text-left px-4 py-3 text-sm text-slate-100 hover:bg-slate-800 flex items-center justify-between"
+                  className="w-full text-left px-5 py-4 text-base text-slate-100 hover:bg-slate-800 flex items-center justify-between"
                 >
                   Cerrar caja
                   <span className="text-[11px] text-amber-200">Reporte Z</span>
                 </button>
-                <button
-                  type="button"
-                  disabled
-                  className="w-full text-left px-4 py-3 text-sm text-slate-500 flex items-center justify-between cursor-not-allowed"
-                  title="Requiere integración con el cajón físico"
-                >
-                  Abrir cajón
-                  <span className="text-[11px]">Próximamente</span>
-                </button>
+                {printerConfig.showDrawerButton && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      void handleOpenDrawerCommand();
+                    }}
+                    className="w-full text-left px-5 py-4 text-base text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                  >
+                    Abrir cajón
+                    <span className="text-[11px] text-slate-400">
+                      {printerConfig.mode === "qz-tray" ? "" : "Requiere QZ Tray"}
+                    </span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
                     setUserMenuOpen(false);
                     router.push("/dashboard?posPreview=1");
                   }}
-                  className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-800"
+                  className="w-full text-left px-5 py-4 text-base text-slate-200 hover:bg-slate-800"
                 >
                   Ir al panel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    setPrinterModalOpen(true);
+                  }}
+                  className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-800"
+                >
+                  Configurar impresora
                 </button>
                 <div className="border-t border-slate-800/60" />
                 <button
@@ -3063,7 +3272,7 @@ export default function PosPage() {
                     logout("Cerraste sesión del POS.");
                     router.replace("/login-pos");
                   }}
-                  className="w-full text-left px-4 py-3 text-sm text-rose-200 hover:bg-rose-500/10 flex items-center justify-between"
+                  className="w-full text-left px-5 py-4 text-base text-rose-200 hover:bg-rose-500/10 flex items-center justify-between"
                 >
                   Cerrar sesión
                   <span className="text-[11px] text-rose-300">Volver a ingresar</span>
@@ -3229,16 +3438,22 @@ export default function PosPage() {
       )}
 
       {/* Cuerpo: carrito izquierda, grid derecha */}
+      {cartDrawerOpen && isMobile && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 md:hidden"
+          onClick={() => setCartDrawerOpen(false)}
+          aria-label="Cerrar carrito"
+        />
+      )}
       <div ref={layoutRef} className="flex flex-1 overflow-hidden">
         {/* Carrito */}
         <section
-          className="border-r border-slate-800 flex flex-col bg-slate-950"
-          style={{
-            flexBasis: `${cartPanelWidthPercent}%`,
-            width: `${cartPanelWidthPercent}%`,
-            minWidth: CART_PANEL_MIN_WIDTH_PX,
-            flexShrink: 0,
-          }}
+          className={`border-r border-slate-800 flex flex-col bg-slate-950 transition-all ${
+            cartDrawerOpen
+              ? "fixed inset-y-0 left-0 z-40 w-[90vw] max-w-md shadow-2xl md:static md:flex"
+              : "hidden md:flex"
+          }`}
+          style={cartPanelStyle}
         >
           {/* Encabezado carrito */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
@@ -3251,10 +3466,42 @@ export default function PosPage() {
               </span>
             </div>
 
-            <span className="text-xs text-slate-400">
-              {cart.length} líneas
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-400 hidden sm:inline">
+                {cart.length} líneas
+              </span>
+              {isMobile && (
+                <button
+                  type="button"
+                  className="text-xs text-slate-300 rounded-md border border-slate-700 px-2 py-1 md:hidden"
+                  onClick={() => setCartDrawerOpen(false)}
+                  aria-label="Cerrar carrito"
+                >
+                  Cerrar
+                </button>
+              )}
+            </div>
           </div>
+
+          {selectedCustomer && (
+            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/60">
+              <div className="text-sm text-slate-200">
+                <span className="text-slate-400">Cliente:</span>{" "}
+                <span className="font-semibold text-slate-50">
+                  {selectedCustomer.name}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCustomer(null)}
+                className="ml-2 inline-flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5 text-[13px] font-semibold text-slate-200 hover:bg-slate-800 hover:text-rose-200 active:scale-95 transition"
+                title="Quitar cliente de la venta"
+                aria-label="Quitar cliente"
+              >
+                Quitar
+              </button>
+            </div>
+          )}
 
 
           {/* Lista carrito */}
@@ -3957,10 +4204,10 @@ export default function PosPage() {
       )}
 
       {closeModalOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-30 px-4">
+        <div className="fixed inset-0 bg-black/70 flex items-start justify-center z-30 px-4 py-6 overflow-y-auto sm:items-center sm:py-0">
           <form
             onSubmit={handleSubmitClosure}
-            className="w-full max-w-4xl max-h-[90vh] rounded-2xl border border-slate-700 bg-slate-900 text-sm flex flex-col"
+            className="w-full max-w-4xl max-h-[calc(100vh-2rem)] sm:max-h-[90vh] rounded-2xl border border-slate-700 bg-slate-900 text-sm flex flex-col"
           >
             <div className="flex-1 overflow-y-auto space-y-5 p-6 pr-4">
               <header className="flex items-start justify-between gap-4">
@@ -4386,6 +4633,235 @@ export default function PosPage() {
               >
                 {closureEmailSending ? "Enviando…" : "Enviar reporte"}
               </button>
+            </div>
+          </div>
+      </div>
+    )}
+
+      {/* Configuración de impresora/cajón */}
+      {printerModalOpen && (
+        <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center px-3 sm:px-4">
+          <div className="w-full max-w-lg sm:max-w-3xl rounded-3xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-slate-800">
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Configuración local
+                </p>
+                <h3 className="text-xl font-semibold text-slate-50">
+                  Impresora y cajón de dinero
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Esta configuración se guarda para esta estación ({activeStationId ?? "POS Web"}).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleClosePrinterModal}
+                className="text-slate-400 hover:text-slate-100 text-2xl leading-none"
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 space-y-5 text-sm overflow-auto">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[
+                  {
+                    id: "browser" as const,
+                    label: "Ventana del navegador",
+                    description:
+                      "Usa la impresora predeterminada del sistema y muestra el cuadro de impresión.",
+                  },
+                  {
+                    id: "qz-tray" as const,
+                    label: "Conector local (QZ Tray)",
+                    description:
+                      "Envía directo a la impresora térmica y permite abrir el cajón (requiere QZ Tray).",
+                  },
+                ].map((mode) => {
+                  const isActive = printerConfig.mode === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() =>
+                        setPrinterConfig((prev) => ({ ...prev, mode: mode.id }))
+                      }
+                      className={`rounded-xl border px-3 py-3 text-left transition ${
+                        isActive
+                          ? "border-blue-400/70 bg-blue-500/10 text-blue-100"
+                          : "border-slate-800 bg-slate-950 text-slate-200 hover:border-slate-700"
+                      }`}
+                    >
+                      <p className="text-sm font-semibold">{mode.label}</p>
+                      <p className="text-[11px] text-slate-400">
+                        {mode.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="text-slate-400 text-xs uppercase tracking-wide">
+                    Nombre de la impresora
+                  </span>
+                  <input
+                    type="text"
+                    value={printerConfig.printerName}
+                    onChange={(e) =>
+                      setPrinterConfig((prev) => ({
+                        ...prev,
+                        printerName: e.target.value,
+                      }))
+                    }
+                    placeholder='Ej: "EPSON TM-T20"'
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 placeholder:text-slate-600"
+                  />
+                  <span className="text-[11px] text-slate-500">
+                    Debe coincidir con el nombre en el sistema operativo o en QZ Tray.
+                  </span>
+                </label>
+                <label className="flex flex-col gap-2 text-sm">
+                  <span className="text-slate-400 text-xs uppercase tracking-wide">
+                    Ancho del rollo
+                  </span>
+                  <select
+                    value={printerConfig.width}
+                    onChange={(e) =>
+                      setPrinterConfig((prev) => ({
+                        ...prev,
+                        width: e.target.value as typeof prev.width,
+                      }))
+                    }
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                  >
+                    {printerWidthOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[11px] text-slate-500">
+                    Usaremos esta medida para ajustar márgenes y escala del ticket.
+                  </span>
+                </label>
+              </div>
+
+              <div className="space-y-3 text-sm">
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={printerConfig.autoOpenDrawer}
+                    onChange={(e) =>
+                      setPrinterConfig((prev) => ({
+                        ...prev,
+                        autoOpenDrawer: e.target.checked,
+                      }))
+                    }
+                    className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <div>
+                    <p className="font-semibold">Abrir cajón al finalizar la venta</p>
+                    <p className="text-slate-400 text-xs">
+                      Cuando QZ Tray esté activo, enviaremos el pulso al cajón tras imprimir.
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={printerConfig.showDrawerButton}
+                    onChange={(e) =>
+                      setPrinterConfig((prev) => ({
+                        ...prev,
+                        showDrawerButton: e.target.checked,
+                      }))
+                    }
+                    className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <div>
+                    <p className="font-semibold">Mostrar botón “Abrir cajón”</p>
+                    <p className="text-slate-400 text-xs">
+                      Habilita el botón manual en el POS para enviar el comando al cajón.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {printerConfig.mode === "qz-tray" && (
+                <div className="rounded-xl border border-slate-800/70 bg-slate-900/70 p-4 space-y-3 text-sm">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="font-semibold text-slate-200">
+                        Detectar impresoras con QZ Tray
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        Necesitas QZ Tray instalado y autorizado en este equipo.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleScanPrinters()}
+                      disabled={printerScanning}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-500 text-emerald-100 text-xs hover:bg-emerald-500/10 disabled:opacity-50"
+                    >
+                      {printerScanning ? "Buscando..." : "Detectar impresoras"}
+                    </button>
+                  </div>
+                  {printerScanMessage && (
+                    <div className="text-xs text-amber-200 bg-amber-500/10 border border-amber-400/40 rounded-md px-3 py-2">
+                      {printerScanMessage}
+                    </div>
+                  )}
+                  {availablePrinters.length > 0 && (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {availablePrinters.map((printer) => {
+                        const active = printerConfig.printerName === printer;
+                        return (
+                          <button
+                            key={printer}
+                            type="button"
+                            onClick={() =>
+                              setPrinterConfig((prev) => ({
+                                ...prev,
+                                printerName: printer,
+                                mode: "qz-tray",
+                              }))
+                            }
+                            className={`rounded-lg border px-3 py-2 text-left text-sm ${
+                              active
+                                ? "border-emerald-400/70 bg-emerald-500/10 text-emerald-100"
+                                : "border-slate-700 bg-slate-950 text-slate-200 hover:border-slate-600"
+                            }`}
+                          >
+                            {printer}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleClosePrinterModal}
+                  className="px-4 py-2 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-800/70"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePrinterModal}
+                  className="px-4 py-2 rounded-xl bg-emerald-500 text-slate-900 font-semibold hover:bg-emerald-400"
+                >
+                  Guardar
+                </button>
+              </div>
             </div>
           </div>
         </div>

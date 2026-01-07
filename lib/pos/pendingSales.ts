@@ -103,7 +103,18 @@ export async function submitPendingSale(
   record: PendingSaleRecord,
   token: string
 ): Promise<Response> {
+  const sanitizePayload = (payload: unknown) => {
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      const clone = { ...(payload as Record<string, unknown>) };
+      if (clone.station_id === "pos-web") {
+        delete clone.station_id;
+      }
+      return clone;
+    }
+    return payload;
+  };
   const apiBase = getApiBase();
+  const payload = sanitizePayload(record.payload);
   const res = await fetch(`${apiBase}${record.endpoint}`, {
     method: "POST",
     headers: {
@@ -111,7 +122,7 @@ export async function submitPendingSale(
       Authorization: `Bearer ${token}`,
     },
     credentials: "include",
-    body: JSON.stringify(record.payload),
+    body: JSON.stringify(payload),
   });
   return res;
 }

@@ -2246,6 +2246,242 @@ export default function SettingsPage() {
     </article>
   );
 
+  const stationsBlock = (
+    <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-semibold">Estaciones de caja POS</h2>
+          <p className="text-sm text-slate-400">
+            Administra los equipos autorizados para abrir el POS. Cada estación tiene
+            un PIN único que solo debe usarse en la caja asignada.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void loadStations()}
+            className="text-xs text-slate-400 hover:text-slate-200 underline"
+          >
+            Refrescar
+          </button>
+          <button
+            type="button"
+            onClick={openStationModal}
+            className="px-3 py-2 rounded-md bg-emerald-500 text-slate-900 text-xs font-semibold hover:bg-emerald-400 transition"
+          >
+            Nueva estación
+          </button>
+        </div>
+      </div>
+      {stationsError && (
+        <p className="text-xs text-red-400">{stationsError}</p>
+      )}
+      {stationMessage && (
+        <div className="text-xs rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-100 px-3 py-2">
+          {stationMessage}
+        </div>
+      )}
+      {stationPinNotice && (
+        <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="font-semibold">
+              PIN para {stationPinNotice.label}
+            </p>
+            <button
+              type="button"
+              className="text-xs text-amber-200 underline"
+              onClick={() => setStationPinNotice(null)}
+            >
+              Ocultar
+            </button>
+          </div>
+          <p className="text-2xl font-mono tracking-widest">
+            {stationPinNotice.pin}
+          </p>
+          <p className="text-xs">
+            Compártelo solo con el cajero autorizado y configúralo en el navegador de la estación.
+          </p>
+        </div>
+      )}
+      {!stationsLoading && stations.length > activeStations.length && (
+        <p className="text-[11px] text-slate-500">
+          Las estaciones desactivadas se ocultan automáticamente para mantener la lista limpia.
+          Puedes reactivarlas desde la API si necesitas reutilizarlas.
+        </p>
+      )}
+      <div className="rounded-xl border border-slate-800/60 p-4 flex flex-wrap items-center justify-between gap-4 text-sm">
+        <div>
+          <p className="font-semibold text-slate-100">POS Web siempre disponible</p>
+          <p className="text-xs text-slate-400">
+            Este POS se abre desde cualquier navegador y usa los destinatarios predeterminados.
+            Decide si debe enviar el reporte de cierre al finalizar la jornada.
+          </p>
+        </div>
+        <label className="inline-flex items-center gap-2 text-xs text-slate-400">
+          Email
+          <input
+            type="checkbox"
+            checked={form.webPosSendClosureEmail}
+            onChange={(e) => updateForm("webPosSendClosureEmail", e.target.checked)}
+            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500"
+          />
+        </label>
+      </div>
+      <div className="rounded-xl border border-slate-800/60 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-400">
+            <tr>
+              <th className="text-left px-4 py-2 font-medium">Estación</th>
+              <th className="text-left px-4 py-2 font-medium">Correo POS</th>
+              <th className="text-left px-4 py-2 font-medium">Estado</th>
+              <th className="text-left px-4 py-2 font-medium">Último acceso</th>
+              <th className="text-left px-4 py-2 font-medium">Reporte email</th>
+              <th className="text-right px-4 py-2 font-medium">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stationsLoading &&
+              Array.from({ length: 3 }).map((_, idx) => (
+                <tr key={`station-skeleton-${idx}`} className="border-t border-slate-800/50">
+                  <td className="px-4 py-4">
+                    <div className="h-4 w-32 rounded bg-slate-800/70 animate-pulse" />
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="h-4 w-40 rounded bg-slate-800/70 animate-pulse" />
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="h-5 w-20 rounded-full bg-slate-800/70 animate-pulse" />
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="h-4 w-32 rounded bg-slate-800/70 animate-pulse" />
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="h-4 w-full rounded bg-slate-800/70 animate-pulse" />
+                  </td>
+                </tr>
+              ))}
+            {!stationsLoading && activeStations.length === 0 && (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="px-4 py-6 text-center text-xs text-slate-500"
+                >
+                  No hay estaciones activas actualmente.
+                </td>
+              </tr>
+            )}
+            {!stationsLoading &&
+              activeStations.map((station) => {
+                const isUpdating = updatingStationId === station.id;
+                const statusLabel = station.is_active ? "Activa" : "Inactiva";
+                const statusClass = station.is_active
+                  ? "bg-emerald-500/20 text-emerald-300"
+                  : "bg-slate-700 text-slate-300";
+                const overrideValue =
+                  form.stationEmailOverrides[station.id];
+                const fallbackValue =
+                  station.send_closure_email === undefined ||
+                  station.send_closure_email === null
+                    ? true
+                    : Boolean(station.send_closure_email);
+                const emailEnabled =
+                  overrideValue === undefined
+                    ? fallbackValue
+                    : overrideValue;
+                return (
+                  <tr
+                    key={station.id}
+                    className="border-t border-slate-800/50 hover:bg-slate-900/50"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-slate-100">
+                        {station.label}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        {station.id}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-200">
+                      {station.pos_user_email}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] ${statusClass}`}
+                      >
+                        {statusLabel}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-[11px] text-slate-400">
+                      {station.last_login_at
+                        ? formatDateLabel(station.last_login_at)
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <label className="inline-flex items-center gap-2 text-xs text-slate-400">
+                        Email
+                        <input
+                          type="checkbox"
+                          checked={emailEnabled}
+                          onChange={(e) =>
+                            handleToggleStationClosureEmail(
+                              station,
+                              e.target.checked
+                            )
+                          }
+                          disabled={isUpdating}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 disabled:opacity-40"
+                        />
+                      </label>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap justify-end gap-2 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => handleConfigureStationLocal(station)}
+                          className="text-slate-300 hover:text-emerald-300"
+                        >
+                          Configurar aquí
+                        </button>
+                        <span className="text-slate-600">|</span>
+                        <button
+                          type="button"
+                          onClick={() => openCustomPinModal(station)}
+                          disabled={isUpdating}
+                          className="text-slate-300 hover:text-emerald-300 disabled:opacity-40"
+                        >
+                          PIN / Reset
+                        </button>
+                        <span className="text-slate-600">|</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleToggleStationActive(station, !station.is_active)
+                          }
+                          disabled={isUpdating}
+                          className="text-slate-300 hover:text-emerald-300 disabled:opacity-40"
+                        >
+                          {station.is_active ? "Desactivar" : "Activar"}
+                        </button>
+                        <span className="text-slate-600">|</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteStationRecord(station)}
+                          disabled={isUpdating}
+                          className="text-rose-300 hover:text-rose-200 disabled:opacity-40"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  );
+
   const notificationsContent = (
     <div className="space-y-6">
       <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4">
@@ -2331,240 +2567,6 @@ export default function SettingsPage() {
               />
             </label>
           </div>
-        </div>
-      </article>
-
-      <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h2 className="text-lg font-semibold">Estaciones de caja POS</h2>
-            <p className="text-sm text-slate-400">
-              Administra los equipos autorizados para abrir el POS. Cada estación tiene
-              un PIN único que solo debe usarse en la caja asignada.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void loadStations()}
-              className="text-xs text-slate-400 hover:text-slate-200 underline"
-            >
-              Refrescar
-            </button>
-            <button
-              type="button"
-              onClick={openStationModal}
-              className="px-3 py-2 rounded-md bg-emerald-500 text-slate-900 text-xs font-semibold hover:bg-emerald-400 transition"
-            >
-              Nueva estación
-            </button>
-          </div>
-        </div>
-        {stationsError && (
-          <p className="text-xs text-red-400">{stationsError}</p>
-        )}
-        {stationMessage && (
-          <div className="text-xs rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-100 px-3 py-2">
-            {stationMessage}
-          </div>
-        )}
-        {stationPinNotice && (
-          <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="font-semibold">
-                PIN para {stationPinNotice.label}
-              </p>
-              <button
-                type="button"
-                className="text-xs text-amber-200 underline"
-                onClick={() => setStationPinNotice(null)}
-              >
-                Ocultar
-              </button>
-            </div>
-            <p className="text-2xl font-mono tracking-widest">
-              {stationPinNotice.pin}
-            </p>
-            <p className="text-xs">
-              Compártelo solo con el cajero autorizado y configúralo en el navegador de la estación.
-            </p>
-          </div>
-        )}
-        {!stationsLoading && stations.length > activeStations.length && (
-          <p className="text-[11px] text-slate-500">
-            Las estaciones desactivadas se ocultan automáticamente para mantener la lista limpia.
-            Puedes reactivarlas desde la API si necesitas reutilizarlas.
-          </p>
-        )}
-        <div className="rounded-xl border border-slate-800/60 p-4 flex flex-wrap items-center justify-between gap-4 text-sm">
-          <div>
-            <p className="font-semibold text-slate-100">POS Web siempre disponible</p>
-            <p className="text-xs text-slate-400">
-              Este POS se abre desde cualquier navegador y usa los destinatarios predeterminados.
-              Decide si debe enviar el reporte de cierre al finalizar la jornada.
-            </p>
-          </div>
-          <label className="inline-flex items-center gap-2 text-xs text-slate-400">
-            Email
-            <input
-              type="checkbox"
-              checked={form.webPosSendClosureEmail}
-              onChange={(e) => updateForm("webPosSendClosureEmail", e.target.checked)}
-              className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500"
-            />
-          </label>
-        </div>
-        <div className="rounded-xl border border-slate-800/60 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-400">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium">Estación</th>
-                <th className="text-left px-4 py-2 font-medium">Correo POS</th>
-                <th className="text-left px-4 py-2 font-medium">Estado</th>
-                <th className="text-left px-4 py-2 font-medium">Último acceso</th>
-                <th className="text-left px-4 py-2 font-medium">Reporte email</th>
-                <th className="text-right px-4 py-2 font-medium">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stationsLoading &&
-                Array.from({ length: 3 }).map((_, idx) => (
-                  <tr key={`station-skeleton-${idx}`} className="border-t border-slate-800/50">
-                    <td className="px-4 py-4">
-                      <div className="h-4 w-32 rounded bg-slate-800/70 animate-pulse" />
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="h-4 w-40 rounded bg-slate-800/70 animate-pulse" />
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="h-5 w-20 rounded-full bg-slate-800/70 animate-pulse" />
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="h-4 w-32 rounded bg-slate-800/70 animate-pulse" />
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="h-4 w-full rounded bg-slate-800/70 animate-pulse" />
-                    </td>
-                  </tr>
-                ))}
-              {!stationsLoading && activeStations.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-4 py-6 text-center text-xs text-slate-500"
-                  >
-                    No hay estaciones activas actualmente.
-                  </td>
-                </tr>
-              )}
-              {!stationsLoading &&
-                activeStations.map((station) => {
-                  const isUpdating = updatingStationId === station.id;
-                  const statusLabel = station.is_active ? "Activa" : "Inactiva";
-                  const statusClass = station.is_active
-                    ? "bg-emerald-500/20 text-emerald-300"
-                    : "bg-slate-700 text-slate-300";
-                  const overrideValue =
-                    form.stationEmailOverrides[station.id];
-                  const fallbackValue =
-                    station.send_closure_email === undefined ||
-                    station.send_closure_email === null
-                      ? true
-                      : Boolean(station.send_closure_email);
-                  const emailEnabled =
-                    overrideValue === undefined
-                      ? fallbackValue
-                      : overrideValue;
-                  return (
-                    <tr
-                      key={station.id}
-                      className="border-t border-slate-800/50 hover:bg-slate-900/50"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-100">
-                          {station.label}
-                        </div>
-                        <div className="text-[11px] text-slate-500 font-mono">
-                          {station.id}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-slate-200">
-                        {station.pos_user_email}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] ${statusClass}`}
-                        >
-                          {statusLabel}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-[11px] text-slate-400">
-                        {station.last_login_at
-                          ? formatDateLabel(station.last_login_at)
-                          : "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <label className="inline-flex items-center gap-2 text-xs text-slate-400">
-                          Email
-                          <input
-                            type="checkbox"
-                            checked={emailEnabled}
-                            onChange={(e) =>
-                              handleToggleStationClosureEmail(
-                                station,
-                                e.target.checked
-                              )
-                            }
-                            disabled={isUpdating}
-                            className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 disabled:opacity-40"
-                          />
-                        </label>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap justify-end gap-2 text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => handleConfigureStationLocal(station)}
-                            className="text-slate-300 hover:text-emerald-300"
-                          >
-                            Configurar aquí
-                          </button>
-                          <span className="text-slate-600">|</span>
-                          <button
-                            type="button"
-                            onClick={() => openCustomPinModal(station)}
-                            disabled={isUpdating}
-                            className="text-slate-300 hover:text-emerald-300 disabled:opacity-40"
-                          >
-                            PIN / Reset
-                          </button>
-                          <span className="text-slate-600">|</span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleToggleStationActive(station, !station.is_active)
-                            }
-                            disabled={isUpdating}
-                            className="text-slate-300 hover:text-emerald-300 disabled:opacity-40"
-                          >
-                            {station.is_active ? "Desactivar" : "Activar"}
-                          </button>
-                          <span className="text-slate-600">|</span>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteStationRecord(station)}
-                            disabled={isUpdating}
-                            className="text-rose-300 hover:text-rose-200 disabled:opacity-40"
-                          >
-                            Quitar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
         </div>
       </article>
       <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4 text-sm">
@@ -3157,193 +3159,196 @@ export default function SettingsPage() {
     : "Sin actualizar";
 
   const controlContent = (
-    <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-100">
-            Control de estaciones
-          </h2>
-          <p className="text-sm text-slate-400 max-w-3xl">
-            Consulta el último cierre registrado por cada estación y detecta
-            dónde quedan ventas o abonos sin cerrar.
-          </p>
-        </div>
-        <div className="flex flex-col items-start gap-2 md:items-end">
-          <button
-            type="button"
-            onClick={() => void loadControlData()}
-            disabled={controlLoading}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-500 text-emerald-100 text-sm hover:bg-emerald-500/10 disabled:opacity-50"
-          >
-            {controlLoading ? "Actualizando…" : "Actualizar estado"}
-          </button>
-          <span className="text-[11px] text-slate-500">
-            Última actualización: {controlUpdatedLabel}
-          </span>
-        </div>
-      </div>
-      {controlError && (
-        <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
-          {controlError}
-        </p>
-      )}
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">
-            Estaciones monitoreadas
-          </p>
-          <p className="text-3xl font-semibold text-slate-50">
-            {trackedStationsCount}
-          </p>
-          <p className="text-xs text-slate-500 mt-1">
-            Incluye POS Web y registros heredados.
-          </p>
-        </div>
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-          <p className="text-[11px] uppercase tracking-wide text-amber-200">
-            Estaciones con pendientes
-          </p>
-          <p className="text-3xl font-semibold text-amber-100">
-            {pendingStationsCount}
-          </p>
-          <p className="text-xs text-amber-100/80 mt-1">
-            Revisa las filas en color ámbar en el listado inferior.
-          </p>
-        </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">
-            Tickets / abonos por cerrar
-          </p>
-          <p className="text-3xl font-semibold text-slate-50">
-            {totalPendingTickets}
-          </p>
-          <p className="text-xs text-slate-500 mt-1">
-            Suma total de registros detectados sin cierre.
-          </p>
-        </div>
-      </div>
-      <div className="rounded-2xl border border-slate-800 overflow-hidden">
-        {controlLoading ? (
-          <div className="px-4 py-6 text-center text-sm text-slate-400">
-            Cargando estado de las estaciones…
+    <div className="space-y-6">
+      {stationsBlock}
+      <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-100">
+              Control de estaciones
+            </h2>
+            <p className="text-sm text-slate-400 max-w-3xl">
+              Consulta el último cierre registrado por cada estación y detecta
+              dónde quedan ventas o abonos sin cerrar.
+            </p>
           </div>
-        ) : controlRows.length === 0 ? (
-          <div className="px-4 py-6 text-center text-sm text-slate-400">
-            Aún no hay datos de cierres. Ejecuta un reporte Z o presiona
-            “Actualizar estado”.
+          <div className="flex flex-col items-start gap-2 md:items-end">
+            <button
+              type="button"
+              onClick={() => void loadControlData()}
+              disabled={controlLoading}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-500 text-emerald-100 text-sm hover:bg-emerald-500/10 disabled:opacity-50"
+            >
+              {controlLoading ? "Actualizando…" : "Actualizar estado"}
+            </button>
+            <span className="text-[11px] text-slate-500">
+              Última actualización: {controlUpdatedLabel}
+            </span>
           </div>
-        ) : (
-          <table className="w-full text-left text-xs bg-slate-950/40">
-            <thead className="bg-slate-950 text-slate-400 uppercase tracking-wide text-[11px]">
-              <tr>
-                <th className="px-4 py-3 font-medium">Estación</th>
-                <th className="px-4 py-3 font-medium">Último cierre</th>
-                <th className="px-4 py-3 font-medium">Pendientes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {controlRows.map((row) => {
-                const stationRecord = row.stationId
-                  ? stationRecordMap.get(row.stationId)
-                  : null;
-                const hasPending = row.pendingCount > 0;
-                return (
-                  <tr
-                    key={row.stationId ?? "legacy"}
-                    className={`border-t border-slate-900 ${
-                      hasPending ? "bg-amber-500/5" : ""
-                    }`}
-                  >
-                    <td className="px-4 py-4 align-top">
-                      <div className="text-sm font-semibold text-slate-100">
-                        {row.label}
-                        {stationRecord && !stationRecord.is_active && (
-                          <span className="ml-2 rounded-full border border-slate-600 px-2 py-0.5 text-[10px] text-slate-400">
-                            Inactiva
+        </div>
+        {controlError && (
+          <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+            {controlError}
+          </p>
+        )}
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">
+              Estaciones monitoreadas
+            </p>
+            <p className="text-3xl font-semibold text-slate-50">
+              {trackedStationsCount}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              Incluye POS Web y registros heredados.
+            </p>
+          </div>
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+            <p className="text-[11px] uppercase tracking-wide text-amber-200">
+              Estaciones con pendientes
+            </p>
+            <p className="text-3xl font-semibold text-amber-100">
+              {pendingStationsCount}
+            </p>
+            <p className="text-xs text-amber-100/80 mt-1">
+              Revisa las filas en color ámbar en el listado inferior.
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">
+              Tickets / abonos por cerrar
+            </p>
+            <p className="text-3xl font-semibold text-slate-50">
+              {totalPendingTickets}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              Suma total de registros detectados sin cierre.
+            </p>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-800 overflow-hidden">
+          {controlLoading ? (
+            <div className="px-4 py-6 text-center text-sm text-slate-400">
+              Cargando estado de las estaciones…
+            </div>
+          ) : controlRows.length === 0 ? (
+            <div className="px-4 py-6 text-center text-sm text-slate-400">
+              Aún no hay datos de cierres. Ejecuta un reporte Z o presiona
+              “Actualizar estado”.
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs bg-slate-950/40">
+              <thead className="bg-slate-950 text-slate-400 uppercase tracking-wide text-[11px]">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Estación</th>
+                  <th className="px-4 py-3 font-medium">Último cierre</th>
+                  <th className="px-4 py-3 font-medium">Pendientes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {controlRows.map((row) => {
+                  const stationRecord = row.stationId
+                    ? stationRecordMap.get(row.stationId)
+                    : null;
+                  const hasPending = row.pendingCount > 0;
+                  return (
+                    <tr
+                      key={row.stationId ?? "legacy"}
+                      className={`border-t border-slate-900 ${
+                        hasPending ? "bg-amber-500/5" : ""
+                      }`}
+                    >
+                      <td className="px-4 py-4 align-top">
+                        <div className="text-sm font-semibold text-slate-100">
+                          {row.label}
+                          {stationRecord && !stationRecord.is_active && (
+                            <span className="ml-2 rounded-full border border-slate-600 px-2 py-0.5 text-[10px] text-slate-400">
+                              Inactiva
+                            </span>
+                          )}
+                        </div>
+                        {row.email && (
+                          <div className="text-[11px] text-slate-400">
+                            {row.email}
+                          </div>
+                        )}
+                        {row.stationId && (
+                          <div className="text-[11px] text-slate-500 font-mono">
+                            {row.stationId}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 align-top">
+                        {row.lastClosureLabel ? (
+                          <div className="space-y-1">
+                            <div className="text-slate-100 font-medium">
+                              {row.lastClosureLabel}
+                            </div>
+                            {row.lastClosureRange && (
+                              <div className="text-[11px] text-slate-400">
+                                Ventas del {row.lastClosureRange}
+                              </div>
+                            )}
+                            {row.lastClosureAmount != null && (
+                              <div className="text-[11px] text-slate-300">
+                                Neto:{" "}
+                                {row.lastClosureAmount.toLocaleString("es-CO", {
+                                  style: "currency",
+                                  currency: "COP",
+                                  maximumFractionDigits: 0,
+                                })}
+                              </div>
+                            )}
+                            {row.lastClosureDocument && (
+                              <div className="text-[11px] text-slate-500">
+                                {row.lastClosureDocument}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-500">
+                            Sin registros
                           </span>
                         )}
-                      </div>
-                      {row.email && (
-                        <div className="text-[11px] text-slate-400">
-                          {row.email}
-                        </div>
-                      )}
-                      {row.stationId && (
-                        <div className="text-[11px] text-slate-500 font-mono">
-                          {row.stationId}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 align-top">
-                      {row.lastClosureLabel ? (
-                        <div className="space-y-1">
-                          <div className="text-slate-100 font-medium">
-                            {row.lastClosureLabel}
+                      </td>
+                      <td className="px-4 py-4 align-top">
+                        {hasPending ? (
+                          <div className="space-y-1">
+                            <div className="text-base font-semibold text-amber-200">
+                              {row.pendingCount} pendiente
+                              {row.pendingCount > 1 ? "s" : ""}
+                            </div>
+                            {row.pendingSinceLabel && (
+                              <div className="text-[11px] text-amber-100/80">
+                                Desde {row.pendingSinceLabel}
+                              </div>
+                            )}
                           </div>
-                          {row.lastClosureRange && (
-                            <div className="text-[11px] text-slate-400">
-                              Ventas del {row.lastClosureRange}
-                            </div>
-                          )}
-                          {row.lastClosureAmount != null && (
-                            <div className="text-[11px] text-slate-300">
-                              Neto:{" "}
-                              {row.lastClosureAmount.toLocaleString("es-CO", {
-                                style: "currency",
-                                currency: "COP",
-                                maximumFractionDigits: 0,
-                              })}
-                            </div>
-                          )}
-                          {row.lastClosureDocument && (
-                            <div className="text-[11px] text-slate-500">
-                              {row.lastClosureDocument}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-slate-500">
-                          Sin registros
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 align-top">
-                      {hasPending ? (
-                        <div className="space-y-1">
-                          <div className="text-base font-semibold text-amber-200">
-                            {row.pendingCount} pendiente
-                            {row.pendingCount > 1 ? "s" : ""}
-                          </div>
-                          {row.pendingSinceLabel && (
-                            <div className="text-[11px] text-amber-100/80">
-                              Desde {row.pendingSinceLabel}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-sm text-emerald-300 font-medium">
-                          Al día
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-      <div className="text-[11px] text-slate-500">
-        ¿Necesitas ver el detalle?{" "}
-        <Link
-          href="/dashboard/documents"
-          className="text-emerald-300 hover:text-emerald-100 underline"
-        >
-          Abre Documentos y filtra por estación
-        </Link>
-        .
-      </div>
-    </article>
+                        ) : (
+                          <span className="text-sm text-emerald-300 font-medium">
+                            Al día
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="text-[11px] text-slate-500">
+          ¿Necesitas ver el detalle?{" "}
+          <Link
+            href="/dashboard/documents"
+            className="text-emerald-300 hover:text-emerald-100 underline"
+          >
+            Abre Documentos y filtra por estación
+          </Link>
+          .
+        </div>
+      </article>
+    </div>
   );
 
   const tabContentMap: Record<SettingsTab, ReactNode> = {

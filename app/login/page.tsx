@@ -21,11 +21,15 @@ const highlights = [
   },
 ];
 
+const REMEMBERED_EMAIL_KEY = "metrikRememberedEmail";
+
 export default function LoginPage() {
   const router = useRouter();
   const { login, token, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberEmail, setRememberEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -43,6 +47,24 @@ export default function LoginPage() {
       window.sessionStorage.removeItem(LOGOUT_REASON_KEY);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedEmail = window.localStorage.getItem(REMEMBERED_EMAIL_KEY);
+    if (storedEmail) {
+      setEmail(storedEmail);
+      setRememberEmail(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (rememberEmail && email.trim()) {
+      window.localStorage.setItem(REMEMBERED_EMAIL_KEY, email.trim());
+    } else if (!rememberEmail) {
+      window.localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+    }
+  }, [rememberEmail, email]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,14 +101,14 @@ export default function LoginPage() {
 
   return (
     <main
-      className="relative min-h-screen bg-cover bg-center"
+      className="relative min-h-screen bg-cover bg-center overflow-x-hidden"
       style={{
         backgroundImage:
           "url('https://images.unsplash.com/photo-1556742044-3c52d6e88c62?auto=format&fit=crop&q=80&w=2070')",
       }}
     >
       <div className="min-h-screen bg-white/70 backdrop-blur-sm">
-        <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-10 lg:px-12">
+        <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-10 sm:px-6 lg:px-12">
           <nav className="flex items-center justify-between rounded-3xl bg-white/80 px-8 py-5 shadow-lg">
             <div className="flex items-center gap-4">
               <Image
@@ -167,28 +189,49 @@ export default function LoginPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                      placeholder="correo@tuempresa.com"
-                      autoComplete="email"
-                    />
-                  </label>
+                    placeholder="correo@tuempresa.com"
+                    autoComplete="email"
+                  />
+                </label>
 
-                  <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-slate-500">Contraseña</span>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-slate-500">Contraseña</span>
+                  <div className="relative">
                     <input
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-16 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
                       placeholder="••••••••"
                       autoComplete="current-password"
                     />
-                  </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-slate-500 hover:text-slate-800"
+                      aria-pressed={showPassword}
+                      aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    >
+                      {showPassword ? "Ocultar" : "Ver"}
+                    </button>
+                  </div>
+                </label>
 
-                  {error && (
-                    <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-600">
-                      {error}
-                    </div>
-                  )}
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={rememberEmail}
+                    onChange={(e) => setRememberEmail(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-300"
+                  />
+                  Recordar mi correo en este equipo
+                </label>
+
+                {error && (
+                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-600">
+                    {error}
+                  </div>
+                )}
 
                   <button
                     type="submit"

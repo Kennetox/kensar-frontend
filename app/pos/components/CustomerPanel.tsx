@@ -28,6 +28,11 @@ type CustomerForm = {
   address: string;
 };
 
+type CustomerPanelProps = {
+  variant?: "sidebar" | "page";
+  onCustomerSelected?: (customer: PosCustomer) => void;
+};
+
 const EMPTY_FORM: CustomerForm = {
   name: "",
   phone: "",
@@ -36,7 +41,10 @@ const EMPTY_FORM: CustomerForm = {
   address: "",
 };
 
-export default function CustomerPanel() {
+export default function CustomerPanel({
+  variant = "sidebar",
+  onCustomerSelected,
+}: CustomerPanelProps) {
   const { selectedCustomer, setSelectedCustomer } = usePos();
   const { token } = useAuth();
   const [mode, setMode] = useState<"none" | "search" | "new">("none");
@@ -135,6 +143,9 @@ export default function CustomerPanel() {
     setSelectedCustomer(mapCustomer(customer));
     setMode("none");
     setFeedback(null);
+    if (onCustomerSelected) {
+      onCustomerSelected(mapCustomer(customer));
+    }
   }
 
   async function handleCreateCustomer(event: React.FormEvent) {
@@ -171,6 +182,9 @@ export default function CustomerPanel() {
       const mapped = mapCustomer(saved);
       setSelectedCustomer(mapped);
       setFeedback("Cliente guardado y asignado a la venta.");
+      if (onCustomerSelected) {
+        onCustomerSelected(mapped);
+      }
       void fetchCustomers(search);
     } catch (err) {
       console.error(err);
@@ -193,8 +207,18 @@ export default function CustomerPanel() {
     setMode((prev) => (prev === next ? "none" : next));
   }
 
+  const containerClass =
+    variant === "page"
+      ? "w-full max-w-3xl bg-slate-950/80 border border-slate-800/80 rounded-2xl px-5 py-5 shadow-xl flex flex-col overflow-hidden"
+      : "w-[19rem] border-l border-slate-800 bg-slate-950/50 px-5 py-5 flex flex-col gap-4 overflow-hidden";
+
+  const listContainerClass =
+    variant === "page"
+      ? "flex-1 min-h-[18rem] overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
+      : "flex-1 min-h-[12rem] overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60";
+
   return (
-    <section className="w-72 border-l border-slate-800 bg-slate-950/40 px-4 py-4 flex flex-col overflow-hidden">
+    <section className={containerClass}>
       <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
         Cliente
       </div>
@@ -205,33 +229,29 @@ export default function CustomerPanel() {
         </div>
       ) : (
         <>
-          <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 space-y-2 text-xs">
-            <div className="text-[11px] text-slate-400">Cliente actual</div>
-            {selectedCustomer ? (
-              <div className="space-y-1">
-                <div className="font-semibold text-slate-50">
-                  {selectedCustomer.name}
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3 text-xs shadow-inner">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-[11px] font-semibold text-slate-200">
+                {selectedCustomer
+                  ? selectedCustomer.name.slice(0, 2).toUpperCase()
+                  : "CL"}
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Cliente actual
                 </div>
-                {selectedCustomer.phone && (
-                  <div className="text-slate-400">
-                    Tel: {selectedCustomer.phone}
-                  </div>
-                )}
-                {selectedCustomer.email && (
-                  <div className="text-slate-400">
-                    Email: {selectedCustomer.email}
-                  </div>
-                )}
-                {selectedCustomer.taxId && (
-                  <div className="text-slate-400">
-                    NIT/ID: {selectedCustomer.taxId}
-                  </div>
-                )}
-                {selectedCustomer.address && (
-                  <div className="text-slate-400">
-                    Dirección: {selectedCustomer.address}
-                  </div>
-                )}
+                <div className="text-[13px] text-slate-200">
+                  {selectedCustomer ? selectedCustomer.name : "Sin cliente asignado"}
+                </div>
+              </div>
+            </div>
+
+            {selectedCustomer ? (
+              <div className="space-y-1 text-[12px] text-slate-300">
+                {selectedCustomer.phone && <div>Tel: {selectedCustomer.phone}</div>}
+                {selectedCustomer.email && <div>Email: {selectedCustomer.email}</div>}
+                {selectedCustomer.taxId && <div>NIT/ID: {selectedCustomer.taxId}</div>}
+                {selectedCustomer.address && <div>Dirección: {selectedCustomer.address}</div>}
                 <button
                   type="button"
                   onClick={handleRemoveSelection}
@@ -241,21 +261,19 @@ export default function CustomerPanel() {
                 </button>
               </div>
             ) : (
-              <div className="text-slate-500 text-[13px]">
-                Sin cliente asignado.
-                <br />
+              <div className="text-slate-500 text-[12px] leading-relaxed">
                 Selecciona un cliente existente o crea uno nuevo.
               </div>
             )}
           </div>
 
-          <div className="flex gap-2 mt-4">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => toggleMode("search")}
-              className={`flex-1 rounded-md border px-3 py-2 text-xs font-semibold transition ${
+              className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
                 mode === "search"
-                  ? "border-sky-400 bg-sky-500/10 text-sky-100"
+                  ? "border-sky-400 bg-sky-500/10 text-sky-100 shadow-inner"
                   : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
               }`}
             >
@@ -264,9 +282,9 @@ export default function CustomerPanel() {
             <button
               type="button"
               onClick={() => toggleMode("new")}
-              className={`flex-1 rounded-md border px-3 py-2 text-xs font-semibold transition ${
+              className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
                 mode === "new"
-                  ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                  ? "border-emerald-400 bg-emerald-500/10 text-emerald-100 shadow-inner"
                   : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
               }`}
             >
@@ -285,7 +303,7 @@ export default function CustomerPanel() {
                   className="mt-1 w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
                 />
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60">
+              <div className={listContainerClass}>
                 {loading && customers.length === 0 ? (
                   <div className="p-3 text-[11px] text-slate-400">
                     Cargando clientes...

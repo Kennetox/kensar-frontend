@@ -35,14 +35,14 @@ export default function LandingPage() {
         }}
       />
       <main
-        className="relative min-h-screen bg-cover bg-center"
+        className="relative min-h-screen bg-cover bg-center overflow-x-hidden"
         style={{
           backgroundImage:
             "url('https://images.unsplash.com/photo-1556742044-3c52d6e88c62?auto=format&fit=crop&q=80&w=2070')",
         }}
       >
         <div className="min-h-screen bg-white/70 backdrop-blur-sm">
-          <div className="mx-auto max-w-6xl px-6 py-8 lg:px-12">
+          <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-12">
             <nav className="flex flex-col gap-4 rounded-3xl bg-white/80 px-6 py-5 shadow-xl sm:flex-row sm:items-center sm:justify-between sm:px-12 sm:py-6">
               <div className="flex items-center gap-4">
                 <Image
@@ -73,37 +73,37 @@ export default function LandingPage() {
               </div>
             </nav>
 
-            <section className="mt-12 space-y-12 text-center lg:mt-16 lg:space-y-16 lg:text-left">
+            <section className="mt-10 space-y-10 text-center lg:mt-16 lg:space-y-16 lg:text-left">
               <div className="space-y-8">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.3em] text-slate-500 sm:text-sm">
+                  <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500 sm:text-sm">
                     Software empresarial
                   </p>
-                  <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-slate-900 sm:mt-6 sm:text-5xl md:text-6xl xl:text-7xl">
+                  <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:mt-6 sm:text-5xl md:text-6xl xl:text-7xl">
                     Gestion de Ventas y Administracion
                   </h1>
-                  <p className="mt-4 text-lg text-slate-600 sm:text-xl">
+                  <p className="mt-3 text-base text-slate-600 sm:mt-4 sm:text-xl">
                     Tu POS y panel administrativo en un solo lugar.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                   <Link
                     href="/login"
-                    className="rounded-2xl bg-gradient-to-r from-[#34d399] to-[#06b6d4] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:scale-105 sm:px-8 sm:py-4 sm:text-lg"
+                    className="rounded-2xl bg-gradient-to-r from-[#34d399] to-[#06b6d4] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:scale-105 sm:px-8 sm:py-4 sm:text-lg w-full sm:w-auto text-center"
                   >
                     Ingresar al panel
                   </Link>
                   <Link
                     href="/login-pos"
-                    className="rounded-2xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:scale-105 sm:px-8 sm:py-4 sm:text-lg"
+                    className="rounded-2xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:scale-105 sm:px-8 sm:py-4 sm:text-lg w-full sm:w-auto text-center"
                   >
                     Ingresar al POS
                   </Link>
                 </div>
               </div>
 
-              <div className="rounded-3xl bg-white/80 p-6 shadow-2xl sm:p-8 md:p-10">
-                <div className="grid gap-10 lg:grid-cols-2">
+              <div className="rounded-3xl bg-white/80 p-5 shadow-2xl sm:p-8 md:p-10">
+                <div className="grid gap-8 lg:gap-10 lg:grid-cols-2">
                   <div className="space-y-5 text-left">
                     <div className="flex items-center gap-3">
                       <span className="rounded-full bg-blue-600/10 p-2 text-blue-600">✔</span>
@@ -140,7 +140,7 @@ export default function LandingPage() {
               </div>
             </section>
 
-            <footer className="mt-16 rounded-3xl bg-white/80 px-6 py-6 text-center text-sm text-slate-500 shadow-lg sm:px-10">
+            <footer className="mt-14 rounded-3xl bg-white/80 px-5 py-6 text-center text-sm text-slate-500 shadow-lg sm:px-10">
               © {new Date().getFullYear()} Metrik · Kensar Electronic
             </footer>
           </div>

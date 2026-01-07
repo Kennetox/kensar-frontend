@@ -18,6 +18,7 @@ export default function PosLoginPage() {
   const { login, token, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
@@ -129,14 +130,14 @@ export default function PosLoginPage() {
 
   return (
     <main
-      className="relative min-h-screen bg-cover bg-center"
+      className="relative min-h-screen bg-cover bg-center overflow-x-hidden"
       style={{
         backgroundImage:
           "url('https://images.unsplash.com/photo-1556742044-3c52d6e88c62?auto=format&fit=crop&q=80&w=2070')",
       }}
     >
       <div className="min-h-screen bg-white/70 backdrop-blur-sm">
-        <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-6 py-10 lg:px-10">
+        <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-10 sm:px-6 lg:px-10">
           <nav className="flex items-center justify-between rounded-2xl bg-white/85 px-8 py-5 shadow-lg">
             <div className="flex items-center gap-3">
               <Image
@@ -230,15 +231,26 @@ export default function PosLoginPage() {
                   )}
                   <label className="flex flex-col gap-1 text-sm">
                     <span className="text-slate-500">PIN de caja</span>
-                    <input
-                      type="password"
-                      value={pin}
-                      onChange={(e) => setPin(e.target.value)}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                      placeholder="Ingresa tu PIN"
-                      inputMode="numeric"
-                      autoComplete="off"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPin ? "text" : "password"}
+                        value={pin}
+                        onChange={(e) => setPin(e.target.value)}
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-16 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                        placeholder="Ingresa tu PIN"
+                        inputMode="numeric"
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPin((prev) => !prev)}
+                        className="absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-slate-500 hover:text-slate-800"
+                        aria-pressed={showPin}
+                        aria-label={showPin ? "Ocultar PIN" : "Mostrar PIN"}
+                      >
+                        {showPin ? "Ocultar" : "Ver"}
+                      </button>
+                    </div>
                   </label>
                   {error && (
                     <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-600">

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../providers/AuthProvider";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
@@ -62,6 +62,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, token, loading, logout } = useAuth();
   const posPreview = searchParams.get("posPreview") === "1";
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !token) {
@@ -88,6 +89,19 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       }
     }
   }, [loading, token, routeAllowed, router, pathname, posPreview]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(min-width: 768px)");
+    const handler = (e: MediaQueryListEvent) => {
+      if (e.matches) {
+        setNavOpen(false);
+      }
+    };
+    handler(media as unknown as MediaQueryListEvent);
+    media.addEventListener("change", handler);
+    return () => media.removeEventListener("change", handler);
+  }, []);
 
   if (!token) {
     return (
@@ -126,50 +140,115 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen flex bg-slate-950 text-slate-100">
       {/* SIDEBAR */}
       {!posPreview && (
-        <aside className="hidden md:flex md:flex-col w-64 border-r border-slate-800 bg-slate-950/80 backdrop-blur md:sticky md:top-0 md:h-screen md:self-start">
-          <div className="h-16 flex items-center px-5 border-b border-slate-800">
-            <div className="text-lg font-bold tracking-tight leading-tight">
-              Metrik
-              <span className="block text-[11px] font-normal uppercase tracking-[0.3em] text-emerald-300">
-                by Kensar Electronic
-              </span>
+        <>
+          {/* Mobile drawer */}
+          <aside
+            className={`fixed inset-y-0 left-0 z-40 w-64 border-r border-slate-800 bg-slate-950/95 backdrop-blur flex flex-col transform transition-transform md:hidden ${
+              navOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
+            <div className="h-16 flex items-center justify-between px-5 border-b border-slate-800">
+              <div className="text-lg font-bold tracking-tight leading-tight">
+                Metrik
+                <span className="block text-[11px] font-normal uppercase tracking-[0.3em] text-emerald-300">
+                  by Kensar Electronic
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNavOpen(false)}
+                className="text-slate-300 text-sm px-2 py-1 rounded-md border border-slate-700"
+              >
+                Cerrar
+              </button>
             </div>
-          </div>
+            <nav className="flex-1 overflow-y-auto py-4">
+              <ul className="space-y-1 px-3">
+                {effectiveNav.map((item) => {
+                  const isActive =
+                    pathname === item.href ||
+                    (item.href !== "/dashboard" &&
+                      pathname.startsWith(item.href + "/"));
+                  const href =
+                    posPreview && item.href === "/dashboard"
+                      ? "/dashboard?posPreview=1"
+                      : item.href;
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={href}
+                        onClick={() => setNavOpen(false)}
+                        className={[
+                          "block rounded-lg px-3 py-2 text-sm transition",
+                          isActive
+                            ? "bg-slate-100 text-slate-900 font-semibold"
+                            : "text-slate-300 hover:bg-slate-800 hover:text-white",
+                        ].join(" ")}
+                      >
+                        {item.label}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+            <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500">
+              © {new Date().getFullYear()} Kensar Electronic
+            </div>
+          </aside>
+          {navOpen && (
+            <div
+              className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden"
+              onClick={() => setNavOpen(false)}
+            />
+          )}
 
-          <nav className="flex-1 overflow-y-auto py-4">
-            <ul className="space-y-1 px-3">
-              {effectiveNav.map((item) => {
-                const isActive =
-                  pathname === item.href ||
-                  (item.href !== "/dashboard" &&
-                    pathname.startsWith(item.href + "/"));
-                const href =
-                  posPreview && item.href === "/dashboard"
-                    ? "/dashboard?posPreview=1"
-                    : item.href;
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={href}
-                      className={[
-                        "block rounded-lg px-3 py-2 text-sm transition",
-                        isActive
-                          ? "bg-slate-100 text-slate-900 font-semibold"
-                          : "text-slate-300 hover:bg-slate-800 hover:text-white",
-                      ].join(" ")}
-                    >
-                      {item.label}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </nav>
+          {/* Desktop sidebar */}
+          <aside className="hidden md:flex md:flex-col w-64 border-r border-slate-800 bg-slate-950/80 backdrop-blur md:sticky md:top-0 md:h-screen md:self-start">
+            <div className="h-16 flex items-center px-5 border-b border-slate-800">
+              <div className="text-lg font-bold tracking-tight leading-tight">
+                Metrik
+                <span className="block text-[11px] font-normal uppercase tracking-[0.3em] text-emerald-300">
+                  by Kensar Electronic
+                </span>
+              </div>
+            </div>
 
-          <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500">
-            © {new Date().getFullYear()} Kensar Electronic
-          </div>
-        </aside>
+            <nav className="flex-1 overflow-y-auto py-4">
+              <ul className="space-y-1 px-3">
+                {effectiveNav.map((item) => {
+                  const isActive =
+                    pathname === item.href ||
+                    (item.href !== "/dashboard" &&
+                      pathname.startsWith(item.href + "/"));
+                  const href =
+                    posPreview && item.href === "/dashboard"
+                      ? "/dashboard?posPreview=1"
+                      : item.href;
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={href}
+                        className={[
+                          "block rounded-lg px-3 py-2 text-sm transition",
+                          isActive
+                            ? "bg-slate-100 text-slate-900 font-semibold"
+                            : "text-slate-300 hover:bg-slate-800 hover:text-white",
+                        ].join(" ")}
+                      >
+                        {item.label}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+
+            <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-500">
+              © {new Date().getFullYear()} Kensar Electronic
+            </div>
+          </aside>
+        </>
       )}
 
       {/* CONTENIDO PRINCIPAL */}
@@ -177,6 +256,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         {/* TOPBAR */}
         <header className="h-16 border-b border-slate-800 bg-slate-950/70 backdrop-blur flex items-center justify-between px-4 md:px-6">
           <div className="flex items-center gap-2">
+            {!posPreview && (
+              <button
+                type="button"
+                onClick={() => setNavOpen((prev: boolean) => !prev)}
+                className="md:hidden px-3 py-1.5 rounded-md border border-slate-700 text-slate-200 text-xs hover:bg-slate-800"
+              >
+                Menú
+              </button>
+            )}
             <span className="text-sm font-semibold text-slate-200">
               Panel Metrik {posPreview && "· Vista rápida"}
             </span>

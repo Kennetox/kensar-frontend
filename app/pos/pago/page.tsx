@@ -465,7 +465,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         pos_name: resolvedPosName,
         vendor_name: user?.name ?? undefined,
       };
-      if (activeStationId) {
+      if (posMode === "station" && activeStationId) {
         basePayload.station_id = activeStationId;
       }
       if (cartSurcharge.enabled && cartSurcharge.amount > 0) {
@@ -1142,8 +1142,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         <section className="flex-1 border-r border-slate-800 flex flex-col">
           <div className="flex-1 flex">
             {/* Métodos de pago */}
-            <div className="w-56 border-r border-slate-800 p-3 flex flex-col gap-2 bg-slate-950/60">
-              <h2 className="text-xs font-semibold text-slate-400 mb-1">
+            <div className="w-60 border-r border-slate-800 p-4 flex flex-col gap-3 bg-slate-950/70">
+              <h2 className="text-xs font-semibold text-slate-300 mb-1 uppercase tracking-wide">
                 Tipo de pago
               </h2>
 
@@ -1158,10 +1158,10 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   key={m.id}
                   onClick={() => handleSelectMethod(m.slug)}
                   className={
-                    "w-full text-left px-3 py-2 rounded-md text-xs border " +
+                    "w-full text-left px-3 py-2.5 rounded-lg text-xs border shadow-inner transition-colors " +
                     (method === m.slug
-                      ? "bg-emerald-500 text-slate-900 border-emerald-400"
-                      : "bg-slate-900 hover:bg-slate-800 border-slate-700")
+                      ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-emerald-500/30"
+                      : "bg-slate-900/80 hover:bg-slate-800 border-slate-700 text-slate-200")
                   }
                 >
                   {m.name}
@@ -1170,131 +1170,147 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             </div>
 
             {/* Área de pago */}
-            <div className="flex-1 p-6 flex flex-col">
-              <h2 className="text-sm font-semibold mb-4">Pago</h2>
-
-            <div className="space-y-3 text-sm max-w-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Total</span>
-                  <span className="font-semibold">
-                    {formatMoney(totalToPay)}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Pagado</span>
-                  <input
-                    ref={paidInputRef}
-                    type="text"
-                    inputMode="numeric"
-                    disabled={!requiresManualAmount}
-                    required={requiresManualAmount}
-                    value={formatInputAmount(paidValue)}
-                    onChange={(e) => setPaidValue(sanitizeAmountInput(e.target.value))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void handleConfirm();
-                      }
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        handleCancel();
-                      }
-                    }}
-                    className={
-                      "w-full max-w-xs rounded-md border px-4 py-3 text-xl bg-slate-900 " +
-                      "border-slate-700 text-slate-50 outline-none " +
-                      "focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 " +
-                      (!requiresManualAmount ? "opacity-40 cursor-not-allowed" : "")
-                    }
-                  />
-                </div>
-                {isSeparatedSale && (
-                  <div className="space-y-2 rounded-md border border-slate-800 bg-slate-950/40 p-3">
-                    <div className="flex justify-between text-xs text-slate-400">
-                      <span>Método del abono inicial</span>
-                      {separatedMethodLabel && (
-                        <span className="text-slate-200 font-semibold">
-                          {separatedMethodLabel}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500">
-                      Selecciona cómo recibe el pago inicial (efectivo, tarjeta,
-                      transferencia, etc.). Este método se imprimirá en el ticket.
+            <div className="flex-1 p-8 flex flex-col items-center">
+              <div className="w-full max-w-3xl space-y-8">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold">Pago</h2>
+                    <p className="text-xs text-slate-500">
+                      Ajusta el monto recibido y agrega notas antes de confirmar.
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                      {separatedMethodOptions.length === 0 && (
-                        <span className="text-[11px] text-red-400">
-                          No hay métodos disponibles para registrar el abono.
-                        </span>
-                      )}
-                      {separatedMethodOptions.map((option) => (
-                        <button
-                          key={option.id ?? option.slug}
-                          type="button"
-                          onClick={() => setSeparatedPaymentMethod(option.slug)}
-                          className={
-                            "px-3 py-2 rounded-md border text-xs transition-colors " +
-                            (separatedPaymentMethod === option.slug
-                              ? "bg-emerald-500 text-slate-900 border-emerald-400"
-                              : "bg-slate-900 border-slate-700 hover:border-emerald-400/60")
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="rounded-full border border-slate-800 bg-slate-900/70 px-3 py-1 text-slate-300">
+                      {selectedMethod?.name ?? "Método"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-inner text-sm">
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                    <span className="text-slate-400">Total</span>
+                    <span className="font-semibold text-slate-100">
+                      {formatMoney(totalToPay)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                    <span className="text-slate-400">Pagado</span>
+                    <div className="flex items-center gap-3">
+                      <input
+                        ref={paidInputRef}
+                        type="text"
+                        inputMode="numeric"
+                        disabled={!requiresManualAmount}
+                        required={requiresManualAmount}
+                        value={formatInputAmount(paidValue)}
+                        onChange={(e) => setPaidValue(sanitizeAmountInput(e.target.value))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleConfirm();
                           }
-                        >
-                          {option.name}
-                        </button>
-                      ))}
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            handleCancel();
+                          }
+                        }}
+                        className={
+                          "w-52 rounded-xl border px-4 py-3 text-lg bg-slate-900/80 " +
+                          "border-slate-700 text-slate-50 outline-none shadow-inner " +
+                          "focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/40 " +
+                          (!requiresManualAmount ? "opacity-40 cursor-not-allowed" : "")
+                        }
+                      />
                     </div>
                   </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-slate-400">{displayChangeLabel}</span>
-                  <span
-                    className={
-                      "font-semibold " +
-                      (allowsChange && displayChange < 0
-                        ? "text-red-400"
-                        : "text-emerald-400")
-                    }
-                  >
-                    {formatMoney(displayChange)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-8 max-w-sm space-y-3">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Notas para el ticket</span>
-                  <button
-                    type="button"
-                    onClick={() => setSaleNotes("")}
-                    className="text-[11px] text-slate-400 hover:text-slate-200 underline"
-                  >
-                    Limpiar
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {SALE_NOTE_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() =>
-                        setSaleNotes((prev) =>
-                          prev ? `${prev}\n${preset.text}` : preset.text
-                        )
+                  {isSeparatedSale && (
+                    <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                      <div className="flex justify-between text-xs text-slate-400">
+                        <span>Método del abono inicial</span>
+                        {separatedMethodLabel && (
+                          <span className="text-slate-200 font-semibold">
+                            {separatedMethodLabel}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Selecciona cómo recibe el pago inicial (efectivo, tarjeta,
+                        transferencia, etc.). Este método se imprimirá en el ticket.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {separatedMethodOptions.length === 0 && (
+                          <span className="text-[11px] text-red-400">
+                            No hay métodos disponibles para registrar el abono.
+                          </span>
+                        )}
+                        {separatedMethodOptions.map((option) => (
+                          <button
+                            key={option.id ?? option.slug}
+                            type="button"
+                            onClick={() => setSeparatedPaymentMethod(option.slug)}
+                            className={
+                              "px-3 py-2 rounded-lg border text-xs transition-colors " +
+                              (separatedPaymentMethod === option.slug
+                                ? "bg-emerald-500 text-slate-900 border-emerald-400"
+                                : "bg-slate-900/80 border-slate-700 hover:border-emerald-400/60")
+                            }
+                          >
+                            {option.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+                    <span className="text-slate-400">{displayChangeLabel}</span>
+                    <span
+                      className={
+                        "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold " +
+                        (allowsChange && displayChange < 0
+                          ? "bg-red-500/15 text-red-300 border border-red-500/30"
+                          : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30")
                       }
-                      className="px-3 py-1 rounded-full border border-slate-700 text-[11px] text-slate-200 hover:border-emerald-400/60 hover:text-emerald-200 transition"
                     >
-                      {preset.label}
-                    </button>
-                  ))}
+                      {formatMoney(displayChange)}
+                    </span>
+                  </div>
                 </div>
-                <textarea
-                  value={saleNotes}
-                  onChange={(e) => setSaleNotes(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                  placeholder="Notas de garantía, instrucciones especiales..."
-                />
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 space-y-3 max-w-3xl">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span className="uppercase tracking-wide text-[11px]">Notas para el ticket</span>
+                    <button
+                      type="button"
+                      onClick={() => setSaleNotes("")}
+                      className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+                    >
+                      Limpiar
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {SALE_NOTE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() =>
+                          setSaleNotes((prev) =>
+                            prev ? `${prev}\n${preset.text}` : preset.text
+                          )
+                        }
+                        className="px-3 py-1.5 rounded-full border border-slate-700/80 bg-slate-950/70 text-[11px] text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100 transition"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={saleNotes}
+                    onChange={(e) => setSaleNotes(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
+                    placeholder="Notas de garantía, instrucciones especiales..."
+                  />
+                </div>
               </div>
               {message && (
                 <div className="mt-6 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/40 rounded-md px-3 py-2">
@@ -1311,37 +1327,34 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           </div>
 
           {/* Botones inferiores */}
-          <footer className="flex justify-between items-center px-10 py-5 border-t border-slate-800 bg-slate-950/80 gap-6">
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="flex-1 max-w-xs py-4 rounded-lg bg-red-600 hover:bg-red-700 
-                      text-base font-semibold text-slate-50 transition-colors"
-          >
-            Cancelar
-          </button>
+          <footer className="grid grid-cols-3 gap-5 px-10 py-5 border-t border-slate-800 bg-slate-950/85">
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="w-full py-4 rounded-xl bg-red-600 hover:bg-red-700 text-base font-semibold text-slate-50 transition-colors shadow-lg shadow-red-900/30"
+            >
+              Cancelar
+            </button>
 
-          {/* Botón para ir a la pantalla de pagos múltiples (NUEVO) */}
-          <button
-            type="button"
-            onClick={() => router.push("/pos/pago/pago-multiple")}
-            className="flex-1 max-w-xs py-4 rounded-lg bg-slate-800 hover:bg-slate-700 
-                      text-base font-semibold text-slate-100 transition-colors border border-slate-600"
-            disabled={!cart.length}
-          >
-            Pagos múltiples
-          </button>
+            {/* Botón para ir a la pantalla de pagos múltiples (NUEVO) */}
+            <button
+              type="button"
+              onClick={() => router.push("/pos/pago/pago-multiple")}
+              className="w-full py-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-base font-semibold text-slate-100 transition-colors border border-slate-600 shadow-inner disabled:opacity-60"
+              disabled={!cart.length}
+            >
+              Pagos múltiples
+            </button>
 
-          <button
-            type="button"
-            onClick={handleConfirm}
-            className="flex-1 max-w-xs py-4 rounded-lg bg-emerald-500 hover:bg-emerald-600 
-                      text-base font-semibold text-slate-950 transition-colors disabled:opacity-50"
-            disabled={confirmDisabled}
-          >
-            Confirmar pago
-          </button>
-        </footer>
+            <button
+              type="button"
+              onClick={handleConfirm}
+              className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-base font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
+              disabled={confirmDisabled}
+            >
+              Confirmar pago
+            </button>
+          </footer>
         </section>
 
         {/* Panel derecho: cliente */}
@@ -1350,9 +1363,9 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
 
       {/* Modal de éxito de venta */}
 {successSale && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+  <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm px-4 py-6 overflow-y-auto sm:items-center sm:py-0">
 
-    <div className="w-full max-w-4xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-10">
+    <div className="w-full max-w-4xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-10 max-h-[calc(100vh-2rem)] sm:max-h-[90vh] overflow-y-auto">
 
       {/* ENCABEZADO */}
       <div className="text-center mb-10">

@@ -396,10 +396,14 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         </div>`
       : "";
 
-  const barcodeSvg = generateCode39Svg(String(options.saleNumber), {
-    height: 12,
+  const barcodeValue =
+    options.documentNumber?.trim() || String(options.saleNumber ?? "");
+  const barcodeSvg = generateCode39Svg(barcodeValue, {
+    height: 40,
+    narrowWidth: 2,
+    wideWidth: 4.5,
     includeText: true,
-    includeTextFontSize: 5,
+    includeTextFontSize: 10,
   });
 
   return `<!DOCTYPE html>
@@ -925,7 +929,7 @@ export function renderSaleInvoice(options: SaleTicketOptions): string {
           </div>
           <div class="info-box">
             <strong>Resumen</strong>
-            <div>Ticket #: ${escapeHtml(String(options.saleNumber ?? ""))}</div>
+            <div>Ticket #: ${escapeHtml(options.documentNumber)}</div>
             <div>Documentos: ${escapeHtml(options.documentNumber)}</div>
             <div>Estado del pago: ${balance > 0 ? "Pendiente" : "Pagado"}</div>
           </div>
