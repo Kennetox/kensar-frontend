@@ -8,6 +8,7 @@ import {
   fetchPaymentMethods,
   type PaymentMethodRecord,
 } from "@/lib/api/paymentMethods";
+import { getApiBase } from "@/lib/api/base";
 
 type PaymentMethodSlug = string;
 
@@ -121,9 +122,6 @@ function computeLineBreakdown(item: SaleItem) {
   };
 }
 
-const SALES_API = "http://127.0.0.1:8000/pos/sales";
-const RETURNS_API = "http://127.0.0.1:8000/pos/returns";
-
 export default function DevolucionesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -157,6 +155,9 @@ export default function DevolucionesPage() {
   const [paymentCatalog, setPaymentCatalog] = useState<PaymentMethodRecord[]>(
     DEFAULT_PAYMENT_METHODS
   );
+  const apiBase = useMemo(() => getApiBase(), []);
+  const SALES_API = useMemo(() => `${apiBase}/pos/sales`, [apiBase]);
+  const RETURNS_API = useMemo(() => `${apiBase}/pos/returns`, [apiBase]);
   const activePaymentMethods = useMemo(
     () =>
       [...paymentCatalog]
@@ -282,7 +283,7 @@ export default function DevolucionesPage() {
       }
       return (await res.json()) as Sale;
     },
-    [authHeaders]
+    [authHeaders, SALES_API]
   );
 
   const findSaleByIdentifier = useCallback(async (identifier: string) => {
@@ -334,7 +335,7 @@ export default function DevolucionesPage() {
     }
 
     return null;
-  }, [authHeaders, fetchSaleById]);
+  }, [SALES_API, authHeaders, fetchSaleById]);
 
   const resetFormState = useCallback(() => {
     setQuantities({});
