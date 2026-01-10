@@ -256,6 +256,16 @@ type ControlSaleRecord = {
   closure_id?: number | null;
   station_id?: string | null;
   pos_name?: string | null;
+  total?: number;
+  payment_method: string;
+  payments?: { id?: number; method: string; amount: number }[];
+  refunded_total?: number | null;
+  refunded_balance?: number | null;
+  vendor_name?: string | null;
+  is_separated?: boolean;
+  initial_payment_method?: string | null;
+  initial_payment_amount?: number | null;
+  balance?: number | null;
 };
 
 type ControlClosureRecord = {
@@ -298,6 +308,47 @@ const safeString = (value: string | null | undefined, fallback = "") =>
   value ?? fallback;
 
 const API_BASE = getApiBase().replace(/\/$/, "");
+
+type ClosureTotalsByMethod = {
+  cash: number;
+  card: number;
+  qr: number;
+  nequi: number;
+  daviplata: number;
+  credit: number;
+};
+
+const mapMethodToKey = (method: string): keyof ClosureTotalsByMethod | null => {
+  const normalized = method?.toLowerCase() ?? "";
+  if (!normalized) return null;
+  if (normalized.includes("cash") || normalized.includes("efectivo")) return "cash";
+  if (
+    normalized.includes("card") ||
+    normalized.includes("tarjeta") ||
+    normalized.includes("datáfono") ||
+    normalized.includes("dataphone")
+  ) {
+    return "card";
+  }
+  if (
+    normalized.includes("qr") ||
+    normalized.includes("transfer") ||
+    normalized.includes("bancolombia") ||
+    normalized.includes("consignacion")
+  ) {
+    return "qr";
+  }
+  if (normalized.includes("nequi")) return "nequi";
+  if (normalized.includes("davi")) return "daviplata";
+  if (
+    normalized.includes("credito") ||
+    normalized.includes("crédito") ||
+    normalized.includes("separado")
+  ) {
+    return "credit";
+  }
+  return null;
+};
 
 const resolveLogoUrl = (raw?: string | null): string => {
   const trimmed = raw?.trim();
@@ -527,7 +578,7 @@ export default function SettingsPage() {
     null
   );
   const [paymentSaving, setPaymentSaving] = useState(false);
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
@@ -584,6 +635,10 @@ export default function SettingsPage() {
   const [controlLoading, setControlLoading] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
   const [controlLastUpdated, setControlLastUpdated] = useState<string | null>(null);
+  const [adminClosureLoading, setAdminClosureLoading] = useState<string | null>(null);
+  const [adminClosureMessage, setAdminClosureMessage] = useState<string | null>(null);
+  const [adminClosureError, setAdminClosureError] = useState<string | null>(null);
+  const isAdmin = user?.role === "Administrador";
   const getStationRecordFromResponse = useCallback(
     (response?: PosStationResponse | PosStationRecord | null) => {
       if (!response) return null;
@@ -746,6 +801,201 @@ export default function SettingsPage() {
       setControlLoading(false);
     }
   }, [authHeaders, stations, token]);
+
+  const buildAdminClosureTotals = useCallback(
+    async (stationId: string | null) => {
+      if (!token || !authHeaders) {
+        throw new Error("Sesión expirada. Inicia sesión nuevamente.");
+      }
+      const apiBase = getApiBase();
+      const [salesRes, separatedOrders] = await Promise.all([
+        fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
+          headers: authHeaders,
+          credentials: "include",
+        }),
+        fetchSeparatedOrders({ limit: 500 }, token),
+      ]);
+      if (!salesRes.ok) {
+        throw new Error("No se pudieron cargar las ventas recientes.");
+      }
+      const sales: ControlSaleRecord[] = await salesRes.json();
+      const pendingSales = sales.filter((sale) => sale.closure_id == null);
+      const matchesStation = (value?: string | null) =>
+        stationId ? value === stationId : !value;
+      const filteredSales = pendingSales.filter((sale) =>
+        matchesStation(sale.station_id)
+      );
+      const saleMap = new Map<number, ControlSaleRecord>();
+      sales.forEach((sale) => saleMap.set(sale.id, sale));
+
+      const orderMap = new Map<number, SeparatedOrder>();
+      separatedOrders.forEach((order) => orderMap.set(order.sale_id, order));
+
+      const methodTotals: ClosureTotalsByMethod = {
+        cash: 0,
+        card: 0,
+        qr: 0,
+        nequi: 0,
+        daviplata: 0,
+        credit: 0,
+      };
+      let totalCollected = 0;
+      let totalRefunds = 0;
+
+      const addMethodAmount = (method?: string | null, amount?: number) => {
+        if (!method || !amount || amount <= 0) return;
+        const key = mapMethodToKey(method);
+        if (!key) return;
+        methodTotals[key] += amount;
+      };
+
+      filteredSales.forEach((sale) => {
+        if (sale.is_separated) {
+          const order = orderMap.get(sale.id);
+          const initialAmount =
+            sale.initial_payment_amount ?? order?.initial_payment ?? 0;
+          if (initialAmount > 0) {
+            addMethodAmount(
+              sale.initial_payment_method ?? sale.payment_method,
+              initialAmount
+            );
+            totalCollected += initialAmount;
+          }
+          return;
+        }
+        const gross = sale.total ?? 0;
+        const refund = Math.max(0, sale.refunded_total ?? 0);
+        const net =
+          sale.refunded_balance != null
+            ? Math.max(0, sale.refunded_balance)
+            : Math.max(0, gross - refund);
+        totalRefunds += refund;
+        totalCollected += net;
+
+        const payments =
+          sale.payments && sale.payments.length > 0
+            ? sale.payments
+            : [{ method: sale.payment_method, amount: net }];
+        const paymentsTotal = payments.reduce(
+          (sum, payment) => sum + Math.max(payment.amount ?? 0, 0),
+          0
+        );
+        payments.forEach((payment) => {
+          const paymentAmount = Math.max(payment.amount ?? 0, 0);
+          const amount =
+            paymentsTotal > 0
+              ? (paymentAmount / paymentsTotal) * net
+              : net / payments.length;
+          addMethodAmount(payment.method, amount);
+        });
+      });
+
+      separatedOrders.forEach((order: SeparatedOrder) => {
+        const baseSale = saleMap.get(order.sale_id);
+        const pendingPayments =
+          order.payments?.filter((payment) => payment.closure_id == null) ?? [];
+        pendingPayments.forEach((payment) => {
+          const paymentMatches = stationId
+            ? payment.station_id === stationId ||
+              (!payment.station_id &&
+                (baseSale?.station_id ?? null) === stationId)
+            : !payment.station_id && !baseSale?.station_id;
+          if (!paymentMatches) return;
+          addMethodAmount(payment.method, payment.amount);
+          totalCollected += payment.amount;
+        });
+      });
+
+      const round = (value: number) => Number(value.toFixed(2));
+      return {
+        totalAmount: round(totalCollected),
+        totalRefunds: round(totalRefunds),
+        totalCash: round(methodTotals.cash),
+        totalCard: round(methodTotals.card),
+        totalQr: round(methodTotals.qr),
+        totalNequi: round(methodTotals.nequi),
+        totalDaviplata: round(methodTotals.daviplata),
+        totalCredit: round(methodTotals.credit),
+      };
+    },
+    [authHeaders, token]
+  );
+
+  const handleAdminClosure = useCallback(
+    async (row: StationControlRow) => {
+      if (!token) return;
+      if (!isAdmin) return;
+      const stationKey = row.stationId ?? "__legacy__";
+      if (adminClosureLoading) return;
+      const confirmed = window.confirm(
+        `¿Deseas generar un cierre administrativo para "${row.label}"? Esto cerrará los registros pendientes detectados.`
+      );
+      if (!confirmed) return;
+      try {
+        setAdminClosureLoading(stationKey);
+        setAdminClosureMessage(null);
+        setAdminClosureError(null);
+        const totals = await buildAdminClosureTotals(row.stationId ?? null);
+        const hasPendingTotals =
+          totals.totalAmount > 0 ||
+          totals.totalCash > 0 ||
+          totals.totalCard > 0 ||
+          totals.totalQr > 0 ||
+          totals.totalNequi > 0 ||
+          totals.totalDaviplata > 0 ||
+          totals.totalCredit > 0;
+        if (!hasPendingTotals) {
+          throw new Error("No hay ventas pendientes por cerrar en esta estación.");
+        }
+        const payload = {
+          pos_name: row.label,
+          total_amount: totals.totalAmount,
+          total_cash: totals.totalCash,
+          total_card: totals.totalCard,
+          total_qr: totals.totalQr,
+          total_nequi: totals.totalNequi,
+          total_daviplata: totals.totalDaviplata,
+          total_credit: totals.totalCredit,
+          total_refunds: totals.totalRefunds,
+          net_amount: Math.max(0, totals.totalAmount),
+          counted_cash: totals.totalCash,
+          difference: 0,
+          notes: "Cierre administrativo desde Control de caja.",
+          ...(row.stationId ? { station_id: row.stationId } : {}),
+        };
+        const apiBase = getApiBase();
+        const res = await fetch(`${apiBase}/pos/closures`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const detail = await res.json().catch(() => null);
+          throw new Error(
+            detail?.detail ?? `Error ${res.status} al generar el cierre.`
+          );
+        }
+        setAdminClosureMessage(
+          `Cierre administrativo registrado para ${row.label}.`
+        );
+        await loadControlData();
+      } catch (err) {
+        console.error(err);
+        setAdminClosureError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo generar el cierre administrativo."
+        );
+      } finally {
+        setAdminClosureLoading(null);
+      }
+    },
+    [adminClosureLoading, buildAdminClosureTotals, isAdmin, loadControlData, token]
+  );
 
   const loadSettings = useCallback(async () => {
     if (!token) return;
@@ -3191,6 +3441,16 @@ export default function SettingsPage() {
             {controlError}
           </p>
         )}
+        {adminClosureError && (
+          <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+            {adminClosureError}
+          </p>
+        )}
+        {adminClosureMessage && (
+          <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+            {adminClosureMessage}
+          </p>
+        )}
         <div className="grid gap-3 md:grid-cols-3">
           <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
             <p className="text-[11px] uppercase tracking-wide text-slate-400">
@@ -3322,6 +3582,22 @@ export default function SettingsPage() {
                               <div className="text-[11px] text-amber-100/80">
                                 Desde {row.pendingSinceLabel}
                               </div>
+                            )}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => void handleAdminClosure(row)}
+                                disabled={
+                                  adminClosureLoading ===
+                                  (row.stationId ?? "__legacy__")
+                                }
+                                className="mt-2 inline-flex items-center rounded-md border border-amber-400/60 px-2.5 py-1 text-[11px] font-medium text-amber-100 hover:bg-amber-500/10 disabled:opacity-50"
+                              >
+                                {adminClosureLoading ===
+                                (row.stationId ?? "__legacy__")
+                                  ? "Cerrando…"
+                                  : "Cierre admin"}
+                              </button>
                             )}
                           </div>
                         ) : (
