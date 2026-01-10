@@ -21,7 +21,9 @@ export function formatPosDisplayName(
   const raw =
     access?.label?.trim() ||
     access?.email?.trim();
-  return raw ? `POS ${raw}` : fallback;
+  if (!raw) return fallback;
+  const normalized = raw.replace(/^(pos\s+)+/i, "").trim();
+  return normalized ? `POS ${normalized}` : fallback;
 }
 
 export function getPosStationAccess(): PosStationAccess | null {

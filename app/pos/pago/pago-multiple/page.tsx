@@ -217,7 +217,8 @@ export default function PagoMultiplePage() {
       unsubscribe();
     };
   }, [posMode]);
-  const activeStationId = stationInfo?.id ?? null;
+  const isStationMode = posMode === "station";
+  const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
   const paidInputRef = useRef<HTMLInputElement | null>(null);
   const [paymentCatalog, setPaymentCatalog] = useState<PaymentMethodRecord[]>(
     DEFAULT_PAYMENT_METHODS
@@ -576,7 +577,7 @@ export default function PagoMultiplePage() {
         pos_name: resolvedPosName,
         vendor_name: user?.name ?? undefined,
       };
-      if (posMode === "station" && activeStationId) {
+      if (activeStationId) {
         basePayload.station_id = activeStationId;
       }
       if (selectedCustomer?.id) {

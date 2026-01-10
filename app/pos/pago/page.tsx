@@ -173,7 +173,8 @@ export default function PagoPage() {
     () => formatPosDisplayName(stationInfo, POS_DISPLAY_NAME),
     [stationInfo]
   );
-  const activeStationId = stationInfo?.id ?? null;
+  const isStationMode = posMode === "station";
+  const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
   const printerStorageKey = useMemo(
     () => `kensar_pos_printer_${activeStationId ?? "pos-web"}`,
     [activeStationId]
@@ -534,7 +535,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         pos_name: resolvedPosName,
         vendor_name: user?.name ?? undefined,
       };
-      if (posMode === "station" && activeStationId) {
+      if (activeStationId) {
         basePayload.station_id = activeStationId;
       }
       if (cartSurcharge.enabled && cartSurcharge.amount > 0) {

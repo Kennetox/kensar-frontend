@@ -159,7 +159,8 @@ export default function AbonosPage() {
       unsubscribe();
     };
   }, [posMode]);
-  const activeStationId = stationInfo?.id ?? null;
+  const isStationMode = posMode === "station";
+  const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
 
   useEffect(() => {
     setSelectedMethod((prev) => {

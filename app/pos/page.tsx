@@ -121,6 +121,7 @@ type ClosureSale = {
   id: number;
   created_at: string;
   closure_id?: number | null;
+  pos_name?: string | null;
   total?: number;
   payment_method: string;
   payments?: { id?: number; method: string; amount: number }[];
@@ -404,7 +405,13 @@ export default function PosPage() {
     () => formatPosDisplayName(stationInfo, POS_DISPLAY_NAME),
     [stationInfo]
   );
-  const activeStationId = stationInfo?.id ?? null;
+  const isStationMode = posMode === "station";
+  const isWebMode = posMode === "web";
+  const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
+  const isPosWebName = useCallback((name?: string | null) => {
+    if (!name) return false;
+    return name.toLowerCase().includes("pos web");
+  }, []);
 
   // --------- Estado POS (UI) ---------
   const [search, setSearch] = useState("");
@@ -1268,7 +1275,9 @@ export default function PosPage() {
             ? pendingSales.filter(
                 (sale) => sale.station_id === activeStationId
               )
-            : pendingSales;
+            : isWebMode
+              ? pendingSales.filter((sale) => isPosWebName(sale.pos_name))
+              : pendingSales;
         const todayKey = getLocalDateKey();
         const lookback = new Date();
         lookback.setDate(lookback.getDate() - 7);
@@ -1292,13 +1301,18 @@ export default function PosPage() {
           const baseSale = allSalesMap.get(order.sale_id);
           (order.payments ?? []).forEach((payment) => {
             if (payment.closure_id != null) return;
-            if (
-              activeStationId &&
-              payment.station_id !== activeStationId &&
-              (!payment.station_id &&
-                baseSale?.station_id !== activeStationId)
-            ) {
-              return;
+            if (activeStationId) {
+              if (
+                payment.station_id !== activeStationId &&
+                (!payment.station_id &&
+                  baseSale?.station_id !== activeStationId)
+              ) {
+                return;
+              }
+            } else if (isWebMode) {
+              if (!isPosWebName(baseSale?.pos_name)) {
+                return;
+              }
             }
             const paymentDateKey = getLocalDateKey(payment.paid_at);
             registerPendingDate(paymentDateKey);
@@ -1323,7 +1337,7 @@ export default function PosPage() {
     return () => {
       active = false;
     };
-  }, [token, activeStationId]);
+  }, [token, activeStationId, isWebMode, isPosWebName]);
 
   useEffect(() => {
     if (!quantityModalOpen) return;
@@ -1370,12 +1384,12 @@ export default function PosPage() {
       sales.forEach((sale) => allSalesMap.set(sale.id, sale));
       const pendingSales = sales.filter((sale) => sale.closure_id == null);
       const shouldFilterByStation =
-        Boolean(activeStationId) &&
-        activeStationId !== "" &&
-        activeStationId !== "pos-web";
+        Boolean(activeStationId) && activeStationId !== "";
       const filteredPendingSales = shouldFilterByStation
         ? pendingSales.filter((sale) => sale.station_id === activeStationId)
-        : pendingSales;
+        : isWebMode
+          ? pendingSales.filter((sale) => isPosWebName(sale.pos_name))
+          : pendingSales;
       const filteredSaleIds = new Set(filteredPendingSales.map((sale) => sale.id));
       let totalCollected = 0;
       let totalRefunds = 0;
@@ -1415,7 +1429,9 @@ export default function PosPage() {
                   (!payment.station_id &&
                     baseSale?.station_id === activeStationId)
               )
-            : pendingPayments.length > 0;
+            : isWebMode
+              ? pendingPayments.some(() => isPosWebName(baseSale?.pos_name))
+              : pendingPayments.length > 0;
           if (!saleMatches && !paymentMatches) {
             return null;
           }
@@ -1597,7 +1613,11 @@ export default function PosPage() {
               (!payment.station_id &&
                 (relatedSale?.station_id ?? baseSale?.station_id) ===
                   activeStationId)
-            : true;
+            : isWebMode
+              ? isPosWebName(
+                  relatedSale?.pos_name ?? baseSale?.pos_name ?? null
+                )
+              : true;
           if (!paymentMatches) return;
           addMethodAmount(payment.method, payment.amount);
           totalCollected += payment.amount;
@@ -1683,7 +1703,7 @@ export default function PosPage() {
     } finally {
       setClosureTotalsLoading(false);
     }
-  }, [token, paymentMethodIndex, activeStationId]);
+  }, [token, paymentMethodIndex, activeStationId, isWebMode, isPosWebName]);
 
   const processPendingSale = useCallback(
     async (
