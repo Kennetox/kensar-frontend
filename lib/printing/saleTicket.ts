@@ -1,5 +1,5 @@
 import type { PosSettingsPayload } from "@/lib/api/settings";
-import { generateCode39Svg } from "@/lib/utils/barcode";
+import { generateCode128Svg } from "@/lib/utils/barcode";
 
 export type SaleTicketItem = {
   name: string;
@@ -396,14 +396,23 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         </div>`
       : "";
 
-  const barcodeValue =
-    options.documentNumber?.trim() || String(options.saleNumber ?? "");
-  const barcodeSvg = generateCode39Svg(barcodeValue, {
-    height: 40,
-    narrowWidth: 2,
-    wideWidth: 4.5,
+  const rawSaleNumber = String(options.saleNumber ?? "")
+    .replace(/\D/g, "")
+    .trim();
+  const fallbackFromDoc = options.documentNumber
+    ? options.documentNumber.replace(/\D/g, "").trim()
+    : "";
+  const numericValue = rawSaleNumber || fallbackFromDoc || "0";
+  const paddedValue =
+    numericValue.length >= 6
+      ? numericValue
+      : numericValue.padStart(6, "0");
+  const barcodeSvg = generateCode128Svg(paddedValue, {
+    height: 52,
+    moduleWidth: 2,
     includeText: true,
     includeTextFontSize: 10,
+    quietZoneModules: 10,
   });
 
   return `<!DOCTYPE html>
