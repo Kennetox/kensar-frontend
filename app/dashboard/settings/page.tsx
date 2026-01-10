@@ -309,6 +309,15 @@ const safeString = (value: string | null | undefined, fallback = "") =>
 
 const API_BASE = getApiBase().replace(/\/$/, "");
 
+const normalizePosLabel = (value?: string | null) =>
+  (value ?? "").replace(/^(pos\s+)+/i, "").trim().toLowerCase();
+
+const isPosWebName = (value?: string | null) => {
+  const normalized = normalizePosLabel(value);
+  if (!normalized) return false;
+  return normalized === "web" || normalized.includes("pos web") || normalized.includes("web");
+};
+
 type ClosureTotalsByMethod = {
   cash: number;
   card: number;
@@ -639,6 +648,19 @@ export default function SettingsPage() {
   const [adminClosureMessage, setAdminClosureMessage] = useState<string | null>(null);
   const [adminClosureError, setAdminClosureError] = useState<string | null>(null);
   const isAdmin = user?.role === "Administrador";
+  const resolveStationId = useCallback(
+    (stationId?: string | null, posName?: string | null) => {
+      if (stationId) return stationId;
+      if (isPosWebName(posName)) return "pos-web";
+      const normalized = normalizePosLabel(posName);
+      if (!normalized) return null;
+      const matched = stations.find(
+        (station) => normalizePosLabel(station.label) === normalized
+      );
+      return matched?.id ?? null;
+    },
+    [stations]
+  );
   const getStationRecordFromResponse = useCallback(
     (response?: PosStationResponse | PosStationRecord | null) => {
       if (!response) return null;
@@ -739,14 +761,17 @@ export default function SettingsPage() {
       };
       sales.forEach((sale) => {
         if (sale.closure_id != null) return;
-        registerPending(sale.station_id ?? null, sale.created_at);
+        const resolvedStation = resolveStationId(sale.station_id ?? null, sale.pos_name ?? null);
+        registerPending(resolvedStation, sale.created_at);
       });
       separatedOrders.forEach((order: SeparatedOrder) => {
         const baseSale = saleMap.get(order.sale_id);
         order.payments?.forEach((payment) => {
           if (payment.closure_id != null) return;
-          const paymentStation =
-            payment.station_id ?? baseSale?.station_id ?? null;
+          const paymentStation = resolveStationId(
+            payment.station_id ?? baseSale?.station_id ?? null,
+            baseSale?.pos_name ?? null
+          );
           registerPending(paymentStation, payment.paid_at);
         });
       });
@@ -759,10 +784,17 @@ export default function SettingsPage() {
         });
       const seenStations = new Set<string>();
       sortedClosures.forEach((closure) => {
-        const stationKey = closure.station_id ?? "__legacy__";
+        const resolvedStation = resolveStationId(
+          closure.station_id ?? null,
+          closure.pos_name ?? closure.pos_identifier ?? null
+        );
+        const stationKey = resolvedStation ?? "__legacy__";
         if (seenStations.has(stationKey)) return;
         seenStations.add(stationKey);
-        const row = ensureRow(closure.station_id ?? null, closure.pos_name ?? closure.pos_identifier ?? null);
+        const row = ensureRow(
+          resolvedStation,
+          closure.pos_name ?? closure.pos_identifier ?? null
+        );
         row.lastClosureLabel = closure.closed_at
           ? formatDateLabel(closure.closed_at)
           : undefined;
@@ -800,7 +832,7 @@ export default function SettingsPage() {
     } finally {
       setControlLoading(false);
     }
-  }, [authHeaders, stations, token]);
+  }, [authHeaders, stations, token, resolveStationId]);
 
   const buildAdminClosureTotals = useCallback(
     async (stationId: string | null) => {
@@ -820,10 +852,14 @@ export default function SettingsPage() {
       }
       const sales: ControlSaleRecord[] = await salesRes.json();
       const pendingSales = sales.filter((sale) => sale.closure_id == null);
-      const matchesStation = (value?: string | null) =>
-        stationId ? value === stationId : !value;
+      const isPosWeb = stationId === "pos-web";
+      const matchesStation = (value?: string | null, posName?: string | null) => {
+        if (isPosWeb) return isPosWebName(posName);
+        if (stationId) return value === stationId;
+        return !value && !isPosWebName(posName);
+      };
       const filteredSales = pendingSales.filter((sale) =>
-        matchesStation(sale.station_id)
+        matchesStation(sale.station_id ?? null, sale.pos_name ?? null)
       );
       const saleMap = new Map<number, ControlSaleRecord>();
       sales.forEach((sale) => saleMap.set(sale.id, sale));
@@ -895,11 +931,13 @@ export default function SettingsPage() {
         const pendingPayments =
           order.payments?.filter((payment) => payment.closure_id == null) ?? [];
         pendingPayments.forEach((payment) => {
-          const paymentMatches = stationId
-            ? payment.station_id === stationId ||
-              (!payment.station_id &&
-                (baseSale?.station_id ?? null) === stationId)
-            : !payment.station_id && !baseSale?.station_id;
+          const paymentMatches = stationId === "pos-web"
+            ? isPosWebName(baseSale?.pos_name)
+            : stationId
+              ? payment.station_id === stationId ||
+                (!payment.station_id &&
+                  (baseSale?.station_id ?? null) === stationId)
+              : !payment.station_id && !baseSale?.station_id;
           if (!paymentMatches) return;
           addMethodAmount(payment.method, payment.amount);
           totalCollected += payment.amount;
@@ -947,8 +985,9 @@ export default function SettingsPage() {
         if (!hasPendingTotals) {
           throw new Error("No hay ventas pendientes por cerrar en esta estación.");
         }
+        const isPosWeb = row.stationId === "pos-web";
         const payload = {
-          pos_name: row.label,
+          pos_name: isPosWeb ? "POS Web" : row.label,
           total_amount: totals.totalAmount,
           total_cash: totals.totalCash,
           total_card: totals.totalCard,
@@ -961,7 +1000,7 @@ export default function SettingsPage() {
           counted_cash: totals.totalCash,
           difference: 0,
           notes: "Cierre administrativo desde Control de caja.",
-          ...(row.stationId ? { station_id: row.stationId } : {}),
+          ...(!isPosWeb && row.stationId ? { station_id: row.stationId } : {}),
         };
         const apiBase = getApiBase();
         const res = await fetch(`${apiBase}/pos/closures`, {
