@@ -408,6 +408,19 @@ export default function PosPage() {
   const isStationMode = posMode === "station";
   const isWebMode = posMode === "web";
   const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
+  const normalizePosLabel = useCallback((value?: string | null) => {
+    return (value ?? "").replace(/^(pos\s+)+/i, "").trim().toLowerCase();
+  }, []);
+  const matchesStationLabel = useCallback(
+    (posName?: string | null) => {
+      const label = stationInfo?.label?.trim();
+      if (!label) return false;
+      const normalizedLabel = normalizePosLabel(label);
+      if (!normalizedLabel) return false;
+      return normalizePosLabel(posName) === normalizedLabel;
+    },
+    [normalizePosLabel, stationInfo]
+  );
   const isPosWebName = useCallback((name?: string | null) => {
     if (!name) return false;
     return name.toLowerCase().includes("pos web");
@@ -1273,7 +1286,9 @@ export default function PosPage() {
         const filteredSales =
           activeStationId && activeStationId !== ""
             ? pendingSales.filter(
-                (sale) => sale.station_id === activeStationId
+                (sale) =>
+                  sale.station_id === activeStationId ||
+                  (!sale.station_id && matchesStationLabel(sale.pos_name))
               )
             : isWebMode
               ? pendingSales.filter((sale) => isPosWebName(sale.pos_name))
@@ -1305,7 +1320,8 @@ export default function PosPage() {
               if (
                 payment.station_id !== activeStationId &&
                 (!payment.station_id &&
-                  baseSale?.station_id !== activeStationId)
+                  baseSale?.station_id !== activeStationId) &&
+                !matchesStationLabel(baseSale?.pos_name)
               ) {
                 return;
               }
@@ -1337,7 +1353,7 @@ export default function PosPage() {
     return () => {
       active = false;
     };
-  }, [token, activeStationId, isWebMode, isPosWebName]);
+  }, [token, activeStationId, isWebMode, isPosWebName, matchesStationLabel]);
 
   useEffect(() => {
     if (!quantityModalOpen) return;
@@ -1386,7 +1402,11 @@ export default function PosPage() {
       const shouldFilterByStation =
         Boolean(activeStationId) && activeStationId !== "";
       const filteredPendingSales = shouldFilterByStation
-        ? pendingSales.filter((sale) => sale.station_id === activeStationId)
+        ? pendingSales.filter(
+            (sale) =>
+              sale.station_id === activeStationId ||
+              (!sale.station_id && matchesStationLabel(sale.pos_name))
+          )
         : isWebMode
           ? pendingSales.filter((sale) => isPosWebName(sale.pos_name))
           : pendingSales;
@@ -1427,7 +1447,10 @@ export default function PosPage() {
                 (payment) =>
                   payment.station_id === activeStationId ||
                   (!payment.station_id &&
-                    baseSale?.station_id === activeStationId)
+                    baseSale?.station_id === activeStationId) ||
+                  (!payment.station_id &&
+                    !baseSale?.station_id &&
+                    matchesStationLabel(baseSale?.pos_name))
               )
             : isWebMode
               ? pendingPayments.some(() => isPosWebName(baseSale?.pos_name))
@@ -1612,7 +1635,13 @@ export default function PosPage() {
             ? payment.station_id === activeStationId ||
               (!payment.station_id &&
                 (relatedSale?.station_id ?? baseSale?.station_id) ===
-                  activeStationId)
+                  activeStationId) ||
+              (!payment.station_id &&
+                !relatedSale?.station_id &&
+                !baseSale?.station_id &&
+                matchesStationLabel(
+                  relatedSale?.pos_name ?? baseSale?.pos_name ?? null
+                ))
             : isWebMode
               ? isPosWebName(
                   relatedSale?.pos_name ?? baseSale?.pos_name ?? null
@@ -1703,7 +1732,7 @@ export default function PosPage() {
     } finally {
       setClosureTotalsLoading(false);
     }
-  }, [token, paymentMethodIndex, activeStationId, isWebMode, isPosWebName]);
+  }, [token, paymentMethodIndex, activeStationId, isWebMode, isPosWebName, matchesStationLabel]);
 
   const processPendingSale = useCallback(
     async (
