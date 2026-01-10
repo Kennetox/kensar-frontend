@@ -408,7 +408,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
       ? numericValue
       : numericValue.padStart(6, "0");
   const barcodeSvg = generateCode128Svg(paddedValue, {
-    height: 52,
+    height: 30,
     moduleWidth: 2,
     includeText: true,
     includeTextFontSize: 10,
