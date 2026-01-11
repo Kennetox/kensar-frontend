@@ -241,15 +241,15 @@ export default function PagoPage() {
     };
   }, []);
   const qzSecurityConfiguredRef = useRef(false);
-  useEffect(() => {
-    if (!qzClient?.security) return;
-    if (!token) return;
-    if (qzSecurityConfiguredRef.current) return;
-    const headers = {
+  const configureQzSecurity = useCallback(() => {
+    if (!qzClient?.security) return true;
+    if (!token) return false;
+    if (qzSecurityConfiguredRef.current) return true;
+    const authHeaders = {
       Authorization: `Bearer ${token}`,
     };
     qzClient.security.setCertificatePromise(() =>
-      fetch(`${apiBase}/pos/qz/cert`, { headers, credentials: "include" }).then(
+      fetch(`${apiBase}/pos/qz/cert`, { credentials: "include" }).then(
         async (res) => {
           if (!res.ok) {
             throw new Error(`No se pudo obtener el certificado (Error ${res.status}).`);
@@ -263,7 +263,7 @@ export default function PagoPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...headers,
+          ...authHeaders,
         },
         credentials: "include",
         body: JSON.stringify({ data: toSign }),
@@ -282,7 +282,11 @@ export default function PagoPage() {
       })
     );
     qzSecurityConfiguredRef.current = true;
+    return true;
   }, [apiBase, qzClient, token]);
+  useEffect(() => {
+    configureQzSecurity();
+  }, [configureQzSecurity]);
   const [paymentCatalog, setPaymentCatalog] = useState<PaymentMethodRecord[]>(
     DEFAULT_PAYMENT_METHODS
   );

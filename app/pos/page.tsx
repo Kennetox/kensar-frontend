@@ -598,15 +598,15 @@ export default function PosPage() {
     };
   }, []);
   const qzSecurityConfiguredRef = useRef(false);
-  useEffect(() => {
-    if (!qzInstance?.security) return;
-    if (!token) return;
-    if (qzSecurityConfiguredRef.current) return;
-    const headers = {
+  const configureQzSecurity = useCallback(() => {
+    if (!qzInstance?.security) return true;
+    if (!token) return false;
+    if (qzSecurityConfiguredRef.current) return true;
+    const authHeaders = {
       Authorization: `Bearer ${token}`,
     };
     qzInstance.security.setCertificatePromise(() =>
-      fetch(`${apiBase}/pos/qz/cert`, { headers, credentials: "include" }).then(
+      fetch(`${apiBase}/pos/qz/cert`, { credentials: "include" }).then(
         async (res) => {
           if (!res.ok) {
             throw new Error(`No se pudo obtener el certificado (Error ${res.status}).`);
@@ -620,7 +620,7 @@ export default function PosPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...headers,
+          ...authHeaders,
         },
         credentials: "include",
         body: JSON.stringify({ data: toSign }),
@@ -639,11 +639,19 @@ export default function PosPage() {
       })
     );
     qzSecurityConfiguredRef.current = true;
+    return true;
   }, [apiBase, qzInstance, token]);
+  useEffect(() => {
+    configureQzSecurity();
+  }, [configureQzSecurity]);
 
   const handleScanPrinters = useCallback(async () => {
     if (!qzInstance) {
       setPrinterScanMessage("Instala QZ Tray y autoriza este dominio para listar impresoras.");
+      return;
+    }
+    if (!configureQzSecurity()) {
+      setPrinterScanMessage("No se pudo configurar QZ. Verifica tu sesión.");
       return;
     }
     try {
