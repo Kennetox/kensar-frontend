@@ -549,14 +549,22 @@ export default function PosPage() {
     [printerStorageKey]
   );
 
+  type QzPromiseResolver<T> = (value: T | PromiseLike<T>) => void;
+  type QzPromiseReject = (reason?: unknown) => void;
   type QzType = {
     websocket: { isActive: () => boolean; connect: () => Promise<void> };
     printers: { find: () => Promise<string[]> };
     configs: { create: (printer: string, options?: Record<string, unknown>) => unknown };
     print: (config: unknown, data: unknown) => Promise<void>;
     security?: {
-      setCertificatePromise: (promise: () => Promise<string>) => void;
-      setSignaturePromise: (promise: (toSign: string) => Promise<string>) => void;
+      setCertificatePromise: (
+        promise: (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => void
+      ) => void;
+      setSignaturePromise: (
+        promise: (
+          toSign: string
+        ) => (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => void
+      ) => void;
     };
   };
   const [qzInstance, setQzInstance] = useState<QzType | null>(() => {
@@ -605,45 +613,51 @@ export default function PosPage() {
     const authHeaders = {
       Authorization: `Bearer ${token}`,
     };
-    qzInstance.security.setCertificatePromise((resolve, reject) => {
-      fetch(`${apiBase}/pos/qz/cert`, { credentials: "include" })
-        .then(async (res) => {
-          if (!res.ok) {
-            throw new Error(
-              `No se pudo obtener el certificado (Error ${res.status}).`
-            );
-          }
-          return res.text();
-        })
-        .then(resolve)
-        .catch(reject);
-    });
-    qzInstance.security.setSignaturePromise((toSign) => (resolve, reject) => {
-      fetch(`${apiBase}/pos/qz/sign`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
-        credentials: "include",
-        body: JSON.stringify({ data: toSign }),
-      })
-        .then(async (res) => {
-          if (!res.ok) {
-            const detail = await res.json().catch(() => null);
-            throw new Error(
-              detail?.detail ?? `No se pudo firmar el reto (Error ${res.status}).`
-            );
-          }
-          const data = (await res.json()) as { signature?: string };
-          if (!data?.signature) {
-            throw new Error("La API no devolvió la firma.");
-          }
-          return data.signature;
-        })
-        .then(resolve)
-        .catch(reject);
-    });
+    qzInstance.security.setCertificatePromise(
+      (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => {
+        fetch(`${apiBase}/pos/qz/cert`, { credentials: "include" })
+          .then(async (res) => {
+            if (!res.ok) {
+              throw new Error(
+                `No se pudo obtener el certificado (Error ${res.status}).`
+              );
+            }
+            return res.text();
+          })
+          .then(resolve)
+          .catch(reject);
+      }
+    );
+    qzInstance.security.setSignaturePromise(
+      (toSign: string) =>
+        (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => {
+          fetch(`${apiBase}/pos/qz/sign`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...authHeaders,
+            },
+            credentials: "include",
+            body: JSON.stringify({ data: toSign }),
+          })
+            .then(async (res) => {
+              if (!res.ok) {
+                const detail = await res.json().catch(() => null);
+                throw new Error(
+                  detail?.detail ??
+                    `No se pudo firmar el reto (Error ${res.status}).`
+                );
+              }
+              const data = (await res.json()) as { signature?: string };
+              if (!data?.signature) {
+                throw new Error("La API no devolvió la firma.");
+              }
+              return data.signature;
+            })
+            .then(resolve)
+            .catch(reject);
+        }
+    );
     qzSecurityConfiguredRef.current = true;
     return true;
   }, [apiBase, qzInstance, token]);
@@ -703,7 +717,7 @@ export default function PosPage() {
       );
       setPrinterScanning(false);
     }
-  }, [qzInstance]);
+  }, [qzInstance, configureQzSecurity]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (newTabQuery) {
