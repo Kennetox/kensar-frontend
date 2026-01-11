@@ -660,11 +660,34 @@ export default function PosPage() {
       if (!qzInstance.websocket.isActive()) {
         await qzInstance.websocket.connect();
       }
-      const list: string[] = await qzInstance.printers.find();
-      setAvailablePrinters(list ?? []);
-      if (!list?.length) {
-        setPrinterScanMessage("No se detectaron impresoras en QZ Tray.");
-      }
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      timeoutId = setTimeout(() => {
+        setPrinterScanMessage(
+          "QZ Tray no respondió. Verifica que la impresora esté instalada en macOS."
+        );
+        setPrinterScanning(false);
+      }, 8000);
+      qzInstance.printers
+        .find()
+        .then((list: string[]) => {
+          if (timeoutId) clearTimeout(timeoutId);
+          setAvailablePrinters(list ?? []);
+          if (!list?.length) {
+            setPrinterScanMessage("No se detectaron impresoras en QZ Tray.");
+          }
+        })
+        .catch((err) => {
+          if (timeoutId) clearTimeout(timeoutId);
+          console.error(err);
+          setPrinterScanMessage(
+            err instanceof Error
+              ? err.message
+              : "No se pudieron listar las impresoras con QZ Tray."
+          );
+        })
+        .finally(() => {
+          setPrinterScanning(false);
+        });
     } catch (err) {
       console.error(err);
       setPrinterScanMessage(
@@ -672,7 +695,6 @@ export default function PosPage() {
           ? err.message
           : "No se pudieron listar las impresoras con QZ Tray."
       );
-    } finally {
       setPrinterScanning(false);
     }
   }, [qzInstance]);
