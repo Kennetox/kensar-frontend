@@ -421,49 +421,50 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
       <meta charSet="utf-8" />
       <title>Ticket ${escapeHtml(options.documentNumber)}</title>
       <style>
-        @page { margin: 6mm; }
+        @page { margin: 4mm; }
         * { box-sizing: border-box; }
         body {
           font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
           width: 80mm;
           margin: 0 auto;
-          font-size: 11px;
+          font-size: 12px;
           color: #0f172a;
           background: #ffffff;
         }
         .ticket {
-          padding: 4mm 4mm 10mm;
+          padding: 3mm 3mm 8mm;
         }
         .logo {
           text-align: center;
-          margin-bottom: 6px;
+          margin-bottom: 8px;
         }
         .logo img {
-          max-width: 52mm;
-          max-height: 22mm;
+          max-width: 60mm;
+          max-height: 28mm;
           object-fit: contain;
         }
         h1 {
-          font-size: 16px;
+          font-size: 18px;
           text-align: center;
           margin: 0;
         }
         .company-info {
           text-align: center;
-          color: #475569;
-          font-size: 11px;
-          line-height: 1.35;
+          color: #111827;
+          font-size: 12px;
+          line-height: 1.4;
           margin-top: 4px;
         }
         .separator {
-          border-top: 1px dashed #cbd5f5;
-          margin: 12px 0;
+          border-top: 1px solid #111827;
+          margin: 10px 0;
         }
         .line-title {
-          font-size: 10px;
-          letter-spacing: 0.12em;
-          color: #475569;
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          color: #111827;
           text-transform: uppercase;
+          font-weight: 700;
           margin-bottom: 2px;
         }
         .customer-name {
@@ -471,20 +472,20 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           font-size: 13px;
         }
         .customer-detail {
-          color: #475569;
+          color: #374151;
           font-size: 11px;
         }
         .line {
           display: flex;
           justify-content: space-between;
-          font-size: 11px;
+          font-size: 12px;
           margin-bottom: 2px;
           line-height: 1.4;
         }
         .line span:last-child {
           min-width: 38mm;
           text-align: right;
-          font-weight: 600;
+          font-weight: 700;
         }
         .items {
           display: flex;
@@ -503,7 +504,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           font-weight: 600;
         }
         .item-meta {
-          color: #64748b;
+          color: #475569;
           font-size: 10px;
         }
         .item-discount {
@@ -518,16 +519,20 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         .totals {
           display: flex;
           justify-content: space-between;
-          font-size: 12px;
-          margin-top: 6px;
+          font-size: 13px;
+          margin-top: 8px;
+        }
+        .totals span {
+          font-weight: 700;
         }
         .totals strong {
-          font-size: 16px;
+          font-size: 20px;
+          font-weight: 800;
         }
         .payments .row {
           display: flex;
           justify-content: space-between;
-          font-size: 11px;
+          font-size: 12px;
           margin-bottom: 2px;
         }
         .payments .row span:last-child {
@@ -560,8 +565,8 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         .footer {
           margin-top: 16px;
           text-align: center;
-          font-size: 10px;
-          color: #475569;
+          font-size: 11px;
+          color: #111827;
           line-height: 1.4;
         }
       </style>
@@ -1083,25 +1088,26 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
         @page { margin: 4mm; }
         body {
           font-family: "Helvetica Neue", Arial, sans-serif;
-          width: 58mm;
+          width: 80mm;
           margin: 0 auto;
-          font-size: 11px;
+          font-size: 12px;
           color: #0f172a;
         }
-        h1 { font-size: 15px; text-align: center; margin: 2px 0; }
+        h1 { font-size: 18px; text-align: center; margin: 2px 0; }
         .center { text-align: center; }
-        .muted { color: #475569; font-size: 10px; }
+        .muted { color: #374151; font-size: 11px; }
+        .subtitle { font-size: 12px; font-weight: 700; }
         .block { margin-top: 10px; }
-        hr { border: none; border-top: 1px dashed #cbd5f5; margin: 8px 0; }
-        .row { display: flex; justify-content: space-between; font-size: 11px; }
+        hr { border: none; border-top: 1px solid #111827; margin: 8px 0; }
+        .row { display: flex; justify-content: space-between; font-size: 12px; }
         .row.emphasize {
           font-weight: 700;
-          border-bottom: 1px solid #cbd5f5;
+          border-bottom: 1px solid #111827;
           padding-bottom: 4px;
           margin-bottom: 6px;
         }
-        .logo { text-align: center; margin-bottom: 4px; }
-        .logo img { max-height: 52px; max-width: 180px; object-fit: contain; }
+        .logo { text-align: center; margin-bottom: 8px; }
+        .logo img { max-height: 28mm; max-width: 60mm; object-fit: contain; }
       </style>
     </head>
     <body>
@@ -1111,7 +1117,7 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
       <div class="center muted">${escapeHtml(phone)}</div>
       <div class="center muted">${escapeHtml(email)}</div>
       <div class="center muted">${escapeHtml(taxId)}</div>
-      <div class="center muted" style="margin-top:4px;">Reporte Z - Cierre de caja</div>
+      <div class="center muted subtitle" style="margin-top:4px;">Reporte Z - Cierre de caja</div>
       <hr />
       <div class="block">
         <div class="row"><span>No. Reporte</span><span>${escapeHtml(options.documentNumber)}</span></div>

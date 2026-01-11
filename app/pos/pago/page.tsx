@@ -130,12 +130,13 @@ export default function PagoPage() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
+  const apiBase = useMemo(() => getApiBase(), []);
   const [printerConfig, setPrinterConfig] = useState<{
     mode: "browser" | "qz-tray";
     printerName: string;
     width: "58mm" | "80mm";
   }>({
-    mode: "browser",
+    mode: "qz-tray",
     printerName: "",
     width: "80mm",
   });
@@ -196,6 +197,10 @@ export default function PagoPage() {
     printers: { find: () => Promise<string[]> };
     configs: { create: (printer: string, options?: Record<string, unknown>) => unknown };
     print: (config: unknown, data: unknown) => Promise<void>;
+    security?: {
+      setCertificatePromise: (promise: () => Promise<string>) => void;
+      setSignaturePromise: (promise: (toSign: string) => Promise<string>) => void;
+    };
   };
   const [qzClient, setQzClient] = useState<QzType | null>(() => {
     if (typeof window !== "undefined") {
@@ -235,6 +240,49 @@ export default function PagoPage() {
       script.removeEventListener("load", setIfPresent);
     };
   }, []);
+  const qzSecurityConfiguredRef = useRef(false);
+  useEffect(() => {
+    if (!qzClient?.security) return;
+    if (!token) return;
+    if (qzSecurityConfiguredRef.current) return;
+    const headers = {
+      Authorization: `Bearer ${token}`,
+    };
+    qzClient.security.setCertificatePromise(() =>
+      fetch(`${apiBase}/pos/qz/cert`, { headers, credentials: "include" }).then(
+        async (res) => {
+          if (!res.ok) {
+            throw new Error(`No se pudo obtener el certificado (Error ${res.status}).`);
+          }
+          return res.text();
+        }
+      )
+    );
+    qzClient.security.setSignaturePromise((toSign) =>
+      fetch(`${apiBase}/pos/qz/sign`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...headers,
+        },
+        credentials: "include",
+        body: JSON.stringify({ data: toSign }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const detail = await res.json().catch(() => null);
+          throw new Error(
+            detail?.detail ?? `No se pudo firmar el reto (Error ${res.status}).`
+          );
+        }
+        const data = (await res.json()) as { signature?: string };
+        if (!data?.signature) {
+          throw new Error("La API no devolvió la firma.");
+        }
+        return data.signature;
+      })
+    );
+    qzSecurityConfiguredRef.current = true;
+  }, [apiBase, qzClient, token]);
   const [paymentCatalog, setPaymentCatalog] = useState<PaymentMethodRecord[]>(
     DEFAULT_PAYMENT_METHODS
   );

@@ -439,6 +439,7 @@ export default function PosPage() {
   const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const imageBaseUrl = useMemo(() => getApiBase(), []);
+  const apiBase = useMemo(() => getApiBase(), []);
   const [printerModalOpen, setPrinterModalOpen] = useState(false);
   const [availablePrinters, setAvailablePrinters] = useState<string[]>([]);
   const [printerScanMessage, setPrinterScanMessage] = useState<string | null>(null);
@@ -450,12 +451,19 @@ export default function PosPage() {
     autoOpenDrawer: boolean;
     showDrawerButton: boolean;
   }>({
-    mode: "browser",
+    mode: "qz-tray",
     printerName: "",
     width: "80mm",
     autoOpenDrawer: false,
     showDrawerButton: true,
   });
+  const router = useRouter();
+  const { token, user, logout } = useAuth();
+  const isOnline = useOnlineStatus();
+  const authHeaders = useMemo(
+    () => (token ? { Authorization: `Bearer ${token}` } : null),
+    [token]
+  );
   const printerWidthOptions = useMemo(
     () => [
       { value: "80mm", label: "80 mm" },
@@ -546,12 +554,92 @@ export default function PosPage() {
     printers: { find: () => Promise<string[]> };
     configs: { create: (printer: string, options?: Record<string, unknown>) => unknown };
     print: (config: unknown, data: unknown) => Promise<void>;
+    security?: {
+      setCertificatePromise: (promise: () => Promise<string>) => void;
+      setSignaturePromise: (promise: (toSign: string) => Promise<string>) => void;
+    };
   };
-  const qzInstance: QzType | null =
-    typeof window !== "undefined" && "qz" in window
-      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ((window as any).qz as QzType | undefined) ?? null
-      : null;
+  const [qzInstance, setQzInstance] = useState<QzType | null>(() => {
+    if (typeof window !== "undefined") {
+      const w = window as unknown as { qz?: QzType };
+      return w.qz ?? null;
+    }
+    return null;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const setIfPresent = () => {
+      if (cancelled) return;
+      const w = window as unknown as { qz?: QzType };
+      if (w.qz) setQzInstance(w.qz);
+    };
+    const w = window as unknown as { qz?: QzType };
+    if (w.qz) {
+      setIfPresent();
+      return () => {
+        cancelled = true;
+      };
+    }
+    const existing = document.querySelector('script[data-qz-tray]') as HTMLScriptElement | null;
+    const script = existing ?? document.createElement("script");
+    if (!existing) {
+      script.src = "https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
+      script.async = true;
+      script.dataset.qzTray = "1";
+      script.onerror = () =>
+        console.warn("No se pudo cargar el script de QZ Tray desde la CDN.");
+      document.head.appendChild(script);
+    }
+    script.addEventListener("load", setIfPresent);
+    return () => {
+      cancelled = true;
+      script.removeEventListener("load", setIfPresent);
+    };
+  }, []);
+  const qzSecurityConfiguredRef = useRef(false);
+  useEffect(() => {
+    if (!qzInstance?.security) return;
+    if (!token) return;
+    if (qzSecurityConfiguredRef.current) return;
+    const headers = {
+      Authorization: `Bearer ${token}`,
+    };
+    qzInstance.security.setCertificatePromise(() =>
+      fetch(`${apiBase}/pos/qz/cert`, { headers, credentials: "include" }).then(
+        async (res) => {
+          if (!res.ok) {
+            throw new Error(`No se pudo obtener el certificado (Error ${res.status}).`);
+          }
+          return res.text();
+        }
+      )
+    );
+    qzInstance.security.setSignaturePromise((toSign) =>
+      fetch(`${apiBase}/pos/qz/sign`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...headers,
+        },
+        credentials: "include",
+        body: JSON.stringify({ data: toSign }),
+      }).then(async (res) => {
+        if (!res.ok) {
+          const detail = await res.json().catch(() => null);
+          throw new Error(
+            detail?.detail ?? `No se pudo firmar el reto (Error ${res.status}).`
+          );
+        }
+        const data = (await res.json()) as { signature?: string };
+        if (!data?.signature) {
+          throw new Error("La API no devolvió la firma.");
+        }
+        return data.signature;
+      })
+    );
+    qzSecurityConfiguredRef.current = true;
+  }, [apiBase, qzInstance, token]);
 
   const handleScanPrinters = useCallback(async () => {
     if (!qzInstance) {
@@ -1074,13 +1162,6 @@ export default function PosPage() {
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(null);
 
-  const router = useRouter();
-  const { token, user, logout } = useAuth();
-  const isOnline = useOnlineStatus();
-  const authHeaders = useMemo(
-    () => (token ? { Authorization: `Bearer ${token}` } : null),
-    [token]
-  );
   const canProceedToPayment = cart.length > 0;
   const sellerName = user?.name
     ? `Vendedor: ${user.name}`
