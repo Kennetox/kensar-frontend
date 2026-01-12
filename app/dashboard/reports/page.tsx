@@ -5,6 +5,13 @@ import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import { fetchPosSettings, PosSettingsPayload } from "@/lib/api/settings";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
+import {
+  buildBogotaDateFromKey,
+  formatBogotaDate,
+  getBogotaDateKey,
+  getBogotaDateParts,
+  parseDateInput,
+} from "@/lib/time/bogota";
 
 type QuickRange = "today" | "yesterday" | "week" | "month" | "year";
 
@@ -120,12 +127,11 @@ const PAGE_HEIGHT_MM = 260;
 const MM_TO_PX = 96 / 25.4;
 
 const getDefaultDates = () => {
-  const now = new Date();
+  const { year, month } = getBogotaDateParts();
+  const todayKey = getBogotaDateKey();
   return {
-    fromDate: new Date(now.getFullYear(), now.getMonth(), 1)
-      .toISOString()
-      .slice(0, 10),
-    toDate: now.toISOString().slice(0, 10),
+    fromDate: `${year}-${month}-01`,
+    toDate: todayKey,
   };
 };
 const FAVORITES_STORAGE_KEY = "kensar_report_favorites";
@@ -616,13 +622,14 @@ function filterSalesByMeta(
   meta: FilterMeta
 ): ReportSale[] {
   if (!salesData.length) return [];
-  const from = new Date(meta.fromDate);
-  const to = new Date(meta.toDate);
-  to.setHours(23, 59, 59, 999);
+  const from = buildBogotaDateFromKey(meta.fromDate);
+  const to = buildBogotaDateFromKey(meta.toDate);
+  to.setUTCDate(to.getUTCDate() + 1);
+  to.setUTCMilliseconds(-1);
 
   return salesData.filter((sale) => {
-    const saleDate = new Date(sale.created_at);
-    if (Number.isNaN(saleDate.getTime())) return false;
+    const saleDate = parseDateInput(sale.created_at);
+    if (!saleDate) return false;
     if (saleDate < from || saleDate > to) return false;
 
     if (
@@ -781,7 +788,10 @@ function buildDocumentHtml(
             </div>
             <div class="right">
               <span>Generado:</span>
-              <div>${new Date().toLocaleString("es-CO")}</div>
+              <div>${formatBogotaDate(new Date(), {
+                dateStyle: "short",
+                timeStyle: "short",
+              })}</div>
             </div>
           </header>
           <div class="meta">
@@ -956,7 +966,10 @@ function buildDocumentHtml(
             </div>
             <div class="right">
               <span>Generado:</span>
-              <div>${new Date().toLocaleString("es-CO")}</div>
+              <div>${formatBogotaDate(new Date(), {
+                dateStyle: "short",
+                timeStyle: "short",
+              })}</div>
             </div>
           </header>
           <div class="chart-meta">
@@ -1124,23 +1137,11 @@ function buildReportResult(
     return map;
   };
 
-const dayFormatter = (iso: string) => {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return "--";
-    return date.toLocaleDateString("es-CO", {
-      day: "2-digit",
-      month: "short",
-    });
-};
+const dayFormatter = (iso: string) =>
+  formatBogotaDate(iso, { day: "2-digit", month: "short" }) || "--";
 
-const dateTimeFormatter = (iso: string) => {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return "--";
-    return date.toLocaleString("es-CO", {
-      dateStyle: "short",
-      timeStyle: "short",
-    });
-  };
+const dateTimeFormatter = (iso: string) =>
+  formatBogotaDate(iso, { dateStyle: "short", timeStyle: "short" }) || "--";
 
   switch (reportId) {
     case "daily-sales": {
@@ -1253,15 +1254,16 @@ const dateTimeFormatter = (iso: string) => {
       let minHour = 23;
       let maxHour = 0;
       sales.forEach((sale) => {
-        const date = new Date(sale.created_at);
-        if (Number.isNaN(date.getTime())) return;
-        const hour = date.getHours();
-        minHour = Math.min(minHour, hour);
-        maxHour = Math.max(maxHour, hour);
-        if (!hoursMap.has(hour)) {
-          hoursMap.set(hour, { total: 0, count: 0 });
+        const { hour: hourPart } = getBogotaDateParts(sale.created_at);
+        const hourValue = Number(hourPart);
+        if (!Number.isFinite(hourValue)) return;
+        const hourKey = hourValue;
+        minHour = Math.min(minHour, hourKey);
+        maxHour = Math.max(maxHour, hourKey);
+        if (!hoursMap.has(hourKey)) {
+          hoursMap.set(hourKey, { total: 0, count: 0 });
         }
-        const entry = hoursMap.get(hour)!;
+        const entry = hoursMap.get(hourKey)!;
         entry.total += sale.total ?? 0;
         entry.count += 1;
       });
@@ -1410,7 +1412,7 @@ const dateTimeFormatter = (iso: string) => {
           client,
           formatMoney(entry.total),
           entry.count.toString(),
-          new Date(entry.last).toLocaleDateString("es-CO"),
+          formatBogotaDate(entry.last, { dateStyle: "short" }),
         ]);
       return {
         summary: [
@@ -1777,11 +1779,8 @@ type ReportDocumentViewerProps = {
   resolveMethodLabel: PaymentLabelResolver;
 };
 
-const dateFormatter = (iso: string) => {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "--";
-  return date.toLocaleDateString("es-CO");
-};
+const dateFormatter = (iso: string) =>
+  formatBogotaDate(iso, { dateStyle: "short" }) || "--";
 
 function ReportDocumentViewer({
   preset,
@@ -2204,31 +2203,42 @@ export default function ReportsPage() {
   );
 
   const handleQuickRange = (value: QuickRange) => {
-    const now = new Date();
-    let start = new Date(now);
-    let end = new Date(now);
+    const todayKey = getBogotaDateKey();
+    const todayStart = buildBogotaDateFromKey(todayKey);
+    let startKey = todayKey;
+    let endKey = todayKey;
     switch (value) {
       case "today":
         break;
       case "yesterday":
-        start.setDate(now.getDate() - 1);
-        end = new Date(start);
+        startKey = getBogotaDateKey(
+          new Date(todayStart.getTime() - 24 * 60 * 60 * 1000)
+        );
+        endKey = startKey;
         break;
       case "week":
-        start.setDate(now.getDate() - 6);
+        startKey = getBogotaDateKey(
+          new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000)
+        );
         break;
       case "month":
-        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        {
+          const { year, month } = getBogotaDateParts();
+          startKey = `${year}-${month}-01`;
+        }
         break;
       case "year":
-        start = new Date(now.getFullYear(), 0, 1);
+        {
+          const { year } = getBogotaDateParts();
+          startKey = `${year}-01-01`;
+        }
         break;
       default:
         break;
     }
     setRange(value);
-    setFromDate(start.toISOString().slice(0, 10));
-    setToDate(end.toISOString().slice(0, 10));
+    setFromDate(startKey);
+    setToDate(endKey);
   };
 
   const loadSales = useCallback(async () => {

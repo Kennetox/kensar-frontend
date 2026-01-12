@@ -9,6 +9,7 @@ import {
   type PaymentMethodRecord,
 } from "@/lib/api/paymentMethods";
 import { getApiBase } from "@/lib/api/base";
+import { formatBogotaDate } from "@/lib/time/bogota";
 
 type PaymentMethodSlug = string;
 
@@ -747,7 +748,10 @@ export default function DevolucionesPage() {
                   <div>
                     <span className="text-slate-400">Fecha:</span>{" "}
                     <span className="text-slate-100">
-                      {new Date(sale.created_at).toLocaleString("es-CO")}
+                      {formatBogotaDate(sale.created_at, {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
                     </span>
                   </div>
                 </div>

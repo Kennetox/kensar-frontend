@@ -19,11 +19,7 @@ import {
   buildSaleTicketCustomer,
 } from "@/lib/printing/saleTicket";
 import CustomerPanel from "../components/CustomerPanel";
-import {
-  DEFAULT_PAYMENT_METHODS,
-  fetchPaymentMethods,
-  type PaymentMethodRecord,
-} from "@/lib/api/paymentMethods";
+import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import type { SeparatedOrder } from "@/lib/api/separatedOrders";
 import { useOnlineStatus } from "@/app/hooks/useOnlineStatus";
 import { addPendingSale } from "@/lib/pos/pendingSales";
@@ -307,9 +303,9 @@ export default function PagoPage() {
   useEffect(() => {
     configureQzSecurity();
   }, [configureQzSecurity]);
-  const [paymentCatalog, setPaymentCatalog] = useState<PaymentMethodRecord[]>(
-    DEFAULT_PAYMENT_METHODS
-  );
+  const paymentCatalog = usePaymentMethodsCatalog({
+    fallbackToDefault: false,
+  });
   const [separatedPaymentMethod, setSeparatedPaymentMethod] =
     useState<PaymentMethodSlug | null>(null);
   const creditMethodSlugs = useMemo(
@@ -357,26 +353,6 @@ export default function PagoPage() {
     !cart.length ||
     (requiresManualAmount && (!paidValue || paidValue === "0"));
   const canSubmitWithEnter = !confirmDisabled && !successSale;
-
-  useEffect(() => {
-    let active = true;
-    async function loadMethods() {
-      if (!token) return;
-      try {
-        const data = await fetchPaymentMethods(token);
-        if (!active) return;
-        if (data.length) {
-          setPaymentCatalog(data);
-        }
-      } catch (err) {
-        console.warn("No se pudieron cargar los métodos de pago", err);
-      }
-    }
-    void loadMethods();
-    return () => {
-      active = false;
-    };
-  }, [token]);
 
   useEffect(() => {
     if (!activePaymentMethods.length) return;

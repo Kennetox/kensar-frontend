@@ -22,6 +22,13 @@ import {
   type SeparatedOrder,
 } from "@/lib/api/separatedOrders";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
+import {
+  buildBogotaDateFromKey,
+  formatBogotaDate,
+  getBogotaDateKey,
+  getBogotaDateParts,
+  parseDateInput,
+} from "@/lib/time/bogota";
 
 type SaleItem = {
   id?: number;
@@ -110,65 +117,59 @@ function formatMoney(value: number | undefined | null): string {
 }
 
 function formatDateTime(value: string): string {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-
-  return d.toLocaleString("es-CO", {
+  const formatted = formatBogotaDate(value, {
     year: "2-digit",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   });
+  return formatted || value;
 }
 
 function formatDateInputValue(date: Date): string {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 10);
+  return getBogotaDateKey(date) ?? "";
 }
 
 function formatShortDate(value: string): string {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("es-CO", {
-    day: "2-digit",
-    month: "short",
-  });
+  return formatBogotaDate(value, { day: "2-digit", month: "short" }) || "";
 }
 
 type QuickRange = "today" | "yesterday" | "thisWeek" | "thisMonth";
 
 function getQuickRangeDates(range: QuickRange) {
-  const now = new Date();
+  const todayKey = getBogotaDateKey();
+  const todayStart = buildBogotaDateFromKey(todayKey);
+  const dayMs = 24 * 60 * 60 * 1000;
 
   switch (range) {
     case "yesterday": {
-      const day = new Date(now);
-      day.setDate(day.getDate() - 1);
-      const formatted = formatDateInputValue(day);
+      const formatted = getBogotaDateKey(
+        new Date(todayStart.getTime() - dayMs)
+      );
       return { from: formatted, to: formatted };
     }
     case "thisWeek": {
-      const startOfWeek = new Date(now);
-      const day = startOfWeek.getDay();
-      const diffToMonday = (day + 6) % 7;
-      startOfWeek.setDate(startOfWeek.getDate() - diffToMonday);
+      const jsDay = todayStart.getUTCDay();
+      const diffToMonday = (jsDay + 6) % 7;
+      const startOfWeek = new Date(todayStart);
+      startOfWeek.setUTCDate(todayStart.getUTCDate() - diffToMonday);
       return {
-        from: formatDateInputValue(startOfWeek),
-        to: formatDateInputValue(now),
+        from: getBogotaDateKey(startOfWeek),
+        to: todayKey,
       };
     }
     case "thisMonth": {
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const { year, month } = getBogotaDateParts();
+      const startOfMonth = buildBogotaDateFromKey(`${year}-${month}-01`);
       return {
-        from: formatDateInputValue(startOfMonth),
-        to: formatDateInputValue(now),
+        from: getBogotaDateKey(startOfMonth),
+        to: todayKey,
       };
     }
     case "today":
     default: {
-      const today = formatDateInputValue(now);
-      return { from: today, to: today };
+      return { from: todayKey, to: todayKey };
     }
   }
 }
@@ -415,23 +416,21 @@ export default function SalesHistoryContent({
         .sort((a, b) => a.order_index - b.order_index),
     [catalog]
   );
-  const filterFromDate = useMemo(
-    () => (filterFrom ? new Date(`${filterFrom}T00:00:00`) : null),
-    [filterFrom]
-  );
-  const filterToDate = useMemo(
-    () => (filterTo ? new Date(`${filterTo}T23:59:59.999`) : null),
-    [filterTo]
-  );
+  const filterFromKey = useMemo(() => (filterFrom ? filterFrom : null), [
+    filterFrom,
+  ]);
+  const filterToKey = useMemo(() => (filterTo ? filterTo : null), [
+    filterTo,
+  ]);
   const isWithinFilterRange = useCallback(
     (value: string) => {
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return false;
-      if (filterFromDate && date < filterFromDate) return false;
-      if (filterToDate && date > filterToDate) return false;
+      const dateKey = getBogotaDateKey(value);
+      if (!dateKey) return false;
+      if (filterFromKey && dateKey < filterFromKey) return false;
+      if (filterToKey && dateKey > filterToKey) return false;
       return true;
     },
-    [filterFromDate, filterToDate]
+    [filterFromKey, filterToKey]
   );
   const fetchSeparatedOrderForSale = useCallback(
     async (sale: Sale): Promise<SeparatedOrderSummary | null> => {
@@ -495,11 +494,11 @@ export default function SalesHistoryContent({
       }
 
       const json: Sale[] = await res.json();
-      const ordered = [...json].sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() -
-          new Date(a.created_at).getTime()
-      );
+      const ordered = [...json].sort((a, b) => {
+        const aTime = parseDateInput(a.created_at)?.getTime() ?? 0;
+        const bTime = parseDateInput(b.created_at)?.getTime() ?? 0;
+        return bTime - aTime;
+      });
       setSeparatedPaymentsMap({});
       setSales(ordered);
 

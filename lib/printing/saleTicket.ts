@@ -1,5 +1,6 @@
 import type { PosSettingsPayload } from "@/lib/api/settings";
 import { generateCode128Svg } from "@/lib/utils/barcode";
+import { formatBogotaDate } from "@/lib/time/bogota";
 
 export type SaleTicketItem = {
   name: string;
@@ -245,9 +246,12 @@ function formatMoney(value: number): string {
 
 function formatDisplayDate(value?: string | null): string {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("es-CO");
+  return (
+    formatBogotaDate(value, {
+      dateStyle: "short",
+      timeStyle: "short",
+    }) || value
+  );
 }
 
 export function renderSaleTicket(options: SaleTicketOptions): string {
@@ -596,8 +600,9 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           <div class="line"><span>No. Recibo</span><span>${escapeHtml(
             options.documentNumber
           )}</span></div>
-          <div class="line"><span>Fecha</span><span>${options.date.toLocaleString(
-            "es-CO"
+          <div class="line"><span>Fecha</span><span>${formatBogotaDate(
+            options.date,
+            { dateStyle: "short", timeStyle: "short" }
           )}</span></div>
           ${
             options.vendorName
@@ -767,7 +772,11 @@ export function renderSaleInvoice(options: SaleTicketOptions): string {
         .join("")
     : `<tr><td>Pago registrado</td><td>${formatMoney(options.total)}</td></tr>`;
 
-  const dateString = options.date.toLocaleString("es-CO");
+  const dateString =
+    formatBogotaDate(options.date, {
+      dateStyle: "short",
+      timeStyle: "short",
+    }) || "";
 
   return `<!DOCTYPE html>
   <html>
@@ -1121,7 +1130,10 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
       <hr />
       <div class="block">
         <div class="row"><span>No. Reporte</span><span>${escapeHtml(options.documentNumber)}</span></div>
-        <div class="row"><span>Fecha cierre</span><span>${options.closedAt.toLocaleString("es-CO")}</span></div>
+        <div class="row"><span>Fecha cierre</span><span>${formatBogotaDate(
+          options.closedAt,
+          { dateStyle: "short", timeStyle: "short" }
+        )}</span></div>
         ${
           options.rangeSummary
             ? `<div class="row"><span>Ventas del</span><span>${escapeHtml(

@@ -50,6 +50,11 @@ import { useAuth } from "../../providers/AuthProvider";
 import { clearPosStationAccess, getPosStationAccess, setPosStationAccess } from "@/lib/api/posStations";
 import { getApiBase } from "@/lib/api/base";
 import { fetchSeparatedOrders, SeparatedOrder } from "@/lib/api/separatedOrders";
+import {
+  buildBogotaDateFromKey,
+  formatBogotaDate,
+  getBogotaDateKey,
+} from "@/lib/time/bogota";
 
 type SettingsFormState = {
   companyName: string;
@@ -135,52 +140,23 @@ const roleOrder: PosUserRecord["role"][] = [
 
 const formatDateLabel = (value?: string | null) => {
   if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("es-CO", {
+  const formatted = formatBogotaDate(value, {
     year: "numeric",
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   });
+  return formatted || value;
 };
 
-const getLocalDateKey = (value?: string | number | Date) => {
-  let base =
-    value instanceof Date
-      ? value
-      : typeof value === "string" || typeof value === "number"
-        ? new Date(value)
-        : new Date();
-  if (Number.isNaN(base.getTime())) {
-    base = new Date();
-  }
-  const offset = base.getTimezoneOffset() * 60 * 1000;
-  return new Date(base.getTime() - offset).toISOString().slice(0, 10);
-};
+const getLocalDateKey = (value?: string | number | Date) =>
+  getBogotaDateKey(value);
 
-const buildDateFromKey = (key: string) => {
-  const [yearRaw, monthRaw, dayRaw] = key.split("-");
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  const day = Number(dayRaw);
-  if (
-    Number.isNaN(year) ||
-    Number.isNaN(month) ||
-    Number.isNaN(day) ||
-    month < 1 ||
-    month > 12 ||
-    day < 1 ||
-    day > 31
-  ) {
-    return new Date();
-  }
-  return new Date(year, month - 1, day);
-};
+const buildDateFromKey = (key: string) => buildBogotaDateFromKey(key);
 
 const formatDateLabelFromKey = (key: string) =>
-  buildDateFromKey(key).toLocaleDateString("es-CO", {
+  formatBogotaDate(buildDateFromKey(key), {
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -714,9 +690,12 @@ export default function SettingsPage() {
       sales.forEach((sale) => saleMap.set(sale.id, sale));
       const stationRecordsMap = new Map(stations.map((station) => [station.id, station]));
       const todayKey = getLocalDateKey();
-      const lookback = new Date();
-      lookback.setDate(lookback.getDate() - CONTROL_PENDING_LOOKBACK_DAYS);
-      const lookbackKey = getLocalDateKey(lookback);
+      const todayStart = buildDateFromKey(todayKey);
+      const lookbackDate = new Date(todayStart);
+      lookbackDate.setUTCDate(
+        lookbackDate.getUTCDate() - CONTROL_PENDING_LOOKBACK_DAYS
+      );
+      const lookbackKey = getLocalDateKey(lookbackDate);
       const rowsMap = new Map<
         string,
         StationControlRow & { pendingSinceKey?: string | null }

@@ -14,6 +14,13 @@ import {
   type SeparatedOrder,
 } from "@/lib/api/separatedOrders";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
+import {
+  buildBogotaDateFromKey,
+  formatBogotaDate,
+  getBogotaDateKey,
+  getBogotaDateParts,
+  parseDateInput,
+} from "@/lib/time/bogota";
 
 
 /* ================= TIPOS ================= */
@@ -117,16 +124,20 @@ function normalizeMonthIndex(
       const normalized = Math.floor(numeric) - 1;
       if (normalized >= 0 && normalized < 12) return normalized;
     }
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.getMonth();
+    const parsed = parseDateInput(value);
+    if (parsed) {
+      const { month } = getBogotaDateParts(parsed);
+      const monthIndex = Number(month) - 1;
+      if (monthIndex >= 0 && monthIndex < 12) return monthIndex;
     }
   }
 
   if (fallbackDate) {
-    const parsed = new Date(fallbackDate);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.getMonth();
+    const parsed = parseDateInput(fallbackDate);
+    if (parsed) {
+      const { month } = getBogotaDateParts(parsed);
+      const monthIndex = Number(month) - 1;
+      if (monthIndex >= 0 && monthIndex < 12) return monthIndex;
     }
   }
 
@@ -145,7 +156,10 @@ export default function DashboardHomePage() {
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
   );
-  const currentYear = useMemo(() => new Date().getFullYear(), []);
+  const currentYear = useMemo(() => {
+    const { year } = getBogotaDateParts();
+    return Number(year);
+  }, []);
   // Resumen principal
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -262,7 +276,8 @@ export default function DashboardHomePage() {
         { length: 12 },
         (_, index) => {
           const current = map.get(index);
-          const date = new Date(currentYear, index, 1);
+          const month = String(index + 1).padStart(2, "0");
+          const date = buildBogotaDateFromKey(`${currentYear}-${month}-01`);
           return {
             date: date.toISOString(),
             total: current?.total ?? 0,
@@ -330,9 +345,8 @@ export default function DashboardHomePage() {
       map.set(key, (map.get(key) ?? 0) + amount);
     };
     separatedOrders.forEach((order) => {
-      const createdDate = new Date(order.created_at);
-      if (Number.isNaN(createdDate.getTime())) return;
-      const dateKey = createdDate.toISOString().slice(0, 10);
+      const dateKey = getBogotaDateKey(order.created_at);
+      if (!dateKey) return;
       const monthKey = dateKey.slice(0, 7);
       addValue(byDateReserved, dateKey, order.total_amount ?? 0);
       addValue(byMonthReserved, monthKey, order.total_amount ?? 0);
@@ -342,9 +356,8 @@ export default function DashboardHomePage() {
         addValue(byMonthCollected, monthKey, initial);
       }
       order.payments?.forEach((payment) => {
-        const paidDate = new Date(payment.paid_at);
-        if (Number.isNaN(paidDate.getTime())) return;
-        const payDateKey = paidDate.toISOString().slice(0, 10);
+        const payDateKey = getBogotaDateKey(payment.paid_at);
+        if (!payDateKey) return;
         const payMonthKey = payDateKey.slice(0, 7);
         addValue(byDateCollected, payDateKey, payment.amount ?? 0);
         addValue(byMonthCollected, payMonthKey, payment.amount ?? 0);
@@ -361,15 +374,11 @@ export default function DashboardHomePage() {
   /* --------- Datos derivados --------- */
 
   // Semana actual (lunes a domingo) con totales por día
-  const todayLocal = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
-  const todayDateKey = useMemo(() => {
-    const now = new Date();
-    return now.toISOString().slice(0, 10);
-  }, []);
+  const todayDateKey = useMemo(() => getBogotaDateKey(), []);
+  const todayStart = useMemo(
+    () => buildBogotaDateFromKey(todayDateKey),
+    [todayDateKey]
+  );
   const currentMonthKey = useMemo(
     () => todayDateKey.slice(0, 7),
     [todayDateKey]
@@ -403,9 +412,8 @@ export default function DashboardHomePage() {
 
     if (data.last_7_days && data.last_7_days.length > 0) {
       data.last_7_days.forEach((p) => {
-        const d = new Date(p.date);
-        if (Number.isNaN(d.getTime())) return;
-        const key = d.toISOString().slice(0, 10);
+        const key = getBogotaDateKey(p.date);
+        if (!key) return;
         const existing = map.get(key);
         if (existing) {
           existing.total += p.total;
@@ -416,18 +424,16 @@ export default function DashboardHomePage() {
       });
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const jsDay = today.getDay();
+    const jsDay = todayStart.getUTCDay();
     const diffToMonday = (jsDay + 6) % 7;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - diffToMonday);
+    const monday = new Date(todayStart);
+    monday.setUTCDate(todayStart.getUTCDate() - diffToMonday);
 
     const result: SalesTrendPoint[] = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const key = d.toISOString().slice(0, 10);
+      d.setUTCDate(monday.getUTCDate() + i);
+      const key = getBogotaDateKey(d);
       const fromMap = map.get(key);
       const baseTotal = fromMap?.total ?? 0;
       const adjustedTotal = adjustTotalForDate(baseTotal, key);
@@ -439,16 +445,16 @@ export default function DashboardHomePage() {
     }
 
     return result;
-  }, [data, adjustTotalForDate]);
+  }, [data, adjustTotalForDate, todayStart]);
 
   const adjustedYearTrend = useMemo(
     () =>
       yearTrend.map((point) => {
-        const d = new Date(point.date);
-        if (Number.isNaN(d.getTime())) {
+        const key = getBogotaDateKey(point.date);
+        if (!key) {
           return point;
         }
-        const monthKey = d.toISOString().slice(0, 7);
+        const monthKey = key.slice(0, 7);
         return {
           ...point,
           total: adjustTotalForMonth(point.total ?? 0, monthKey),
@@ -502,13 +508,10 @@ export default function DashboardHomePage() {
 
   const weekRangeLabel = useMemo(() => {
     if (!weekPoints.length) return null;
-    const first = new Date(weekPoints[0].date);
-    const last = new Date(weekPoints[weekPoints.length - 1].date);
-    const formatPart = (d: Date) =>
-      d.toLocaleDateString("es-CO", {
-        day: "2-digit",
-        month: "short",
-      });
+    const first = weekPoints[0]?.date;
+    const last = weekPoints[weekPoints.length - 1]?.date;
+    const formatPart = (value: string) =>
+      formatBogotaDate(value, { day: "2-digit", month: "short" });
     return `${formatPart(first)} - ${formatPart(last)}`;
   }, [weekPoints]);
 
@@ -532,8 +535,7 @@ export default function DashboardHomePage() {
       : "Aún no hay ventas registradas para este año.";
 
   const todayLabel = useMemo(() => {
-    const now = new Date();
-    return now.toLocaleString("es-CO", {
+    return formatBogotaDate(new Date(), {
       weekday: "long",
       day: "2-digit",
       month: "short",
@@ -555,7 +557,7 @@ export default function DashboardHomePage() {
   const recentRows = useMemo(() => {
     if (!recentSales.length) return [];
 
-    const todayKey = new Date().toISOString().slice(0, 10);
+    const todayKey = todayDateKey;
 
     const normalized = recentSales.map((sale) => {
       const refundAmount = sale.refunded_total ?? 0;
@@ -563,7 +565,7 @@ export default function DashboardHomePage() {
         sale.refunded_balance != null
           ? Math.max(0, sale.refunded_balance)
           : Math.max(0, sale.total - refundAmount);
-      const dateObj = new Date(sale.created_at);
+      const dateObj = parseDateInput(sale.created_at) ?? new Date();
       const firstItem =
         sale.items && sale.items.length > 0 ? sale.items[0] : undefined;
       const detail = firstItem
@@ -577,7 +579,7 @@ export default function DashboardHomePage() {
         refundAmount,
         netTotal,
         dateObj,
-        dateKey: dateObj.toISOString().slice(0, 10),
+        dateKey: getBogotaDateKey(dateObj),
       };
     });
 
@@ -593,7 +595,7 @@ export default function DashboardHomePage() {
     }
 
     return list.slice(0, 10);
-  }, [recentSales, recentMode]);
+  }, [recentSales, recentMode, todayDateKey]);
 
   const paymentMethodCalc = useMemo(() => {
     if (paymentRange === "month") {
@@ -608,13 +610,19 @@ export default function DashboardHomePage() {
       return { entries: [], separated: null as SeparatedOverview | null };
     }
 
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
-    const start = new Date(end);
-    if (paymentRange === "week") {
-      start.setDate(end.getDate() - 6);
-    }
-    start.setHours(0, 0, 0, 0);
+    const dayStart = buildBogotaDateFromKey(todayDateKey);
+    const end = new Date(dayStart);
+    end.setUTCDate(dayStart.getUTCDate() + 1);
+    end.setUTCMilliseconds(-1);
+    const start =
+      paymentRange === "week"
+        ? (() => {
+            const startKey = getBogotaDateKey(
+              new Date(dayStart.getTime() - 6 * 24 * 60 * 60 * 1000)
+            );
+            return buildBogotaDateFromKey(startKey);
+          })()
+        : dayStart;
 
     const map = new Map<
       string,
@@ -662,7 +670,8 @@ export default function DashboardHomePage() {
     };
 
     recentSales.forEach((sale) => {
-      const saleDate = new Date(sale.created_at);
+      const saleDate = parseDateInput(sale.created_at);
+      if (!saleDate) return;
       const saleInRange = isWithinRange(saleDate);
 
       const baseTotal = sale.total ?? 0;
@@ -693,10 +702,11 @@ export default function DashboardHomePage() {
 
         if (order?.payments?.length) {
           order.payments.forEach((payment) => {
-            const paidAt = payment.paid_at ? new Date(payment.paid_at) : null;
+            const paidAt = payment.paid_at
+              ? parseDateInput(payment.paid_at)
+              : null;
             if (
               paidAt &&
-              !Number.isNaN(paidAt.getTime()) &&
               isWithinRange(paidAt) &&
               (payment.amount ?? 0) > 0
             ) {
@@ -746,7 +756,7 @@ export default function DashboardHomePage() {
           ? separatedSummary
           : null,
     };
-  }, [paymentRange, recentSales, data, separatedOrdersMap]);
+  }, [paymentRange, recentSales, data, separatedOrdersMap, todayDateKey]);
 
   const paymentMethodData = paymentMethodCalc.entries;
   const separatedOverview = paymentMethodCalc.separated;
@@ -952,28 +962,19 @@ export default function DashboardHomePage() {
             ) : (
               <div className="h-48 flex items-end gap-3">
                 {chartPoints.map((point) => {
-                  const d = new Date(point.date);
-                  const pointDateNormalized = new Date(d);
-                  pointDateNormalized.setHours(0, 0, 0, 0);
                   const isWeekMode = trendMode === "week";
+                  const pointKey = getBogotaDateKey(point.date);
                   const isCurrentDay =
-                    isWeekMode &&
-                    pointDateNormalized.getTime() === todayLocal.getTime();
+                    isWeekMode && pointKey === todayDateKey;
                   const primaryLabel = isWeekMode
-                    ? d.toLocaleDateString("es-CO", {
-                        weekday: "short",
-                      })
-                    : d.toLocaleDateString("es-CO", {
-                        month: "short",
-                      });
+                    ? formatBogotaDate(point.date, { weekday: "short" })
+                    : formatBogotaDate(point.date, { month: "short" });
                   const secondaryLabel = isWeekMode
-                    ? d.toLocaleDateString("es-CO", {
+                    ? formatBogotaDate(point.date, {
                         day: "2-digit",
                         month: "short",
                       })
-                    : d.toLocaleDateString("es-CO", {
-                        year: "numeric",
-                      });
+                    : formatBogotaDate(point.date, { year: "numeric" });
 
                   const rawHeight =
                     chartHasSales && maxTrendValue > 0
@@ -1258,9 +1259,7 @@ export default function DashboardHomePage() {
 
                         {/* Fecha / hora */}
                         <div className="text-slate-300">
-                          {new Date(
-                            sale.created_at
-                          ).toLocaleString("es-CO", {
+                          {formatBogotaDate(sale.created_at, {
                             day: "2-digit",
                             month: "2-digit",
                             year: "2-digit",

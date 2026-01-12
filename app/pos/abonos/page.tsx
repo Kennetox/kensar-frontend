@@ -26,20 +26,13 @@ import {
   subscribeToPosStationChanges,
   type PosAccessMode,
 } from "@/lib/api/posStations";
+import { formatBogotaDate } from "@/lib/time/bogota";
 
 const BLOCKED_PAYMENT_SLUGS = new Set(["separado", "credito"]);
 
 const moneyFormatter = new Intl.NumberFormat("es-CO", {
   minimumFractionDigits: 0,
   maximumFractionDigits: 0,
-});
-
-const dateFormatter = new Intl.DateTimeFormat("es-CO", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-const dateOnlyFormatter = new Intl.DateTimeFormat("es-CO", {
-  dateStyle: "medium",
 });
 
 const STATUS_LABELS: Record<string, string> = {
@@ -76,16 +69,17 @@ function formatMoney(value: number | null | undefined): string {
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return dateFormatter.format(date);
+  const formatted = formatBogotaDate(value, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  return formatted || value;
 }
 
 function formatDateOnly(value?: string | null): string {
   if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return dateOnlyFormatter.format(date);
+  const formatted = formatBogotaDate(value, { dateStyle: "medium" });
+  return formatted || value;
 }
 
 export default function AbonosPage() {

@@ -19,11 +19,8 @@ import {
   buildSaleTicketCustomer,
 } from "@/lib/printing/saleTicket";
 import CustomerPanel from "../../components/CustomerPanel";
-import {
-  DEFAULT_PAYMENT_METHODS,
-  fetchPaymentMethods,
-  type PaymentMethodRecord,
-} from "@/lib/api/paymentMethods";
+import { type PaymentMethodRecord } from "@/lib/api/paymentMethods";
+import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import type { SeparatedOrder } from "@/lib/api/separatedOrders";
 import { useOnlineStatus } from "@/app/hooks/useOnlineStatus";
 import { addPendingSale } from "@/lib/pos/pendingSales";
@@ -193,6 +190,16 @@ export default function PagoMultiplePage() {
   const handleConfirmRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const confirmDisabled = !cart.length || !payments.length;
   const canSubmitWithEnter = !confirmDisabled && !successSale;
+  const apiBase = useMemo(() => getApiBase(), []);
+  const [printerConfig, setPrinterConfig] = useState<{
+    mode: "browser" | "qz-tray";
+    printerName: string;
+    width: "58mm" | "80mm";
+  }>({
+    mode: "qz-tray",
+    printerName: "",
+    width: "80mm",
+  });
   const resolvedPosName = useMemo(
     () => formatPosDisplayName(stationInfo, POS_DISPLAY_NAME),
     [stationInfo]
@@ -219,10 +226,141 @@ export default function PagoMultiplePage() {
   }, [posMode]);
   const isStationMode = posMode === "station";
   const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
-  const paidInputRef = useRef<HTMLInputElement | null>(null);
-  const [paymentCatalog, setPaymentCatalog] = useState<PaymentMethodRecord[]>(
-    DEFAULT_PAYMENT_METHODS
+  const printerStorageKey = useMemo(
+    () => `kensar_pos_printer_${activeStationId ?? "pos-web"}`,
+    [activeStationId]
   );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(printerStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (err) {
+      console.warn("No se pudo cargar la configuración de impresora", err);
+    }
+  }, [printerStorageKey]);
+  type QzPromiseResolver<T> = (value: T | PromiseLike<T>) => void;
+  type QzPromiseReject = (reason?: unknown) => void;
+  type QzType = {
+    websocket: { isActive: () => boolean; connect: () => Promise<void> };
+    printers: { find: () => Promise<string[]> };
+    configs: { create: (printer: string, options?: Record<string, unknown>) => unknown };
+    print: (config: unknown, data: unknown) => Promise<void>;
+    security?: {
+      setCertificatePromise: (
+        promise: (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => void
+      ) => void;
+      setSignaturePromise: (
+        promise: (
+          toSign: string
+        ) => (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => void
+      ) => void;
+    };
+  };
+  const [qzClient, setQzClient] = useState<QzType | null>(() => {
+    if (typeof window !== "undefined") {
+      const w = window as unknown as { qz?: QzType };
+      return w.qz ?? null;
+    }
+    return null;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const setIfPresent = () => {
+      if (cancelled) return;
+      const w = window as unknown as { qz?: QzType };
+      if (w.qz) setQzClient(w.qz);
+    };
+    const w = window as unknown as { qz?: QzType };
+    if (w.qz) {
+      setIfPresent();
+      return () => {
+        cancelled = true;
+      };
+    }
+    const existing = document.querySelector('script[data-qz-tray]') as HTMLScriptElement | null;
+    const script = existing ?? document.createElement("script");
+    if (!existing) {
+      script.src = "https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
+      script.async = true;
+      script.dataset.qzTray = "1";
+      script.onerror = () =>
+        console.warn("No se pudo cargar el script de QZ Tray desde la CDN.");
+      document.head.appendChild(script);
+    }
+    script.addEventListener("load", setIfPresent);
+    return () => {
+      cancelled = true;
+      script.removeEventListener("load", setIfPresent);
+    };
+  }, []);
+  const qzSecurityConfiguredRef = useRef(false);
+  const configureQzSecurity = useCallback(() => {
+    if (!qzClient?.security) return true;
+    if (!token) return false;
+    if (qzSecurityConfiguredRef.current) return true;
+    const authHeaders = {
+      Authorization: `Bearer ${token}`,
+    };
+    qzClient.security.setCertificatePromise(
+      (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => {
+        fetch(`${apiBase}/pos/qz/cert`, { credentials: "include" })
+          .then(async (res) => {
+            if (!res.ok) {
+              throw new Error(
+                `No se pudo obtener el certificado (Error ${res.status}).`
+              );
+            }
+            return res.text();
+          })
+          .then(resolve)
+          .catch(reject);
+      }
+    );
+    qzClient.security.setSignaturePromise(
+      (toSign: string) =>
+        (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => {
+          fetch(`${apiBase}/pos/qz/sign`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...authHeaders,
+            },
+            credentials: "include",
+            body: JSON.stringify({ data: toSign }),
+          })
+            .then(async (res) => {
+              if (!res.ok) {
+                const detail = await res.json().catch(() => null);
+                throw new Error(
+                  detail?.detail ??
+                    `No se pudo firmar el reto (Error ${res.status}).`
+                );
+              }
+              const data = (await res.json()) as { signature?: string };
+              if (!data?.signature) {
+                throw new Error("La API no devolvió la firma.");
+              }
+              return data.signature;
+            })
+            .then(resolve)
+            .catch(reject);
+        }
+    );
+    qzSecurityConfiguredRef.current = true;
+    return true;
+  }, [apiBase, qzClient, token]);
+  useEffect(() => {
+    configureQzSecurity();
+  }, [configureQzSecurity]);
+  const paidInputRef = useRef<HTMLInputElement | null>(null);
+  const paymentCatalog = usePaymentMethodsCatalog({
+    fallbackToDefault: false,
+  });
   const creditMethodSlugs = useMemo(
     () => new Set(["credito", "separado"]),
     []
@@ -269,26 +407,6 @@ export default function PagoMultiplePage() {
     due.setMonth(due.getMonth() + 3);
     return due.toISOString();
   }
-
-  useEffect(() => {
-    let active = true;
-    async function loadMethods() {
-      if (!token) return;
-      try {
-        const data = await fetchPaymentMethods(token);
-        if (!active) return;
-        if (data.length) {
-          setPaymentCatalog(data);
-        }
-      } catch (err) {
-        console.warn("No se pudieron cargar los métodos de pago", err);
-      }
-    }
-    void loadMethods();
-    return () => {
-      active = false;
-    };
-  }, [token]);
 
   // Inicializar con una sola línea en efectivo por defecto
   useEffect(() => {
@@ -996,10 +1114,54 @@ export default function PagoMultiplePage() {
     }
   }
 
+  async function printTicketWithQz(html: string): Promise<boolean> {
+    if (printerConfig.mode !== "qz-tray") return false;
+    if (!printerConfig.printerName.trim()) {
+      setError("Selecciona la impresora en Configurar impresora.");
+      return false;
+    }
+    if (!qzClient) {
+      setError("No detectamos QZ Tray. Ábrelo y autoriza este dominio.");
+      return false;
+    }
+    try {
+      if (!qzClient.websocket.isActive()) {
+        await qzClient.websocket.connect();
+      }
+      const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+      const cfg = qzClient.configs.create(printerConfig.printerName, {
+        altPrinting: true,
+        units: "mm",
+        size: { width: sizeWidth },
+        margins: { top: 0, right: 0, bottom: 0, left: 0 },
+      });
+      await qzClient.print(cfg, [{ type: "html", format: "plain", data: html }]);
+      setError(null);
+      return true;
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error
+          ? `No se pudo imprimir con QZ Tray: ${err.message}`
+          : "No se pudo imprimir con QZ Tray."
+      );
+      return false;
+    }
+  }
+
   function handlePrintTicket() {
     const html = buildSaleDocumentHtml("ticket");
     if (!html) return;
-    openSaleDocumentWindow(html, { width: 420, height: 640 });
+    printTicketWithQz(html)
+      .then((printed) => {
+        if (!printed) {
+          openSaleDocumentWindow(html, { width: 420, height: 640 });
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        openSaleDocumentWindow(html, { width: 420, height: 640 });
+      });
   }
 
   function handlePrintInvoice() {

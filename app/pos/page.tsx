@@ -41,6 +41,12 @@ import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import type { PaymentMethodRecord } from "@/lib/api/paymentMethods";
 import { renderClosureTicket } from "@/lib/printing/saleTicket";
 import {
+  buildBogotaDateFromKey,
+  formatBogotaDate,
+  getBogotaDateKey,
+  getBogotaDateParts,
+} from "@/lib/time/bogota";
+import {
   getPosStationAccess,
   type PosStationAccess,
   formatPosDisplayName,
@@ -197,41 +203,13 @@ const formatPriceInputValue = (rawValue: string): string => {
   return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 };
 
-const getLocalDateKey = (value?: string | number | Date) => {
-  let base =
-    value instanceof Date
-      ? value
-      : typeof value === "string" || typeof value === "number"
-        ? new Date(value)
-        : new Date();
-  if (Number.isNaN(base.getTime())) {
-    base = new Date();
-  }
-  const offset = base.getTimezoneOffset() * 60 * 1000;
-  return new Date(base.getTime() - offset).toISOString().slice(0, 10);
-};
+const getLocalDateKey = (value?: string | number | Date) =>
+  getBogotaDateKey(value);
 
-const buildDateFromKey = (key: string) => {
-  const [yearRaw, monthRaw, dayRaw] = key.split("-");
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  const day = Number(dayRaw);
-  if (
-    Number.isNaN(year) ||
-    Number.isNaN(month) ||
-    Number.isNaN(day) ||
-    month < 1 ||
-    month > 12 ||
-    day < 1 ||
-    day > 31
-  ) {
-    return new Date();
-  }
-  return new Date(year, month - 1, day);
-};
+const buildDateFromKey = (key: string) => buildBogotaDateFromKey(key);
 
 const formatDateLabelFromKey = (key: string) =>
-  buildDateFromKey(key).toLocaleDateString("es-CO", {
+  formatBogotaDate(buildDateFromKey(key), {
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -326,15 +304,14 @@ function formatMoney(value: number): string {
 }
 
 function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("es-CO", {
+  const formatted = formatBogotaDate(value, {
     year: "numeric",
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   });
+  return formatted || value;
 }
 
 function parseEmailsList(value: string): string[] {
@@ -364,6 +341,11 @@ const GRID_TILE_MIN_WIDTH = 190;
 const GRID_GAP_PX = 16;
 const GRID_TILE_HEIGHT_BASE = 190;
 const OPENED_NEW_TAB_STORAGE_KEY = "metrik_pos_opened_new_tab";
+const GRID_ZOOM_STORAGE_PREFIX = "kensar_pos_grid_zoom";
+const GRID_ZOOM_MIN = 0.8;
+const GRID_ZOOM_MAX = 1.25;
+const GRID_ZOOM_STEP = 0.05;
+const GRID_ZOOM_DEFAULT = 1;
 
 const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   switch (method) {
@@ -444,6 +426,8 @@ export default function PosPage() {
   const [availablePrinters, setAvailablePrinters] = useState<string[]>([]);
   const [printerScanMessage, setPrinterScanMessage] = useState<string | null>(null);
   const [printerScanning, setPrinterScanning] = useState(false);
+  const [currentTime, setCurrentTime] = useState("");
+  const [currentPeriod, setCurrentPeriod] = useState("");
   const [printerConfig, setPrinterConfig] = useState<{
     mode: "browser" | "qz-tray";
     printerName: string;
@@ -517,6 +501,36 @@ export default function PosPage() {
     const timer = setTimeout(() => setSyncStatus(null), 4000);
     return () => clearTimeout(timer);
   }, [syncStatus]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const updateTime = () => {
+      const { hour, minute, second } = getBogotaDateParts();
+      const hours = Number(hour);
+      const hours12 = hours % 12 || 12;
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const paddedHours = String(hours12).padStart(2, "0");
+      const paddedMinutes = String(minute).padStart(2, "0");
+      const paddedSeconds = String(second).padStart(2, "0");
+      setCurrentTime(`${paddedHours}:${paddedMinutes}:${paddedSeconds}`);
+      setCurrentPeriod(ampm);
+    };
+    updateTime();
+    const interval = window.setInterval(updateTime, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    handleFullscreenChange();
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
 
   const printerStorageKey = useMemo(() => {
     const base = activeStationId ?? "pos-web";
@@ -833,6 +847,7 @@ export default function PosPage() {
   const [cartPanelWidthPercent, setCartPanelWidthPercent] = useState<number>(CART_PANEL_DEFAULT_PERCENT);
   const [isResizingCartPanel, setIsResizingCartPanel] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
+  const [gridZoom, setGridZoom] = useState(GRID_ZOOM_DEFAULT);
   const [isMobile, setIsMobile] = useState(false);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const cartWidthStorageKey = useMemo(
@@ -842,6 +857,15 @@ export default function PosPage() {
         : null,
     [activeStationId]
   );
+  const gridZoomStorageKey = useMemo(() => {
+    if (activeStationId) {
+      return `${GRID_ZOOM_STORAGE_PREFIX}:${activeStationId}`;
+    }
+    if (posMode === "web") {
+      return `${GRID_ZOOM_STORAGE_PREFIX}:pos-web`;
+    }
+    return null;
+  }, [activeStationId, posMode]);
   const clampCartPanelPercent = useCallback(
     (value: number) =>
       clampNumber(value, CART_PANEL_MIN_PERCENT, CART_PANEL_MAX_PERCENT),
@@ -894,6 +918,19 @@ export default function PosPage() {
   const handleCartResizeReset = useCallback(() => {
     setCartPanelWidthPercent(CART_PANEL_DEFAULT_PERCENT);
   }, []);
+  const clampGridZoom = useCallback(
+    (value: number) => clampNumber(value, GRID_ZOOM_MIN, GRID_ZOOM_MAX),
+    []
+  );
+  const handleZoomChange = useCallback(
+    (delta: number) => {
+      setGridZoom((prev) => clampGridZoom(prev + delta));
+    },
+    [clampGridZoom]
+  );
+  const handleZoomReset = useCallback(() => {
+    setGridZoom(GRID_ZOOM_DEFAULT);
+  }, []);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!cartWidthStorageKey) return;
@@ -905,12 +942,26 @@ export default function PosPage() {
   }, [cartWidthStorageKey, clampCartPanelPercent]);
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!gridZoomStorageKey) return;
+    const stored = window.localStorage.getItem(gridZoomStorageKey);
+    if (!stored) return;
+    const parsed = Number(stored);
+    if (!Number.isFinite(parsed)) return;
+    setGridZoom(clampGridZoom(parsed));
+  }, [gridZoomStorageKey, clampGridZoom]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     if (!cartWidthStorageKey) return;
     window.localStorage.setItem(
       cartWidthStorageKey,
       String(cartPanelWidthPercent)
     );
   }, [cartPanelWidthPercent, cartWidthStorageKey]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!gridZoomStorageKey) return;
+    window.localStorage.setItem(gridZoomStorageKey, String(gridZoom));
+  }, [gridZoom, gridZoomStorageKey]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!isResizingCartPanel) return;
@@ -1018,23 +1069,30 @@ export default function PosPage() {
     }
     const columnRatio = columnCount / GRID_DEFAULT_COLUMNS;
     const tileHeight = Math.round(
-      GRID_TILE_HEIGHT_BASE * (0.85 + 0.15 * columnRatio)
+      GRID_TILE_HEIGHT_BASE * (0.85 + 0.15 * columnRatio) * gridZoom
     );
     const imageHeight = Math.max(96, Math.round(tileHeight * 0.55));
-    const labelFontSize = +(0.85 + 0.15 * columnRatio).toFixed(2);
-    const priceFontSize = +(1 + 0.2 * columnRatio).toFixed(2);
-    const metaFontSize = +(0.7 + 0.15 * columnRatio).toFixed(2);
+    const labelFontSize = +(
+      (0.85 + 0.15 * columnRatio) * gridZoom
+    ).toFixed(2);
+    const priceFontSize = +(
+      (1 + 0.2 * columnRatio) * gridZoom
+    ).toFixed(2);
+    const metaFontSize = +(
+      (0.7 + 0.15 * columnRatio) * gridZoom
+    ).toFixed(2);
     return {
       gridStyle: {
         gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
         gridAutoRows: `${tileHeight}px`,
+        gap: `${Math.max(6, Math.round(GRID_GAP_PX * gridZoom))}px`,
       } as React.CSSProperties,
       imageHeight,
       labelFontSize,
       priceFontSize,
       metaFontSize,
     };
-  }, [gridWidth]);
+  }, [gridWidth, gridZoom]);
   const {
     gridStyle,
     imageHeight: tileImageHeight,
@@ -1210,6 +1268,7 @@ export default function PosPage() {
   const lastClosureEmailedRef = useRef<number | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(null);
 
   const canProceedToPayment = cart.length > 0;
@@ -1262,6 +1321,28 @@ export default function PosPage() {
 
   const refreshPendingSales = useCallback(() => {
     setPendingSales(getPendingSales());
+  }, []);
+
+  const handleToggleFullscreen = useCallback(async () => {
+    if (typeof document === "undefined") return;
+    if (!document.documentElement.requestFullscreen || !document.exitFullscreen) {
+      setError("Tu navegador no soporta pantalla completa.");
+      return;
+    }
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error
+          ? `No se pudo cambiar a pantalla completa: ${err.message}`
+          : "No se pudo cambiar a pantalla completa."
+      );
+    }
   }, []);
 
   const [closureUsers, setClosureUsers] = useState<UserContribution[]>([]);
@@ -3283,38 +3364,38 @@ export default function PosPage() {
         <div className="h-14 flex items-center justify-between px-4">
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
+              className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
               onClick={() => setCartDrawerOpen(true)}
             >
               ☰ Carrito
             </button>
             {/* Botones estilo Aronium arriba de la pantalla */}
           <button
-            className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
+            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
             onClick={() => handleOpenDiscountModal()}
           >
             <span className="font-semibold">Descuento</span>
           </button>
           <button
-            className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded"
+            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded"
             onClick={handleOpenQuantityModal}
           >
             Cantidad
           </button>
           <button
-            className="px-4 py-1.5 text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md min-w-[96px]"
+            className="px-5 py-2.5 text-sm sm:text-base font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md min-w-[112px]"
             onClick={handleDeleteSelected}
           >
             Eliminar
           </button>
           <button
-            className="px-3 py-1.5 text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold rounded"
+            className="px-4 py-2.5 text-sm sm:text-base bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold rounded"
             onClick={handleNewOrder}
           >
             Nueva venta
           </button>
           <button
-            className="px-3 py-1.5 text-xs bg-slate-700/90 hover:bg-slate-600 rounded flex items-center gap-1 border border-slate-600 text-slate-100 transition"
+            className="px-4 py-2.5 text-sm sm:text-base bg-slate-700/90 hover:bg-slate-600 rounded flex items-center gap-1 border border-slate-600 text-slate-100 transition"
             onClick={() => router.push("/pos/historial")}
           >
             <span role="img" aria-label="historial">
@@ -3323,7 +3404,7 @@ export default function PosPage() {
             Historial
           </button>
           <button
-            className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
+            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
             onClick={() => {
               if (shouldBlockSales) {
                 setClosureReminderOpen(true);
@@ -3335,7 +3416,7 @@ export default function PosPage() {
             Devolución
           </button>
           <button
-            className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition"
+            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition"
             onClick={() => {
               if (shouldBlockSales) {
                 setClosureReminderOpen(true);
@@ -3347,7 +3428,7 @@ export default function PosPage() {
             Abono de separados
           </button>
           <button
-            className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
+            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
             onClick={() => router.push("/pos/clientes")}
           >
             Asignar cliente
@@ -3356,17 +3437,25 @@ export default function PosPage() {
 
         <div className="flex items-center gap-4">
           <div className="flex flex-col items-end gap-1 text-xs">
-            <button
-              type="button"
-              onClick={() => void handleManualSync()}
-              disabled={syncingCatalog}
-              className="flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-            >
-              <span role="img" aria-label="sincronizar">
-                🔄
-              </span>
-              {syncingCatalog ? "Sincronizando…" : "Sincronizar"}
-            </button>
+            <div className="flex items-center gap-2">
+              {currentTime && (
+                <span className="flex items-center gap-1 text-sm text-slate-400 tracking-wide whitespace-nowrap">
+                  <span>{currentTime}</span>
+                  {currentPeriod && <span>{currentPeriod}</span>}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleManualSync()}
+                disabled={syncingCatalog}
+                className="flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+              >
+                <span role="img" aria-label="sincronizar">
+                  🔄
+                </span>
+                {syncingCatalog ? "Sincronizando…" : "Sincronizar"}
+              </button>
+            </div>
             {syncStatus && (
               <span
                 className={`text-[11px] ${
@@ -3404,10 +3493,10 @@ export default function PosPage() {
                     setUserMenuOpen(false);
                     handleOpenClosureModal();
                   }}
-                  className="w-full text-left px-5 py-4 text-base text-slate-100 hover:bg-slate-800 flex items-center justify-between"
+                  className="w-full text-left px-5 py-5 text-[17px] text-slate-100 hover:bg-slate-800 flex items-center justify-between"
                 >
                   Cerrar caja
-                  <span className="text-[11px] text-amber-200">Reporte Z</span>
+                  <span className="text-[12px] text-amber-200">Reporte Z</span>
                 </button>
                 {printerConfig.showDrawerButton && (
                   <button
@@ -3416,7 +3505,7 @@ export default function PosPage() {
                       setUserMenuOpen(false);
                       void handleOpenDrawerCommand();
                     }}
-                    className="w-full text-left px-5 py-4 text-base text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                    className="w-full text-left px-5 py-5 text-[17px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
                   >
                     Abrir cajón
                     <span className="text-[11px] text-slate-400">
@@ -3430,7 +3519,7 @@ export default function PosPage() {
                     setUserMenuOpen(false);
                     router.push("/dashboard?posPreview=1");
                   }}
-                  className="w-full text-left px-5 py-4 text-base text-slate-200 hover:bg-slate-800"
+                  className="w-full text-left px-5 py-5 text-[17px] text-slate-200 hover:bg-slate-800"
                 >
                   Ir al panel
                 </button>
@@ -3440,9 +3529,22 @@ export default function PosPage() {
                     setUserMenuOpen(false);
                     setPrinterModalOpen(true);
                   }}
-                  className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-800"
+                  className="w-full text-left px-5 py-5 text-[15px] text-slate-200 hover:bg-slate-800"
                 >
                   Configurar impresora
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    void handleToggleFullscreen();
+                  }}
+                  className="w-full text-left px-5 py-5 text-[15px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  {isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+                  <span className="text-[12px] text-slate-400">
+                    {isFullscreen ? "Desactivar" : "Activar"}
+                  </span>
                 </button>
                 <div className="border-t border-slate-800/60" />
                 <button
@@ -3452,10 +3554,10 @@ export default function PosPage() {
                     logout("Cerraste sesión del POS.");
                     router.replace("/login-pos");
                   }}
-                  className="w-full text-left px-5 py-4 text-base text-rose-200 hover:bg-rose-500/10 flex items-center justify-between"
+                  className="w-full text-left px-5 py-5 text-[17px] text-rose-200 hover:bg-rose-500/10 flex items-center justify-between"
                 >
                   Cerrar sesión
-                  <span className="text-[11px] text-rose-300">Volver a ingresar</span>
+                  <span className="text-[12px] text-rose-300">Volver a ingresar</span>
                 </button>
                 {openedAsNewTab && (
                   <>
@@ -3468,7 +3570,7 @@ export default function PosPage() {
                           window.close();
                         }
                       }}
-                      className="w-full text-left px-4 py-3 text-sm text-slate-300 hover:bg-slate-800"
+                      className="w-full text-left px-5 py-5 text-[15px] text-slate-300 hover:bg-slate-800"
                     >
                       Cerrar pestaña POS
                     </button>
@@ -4121,48 +4223,74 @@ export default function PosPage() {
 
             {/* Paginación inferior */}
             <div className="h-14 border-t border-slate-800 flex items-center justify-between px-6 text-sm bg-slate-900">
-              <span>
+              <span className="whitespace-nowrap">
                 Página {safePage} / {totalPages}
               </span>
-              <div className="flex items-center gap-3">
-                <button
-                  className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
-                  disabled={safePage === 1}
-                  onClick={() => setCurrentPage(1)}
-                >
-                  ⏮
-                </button>
-                <button
-                  className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
-                  disabled={safePage === 1}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                >
-                  ◀
-                </button>
-                <button
-                  className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
-                  disabled={safePage === totalPages}
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                >
-                  ▶
-                </button>
-                <button
-                  className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
-                  disabled={safePage === totalPages}
-                  onClick={() => setCurrentPage(totalPages)}
-                >
-                  ⏭
-                </button>
-                <button
-                  className="ml-4 px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700"
-                  onClick={() => {
-                    setCurrentPath([]);
-                    setCurrentPage(1);
-                    setSearch("");
-                  }}
-                >
-                  Home
-                </button>
+              <div className="flex items-center gap-4">
+                <div className="hidden items-center gap-2 text-xs text-slate-300 lg:flex">
+                  <span className="text-slate-400">Zoom</span>
+                  <button
+                    type="button"
+                    onClick={() => handleZoomChange(-GRID_ZOOM_STEP)}
+                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
+                  >
+                    –
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleZoomReset}
+                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
+                  >
+                    {Math.round(gridZoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleZoomChange(GRID_ZOOM_STEP)}
+                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
+                  >
+                    +
+                  </button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
+                    disabled={safePage === 1}
+                    onClick={() => setCurrentPage(1)}
+                  >
+                    ⏮
+                  </button>
+                  <button
+                    className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
+                    disabled={safePage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  >
+                    ◀
+                  </button>
+                  <button
+                    className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
+                    disabled={safePage === totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    ▶
+                  </button>
+                  <button
+                    className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
+                    disabled={safePage === totalPages}
+                    onClick={() => setCurrentPage(totalPages)}
+                  >
+                    ⏭
+                  </button>
+                  <button
+                    className="ml-4 px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700"
+                    onClick={() => {
+                      setCurrentPath([]);
+                      setCurrentPage(1);
+                      setSearch("");
+                    }}
+                  >
+                    Home
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -4430,7 +4558,10 @@ export default function PosPage() {
                   </span>{" "}
                   por {closureResult.closed_by_user_name} el{" "}
                   {closureResult.closed_at
-                    ? new Date(closureResult.closed_at).toLocaleString("es-CO")
+                    ? formatBogotaDate(closureResult.closed_at, {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })
                     : "—"}
                   .
                   {closureResult.opened_at && closureResult.closed_at && (
