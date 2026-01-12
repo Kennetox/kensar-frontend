@@ -850,6 +850,7 @@ export default function PosPage() {
   const [gridZoom, setGridZoom] = useState(GRID_ZOOM_DEFAULT);
   const [isMobile, setIsMobile] = useState(false);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
+  const gridZoomHydratedRef = useRef(false);
   const cartWidthStorageKey = useMemo(
     () =>
       activeStationId
@@ -942,12 +943,16 @@ export default function PosPage() {
   }, [cartWidthStorageKey, clampCartPanelPercent]);
   useEffect(() => {
     if (typeof window === "undefined") return;
+    gridZoomHydratedRef.current = false;
     if (!gridZoomStorageKey) return;
     const stored = window.localStorage.getItem(gridZoomStorageKey);
-    if (!stored) return;
-    const parsed = Number(stored);
-    if (!Number.isFinite(parsed)) return;
-    setGridZoom(clampGridZoom(parsed));
+    if (stored) {
+      const parsed = Number(stored);
+      if (Number.isFinite(parsed)) {
+        setGridZoom(clampGridZoom(parsed));
+      }
+    }
+    gridZoomHydratedRef.current = true;
   }, [gridZoomStorageKey, clampGridZoom]);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -960,6 +965,7 @@ export default function PosPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!gridZoomStorageKey) return;
+    if (!gridZoomHydratedRef.current) return;
     window.localStorage.setItem(gridZoomStorageKey, String(gridZoom));
   }, [gridZoom, gridZoomStorageKey]);
   useEffect(() => {
