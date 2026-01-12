@@ -35,6 +35,7 @@ import {
   deletePosStation,
   PosStationRecord,
   PosStationResponse,
+  sendSmtpTestEmail,
 } from "@/lib/api/settings";
 import {
   DEFAULT_PAYMENT_METHODS,
@@ -426,17 +427,19 @@ function mapFromApi(payload: PosSettingsPayload): SettingsFormState {
   };
 }
 
+const parseNumberField = (value: string): number | undefined => {
+  if (!value.trim()) return undefined;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : undefined;
+};
+
+const parseEmailList = (value: string) =>
+  value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
 function mapToApi(form: SettingsFormState): PosSettingsPayload {
-  const parseNumberField = (value: string): number | undefined => {
-    if (!value.trim()) return undefined;
-    const num = Number(value);
-    return Number.isFinite(num) ? num : undefined;
-  };
-  const parseList = (value: string) =>
-    value
-      .split(/[\n,]/)
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
   const normalizedLogoUrl = resolveLogoUrl(form.logoUrl);
   return {
     company_name: form.companyName ?? "",
@@ -458,8 +461,8 @@ function mapToApi(form: SettingsFormState): PosSettingsPayload {
       cash_alert_sms: form.notifications.cashAlertSms,
       monthly_report_email: form.notifications.monthlyReportEmail,
     },
-    closure_email_recipients: parseList(form.closureEmailRecipients),
-    ticket_email_cc: parseList(form.ticketEmailCc),
+    closure_email_recipients: parseEmailList(form.closureEmailRecipients),
+    ticket_email_cc: parseEmailList(form.ticketEmailCc),
     smtp_host: form.smtpHost.trim() || undefined,
     smtp_port: parseNumberField(form.smtpPort),
     smtp_user: form.smtpUser.trim() || undefined,
@@ -522,6 +525,9 @@ export default function SettingsPage() {
   const [rolePermissionsDirty, setRolePermissionsDirty] = useState(false);
   const [savingRolePermissions, setSavingRolePermissions] = useState(false);
   const [rolePermissionsMessage, setRolePermissionsMessage] = useState<string | null>(null);
+  const [smtpTestSending, setSmtpTestSending] = useState(false);
+  const [smtpTestMessage, setSmtpTestMessage] = useState<string | null>(null);
+  const [smtpTestError, setSmtpTestError] = useState<string | null>(null);
   const [passwordModalUser, setPasswordModalUser] =
     useState<PosUserRecord | null>(null);
   const [passwordModalState, setPasswordModalState] = useState<{
@@ -1823,6 +1829,48 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSendSmtpTest() {
+    if (!token) return;
+    const recipients = [
+      ...parseEmailList(form.closureEmailRecipients),
+      ...parseEmailList(form.ticketEmailCc),
+    ];
+    if (!recipients.length) {
+      setSmtpTestError("Agrega al menos un destinatario para la prueba.");
+      setSmtpTestMessage(null);
+      return;
+    }
+    try {
+      setSmtpTestSending(true);
+      setSmtpTestError(null);
+      setSmtpTestMessage(null);
+      await sendSmtpTestEmail(
+        {
+          recipients,
+          smtp_host: form.smtpHost.trim() || undefined,
+          smtp_port: parseNumberField(form.smtpPort),
+          smtp_user: form.smtpUser.trim() || undefined,
+          smtp_password: form.smtpPassword || undefined,
+          smtp_use_tls: form.smtpUseTls,
+          email_from: form.emailFrom.trim() || undefined,
+          subject: "Prueba de correo - Kensar POS",
+          message:
+            "Este es un correo de prueba enviado desde la configuración SMTP.",
+        },
+        token
+      );
+      setSmtpTestMessage("Correo de prueba enviado correctamente.");
+    } catch (err) {
+      setSmtpTestError(
+        err instanceof Error
+          ? err.message
+          : "No pudimos enviar el correo de prueba."
+      );
+    } finally {
+      setSmtpTestSending(false);
+    }
+  }
+
   function openUserModal(user?: PosUserRecord) {
     if (user) {
       setEditingUser(user);
@@ -2972,6 +3020,24 @@ export default function SettingsPage() {
           ingrésalas aquí. Al guardar, el POS usará estos datos en lugar de las
           variables de entorno para enviar correos.
         </p>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-xs">
+            {smtpTestMessage && (
+              <span className="text-emerald-300">{smtpTestMessage}</span>
+            )}
+            {smtpTestError && (
+              <span className="text-rose-300">{smtpTestError}</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleSendSmtpTest()}
+            disabled={smtpTestSending}
+            className="px-3 py-2 rounded-md border border-emerald-400/70 text-emerald-300 text-xs hover:bg-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {smtpTestSending ? "Enviando..." : "Enviar correo de prueba"}
+          </button>
+        </div>
       </article>
       <article className="rounded-2xl border border-dashed border-emerald-400/60 bg-emerald-500/5 p-6 space-y-3">
         <div className="flex items-center justify-between">

@@ -93,6 +93,18 @@ export type PosStationResponse = {
   pin_plain?: string | null;
 };
 
+export type SmtpTestEmailPayload = {
+  recipients: string[];
+  smtp_host?: string | null;
+  smtp_port?: number | null;
+  smtp_user?: string | null;
+  smtp_password?: string | null;
+  smtp_use_tls?: boolean | null;
+  email_from?: string | null;
+  subject?: string | null;
+  message?: string | null;
+};
+
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -563,6 +575,21 @@ export async function savePosSettings(
       body: JSON.stringify(payload),
     },
     payload,
+    token
+  );
+}
+
+export async function sendSmtpTestEmail(
+  payload: SmtpTestEmailPayload,
+  token?: string | null
+): Promise<void> {
+  await request<void>(
+    "/pos/settings/test-email",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    undefined,
     token
   );
 }
