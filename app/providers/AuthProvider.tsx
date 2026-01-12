@@ -69,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ensureFreshSessionState({
       preserveSessionKeys: [LOGOUT_REASON_KEY],
       preserveLocalKeys: [AUTH_TRANSFER_STORAGE_KEY],
+      preserveLocalPrefixes: ["kensar_pos_grid_zoom"],
     });
     sessionGuardRef.current = true;
   }
@@ -149,6 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       clearPersistedAppState({
         preserveSessionKeys: reason ? [LOGOUT_REASON_KEY] : [],
+        preserveLocalPrefixes: ["kensar_pos_grid_zoom"],
       });
       if (reason) {
         window.sessionStorage.setItem(LOGOUT_REASON_KEY, reason);

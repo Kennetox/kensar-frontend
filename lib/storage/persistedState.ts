@@ -13,6 +13,7 @@ SESSION_STORAGE_EXCLUDED_KEYS.add(SESSION_GUARD_KEY);
 type ClearOptions = {
   preserveSessionKeys?: string[];
   preserveLocalKeys?: string[];
+  preserveLocalPrefixes?: string[];
 };
 
 function collectKeys(
@@ -36,6 +37,7 @@ export function clearPersistedAppState(options?: ClearOptions) {
   if (typeof window === "undefined") return;
   const preserveSessionKeys = options?.preserveSessionKeys ?? [];
   const preserveLocalKeys = options?.preserveLocalKeys ?? [];
+  const preserveLocalPrefixes = options?.preserveLocalPrefixes ?? [];
   const sessionExcluded = new Set([
     ...SESSION_STORAGE_EXCLUDED_KEYS,
     ...preserveSessionKeys,
@@ -52,6 +54,9 @@ export function clearPersistedAppState(options?: ClearOptions) {
       localExcluded
     );
     keys.forEach((key) => {
+      if (preserveLocalPrefixes.some((prefix) => key.startsWith(prefix))) {
+        return;
+      }
       try {
         window.localStorage.removeItem(key);
       } catch {

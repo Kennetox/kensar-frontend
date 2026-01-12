@@ -393,7 +393,7 @@ export default function PosPage() {
   const normalizePosLabel = useCallback((value?: string | null) => {
     return (value ?? "").replace(/^(pos\s+)+/i, "").trim().toLowerCase();
   }, []);
-  const matchesStationLabel = useCallback(
+const matchesStationLabel = useCallback(
     (posName?: string | null) => {
       const label = stationInfo?.label?.trim();
       if (!label) return false;
@@ -407,6 +407,42 @@ export default function PosPage() {
     if (!name) return false;
     return name.toLowerCase().includes("pos web");
   }, []);
+
+  const qzGuideSections = useMemo(
+    () => [
+      {
+        title: "1) Instala QZ Tray",
+        items: [
+          "Descarga desde https://qz.io/download/.",
+          "Instala y deja QZ Tray abierto en segundo plano.",
+        ],
+      },
+      {
+        title: "2) Importa el certificado",
+        items: [
+          "Abre https://api.metrikpos.com/pos/qz/cert y guarda como qz_api.crt.",
+          "QZ Tray > Site Manager > + > selecciona qz_api.crt.",
+          "En macOS, si falla, usa override.crt (ver nota abajo).",
+        ],
+      },
+      {
+        title: "3) Conecta la impresora",
+        items: [
+          "Selecciona 'Conector local (QZ Tray)'.",
+          "Pulsa 'Detectar impresoras' y elige la correcta.",
+          "Guarda la configuracion.",
+        ],
+      },
+      {
+        title: "Si aparece 'Invalid Signature'",
+        items: [
+          "El cert importado no coincide con el usado por el backend.",
+          "Vuelve a importar qz_api.crt desde el enlace del paso 2.",
+        ],
+      },
+    ],
+    []
+  );
 
   // --------- Estado POS (UI) ---------
   const [search, setSearch] = useState("");
@@ -423,6 +459,7 @@ export default function PosPage() {
   const imageBaseUrl = useMemo(() => getApiBase(), []);
   const apiBase = useMemo(() => getApiBase(), []);
   const [printerModalOpen, setPrinterModalOpen] = useState(false);
+  const [qzGuideOpen, setQzGuideOpen] = useState(false);
   const [availablePrinters, setAvailablePrinters] = useState<string[]>([]);
   const [printerScanMessage, setPrinterScanMessage] = useState<string | null>(null);
   const [printerScanning, setPrinterScanning] = useState(false);
@@ -3283,10 +3320,12 @@ export default function PosPage() {
 
   function handleSavePrinterModal() {
     savePrinterConfig(printerConfig);
+    setQzGuideOpen(false);
     setPrinterModalOpen(false);
   }
 
   function handleClosePrinterModal() {
+    setQzGuideOpen(false);
     setPrinterModalOpen(false);
   }
 
@@ -4514,6 +4553,83 @@ export default function PosPage() {
               </button>
             </div>
           </div>
+
+        </div>
+      )}
+
+      {qzGuideOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="w-full max-w-3xl rounded-3xl border border-slate-800 bg-slate-950 text-slate-100 shadow-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex items-start justify-between px-5 py-4 border-b border-slate-800">
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">
+                  Guia de configuracion
+                </p>
+                <h3 className="text-lg font-semibold">QZ Tray y impresoras</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQzGuideOpen(false)}
+                className="text-slate-400 hover:text-slate-100 text-2xl leading-none"
+                aria-label="Cerrar guia"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-5 space-y-4 text-sm overflow-auto">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-300">
+                Descarga QZ Tray en{" "}
+                <a
+                  href="https://qz.io/download/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-300 underline"
+                >
+                  qz.io/download
+                </a>
+                .
+              </div>
+              {qzGuideSections.map((section) => (
+                <div
+                  key={section.title}
+                  className="rounded-xl border border-slate-800/70 bg-slate-900/40 p-4 space-y-2"
+                >
+                  <p className="font-semibold text-slate-100">{section.title}</p>
+                  <ul className="list-disc pl-4 text-xs text-slate-300 space-y-1">
+                    {section.items.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              <div className="rounded-xl border border-slate-800/70 bg-slate-950/80 p-4 text-xs text-slate-300 space-y-2">
+                <p className="font-semibold text-slate-100">Nota macOS</p>
+                <p>
+                  Si QZ no deja importar el certificado, copia el cert a{" "}
+                  <code className="text-slate-100">override.crt</code>:
+                </p>
+                <pre className="whitespace-pre-wrap rounded-lg bg-slate-950 px-3 py-2 text-[11px] text-slate-200 border border-slate-800">
+sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resources/override.crt&quot;
+                </pre>
+                <p>Reinicia QZ Tray despues de copiar.</p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <a
+                  href="/docs/qz-tray-setup"
+                  className="px-3 py-2 rounded-lg border border-slate-700 text-slate-200 text-xs hover:bg-slate-800/70"
+                >
+                  Ver guia completa
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setQzGuideOpen(false)}
+                  className="px-3 py-2 rounded-lg bg-emerald-500 text-slate-900 text-xs font-semibold hover:bg-emerald-400"
+                >
+                  Entendido
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -5118,6 +5234,13 @@ export default function PosPage() {
                       <p className="text-xs text-slate-400">
                         Necesitas QZ Tray instalado y autorizado en este equipo.
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => setQzGuideOpen(true)}
+                        className="mt-2 inline-flex items-center gap-2 text-xs text-blue-200 hover:text-blue-100"
+                      >
+                        Ver guia de instalacion
+                      </button>
                     </div>
                     <button
                       type="button"
