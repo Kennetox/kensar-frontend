@@ -2,6 +2,37 @@ export const POS_STATION_STORAGE_KEY = "metrik_pos_station";
 export const POS_MODE_STORAGE_KEY = "metrik_pos_mode";
 export const POS_DEVICE_ID_KEY = "metrik_pos_device_id";
 export const POS_DEVICE_LABEL_KEY = "metrik_pos_device_label";
+const POS_DEVICE_ID_COOKIE = "metrik_pos_device_id";
+const POS_DEVICE_LABEL_COOKIE = "metrik_pos_device_label";
+
+const readCookie = (name: string): string | null => {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie
+    .split(";")
+    .map((chunk) => chunk.trim())
+    .find((cookie) => cookie.startsWith(`${name}=`));
+  if (!match) return null;
+  return decodeURIComponent(match.split("=").slice(1).join("="));
+};
+
+const resolveCookieDomain = (): string => {
+  if (typeof window === "undefined") return "";
+  const host = window.location.hostname;
+  if (!host || host === "localhost" || /^[\d.]+$/.test(host)) return "";
+  const parts = host.split(".").filter(Boolean);
+  if (parts.length < 2) return "";
+  return `.${parts.slice(-2).join(".")}`;
+};
+
+const writeCookie = (name: string, value: string) => {
+  if (typeof document === "undefined") return;
+  const maxAge = 60 * 60 * 24 * 365;
+  const domain = resolveCookieDomain();
+  const domainPart = domain ? `; domain=${domain}` : "";
+  document.cookie = `${name}=${encodeURIComponent(
+    value
+  )}; path=/; max-age=${maxAge}; samesite=lax${domainPart}`;
+};
 
 export type PosStationAccess = {
   id: string;
@@ -72,6 +103,11 @@ export function getOrCreatePosDeviceId(): string {
   if (typeof window === "undefined") return "server-device";
   const existing = window.localStorage.getItem(POS_DEVICE_ID_KEY);
   if (existing) return existing;
+  const fromCookie = readCookie(POS_DEVICE_ID_COOKIE);
+  if (fromCookie) {
+    window.localStorage.setItem(POS_DEVICE_ID_KEY, fromCookie);
+    return fromCookie;
+  }
   let next = "";
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     next = crypto.randomUUID();
@@ -79,6 +115,7 @@ export function getOrCreatePosDeviceId(): string {
     next = `device-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
   }
   window.localStorage.setItem(POS_DEVICE_ID_KEY, next);
+  writeCookie(POS_DEVICE_ID_COOKIE, next);
   return next;
 }
 
@@ -86,6 +123,11 @@ export function getOrCreatePosDeviceLabel(): string {
   if (typeof window === "undefined") return "Equipo POS";
   const existing = window.localStorage.getItem(POS_DEVICE_LABEL_KEY);
   if (existing) return existing;
+  const fromCookie = readCookie(POS_DEVICE_LABEL_COOKIE);
+  if (fromCookie) {
+    window.localStorage.setItem(POS_DEVICE_LABEL_KEY, fromCookie);
+    return fromCookie;
+  }
   const platform = window.navigator?.platform || "Equipo POS";
   const agent = window.navigator?.userAgent || "";
   const isEdge = agent.includes("Edg/");
@@ -103,6 +145,7 @@ export function getOrCreatePosDeviceLabel(): string {
           : "Navegador";
   const label = `${platform} · ${browser}`;
   window.localStorage.setItem(POS_DEVICE_LABEL_KEY, label);
+  writeCookie(POS_DEVICE_LABEL_COOKIE, label);
   return label;
 }
 
