@@ -3854,41 +3854,41 @@ const matchesStationLabel = useCallback(
       )}
       {/* Top bar */}
       <header className="bg-slate-900 border-b border-slate-800">
-        <div className="h-14 flex items-center justify-between px-4">
+        <div className="h-16 min-h-[72px] flex items-center justify-between px-4">
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
+              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
               onClick={() => setCartDrawerOpen(true)}
             >
               ☰ Carrito
             </button>
             {/* Botones estilo Aronium arriba de la pantalla */}
           <button
-            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
+            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
             onClick={() => handleOpenDiscountModal()}
           >
             <span className="font-semibold">Descuento</span>
           </button>
           <button
-            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded"
+            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded"
             onClick={handleOpenQuantityModal}
           >
             Cantidad
           </button>
           <button
-            className="px-5 py-2.5 text-sm sm:text-base font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md min-w-[112px]"
+            className="px-6 py-3.5 text-base font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md min-w-[128px]"
             onClick={handleDeleteSelected}
           >
             Eliminar
           </button>
           <button
-            className="px-4 py-2.5 text-sm sm:text-base bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold rounded"
+            className="px-5 py-3.5 text-base bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold rounded"
             onClick={handleNewOrder}
           >
             Nueva venta
           </button>
           <button
-            className="px-4 py-2.5 text-sm sm:text-base bg-slate-700/90 hover:bg-slate-600 rounded flex items-center gap-1 border border-slate-600 text-slate-100 transition"
+            className="px-5 py-3.5 text-base bg-slate-700/90 hover:bg-slate-600 rounded flex items-center gap-1 border border-slate-600 text-slate-100 transition"
             onClick={() => router.push("/pos/historial")}
           >
             <span role="img" aria-label="historial">
@@ -3897,7 +3897,7 @@ const matchesStationLabel = useCallback(
             Historial
           </button>
           <button
-            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
+            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
             onClick={() => {
               if (shouldBlockSales) {
                 setClosureReminderOpen(true);
@@ -3909,7 +3909,7 @@ const matchesStationLabel = useCallback(
             Devolución
           </button>
           <button
-            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition"
+            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition"
             onClick={() => {
               if (shouldBlockSales) {
                 setClosureReminderOpen(true);
@@ -3921,7 +3921,7 @@ const matchesStationLabel = useCallback(
             Abono de separados
           </button>
           <button
-            className="px-4 py-2.5 text-sm sm:text-base bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
+            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
             onClick={() => router.push("/pos/clientes")}
           >
             Asignar cliente
@@ -3929,10 +3929,10 @@ const matchesStationLabel = useCallback(
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex flex-col items-end gap-1 text-xs">
+          <div className="flex flex-col items-end gap-1 text-sm">
             <div className="flex items-center gap-2">
               {currentTime && (
-                <span className="flex items-center gap-1 text-sm text-slate-400 tracking-wide whitespace-nowrap">
+                <span className="flex items-center gap-2 text-base text-slate-400 tracking-wide whitespace-nowrap">
                   <span>{currentTime}</span>
                   {currentPeriod && <span>{currentPeriod}</span>}
                 </span>
@@ -3941,7 +3941,7 @@ const matchesStationLabel = useCallback(
                 type="button"
                 onClick={() => void handleManualSync()}
                 disabled={syncingCatalog}
-                className="flex items-center gap-1 rounded-full border border-slate-700 px-3 py-1.5 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                className="flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
               >
                 <span role="img" aria-label="sincronizar">
                   🔄
@@ -3963,15 +3963,15 @@ const matchesStationLabel = useCallback(
             <button
               type="button"
               onClick={() => setUserMenuOpen((prev) => !prev)}
-              className="flex items-center gap-3 text-xs hover:bg-slate-800/70 rounded-full px-3 py-1.5 transition"
+              className="flex items-center gap-3 text-xs hover:bg-slate-800/70 rounded-full px-4 py-2 transition"
             >
               <div className="text-right leading-tight">
-                <div className="text-sm font-semibold text-slate-100">
+                <div className="text-base font-semibold text-slate-100">
                   {user?.name ?? "Usuario sin identificar"}
                 </div>
-                <div className="text-[11px] text-slate-400">{sellerRole}</div>
+                <div className="text-[12px] text-slate-400">{sellerRole}</div>
               </div>
-              <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-sm font-semibold text-slate-100">
+              <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-semibold text-slate-100">
                 {sellerInitials}
               </div>
             </button>
@@ -4076,10 +4076,10 @@ const matchesStationLabel = useCallback(
 
         </div>
 
-        <div className="flex items-center justify-between px-4 py-2 text-xs border-t border-slate-800">
-          <div className="flex items-center gap-3">
-            <span className="font-semibold">{resolvedPosName}</span>
-            <span className="text-slate-400">
+        <div className="flex items-center justify-between px-4 py-3 text-sm border-t border-slate-800">
+          <div className="flex items-center gap-4">
+            <span className="font-semibold text-base">{resolvedPosName}</span>
+            <span className="text-slate-300 text-base">
               {sellerName}
             </span>
           </div>
@@ -4233,16 +4233,16 @@ const matchesStationLabel = useCallback(
           {/* Encabezado carrito */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
             <div className="flex flex-col">
-              <span className="text-sm font-semibold uppercase tracking-wide">
+              <span className="text-base font-semibold uppercase tracking-wide">
                 Carrito
               </span>
-              <span className="text-sm text-slate-400">
+              <span className="text-base text-slate-400">
                 Venta No.{saleNumber.toString().padStart(1, "0")}
               </span>
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="text-xs text-slate-400 hidden sm:inline">
+              <span className="text-sm text-slate-400 hidden sm:inline">
                 {cart.length} líneas
               </span>
               {isMobile && (
@@ -4260,7 +4260,7 @@ const matchesStationLabel = useCallback(
 
           {selectedCustomer && (
             <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900/60">
-              <div className="text-sm text-slate-200">
+              <div className="text-base text-slate-200">
                 <span className="text-slate-400">Cliente:</span>{" "}
                 <span className="font-semibold text-slate-50">
                   {selectedCustomer.name}
@@ -4280,9 +4280,9 @@ const matchesStationLabel = useCallback(
 
 
           {/* Lista carrito */}
-          <div className="flex-1 overflow-auto text-sm">
+          <div className="flex-1 overflow-auto text-base">
             {cart.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-slate-500 text-sm select-none">
+              <div className="h-full flex items-center justify-center text-slate-500 text-base select-none">
                 No hay artículos
               </div>
             ) : (
@@ -4305,14 +4305,14 @@ const matchesStationLabel = useCallback(
                         <div className="font-semibold truncate text-base text-slate-50">
                           {item.product.name}
                         </div>
-                        <div className="text-xs text-slate-400">
+                        <div className="text-sm text-slate-400">
                           {item.quantity} x {formatMoney(item.unitPrice)}
                         </div>
                       </div>
 
                       <div className="text-right">
                         {hasDiscount && (
-                          <div className="text-xs text-slate-500 line-through">
+                          <div className="text-sm text-slate-500 line-through">
                             {formatMoney(gross)}
                           </div>
                         )}
@@ -4320,7 +4320,7 @@ const matchesStationLabel = useCallback(
                           {formatMoney(lineTotal)}
                         </div>
                         {hasDiscount && (
-                          <div className="text-xs text-emerald-400">
+                          <div className="text-sm text-emerald-400">
                             Descuento -{formatMoney(item.lineDiscountValue)}
                           </div>
                         )}
@@ -4333,7 +4333,7 @@ const matchesStationLabel = useCallback(
           </div>
 
           {/* Totales */}
-          <div className="border-t border-slate-800 text-sm">
+          <div className="border-t border-slate-800 text-base">
             {cartLineDiscountTotal > 0 && (
               <>
                 <div className="flex justify-between px-4 py-2 text-slate-400">
@@ -4373,14 +4373,14 @@ const matchesStationLabel = useCallback(
                   <button
                     type="button"
                     onClick={() => setSurchargeMenuOpen(true)}
-                            className="px-3 py-1 text-xs font-semibold rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800"
+                            className="px-3 py-1 text-sm font-semibold rounded-md border border-slate-600 text-slate-200 hover:bg-slate-800"
                   >
                     Editar
                   </button>
                   <button
                     type="button"
                     onClick={handleDeactivateSurcharge}
-                    className="px-3 py-1 text-xs font-semibold rounded-md border border-rose-500/60 text-rose-200 hover:bg-rose-500/10"
+                    className="px-3 py-1 text-sm font-semibold rounded-md border border-rose-500/60 text-rose-200 hover:bg-rose-500/10"
                   >
                     Quitar
                   </button>
