@@ -4,35 +4,37 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../providers/AuthProvider";
+import { defaultRolePermissions, fetchRolePermissions } from "@/lib/api/settings";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
 
 const navItems: Array<{
   href: string;
   label: string;
-  roles?: Array<DashboardRole>;
+  moduleId?: string;
 }> = [
-  { href: "/dashboard", label: "Inicio" },
-  { href: "/dashboard/products", label: "Productos", roles: ["Administrador", "Supervisor"] },
-  { href: "/dashboard/movements", label: "Movimientos", roles: ["Administrador", "Supervisor"] },
-  { href: "/dashboard/documents", label: "Documentos", roles: ["Administrador", "Supervisor", "Vendedor", "Auditor"] },
-  { href: "/dashboard/pos", label: "POS / Caja", roles: ["Administrador", "Supervisor", "Vendedor"] },
-  { href: "/dashboard/labels", label: "Etiquetas", roles: ["Administrador", "Supervisor"] },
-  { href: "/dashboard/reports", label: "Reportes", roles: ["Administrador", "Supervisor", "Auditor"] },
-  { href: "/dashboard/settings", label: "Configuración", roles: ["Administrador"] },
+  { href: "/dashboard", label: "Inicio", moduleId: "dashboard" },
+  { href: "/dashboard/products", label: "Productos", moduleId: "products" },
+  { href: "/dashboard/movements", label: "Movimientos", moduleId: "products" },
+  { href: "/dashboard/documents", label: "Documentos", moduleId: "documents" },
+  { href: "/dashboard/pos", label: "POS / Caja", moduleId: "pos" },
+  { href: "/dashboard/labels", label: "Etiquetas", moduleId: "products" },
+  { href: "/dashboard/reports", label: "Reportes", moduleId: "reports" },
+  { href: "/dashboard/settings", label: "Configuración", moduleId: "settings" },
 ];
 
 const routePermissions: Array<{
   prefix: string;
-  roles: Array<DashboardRole>;
+  moduleId?: string;
 }> = [
-  { prefix: "/dashboard/products", roles: ["Administrador", "Supervisor"] },
-  { prefix: "/dashboard/movements", roles: ["Administrador", "Supervisor"] },
-  { prefix: "/dashboard/documents", roles: ["Administrador", "Supervisor", "Vendedor", "Auditor"] },
-  { prefix: "/dashboard/pos", roles: ["Administrador", "Supervisor", "Vendedor"] },
-  { prefix: "/dashboard/labels", roles: ["Administrador", "Supervisor"] },
-  { prefix: "/dashboard/reports", roles: ["Administrador", "Supervisor", "Auditor"] },
-  { prefix: "/dashboard/settings", roles: ["Administrador"] },
+  { prefix: "/dashboard", moduleId: "dashboard" },
+  { prefix: "/dashboard/products", moduleId: "products" },
+  { prefix: "/dashboard/movements", moduleId: "products" },
+  { prefix: "/dashboard/documents", moduleId: "documents" },
+  { prefix: "/dashboard/pos", moduleId: "pos" },
+  { prefix: "/dashboard/labels", moduleId: "products" },
+  { prefix: "/dashboard/reports", moduleId: "reports" },
+  { prefix: "/dashboard/settings", moduleId: "settings" },
 ];
 
 const posPreviewAllowedPrefixes = ["/dashboard", "/dashboard/sales"];
@@ -46,11 +48,18 @@ function isDashboardRole(role?: string | null): role is DashboardRole {
   );
 }
 
-function isPathAllowed(pathname: string, role?: string | null) {
+function isPathAllowed(
+  pathname: string,
+  role: string | null | undefined,
+  modules: typeof defaultRolePermissions
+) {
   if (!isDashboardRole(role)) return false;
   for (const rule of routePermissions) {
     if (pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`)) {
-      return rule.roles.includes(role);
+      if (!rule.moduleId) return true;
+      const moduleEntry = modules.find((item) => item.id === rule.moduleId);
+      if (!moduleEntry) return true;
+      return Boolean(moduleEntry.roles[role]);
     }
   }
   return true;
@@ -63,6 +72,29 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { user, token, loading, logout } = useAuth();
   const posPreview = searchParams.get("posPreview") === "1";
   const [navOpen, setNavOpen] = useState(false);
+  const [roleModules, setRoleModules] = useState(defaultRolePermissions);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetchRolePermissions(token)
+      .then((modules) => {
+        if (cancelled) return;
+        setRoleModules(modules);
+      })
+      .catch((err) => {
+        console.error("No pudimos cargar permisos por rol.", err);
+        if (cancelled) return;
+        setRoleModules(defaultRolePermissions);
+      })
+      .finally(() => {
+        if (cancelled) return;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   useEffect(() => {
     if (!loading && !token) {
@@ -77,8 +109,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           pathname === prefix || pathname.startsWith(`${prefix}/`)
       );
     }
-    return isPathAllowed(pathname, user?.role);
-  }, [pathname, user?.role, posPreview]);
+    return isPathAllowed(pathname, user?.role, roleModules);
+  }, [pathname, user?.role, posPreview, roleModules]);
 
   useEffect(() => {
     if (!loading && token && !routeAllowed) {
@@ -112,9 +144,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   }
 
   const filteredNav = navItems.filter((item) => {
-    if (!item.roles || !item.roles.length) return true;
+    if (!item.moduleId) return true;
     if (!isDashboardRole(user?.role)) return false;
-    return item.roles.includes(user.role);
+    const moduleEntry = roleModules.find((row) => row.id === item.moduleId);
+    if (!moduleEntry) return true;
+    return Boolean(moduleEntry.roles[user.role]);
   });
 
   const effectiveNav = posPreview
