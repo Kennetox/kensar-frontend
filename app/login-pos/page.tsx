@@ -9,6 +9,8 @@ import {
   getPosStationAccess,
   clearPosStationAccess,
   subscribeToPosStationChanges,
+  getOrCreatePosDeviceId,
+  getOrCreatePosDeviceLabel,
   type PosStationAccess,
   setStoredPosMode,
 } from "@/lib/api/posStations";
@@ -91,7 +93,12 @@ export default function PosLoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, pin, { stationId: stationInfo.id, isPosStation: true });
+      await login(email, pin, {
+        stationId: stationInfo.id,
+        isPosStation: true,
+        deviceId: getOrCreatePosDeviceId(),
+        deviceLabel: getOrCreatePosDeviceLabel(),
+      });
       setStoredPosMode("station");
       router.replace("/pos");
     } catch (err) {
@@ -111,7 +118,12 @@ export default function PosLoginPage() {
         (typeof detail === "string" &&
           detail.toLowerCase().includes("estación"));
 
-      if (stationRemoved) {
+      if (status === 409) {
+        setError(
+          detail ??
+            "Esta estación ya está vinculada a otro equipo. Solicita al administrador que la libere."
+        );
+      } else if (stationRemoved) {
         handleClearStation();
         setError(
           "Esta estación ya no está disponible. Configúrala nuevamente desde el panel."

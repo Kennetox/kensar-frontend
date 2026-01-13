@@ -84,6 +84,11 @@ export type PosStationRecord = {
   is_active: boolean;
   send_closure_email?: boolean | null;
   last_login_at?: string | null;
+  bound_device_id?: string | null;
+  bound_device_label?: string | null;
+  bound_at?: string | null;
+  bound_by_user_id?: number | null;
+  bound_by_user_name?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -558,6 +563,20 @@ export async function deletePosStation(
     `/pos/stations/${stationId}`,
     {
       method: "DELETE",
+    },
+    undefined,
+    token
+  );
+}
+
+export async function unbindPosStation(
+  stationId: string,
+  token?: string | null
+): Promise<PosStationRecord> {
+  return request<PosStationRecord>(
+    `/pos/stations/${stationId}/unbind`,
+    {
+      method: "POST",
     },
     undefined,
     token

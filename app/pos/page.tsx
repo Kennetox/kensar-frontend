@@ -577,10 +577,20 @@ const matchesStationLabel = useCallback(
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
+      const fallbackKey = "kensar_pos_printer_pos-web";
       const raw = window.localStorage.getItem(printerStorageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
         setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+        return;
+      }
+      if (printerStorageKey !== fallbackKey) {
+        const fallbackRaw = window.localStorage.getItem(fallbackKey);
+        if (fallbackRaw) {
+          const parsed = JSON.parse(fallbackRaw);
+          setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+          window.localStorage.setItem(printerStorageKey, fallbackRaw);
+        }
       }
     } catch (err) {
       console.warn("No se pudo cargar la configuración de impresora", err);

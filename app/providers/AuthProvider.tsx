@@ -33,7 +33,12 @@ type AuthContextValue = {
   login: (
     email: string,
     password: string,
-    options?: { stationId?: string; isPosStation?: boolean }
+    options?: {
+      stationId?: string;
+      isPosStation?: boolean;
+      deviceId?: string;
+      deviceLabel?: string;
+    }
   ) => Promise<void>;
   logout: (reason?: string) => void;
   authHeaders: Record<string, string> | null;
@@ -102,7 +107,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (
       email: string,
       password: string,
-      options?: { stationId?: string; isPosStation?: boolean }
+      options?: {
+        stationId?: string;
+        isPosStation?: boolean;
+        deviceId?: string;
+        deviceLabel?: string;
+      }
     ) => {
       const apiBase = getApiBase();
       const endpoint =
@@ -110,7 +120,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? "/auth/pos-login"
           : "/auth/login";
       const payload = options?.isPosStation && options.stationId
-        ? { station_id: options.stationId, pin: password }
+        ? {
+            station_id: options.stationId,
+            pin: password,
+            device_id: options.deviceId,
+            device_label: options.deviceLabel,
+          }
         : { email, password };
       const res = await fetch(`${apiBase}${endpoint}`, {
         method: "POST",

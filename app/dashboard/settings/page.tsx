@@ -33,6 +33,7 @@ import {
   createPosStation,
   updatePosStation,
   deletePosStation,
+  unbindPosStation,
   PosStationRecord,
   PosStationResponse,
   sendSmtpTestEmail,
@@ -579,10 +580,7 @@ export default function SettingsPage() {
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
   const [logoUploadMessage, setLogoUploadMessage] = useState<string | null>(null);
   const [stations, setStations] = useState<PosStationRecord[]>([]);
-  const activeStations = useMemo(
-    () => stations.filter((station) => station.is_active),
-    [stations]
-  );
+  const visibleStations = useMemo(() => stations, [stations]);
   const stationRecordMap = useMemo(() => {
     const map = new Map<string, PosStationRecord>();
     stations.forEach((station) => map.set(station.id, station));
@@ -1437,6 +1435,31 @@ export default function SettingsPage() {
         err instanceof Error
           ? err.message
           : "No pudimos eliminar la estación."
+      );
+    } finally {
+      setUpdatingStationId(null);
+    }
+  }
+
+  async function handleUnbindStation(station: PosStationRecord) {
+    if (!token) return;
+    const confirmed = window.confirm(
+      `¿Desvincular la estación "${station.label}" del equipo actual?`
+    );
+    if (!confirmed) return;
+    setUpdatingStationId(station.id);
+    try {
+      const updated = await unbindPosStation(station.id, token);
+      setStations((prev) =>
+        prev.map((item) => (item.id === station.id ? updated : item))
+      );
+      setStationMessage("Estación desvinculada correctamente.");
+    } catch (err) {
+      console.error(err);
+      setStationsError(
+        err instanceof Error
+          ? err.message
+          : "No pudimos desvincular la estación."
       );
     } finally {
       setUpdatingStationId(null);
@@ -2619,10 +2642,9 @@ export default function SettingsPage() {
           </p>
         </div>
       )}
-      {!stationsLoading && stations.length > activeStations.length && (
+      {!stationsLoading && stations.length > 0 && (
         <p className="text-[11px] text-slate-500">
-          Las estaciones desactivadas se ocultan automáticamente para mantener la lista limpia.
-          Puedes reactivarlas desde la API si necesitas reutilizarlas.
+          Las estaciones inactivas se mantienen visibles para conservar el historial.
         </p>
       )}
       <div className="rounded-xl border border-slate-800/60 p-4 flex flex-wrap items-center justify-between gap-4 text-sm">
@@ -2676,18 +2698,18 @@ export default function SettingsPage() {
                   </td>
                 </tr>
               ))}
-            {!stationsLoading && activeStations.length === 0 && (
+            {!stationsLoading && visibleStations.length === 0 && (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="px-4 py-6 text-center text-xs text-slate-500"
                 >
-                  No hay estaciones activas actualmente.
+                  No hay estaciones registradas actualmente.
                 </td>
               </tr>
             )}
             {!stationsLoading &&
-              activeStations.map((station) => {
+              visibleStations.map((station) => {
                 const isUpdating = updatingStationId === station.id;
                 const statusLabel = station.is_active ? "Activa" : "Inactiva";
                 const statusClass = station.is_active
@@ -2716,6 +2738,15 @@ export default function SettingsPage() {
                       <div className="text-[11px] text-slate-500 font-mono">
                         {station.id}
                       </div>
+                      {station.bound_device_id && (
+                        <div className="text-[11px] text-slate-500">
+                          Vinculada a:{" "}
+                          {station.bound_device_label ?? station.bound_device_id}
+                          {station.bound_at
+                            ? ` · ${formatDateLabel(station.bound_at)}`
+                            : ""}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-slate-200">
                       {station.pos_user_email}
@@ -2751,6 +2782,19 @@ export default function SettingsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap justify-end gap-2 text-[11px]">
+                        {station.bound_device_id && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleUnbindStation(station)}
+                              disabled={isUpdating}
+                              className="text-slate-300 hover:text-emerald-300 disabled:opacity-40"
+                            >
+                              Desvincular
+                            </button>
+                            <span className="text-slate-600">|</span>
+                          </>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleConfigureStationLocal(station)}

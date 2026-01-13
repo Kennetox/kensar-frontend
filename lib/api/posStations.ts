@@ -1,5 +1,7 @@
 export const POS_STATION_STORAGE_KEY = "metrik_pos_station";
 export const POS_MODE_STORAGE_KEY = "metrik_pos_mode";
+export const POS_DEVICE_ID_KEY = "metrik_pos_device_id";
+export const POS_DEVICE_LABEL_KEY = "metrik_pos_device_label";
 
 export type PosStationAccess = {
   id: string;
@@ -57,6 +59,44 @@ export function setPosStationAccess(access: PosStationAccess) {
 export function clearPosStationAccess() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(POS_STATION_STORAGE_KEY);
+}
+
+export function getOrCreatePosDeviceId(): string {
+  if (typeof window === "undefined") return "server-device";
+  const existing = window.localStorage.getItem(POS_DEVICE_ID_KEY);
+  if (existing) return existing;
+  let next = "";
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    next = crypto.randomUUID();
+  } else {
+    next = `device-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  }
+  window.localStorage.setItem(POS_DEVICE_ID_KEY, next);
+  return next;
+}
+
+export function getOrCreatePosDeviceLabel(): string {
+  if (typeof window === "undefined") return "Equipo POS";
+  const existing = window.localStorage.getItem(POS_DEVICE_LABEL_KEY);
+  if (existing) return existing;
+  const platform = window.navigator?.platform || "Equipo POS";
+  const agent = window.navigator?.userAgent || "";
+  const isEdge = agent.includes("Edg/");
+  const isChrome = agent.includes("Chrome") && !isEdge;
+  const isSafari = agent.includes("Safari") && !isChrome && !isEdge;
+  const isFirefox = agent.includes("Firefox");
+  const browser = isEdge
+    ? "Edge"
+    : isChrome
+      ? "Chrome"
+      : isFirefox
+        ? "Firefox"
+        : isSafari
+          ? "Safari"
+          : "Navegador";
+  const label = `${platform} · ${browser}`;
+  window.localStorage.setItem(POS_DEVICE_LABEL_KEY, label);
+  return label;
 }
 
 export function getStoredPosMode(): PosAccessMode | null {
