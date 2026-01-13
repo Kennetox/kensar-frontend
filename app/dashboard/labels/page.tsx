@@ -286,12 +286,8 @@ export default function LabelsPage() {
       const blob = await exportLabelsExcel(payloadItems, token);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      const timestamp = new Date()
-        .toISOString()
-        .replace(/[:.]/g, "")
-        .slice(0, 15);
       a.href = url;
-      a.download = `Etiquetas_Metrik_${timestamp}.xlsx`;
+      a.download = "ListaEtiquetas.xlsx";
       document.body.appendChild(a);
       a.click();
       a.remove();
