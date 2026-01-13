@@ -56,6 +56,9 @@ import {
   getWebPosStation,
   subscribeToPosStationChanges,
   type PosAccessMode,
+  fetchPosStationPrinterConfig,
+  updatePosStationPrinterConfig,
+  type PosStationPrinterConfig,
 } from "@/lib/api/posStations";
 
 const PENDING_ALERT_ACK_STORAGE_KEY = "metrik_pos_pending_ack_v1";
@@ -465,13 +468,7 @@ const matchesStationLabel = useCallback(
   const [printerScanning, setPrinterScanning] = useState(false);
   const [currentTime, setCurrentTime] = useState("");
   const [currentPeriod, setCurrentPeriod] = useState("");
-  const [printerConfig, setPrinterConfig] = useState<{
-    mode: "browser" | "qz-tray";
-    printerName: string;
-    width: "58mm" | "80mm";
-    autoOpenDrawer: boolean;
-    showDrawerButton: boolean;
-  }>({
+  const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
     printerName: "",
     width: "80mm",
@@ -608,6 +605,43 @@ const matchesStationLabel = useCallback(
       }
     },
     [printerStorageKey]
+  );
+
+  useEffect(() => {
+    if (!token) return;
+    if (!isStationMode || !activeStationId) return;
+    let cancelled = false;
+    const loadRemote = async () => {
+      try {
+        const remote = await fetchPosStationPrinterConfig(
+          apiBase,
+          token,
+          activeStationId
+        );
+        if (!remote || cancelled) return;
+        savePrinterConfig(remote);
+      } catch (err) {
+        console.warn("No se pudo cargar la impresora guardada", err);
+      }
+    };
+    loadRemote();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, apiBase, activeStationId, isStationMode, savePrinterConfig]);
+
+  const persistPrinterConfig = useCallback(
+    async (next: PosStationPrinterConfig) => {
+      savePrinterConfig(next);
+      if (!token) return;
+      if (!isStationMode || !activeStationId) return;
+      try {
+        await updatePosStationPrinterConfig(apiBase, token, activeStationId, next);
+      } catch (err) {
+        console.warn("No se pudo guardar la impresora en el servidor", err);
+      }
+    },
+    [savePrinterConfig, token, isStationMode, activeStationId, apiBase]
   );
 
   type QzPromiseResolver<T> = (value: T | PromiseLike<T>) => void;
@@ -3385,7 +3419,7 @@ const matchesStationLabel = useCallback(
   }
 
   function handleSavePrinterModal() {
-    savePrinterConfig(printerConfig);
+    persistPrinterConfig(printerConfig);
     setQzGuideOpen(false);
     setPrinterModalOpen(false);
   }

@@ -32,6 +32,8 @@ import {
   getWebPosStation,
   subscribeToPosStationChanges,
   type PosAccessMode,
+  fetchPosStationPrinterConfig,
+  type PosStationPrinterConfig,
 } from "@/lib/api/posStations";
 
 type PaymentMethodSlug = string;
@@ -191,14 +193,12 @@ export default function PagoMultiplePage() {
   const confirmDisabled = !cart.length || !payments.length;
   const canSubmitWithEnter = !confirmDisabled && !successSale;
   const apiBase = useMemo(() => getApiBase(), []);
-  const [printerConfig, setPrinterConfig] = useState<{
-    mode: "browser" | "qz-tray";
-    printerName: string;
-    width: "58mm" | "80mm";
-  }>({
+  const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
     printerName: "",
     width: "80mm",
+    autoOpenDrawer: false,
+    showDrawerButton: true,
   });
   const resolvedPosName = useMemo(
     () => formatPosDisplayName(stationInfo, POS_DISPLAY_NAME),
@@ -233,15 +233,63 @@ export default function PagoMultiplePage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
+      const fallbackKey = "kensar_pos_printer_pos-web";
       const raw = window.localStorage.getItem(printerStorageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
         setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+        return;
+      }
+      if (printerStorageKey !== fallbackKey) {
+        const fallbackRaw = window.localStorage.getItem(fallbackKey);
+        if (fallbackRaw) {
+          const parsed = JSON.parse(fallbackRaw);
+          setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+          window.localStorage.setItem(printerStorageKey, fallbackRaw);
+        }
       }
     } catch (err) {
       console.warn("No se pudo cargar la configuración de impresora", err);
     }
   }, [printerStorageKey]);
+  useEffect(() => {
+    if (!token) return;
+    if (!isStationMode || !activeStationId) return;
+    let cancelled = false;
+    const loadRemote = async () => {
+      try {
+        const remote = await fetchPosStationPrinterConfig(
+          apiBase,
+          token,
+          activeStationId
+        );
+        if (!remote || cancelled) return;
+        setPrinterConfig((prev) => {
+          const next = { ...prev, ...remote };
+          if (typeof window !== "undefined") {
+            try {
+              window.localStorage.setItem(
+                printerStorageKey,
+                JSON.stringify(next)
+              );
+            } catch (err) {
+              console.warn(
+                "No se pudo guardar la configuración de impresora",
+                err
+              );
+            }
+          }
+          return next;
+        });
+      } catch (err) {
+        console.warn("No se pudo cargar la impresora guardada", err);
+      }
+    };
+    loadRemote();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, apiBase, activeStationId, isStationMode, printerStorageKey]);
   type QzPromiseResolver<T> = (value: T | PromiseLike<T>) => void;
   type QzPromiseReject = (reason?: unknown) => void;
   type QzType = {

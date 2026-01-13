@@ -10,6 +10,13 @@ export type PosStationAccess = {
 };
 
 export type PosAccessMode = "station" | "web";
+export type PosStationPrinterConfig = {
+  mode: "browser" | "qz-tray";
+  printerName: string;
+  width: "58mm" | "80mm";
+  autoOpenDrawer: boolean;
+  showDrawerButton: boolean;
+};
 
 const POS_WEB_STATION: PosStationAccess = {
   id: "pos-web",
@@ -168,4 +175,66 @@ export function subscribeToPosStationChanges(
 
   window.addEventListener("storage", handleStorage);
   return () => window.removeEventListener("storage", handleStorage);
+}
+
+type PrinterConfigPayload = {
+  printer_mode?: PosStationPrinterConfig["mode"];
+  printer_name?: string;
+  printer_width?: PosStationPrinterConfig["width"];
+  printer_auto_open_drawer?: boolean;
+  printer_show_drawer_button?: boolean;
+};
+
+export async function fetchPosStationPrinterConfig(
+  apiBase: string,
+  token: string,
+  stationId: string
+): Promise<PosStationPrinterConfig | null> {
+  const res = await fetch(`${apiBase}/pos/stations/${stationId}/printer-config`, {
+    headers: { Authorization: `Bearer ${token}` },
+    credentials: "include",
+  });
+  if (!res.ok) {
+    return null;
+  }
+  const data = (await res.json()) as PrinterConfigPayload;
+  if (!data || typeof data !== "object") return null;
+  const next: PosStationPrinterConfig = {
+    mode: data.printer_mode ?? "qz-tray",
+    printerName: data.printer_name ?? "",
+    width: data.printer_width ?? "80mm",
+    autoOpenDrawer: Boolean(data.printer_auto_open_drawer),
+    showDrawerButton:
+      data.printer_show_drawer_button !== undefined
+        ? Boolean(data.printer_show_drawer_button)
+        : true,
+  };
+  return next;
+}
+
+export async function updatePosStationPrinterConfig(
+  apiBase: string,
+  token: string,
+  stationId: string,
+  config: PosStationPrinterConfig
+) {
+  const payload: PrinterConfigPayload = {
+    printer_mode: config.mode,
+    printer_name: config.printerName.trim(),
+    printer_width: config.width,
+    printer_auto_open_drawer: config.autoOpenDrawer,
+    printer_show_drawer_button: config.showDrawerButton,
+  };
+  const res = await fetch(`${apiBase}/pos/stations/${stationId}/printer-config`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error("No se pudo guardar la impresora en el servidor.");
+  }
 }

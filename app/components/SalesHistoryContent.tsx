@@ -15,13 +15,16 @@ import {
 } from "@/lib/api/settings";
 import {
   ensureStoredPosMode,
+  fetchPosStationPrinterConfig,
   getPosStationAccess,
   getWebPosStation,
   subscribeToPosStationChanges,
   type PosAccessMode,
   type PosStationAccess,
+  type PosStationPrinterConfig,
 } from "@/lib/api/posStations";
 import {
+  renderReturnTicket,
   renderSaleTicket,
   buildSaleTicketCustomer,
 } from "@/lib/printing/saleTicket";
@@ -66,6 +69,30 @@ type SaleReturnSummary = {
   document_number?: string;
   created_at?: string;
   total?: number;
+};
+
+type ReturnItemDetail = {
+  product_name: string;
+  product_sku?: string | null;
+  quantity: number;
+  unit_price_net: number;
+  total_refund: number;
+};
+
+type ReturnPaymentDetail = {
+  method: string;
+  amount: number;
+};
+
+type SaleReturnDetail = {
+  id: number;
+  document_number?: string;
+  created_at?: string;
+  total_refund: number;
+  notes?: string | null;
+  created_by?: string | null;
+  items: ReturnItemDetail[];
+  payments: ReturnPaymentDetail[];
 };
 
 type Sale = {
@@ -404,19 +431,19 @@ export default function SalesHistoryContent({
   const [emailRecipient, setEmailRecipient] = useState("");
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [showSaleDetails, setShowSaleDetails] = useState(false);
+  const [returnPrintError, setReturnPrintError] = useState<string | null>(null);
+  const [returnPrintLoading, setReturnPrintLoading] = useState(false);
   const { token } = useAuth();
   const [posSettings, setPosSettings] =
     useState<PosSettingsPayload | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
-  const [printerConfig, setPrinterConfig] = useState<{
-    mode: "browser" | "qz-tray";
-    printerName: string;
-    width: "58mm" | "80mm";
-  }>({
+  const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
     printerName: "",
     width: "80mm",
+    autoOpenDrawer: false,
+    showDrawerButton: true,
   });
   type QzPromiseResolver<T> = (value: T | PromiseLike<T>) => void;
   type QzPromiseReject = (reason?: unknown) => void;
@@ -502,15 +529,64 @@ export default function SalesHistoryContent({
     if (!shouldUseQz) return;
     if (typeof window === "undefined") return;
     try {
+      const fallbackKey = "kensar_pos_printer_pos-web";
       const raw = window.localStorage.getItem(printerStorageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
         setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+        return;
+      }
+      if (printerStorageKey !== fallbackKey) {
+        const fallbackRaw = window.localStorage.getItem(fallbackKey);
+        if (fallbackRaw) {
+          const parsed = JSON.parse(fallbackRaw);
+          setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+          window.localStorage.setItem(printerStorageKey, fallbackRaw);
+        }
       }
     } catch (err) {
       console.warn("No se pudo cargar la configuración de impresora", err);
     }
   }, [printerStorageKey, shouldUseQz]);
+  useEffect(() => {
+    if (!shouldUseQz) return;
+    if (!token) return;
+    if (!activeStationId) return;
+    let cancelled = false;
+    const loadRemote = async () => {
+      try {
+        const remote = await fetchPosStationPrinterConfig(
+          apiBase,
+          token,
+          activeStationId
+        );
+        if (!remote || cancelled) return;
+        setPrinterConfig((prev) => {
+          const next = { ...prev, ...remote };
+          if (typeof window !== "undefined") {
+            try {
+              window.localStorage.setItem(
+                printerStorageKey,
+                JSON.stringify(next)
+              );
+            } catch (err) {
+              console.warn(
+                "No se pudo guardar la configuración de impresora",
+                err
+              );
+            }
+          }
+          return next;
+        });
+      } catch (err) {
+        console.warn("No se pudo cargar la impresora guardada", err);
+      }
+    };
+    loadRemote();
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldUseQz, token, activeStationId, apiBase, printerStorageKey]);
 
   useEffect(() => {
     if (!shouldUseQz) return;
@@ -1008,6 +1084,8 @@ export default function SalesHistoryContent({
     !!selectedSale &&
     selectedSaleSummary.total > 0;
   const canPrintTicket = !!selectedSale;
+  const canPrintReturn =
+    !!selectedSale?.returns && selectedSale.returns.length > 0;
   const trimmedRecipient = emailRecipient.trim();
   const canEmailTicket =
     !!selectedSale &&
@@ -1046,12 +1124,14 @@ export default function SalesHistoryContent({
       setEmailFeedback(null);
       setEmailError(null);
       setShowEmailForm(false);
+      setReturnPrintError(null);
       return;
     }
     setEmailRecipient(selectedSale.customer_email ?? "");
     setEmailFeedback(null);
     setEmailError(null);
     setShowEmailForm(false);
+    setReturnPrintError(null);
   }, [selectedSale]);
 
   const handlePrintTicket = useCallback(async () => {
@@ -1235,6 +1315,143 @@ export default function SalesHistoryContent({
     posSettings,
     mapPaymentMethod,
     shouldUseQz,
+  ]);
+
+  const getLatestReturn = (returns?: SaleReturnSummary[]) => {
+    if (!returns || returns.length === 0) return null;
+    return returns.reduce((latest, current) => {
+      const latestTime = latest.created_at
+        ? new Date(latest.created_at).getTime()
+        : 0;
+      const currentTime = current.created_at
+        ? new Date(current.created_at).getTime()
+        : 0;
+      if (currentTime === latestTime) {
+        return current.id > latest.id ? current : latest;
+      }
+      return currentTime > latestTime ? current : latest;
+    });
+  };
+
+  const handlePrintReturnTicket = useCallback(async () => {
+    if (!selectedSale?.returns?.length) return;
+    const latestReturn = getLatestReturn(selectedSale.returns);
+    if (!latestReturn) return;
+    if (!token) {
+      setReturnPrintError("Tu sesión expiró. Vuelve a iniciar sesión.");
+      return;
+    }
+    setReturnPrintLoading(true);
+    setReturnPrintError(null);
+    try {
+      const res = await fetch(`${apiBase}/pos/returns/${latestReturn.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error(
+          `No se pudo cargar la devolución (Error ${res.status}).`
+        );
+      }
+      const detail = (await res.json()) as SaleReturnDetail;
+      const items = (detail.items ?? []).map((item) => ({
+        name: item.product_name,
+        quantity: item.quantity,
+        unitPrice: item.unit_price_net,
+        total: item.total_refund,
+        sku: item.product_sku ?? undefined,
+      }));
+      const payments = (detail.payments ?? []).map((payment) => ({
+        label: mapPaymentMethod(payment.method),
+        amount: payment.amount,
+      }));
+      const html = renderReturnTicket({
+        settings: posSettings,
+        documentNumber:
+          detail.document_number ??
+          `DV-${detail.id.toString().padStart(6, "0")}`,
+        originalDocumentNumber: selectedSale.document_number,
+        createdAt: detail.created_at,
+        posName: selectedSale.pos_name ?? undefined,
+        sellerName:
+          selectedSale.vendor_name ??
+          detail.created_by ??
+          undefined,
+        items,
+        payments,
+        totalRefund: detail.total_refund ?? 0,
+        notes: detail.notes,
+      });
+
+      const printTicketWithQz = async () => {
+        if (!shouldUseQz) return false;
+        if (printerConfig.mode !== "qz-tray") return false;
+        if (!printerConfig.printerName.trim()) return false;
+        if (!qzClient) return false;
+        try {
+          if (!qzClient.websocket.isActive()) {
+            await qzClient.websocket.connect();
+          }
+          const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+          const cfg = qzClient.configs.create(printerConfig.printerName, {
+            altPrinting: true,
+            units: "mm",
+            size: { width: sizeWidth },
+            margins: { top: 0, right: 0, bottom: 0, left: 0 },
+          });
+          await qzClient.print(cfg, [
+            { type: "html", format: "plain", data: html },
+          ]);
+          return true;
+        } catch (err) {
+          console.error("No se pudo imprimir devolución con QZ Tray", err);
+          return false;
+        }
+      };
+
+      const printedWithQz = await printTicketWithQz();
+      if (printedWithQz) return;
+
+      const win = window.open("", "_blank", "width=380,height=640");
+      if (!win) return;
+      win.document.write(html);
+      win.document.close();
+      const triggerPrint = () => {
+        try {
+          win.focus();
+          win.print();
+        } catch (err) {
+          console.error("No se pudo imprimir la devolución", err);
+        } finally {
+          win.close();
+        }
+      };
+      if (win.document.readyState === "complete") {
+        triggerPrint();
+      } else {
+        win.onload = triggerPrint;
+      }
+    } catch (err) {
+      console.error(err);
+      setReturnPrintError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo imprimir la devolución."
+      );
+    } finally {
+      setReturnPrintLoading(false);
+    }
+  }, [
+    apiBase,
+    mapPaymentMethod,
+    posSettings,
+    printerConfig.mode,
+    printerConfig.printerName,
+    printerConfig.width,
+    qzClient,
+    selectedSale,
+    shouldUseQz,
+    token,
   ]);
 
   const handleEmailTicket = async () => {
@@ -1835,6 +2052,14 @@ export default function SalesHistoryContent({
                 </button>
                 <button
                   type="button"
+                  onClick={handlePrintReturnTicket}
+                  disabled={!canPrintReturn || returnPrintLoading}
+                  className="px-3 py-2 rounded-md border border-slate-700 text-xs font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {returnPrintLoading ? "Imprimiendo..." : "Imprimir devolución"}
+                </button>
+                <button
+                  type="button"
                   onClick={handleEmailTicket}
                   disabled={!canEmailTicket}
                   className="px-3 py-2 rounded-md border border-slate-700 text-xs font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1870,6 +2095,11 @@ export default function SalesHistoryContent({
                     </p>
                   )}
                 </div>
+              )}
+              {returnPrintError && (
+                <p className="text-[11px] text-rose-300">
+                  {returnPrintError}
+                </p>
               )}
             </div>
           </div>

@@ -3,12 +3,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "../../providers/AuthProvider";
+import { renderReturnTicket } from "@/lib/printing/saleTicket";
+import { fetchPosSettings, PosSettingsPayload } from "@/lib/api/settings";
 import {
   DEFAULT_PAYMENT_METHODS,
   fetchPaymentMethods,
   type PaymentMethodRecord,
 } from "@/lib/api/paymentMethods";
 import { getApiBase } from "@/lib/api/base";
+import {
+  ensureStoredPosMode,
+  fetchPosStationPrinterConfig,
+  getPosStationAccess,
+  getWebPosStation,
+  subscribeToPosStationChanges,
+  type PosAccessMode,
+  type PosStationAccess,
+  type PosStationPrinterConfig,
+} from "@/lib/api/posStations";
 import { formatBogotaDate } from "@/lib/time/bogota";
 
 type PaymentMethodSlug = string;
@@ -23,6 +35,33 @@ type SaleReturn = {
   document_number?: string;
   created_at?: string;
   items: SaleReturnItem[];
+};
+
+type ReturnItemDetail = {
+  product_name: string;
+  product_sku?: string | null;
+  quantity: number;
+  unit_price_net: number;
+  total_refund: number;
+};
+
+type ReturnPaymentDetail = {
+  method: string;
+  amount: number;
+};
+
+type SaleReturnDetail = {
+  id: number;
+  document_number?: string;
+  original_document_number?: string | null;
+  created_at?: string;
+  total_refund: number;
+  created_by?: string | null;
+  pos_name?: string | null;
+  seller_name?: string | null;
+  notes?: string | null;
+  items: ReturnItemDetail[];
+  payments: ReturnPaymentDetail[];
 };
 
 type SaleItem = {
@@ -51,6 +90,8 @@ type Sale = {
   refunded_total?: number | null;
   refunded_balance?: number | null;
   refund_count?: number | null;
+  pos_name?: string | null;
+  vendor_name?: string | null;
   items: SaleItem[];
   returns?: SaleReturn[];
 };
@@ -172,9 +213,21 @@ export default function DevolucionesPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(
+  const [returnSuccess, setReturnSuccess] = useState<SaleReturnDetail | null>(
     null
   );
+  const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(
+    null
+  );
+  const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
+  const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
+  const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
+    mode: "qz-tray",
+    printerName: "",
+    width: "80mm",
+    autoOpenDrawer: false,
+    showDrawerButton: true,
+  });
 
   const { token } = useAuth();
   const authHeaders = useMemo(
@@ -203,6 +256,233 @@ export default function DevolucionesPage() {
   }, [token]);
 
   useEffect(() => {
+    let active = true;
+    async function loadSettings() {
+      if (!token) return;
+      try {
+        const settings = await fetchPosSettings(token);
+        if (!active) return;
+        setPosSettings(settings);
+      } catch (err) {
+        console.warn("No se pudieron cargar ajustes del POS", err);
+      }
+    }
+    void loadSettings();
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mode = ensureStoredPosMode();
+    setPosMode(mode);
+  }, []);
+
+  useEffect(() => {
+    if (!posMode) return;
+    if (posMode === "web") {
+      setStationInfo(getWebPosStation());
+      return;
+    }
+    const syncStation = () => {
+      setStationInfo(getPosStationAccess());
+    };
+    syncStation();
+    const unsubscribe = subscribeToPosStationChanges(syncStation);
+    return () => {
+      unsubscribe();
+    };
+  }, [posMode]);
+
+  const isStationMode = posMode === "station";
+  const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
+  const printerStorageKey = useMemo(
+    () => `kensar_pos_printer_${activeStationId ?? "pos-web"}`,
+    [activeStationId]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const fallbackKey = "kensar_pos_printer_pos-web";
+      const raw = window.localStorage.getItem(printerStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+        return;
+      }
+      if (printerStorageKey !== fallbackKey) {
+        const fallbackRaw = window.localStorage.getItem(fallbackKey);
+        if (fallbackRaw) {
+          const parsed = JSON.parse(fallbackRaw);
+          setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+          window.localStorage.setItem(printerStorageKey, fallbackRaw);
+        }
+      }
+    } catch (err) {
+      console.warn("No se pudo cargar la configuración de impresora", err);
+    }
+  }, [printerStorageKey]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (!isStationMode || !activeStationId) return;
+    let cancelled = false;
+    const loadRemote = async () => {
+      try {
+        const remote = await fetchPosStationPrinterConfig(
+          apiBase,
+          token,
+          activeStationId
+        );
+        if (!remote || cancelled) return;
+        setPrinterConfig((prev) => {
+          const next = { ...prev, ...remote };
+          if (typeof window !== "undefined") {
+            try {
+              window.localStorage.setItem(
+                printerStorageKey,
+                JSON.stringify(next)
+              );
+            } catch (err) {
+              console.warn(
+                "No se pudo guardar la configuración de impresora",
+                err
+              );
+            }
+          }
+          return next;
+        });
+      } catch (err) {
+        console.warn("No se pudo cargar la impresora guardada", err);
+      }
+    };
+    loadRemote();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, apiBase, activeStationId, isStationMode, printerStorageKey]);
+
+  type QzPromiseResolver<T> = (value: T | PromiseLike<T>) => void;
+  type QzPromiseReject = (reason?: unknown) => void;
+  type QzType = {
+    websocket: { isActive: () => boolean; connect: () => Promise<void> };
+    printers: { find: () => Promise<string[]> };
+    configs: { create: (printer: string, options?: Record<string, unknown>) => unknown };
+    print: (config: unknown, data: unknown) => Promise<void>;
+    security?: {
+      setCertificatePromise: (
+        promise: (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => void
+      ) => void;
+      setSignaturePromise: (
+        promise: (
+          toSign: string
+        ) => (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => void
+      ) => void;
+    };
+  };
+  const [qzClient, setQzClient] = useState<QzType | null>(() => {
+    if (typeof window !== "undefined") {
+      const w = window as unknown as { qz?: QzType };
+      return w.qz ?? null;
+    }
+    return null;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const setIfPresent = () => {
+      if (cancelled) return;
+      const w = window as unknown as { qz?: QzType };
+      if (w.qz) setQzClient(w.qz);
+    };
+    const w = window as unknown as { qz?: QzType };
+    if (w.qz) {
+      setIfPresent();
+      return () => {
+        cancelled = true;
+      };
+    }
+    const existing = document.querySelector(
+      'script[data-qz-tray]'
+    ) as HTMLScriptElement | null;
+    const script = existing ?? document.createElement("script");
+    if (!existing) {
+      script.src = "https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
+      script.async = true;
+      script.dataset.qzTray = "1";
+      script.onerror = () =>
+        console.warn("No se pudo cargar el script de QZ Tray desde la CDN.");
+      document.head.appendChild(script);
+    }
+    script.addEventListener("load", setIfPresent);
+    return () => {
+      cancelled = true;
+      script.removeEventListener("load", setIfPresent);
+    };
+  }, []);
+  const qzSecurityConfiguredRef = useRef(false);
+  const configureQzSecurity = useCallback(() => {
+    if (!qzClient?.security) return true;
+    if (!token) return false;
+    if (qzSecurityConfiguredRef.current) return true;
+    const authHeaders = {
+      Authorization: `Bearer ${token}`,
+    };
+    qzClient.security.setCertificatePromise(
+      (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => {
+        fetch(`${apiBase}/pos/qz/cert`, { credentials: "include" })
+          .then(async (res) => {
+            if (!res.ok) {
+              throw new Error(
+                `No se pudo obtener el certificado (Error ${res.status}).`
+              );
+            }
+            return res.text();
+          })
+          .then(resolve)
+          .catch(reject);
+      }
+    );
+    qzClient.security.setSignaturePromise(
+      (toSign: string) =>
+        (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => {
+          fetch(`${apiBase}/pos/qz/sign`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...authHeaders,
+            },
+            credentials: "include",
+            body: JSON.stringify({ data: toSign }),
+          })
+            .then(async (res) => {
+              if (!res.ok) {
+                const detail = await res.json().catch(() => null);
+                throw new Error(
+                  detail?.detail ??
+                    `No se pudo firmar el reto (Error ${res.status}).`
+                );
+              }
+              const data = (await res.json()) as { signature?: string };
+              if (!data?.signature) {
+                throw new Error("La API no devolvió la firma.");
+              }
+              return data.signature;
+            })
+            .then(resolve)
+            .catch(reject);
+        }
+    );
+    qzSecurityConfiguredRef.current = true;
+    return true;
+  }, [apiBase, qzClient, token]);
+  useEffect(() => {
+    configureQzSecurity();
+  }, [configureQzSecurity]);
+
+  useEffect(() => {
     if (!activePaymentMethods.length) return;
     const exists = activePaymentMethods.some(
       (m) => m.slug === paymentMethod
@@ -212,6 +492,14 @@ export default function DevolucionesPage() {
     }
   }, [activePaymentMethods, paymentMethod]);
 
+  const paymentLabels = useMemo(() => {
+    return new Map(paymentCatalog.map((method) => [method.slug, method.name]));
+  }, [paymentCatalog]);
+
+  const resolvePaymentLabel = useCallback(
+    (method: string) => paymentLabels.get(method) ?? method,
+    [paymentLabels]
+  );
 
   const alreadyReturnedMap = useMemo(() => {
     const map = new Map<number, number>();
@@ -343,7 +631,6 @@ export default function DevolucionesPage() {
     setNotes("");
     setPaymentAmount("0");
     setPaymentTouched(false);
-    setSuccessMessage(null);
     setSubmitError(null);
   }, []);
 
@@ -508,7 +795,6 @@ export default function DevolucionesPage() {
     if (!sale) return;
     setSubmitting(true);
     setSubmitError(null);
-    setSuccessMessage(null);
 
     try {
       const itemsPayload = sale.items
@@ -572,21 +858,27 @@ export default function DevolucionesPage() {
         throw new Error(detail);
       }
 
-      const createdReturn = await res.json();
-      setSuccessMessage(
-        `Devolución registrada correctamente (doc. ${createdReturn.document_number ?? createdReturn.id}).`
-      );
+      const createdReturn = (await res.json()) as SaleReturnDetail;
+      setReturnSuccess({
+        id: createdReturn.id,
+        document_number: createdReturn.document_number,
+        original_document_number: sale.document_number ?? null,
+        created_at: createdReturn.created_at,
+        total_refund: createdReturn.total_refund ?? refundEstimate,
+        created_by: createdReturn.created_by ?? sale.vendor_name ?? null,
+        pos_name: sale.pos_name ?? null,
+        seller_name: sale.vendor_name ?? createdReturn.created_by ?? null,
+        notes: createdReturn.notes ?? notes ?? null,
+        items: createdReturn.items ?? [],
+        payments: createdReturn.payments ?? [],
+      });
       setQuantities({});
       setNotes("");
       setPaymentTouched(false);
       setPaymentAmount("0");
       try {
         const updatedSale = await fetchSaleById(sale.id.toString());
-        if (getSaleNetBalance(updatedSale) <= 0) {
-          clearSelection();
-        } else {
-          setSale(updatedSale);
-        }
+        setSale(updatedSale);
       } catch (err) {
         console.warn("No se pudo recargar la venta tras la devolución", err);
         clearSelection();
@@ -600,6 +892,96 @@ export default function DevolucionesPage() {
       setSubmitting(false);
     }
   };
+
+  const handlePrintReturnTicket = useCallback(async () => {
+    if (!returnSuccess) return;
+    const items = returnSuccess.items.map((item) => ({
+      name: item.product_name,
+      quantity: item.quantity,
+      unitPrice: item.unit_price_net,
+      total: item.total_refund,
+      sku: item.product_sku ?? undefined,
+    }));
+    const payments = (returnSuccess.payments ?? []).map((payment) => ({
+      label: resolvePaymentLabel(payment.method),
+      amount: payment.amount,
+    }));
+    const html = renderReturnTicket({
+      settings: posSettings,
+      documentNumber:
+        returnSuccess.document_number ??
+        `DV-${returnSuccess.id.toString().padStart(6, "0")}`,
+      originalDocumentNumber: returnSuccess.original_document_number,
+      createdAt: returnSuccess.created_at,
+      posName: returnSuccess.pos_name ?? undefined,
+      sellerName:
+        returnSuccess.seller_name ??
+        returnSuccess.created_by ??
+        undefined,
+      items,
+      payments,
+      totalRefund: returnSuccess.total_refund,
+      notes: returnSuccess.notes,
+    });
+
+    const printTicketWithQz = async () => {
+      if (printerConfig.mode !== "qz-tray") return false;
+      if (!printerConfig.printerName.trim()) return false;
+      if (!qzClient) return false;
+      try {
+        configureQzSecurity();
+        if (!qzClient.websocket.isActive()) {
+          await qzClient.websocket.connect();
+        }
+        const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+        const cfg = qzClient.configs.create(printerConfig.printerName, {
+          altPrinting: true,
+          units: "mm",
+          size: { width: sizeWidth },
+          margins: { top: 0, right: 0, bottom: 0, left: 0 },
+        });
+        await qzClient.print(cfg, [
+          { type: "html", format: "plain", data: html },
+        ]);
+        return true;
+      } catch (err) {
+        console.error("No se pudo imprimir devolución con QZ Tray", err);
+        return false;
+      }
+    };
+
+    const printedWithQz = await printTicketWithQz();
+    if (printedWithQz) return;
+
+    const win = window.open("", "_blank", "width=380,height=640");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    const triggerPrint = () => {
+      try {
+        win.focus();
+        win.print();
+      } catch (err) {
+        console.error("No se pudo imprimir el ticket de devolución", err);
+      } finally {
+        win.close();
+      }
+    };
+    if (win.document.readyState === "complete") {
+      triggerPrint();
+    } else {
+      win.onload = triggerPrint;
+    }
+  }, [
+    configureQzSecurity,
+    posSettings,
+    printerConfig.mode,
+    printerConfig.printerName,
+    printerConfig.width,
+    qzClient,
+    resolvePaymentLabel,
+    returnSuccess,
+  ]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
@@ -927,12 +1309,6 @@ export default function DevolucionesPage() {
                 </div>
               )}
 
-              {successMessage && (
-                <div className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/40 rounded px-3 py-2">
-                  {successMessage}
-                </div>
-              )}
-
               <div className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-3">
                 <button
                   type="button"
@@ -956,6 +1332,67 @@ export default function DevolucionesPage() {
           </div>
         </div>
       </div>
+      {returnSuccess && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 py-6">
+          <div className="w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900 p-8 shadow-2xl">
+            <div className="text-lg text-emerald-300 font-semibold mb-4">
+              Devolución registrada correctamente
+            </div>
+            <div className="grid gap-2 text-base text-slate-300 sm:grid-cols-2">
+              <div>
+                Documento:{" "}
+                <span className="text-slate-100 font-mono text-lg">
+                  {returnSuccess.document_number ??
+                    `DV-${returnSuccess.id.toString().padStart(6, "0")}`}
+                </span>
+              </div>
+              {returnSuccess.original_document_number && (
+                <div>
+                  Venta original:{" "}
+                  <span className="text-slate-100 text-lg">
+                    {returnSuccess.original_document_number}
+                  </span>
+                </div>
+              )}
+              <div className="sm:col-span-2">
+                Total devuelto:{" "}
+                <span className="text-emerald-200 font-semibold text-lg">
+                  -{formatMoney(Math.round(returnSuccess.total_refund))}
+                </span>
+              </div>
+            </div>
+            <div className="mt-6 flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={handlePrintReturnTicket}
+                className="px-6 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-base font-semibold"
+              >
+                Imprimir ticket de devolución
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReturnSuccess(null);
+                  clearSelection();
+                }}
+                className="px-6 py-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-base font-semibold"
+              >
+                Registrar nueva devolución
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReturnSuccess(null);
+                  router.push(resolvedBackPath);
+                }}
+                className="px-6 py-4 rounded-xl border border-slate-600 text-slate-200 text-base font-semibold hover:bg-slate-800"
+              >
+                Volver al POS
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
