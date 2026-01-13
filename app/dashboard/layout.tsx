@@ -18,7 +18,7 @@ const navItems: Array<{
   { href: "/dashboard/movements", label: "Movimientos", moduleId: "products" },
   { href: "/dashboard/documents", label: "Documentos", moduleId: "documents" },
   { href: "/dashboard/pos", label: "POS / Caja", moduleId: "pos" },
-  { href: "/dashboard/labels", label: "Etiquetas", moduleId: "products" },
+  { href: "/dashboard/labels", label: "Etiquetas", moduleId: "labels" },
   { href: "/dashboard/reports", label: "Reportes", moduleId: "reports" },
   { href: "/dashboard/settings", label: "Configuración", moduleId: "settings" },
 ];
@@ -32,7 +32,7 @@ const routePermissions: Array<{
   { prefix: "/dashboard/movements", moduleId: "products" },
   { prefix: "/dashboard/documents", moduleId: "documents" },
   { prefix: "/dashboard/pos", moduleId: "pos" },
-  { prefix: "/dashboard/labels", moduleId: "products" },
+  { prefix: "/dashboard/labels", moduleId: "labels" },
   { prefix: "/dashboard/reports", moduleId: "reports" },
   { prefix: "/dashboard/settings", moduleId: "settings" },
 ];

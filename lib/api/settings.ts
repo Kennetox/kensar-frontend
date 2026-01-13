@@ -391,14 +391,27 @@ export const defaultRolePermissions: RolePermissionModule[] = [
           Auditor: true,
         },
       },
+    ],
+  },
+  {
+    id: "labels",
+    label: "Etiquetas",
+    description: "Generación de archivos para etiquetas.",
+    roles: {
+      Administrador: true,
+      Supervisor: true,
+      Vendedor: true,
+      Auditor: false,
+    },
+    actions: [
       {
-        id: "inventory.labels",
-        label: "Generar etiquetas",
+        id: "labels.export",
+        label: "Exportar etiquetas",
         description: "Descarga de plantillas para impresión.",
         roles: {
           Administrador: true,
           Supervisor: true,
-          Vendedor: false,
+          Vendedor: true,
           Auditor: false,
         },
       },
