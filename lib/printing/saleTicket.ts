@@ -14,6 +14,19 @@ export type SaleTicketPayment = {
   amount: number;
 };
 
+export type ReturnTicketItem = {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  sku?: string | null;
+};
+
+export type ReturnTicketPayment = {
+  label: string;
+  amount: number;
+};
+
 export type SaleTicketCustomer = {
   name: string;
   phone?: string;
@@ -89,6 +102,19 @@ export type SaleTicketOptions = {
     balance?: number;
     payments: SeparatedTicketPayment[];
   };
+};
+
+export type ReturnTicketOptions = {
+  settings?: PosSettingsPayload | null;
+  documentNumber: string;
+  originalDocumentNumber?: string | null;
+  createdAt?: string | null;
+  posName?: string | null;
+  sellerName?: string | null;
+  items: ReturnTicketItem[];
+  payments: ReturnTicketPayment[];
+  totalRefund: number;
+  notes?: string | null;
 };
 
 export type ClosureTicketMethod = {
@@ -244,6 +270,12 @@ function formatMoney(value: number): string {
   })}`;
 }
 
+function formatMoneySigned(value: number): string {
+  const amount = Math.abs(value);
+  const formatted = formatMoney(amount);
+  return value < 0 ? `-${formatted}` : formatted;
+}
+
 function formatDisplayDate(value?: string | null): string {
   if (!value) return "";
   return (
@@ -252,6 +284,120 @@ function formatDisplayDate(value?: string | null): string {
       timeStyle: "short",
     }) || value
   );
+}
+
+export function renderReturnTicket(options: ReturnTicketOptions): string {
+  const settings = options.settings;
+  const companyName =
+    settings?.company_name?.trim() || FALLBACK_COMPANY.name;
+  const taxId = settings?.tax_id?.trim() || FALLBACK_COMPANY.taxId;
+  const address = settings?.address?.trim() || FALLBACK_COMPANY.address;
+  const phone = settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
+  const email = settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
+  const footer = settings?.ticket_footer?.trim() || FALLBACK_COMPANY.footer;
+  const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
+
+  const itemsRows = options.items.length
+    ? options.items
+        .map(
+          (item) => `
+          <div class="item-row">
+            <div class="item-name">${escapeHtml(item.name)}</div>
+            <div class="item-meta">${item.quantity} × ${formatMoney(item.unitPrice)}</div>
+            <div class="item-total">${formatMoneySigned(-Math.abs(item.total))}</div>
+          </div>`
+        )
+        .join("")
+    : '<div class="muted">Sin productos devueltos.</div>';
+
+  const paymentRows = options.payments
+    .filter((payment) => Math.abs(payment.amount) > 0)
+    .map(
+      (payment) => `
+      <div class="row">
+        <span>${escapeHtml(payment.label)}</span>
+        <span>${formatMoneySigned(-Math.abs(payment.amount))}</span>
+      </div>`
+    )
+    .join("");
+
+  const originalDoc = options.originalDocumentNumber
+    ? `<div>Venta original: ${escapeHtml(options.originalDocumentNumber)}</div>`
+    : "";
+  const sellerLine = options.sellerName
+    ? `<div>Vendedor: ${escapeHtml(options.sellerName)}</div>`
+    : "";
+  const posLine = options.posName
+    ? `<div>POS: ${escapeHtml(options.posName)}</div>`
+    : "";
+
+  return `
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Devolución ${escapeHtml(options.documentNumber)}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 0; background: #fff; color: #000000; }
+          .ticket { max-width: 340px; margin: 0 auto; padding: 18px; }
+          .header { text-align: center; }
+          .logo { max-height: 60px; margin-bottom: 8px; }
+          .title { font-size: 20px; font-weight: 800; letter-spacing: 0.04em; color: #000000; }
+          .badge { display: inline-block; margin-top: 6px; padding: 5px 12px; border-radius: 999px; border: 2px solid #000000; color: #000000; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; }
+          .meta { font-size: 14px; text-align: left; margin-top: 12px; color: #000000; }
+          .meta div { margin-bottom: 4px; }
+          .section { margin-top: 12px; }
+          .line { border-top: 2px solid #000000; margin: 12px 0; }
+          .row { display: flex; justify-content: space-between; font-size: 14px; margin: 4px 0; color: #000000; }
+          .items { margin-top: 6px; }
+          .item-row { border-bottom: 2px solid #000000; padding: 8px 0; }
+          .item-name { font-size: 14px; font-weight: 700; color: #000000; }
+          .item-meta { font-size: 13px; color: #000000; }
+          .item-total { font-size: 14px; text-align: right; color: #000000; font-weight: 700; }
+          .total { font-size: 16px; font-weight: 800; color: #000000; }
+          .muted { font-size: 13px; color: #000000; }
+        </style>
+      </head>
+      <body>
+        <div class="ticket">
+          <div class="header">
+            ${logoUrl ? `<img class="logo" src="${logoUrl}" alt="${escapeHtml(companyName)}" />` : ""}
+            <div class="title">${escapeHtml(companyName)}</div>
+            <div class="muted">${escapeHtml(address)}</div>
+            <div class="muted">${escapeHtml(taxId)}</div>
+            <div class="muted">${escapeHtml(phone)} · ${escapeHtml(email)}</div>
+            <div class="badge">DEVOLUCIÓN</div>
+          </div>
+          <div class="meta">
+            <div>Documento: ${escapeHtml(options.documentNumber)}</div>
+            ${originalDoc}
+            ${posLine}
+            ${sellerLine}
+            <div>Fecha: ${escapeHtml(formatDisplayDate(options.createdAt))}</div>
+          </div>
+          <div class="line"></div>
+          <div class="section">
+            <div class="row">
+              <span>Total devolución</span>
+              <span class="total">${formatMoneySigned(-Math.abs(options.totalRefund))}</span>
+            </div>
+          </div>
+          <div class="section">
+            <div class="row"><span>Detalle de productos</span></div>
+            <div class="items">${itemsRows}</div>
+          </div>
+          ${paymentRows
+            ? `<div class="section">
+                <div class="row"><span>Reembolso</span></div>
+                ${paymentRows}
+              </div>`
+            : ""}
+          ${options.notes ? `<div class="section muted">Notas: ${escapeHtml(options.notes)}</div>` : ""}
+          <div class="line"></div>
+          <div class="muted" style="text-align:center;">${escapeHtml(footer)}</div>
+        </div>
+      </body>
+    </html>
+  `;
 }
 
 export function renderSaleTicket(options: SaleTicketOptions): string {
@@ -415,7 +561,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
     height: 30,
     moduleWidth: 2,
     includeText: true,
-    includeTextFontSize: 10,
+    includeTextFontSize: 12,
     quietZoneModules: 10,
   });
 
@@ -431,7 +577,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
           width: 80mm;
           margin: 0 auto;
-          font-size: 12px;
+          font-size: 13px;
           color: #0f172a;
           background: #ffffff;
         }
@@ -448,14 +594,14 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           object-fit: contain;
         }
         h1 {
-          font-size: 18px;
+          font-size: 20px;
           text-align: center;
           margin: 0;
         }
         .company-info {
           text-align: center;
           color: #111827;
-          font-size: 12px;
+          font-size: 13px;
           line-height: 1.4;
           margin-top: 4px;
         }
@@ -464,7 +610,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           margin: 10px 0;
         }
         .line-title {
-          font-size: 11px;
+          font-size: 12px;
           letter-spacing: 0.08em;
           color: #111827;
           text-transform: uppercase;
@@ -473,16 +619,16 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         }
         .customer-name {
           font-weight: 600;
-          font-size: 13px;
+          font-size: 14px;
         }
         .customer-detail {
-          color: #374151;
-          font-size: 11px;
+          color: #111827;
+          font-size: 12px;
         }
         .line {
           display: flex;
           justify-content: space-between;
-          font-size: 12px;
+          font-size: 13px;
           margin-bottom: 2px;
           line-height: 1.4;
         }
@@ -508,8 +654,8 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           font-weight: 600;
         }
         .item-meta {
-          color: #475569;
-          font-size: 10px;
+          color: #0f172a;
+          font-size: 11px;
         }
         .item-discount {
           color: #0f172a;
@@ -523,11 +669,12 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         .totals {
           display: flex;
           justify-content: space-between;
-          font-size: 13px;
+          font-size: 20px;
           margin-top: 8px;
         }
         .totals span {
-          font-weight: 700;
+          font-weight: 800;
+          font-size: 20px;
         }
         .totals strong {
           font-size: 20px;
@@ -536,7 +683,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         .payments .row {
           display: flex;
           justify-content: space-between;
-          font-size: 12px;
+          font-size: 13px;
           margin-bottom: 2px;
         }
         .payments .row span:last-child {
@@ -544,7 +691,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           text-align: right;
         }
         .separated-badge {
-          font-size: 11px;
+          font-size: 12px;
           font-weight: 600;
           color: #0f172a;
           text-align: center;
@@ -557,8 +704,8 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           font-weight: 600;
         }
         .sep-meta {
-          font-size: 10px;
-          color: #64748b;
+          font-size: 11px;
+          color: #111827;
         }
         .section { margin-bottom: 12px; }
         .barcode { margin-top: 16px; text-align: center; }
@@ -569,7 +716,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         .footer {
           margin-top: 16px;
           text-align: center;
-          font-size: 11px;
+          font-size: 12px;
           color: #111827;
           line-height: 1.4;
         }
