@@ -2282,8 +2282,12 @@ const matchesStationLabel = useCallback(
       setClosureError("No hay ventas pendientes por cerrar.");
       return;
     }
+    const shouldPreOpenWindow =
+      printerConfig.mode !== "qz-tray" ||
+      !printerConfig.printerName.trim() ||
+      !qzInstance;
     const preOpenedWindow =
-      typeof window !== "undefined"
+      shouldPreOpenWindow && typeof window !== "undefined"
         ? window.open("", "_blank", "width=420,height=640")
         : null;
     try {
