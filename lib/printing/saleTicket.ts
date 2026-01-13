@@ -119,7 +119,10 @@ export type ReturnTicketOptions = {
 
 export type ClosureTicketMethod = {
   label: string;
-  amount: number;
+  amount?: number;
+  gross?: number;
+  refunds?: number;
+  net?: number;
 };
 
 export type ClosureTicketUserBreakdown = {
@@ -1197,17 +1200,49 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
   const email = settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
   const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
 
+  const hasDetailedMethods = options.methods.some(
+    (method) =>
+      typeof method.gross === "number" ||
+      typeof method.refunds === "number" ||
+      typeof method.net === "number"
+  );
   const methodRows = options.methods.length
     ? options.methods
-        .map(
-          (method) => `
+        .map((method) => {
+          const gross = method.gross ?? method.amount ?? 0;
+          const refunds = method.refunds ?? 0;
+          const net = method.net ?? method.amount ?? gross - refunds;
+          if (hasDetailedMethods) {
+            return `
+        <div class="method-grid">
+          <span>${escapeHtml(method.label)}</span>
+          <span>${formatMoney(gross)}</span>
+          <span>${formatMoneySigned(-Math.abs(refunds))}</span>
+          <span>${formatMoneySigned(net)}</span>
+        </div>`;
+          }
+          return `
         <div class="row">
           <span>${escapeHtml(method.label)}</span>
-          <span>${formatMoney(method.amount)}</span>
-        </div>`
-        )
+          <span>${formatMoneySigned(net)}</span>
+        </div>`;
+        })
         .join("")
-    : '<div class="row"><span>Sin métodos registrados</span><span>$ 0</span></div>';
+    : hasDetailedMethods
+      ? '<div class="method-grid"><span>Sin métodos registrados</span><span>$ 0</span><span>$ 0</span><span>$ 0</span></div>'
+      : '<div class="row"><span>Sin métodos registrados</span><span>$ 0</span></div>';
+  const methodHeader = hasDetailedMethods
+    ? `
+      <div class="method-grid header">
+        <span>Método</span>
+        <span>Ventas</span>
+        <span>Reembolsos</span>
+        <span>Neto</span>
+      </div>`
+    : "";
+  const methodNote = hasDetailedMethods
+    ? ""
+    : '<div class="muted" style="margin-top:4px;">Totales netos (reembolsos ya descontados).</div>';
 
   const userRows =
     options.userBreakdown && options.userBreakdown.length
@@ -1262,6 +1297,14 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
           padding-bottom: 4px;
           margin-bottom: 6px;
         }
+        .method-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 6px; font-size: 11px; }
+        .method-grid span:not(:first-child) { text-align: right; }
+        .method-grid.header {
+          font-weight: 700;
+          border-bottom: 1px solid #111827;
+          padding-bottom: 4px;
+          margin-bottom: 4px;
+        }
         .logo { text-align: center; margin-bottom: 8px; }
         .logo img { max-height: 28mm; max-width: 60mm; object-fit: contain; }
       </style>
@@ -1305,7 +1348,9 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
       <hr />
       <div class="block">
         <div class="muted">Detalle por método</div>
+        ${methodHeader}
         ${methodRows}
+        ${methodNote}
       </div>
       ${
         userRows

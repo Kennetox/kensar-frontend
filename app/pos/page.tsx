@@ -144,6 +144,23 @@ type ClosureSale = {
   station_id?: string | null;
 };
 
+type ClosureReturnPayment = {
+  method: string;
+  amount: number;
+};
+
+type ClosureReturnRecord = {
+  id: number;
+  created_at?: string;
+  closure_id?: number | null;
+  sale_id?: number;
+  pos_name?: string | null;
+  station_id?: string | null;
+  total_refund?: number | null;
+  payments?: ClosureReturnPayment[];
+  vendor_name?: string | null;
+};
+
 type TotalsByMethod = {
   cash: number;
   card: number;
@@ -178,6 +195,13 @@ type ClosureAdjustedTotals = {
   net_amount: number;
   counted_cash: number;
   difference: number;
+};
+
+type ClosureMethodDetail = {
+  label: string;
+  gross: number;
+  refunds: number;
+  net: number;
 };
 
 type PendingClosureInfo = {
@@ -1338,6 +1362,9 @@ const matchesStationLabel = useCallback(
   const [closureCustomMethods, setClosureCustomMethods] = useState<
     ClosureCustomMethod[]
   >([]);
+  const [closureMethodDetails, setClosureMethodDetails] = useState<
+    ClosureMethodDetail[]
+  >([]);
   const [closureTotalsLoading, setClosureTotalsLoading] = useState(false);
   const [closureEmailStatus, setClosureEmailStatus] = useState<
     "idle" | "sending" | "sent" | "error"
@@ -1393,6 +1420,7 @@ const matchesStationLabel = useCallback(
     setClosureResult(null);
     setClosureSeparatedInfo(null);
     setClosureCustomMethods([]);
+    setClosureMethodDetails([]);
     setClosureSaving(false);
     setClosureEmailStatus("idle");
     setClosureEmailStatusMessage(null);
@@ -1682,8 +1710,14 @@ const matchesStationLabel = useCallback(
       setClosureTotalsLoading(true);
       setClosureError(null);
       const apiBase = getApiBase();
-      const [salesRes, separatedOrders] = await Promise.all([
+      const [salesRes, returnsRes, separatedOrders] = await Promise.all([
         fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+        }),
+        fetch(`${apiBase}/pos/returns?skip=0&limit=500`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -1694,7 +1728,11 @@ const matchesStationLabel = useCallback(
       if (!salesRes.ok) {
         throw new Error(`Error ${salesRes.status} al obtener las ventas.`);
       }
+      if (!returnsRes.ok) {
+        throw new Error(`Error ${returnsRes.status} al obtener las devoluciones.`);
+      }
       const sales = (await salesRes.json()) as ClosureSale[];
+      const returns = (await returnsRes.json()) as ClosureReturnRecord[];
       const allSalesMap = new Map<number, ClosureSale>();
       sales.forEach((sale) => allSalesMap.set(sale.id, sale));
       const pendingSales = sales.filter((sale) => sale.closure_id == null);
@@ -1710,9 +1748,35 @@ const matchesStationLabel = useCallback(
           ? pendingSales.filter((sale) => isPosWebName(sale.pos_name))
           : pendingSales;
       const filteredSaleIds = new Set(filteredPendingSales.map((sale) => sale.id));
-      let totalCollected = 0;
-      let totalRefunds = 0;
-      const methodMap: TotalsByMethod = {
+      const pendingReturns = returns.filter(
+        (ret) => ret.closure_id == null
+      );
+      const filteredPendingReturns = shouldFilterByStation
+        ? pendingReturns.filter((ret) => {
+            const relatedSale = ret.sale_id
+              ? allSalesMap.get(ret.sale_id)
+              : undefined;
+            const stationId = ret.station_id ?? relatedSale?.station_id;
+            const posName = ret.pos_name ?? relatedSale?.pos_name ?? null;
+            return (
+              stationId === activeStationId ||
+              (!stationId && matchesStationLabel(posName))
+            );
+          })
+        : isWebMode
+          ? pendingReturns.filter((ret) => {
+              const relatedSale = ret.sale_id
+                ? allSalesMap.get(ret.sale_id)
+                : undefined;
+              const posName = ret.pos_name ?? relatedSale?.pos_name ?? null;
+              return isPosWebName(posName);
+            })
+          : pendingReturns;
+      let totalGrossCollected = 0;
+      let fallbackRefundsTotal = 0;
+      let refundsFromReturnsTotal = 0;
+      let hasReturnRefunds = false;
+      const methodGrossMap: TotalsByMethod = {
         cash: 0,
         card: 0,
         qr: 0,
@@ -1720,7 +1784,31 @@ const matchesStationLabel = useCallback(
         daviplata: 0,
         credit: 0,
       };
-      const extraMethodMap = new Map<
+      const methodRefundMap: TotalsByMethod = {
+        cash: 0,
+        card: 0,
+        qr: 0,
+        nequi: 0,
+        daviplata: 0,
+        credit: 0,
+      };
+      const fallbackRefundMap: TotalsByMethod = {
+        cash: 0,
+        card: 0,
+        qr: 0,
+        nequi: 0,
+        daviplata: 0,
+        credit: 0,
+      };
+      const extraMethodGrossMap = new Map<
+        string,
+        { label: string; slug?: string | null; amount: number; order: number }
+      >();
+      const extraMethodRefundMap = new Map<
+        string,
+        { label: string; slug?: string | null; amount: number; order: number }
+      >();
+      const extraMethodRefundFallbackMap = new Map<
         string,
         { label: string; slug?: string | null; amount: number; order: number }
       >();
@@ -1816,6 +1904,10 @@ const matchesStationLabel = useCallback(
       });
 
       const addExtraMethodAmount = (
+        targetMap: Map<
+          string,
+          { label: string; slug?: string | null; amount: number; order: number }
+        >,
         descriptor: { label: string; slug?: string | null; order: number } | null,
         amount?: number
       ) => {
@@ -1824,8 +1916,8 @@ const matchesStationLabel = useCallback(
           ? slugifyMethodKey(descriptor.slug)
           : slugifyMethodKey(descriptor.label);
         const key = slugKey || descriptor.label.toLowerCase();
-        const current = extraMethodMap.get(key);
-        extraMethodMap.set(key, {
+        const current = targetMap.get(key);
+        targetMap.set(key, {
           slug: descriptor.slug ?? key,
           label: descriptor.label,
           order: descriptor.order,
@@ -1834,6 +1926,11 @@ const matchesStationLabel = useCallback(
       };
 
       const addMethodAmount = (
+        methodMapTarget: TotalsByMethod,
+        extraMapTarget: Map<
+          string,
+          { label: string; slug?: string | null; amount: number; order: number }
+        >,
         method?: string | null,
         amount?: number
       ) => {
@@ -1844,18 +1941,22 @@ const matchesStationLabel = useCallback(
         const catalogIsStandard =
           !!catalogSlug && STANDARD_METHOD_SLUGS.has(catalogSlug);
         if (catalogRecord && !catalogIsStandard) {
-          addExtraMethodAmount(buildDescriptorFromRecord(catalogRecord), amount);
+          addExtraMethodAmount(
+            extraMapTarget,
+            buildDescriptorFromRecord(catalogRecord),
+            amount
+          );
           return;
         }
         const methodKey = mapMethodToKey(method);
         if (methodKey) {
-          methodMap[methodKey] += amount;
+          methodMapTarget[methodKey] += amount;
           return;
         }
         const fallbackDescriptor = catalogRecord
           ? buildDescriptorFromRecord(catalogRecord)
           : buildDescriptorFromRaw(method);
-        addExtraMethodAmount(fallbackDescriptor, amount);
+        addExtraMethodAmount(extraMapTarget, fallbackDescriptor, amount);
       };
 
       const addVendorAmount = (vendor?: string | null, amount?: number) => {
@@ -1889,8 +1990,13 @@ const matchesStationLabel = useCallback(
           if (initialAmount > 0) {
             const initialMethod =
               sale.initial_payment_method ?? sale.payment_method;
-            addMethodAmount(initialMethod, initialAmount);
-            totalCollected += initialAmount;
+            addMethodAmount(
+              methodGrossMap,
+              extraMethodGrossMap,
+              initialMethod,
+              initialAmount
+            );
+            totalGrossCollected += initialAmount;
             separatedSummary.paymentsTotal += initialAmount;
             addVendorAmount(vendor, initialAmount);
           }
@@ -1903,13 +2009,12 @@ const matchesStationLabel = useCallback(
           sale.refunded_balance != null
             ? Math.max(0, sale.refunded_balance)
             : Math.max(0, gross - refund);
-        totalRefunds += refund;
-        totalCollected += net;
+        totalGrossCollected += gross;
 
         const payments =
           sale.payments && sale.payments.length > 0
             ? sale.payments
-            : [{ method: sale.payment_method, amount: net }];
+            : [{ method: sale.payment_method, amount: gross }];
 
         const paymentsTotal = payments.reduce(
           (sum, payment) => sum + Math.max(payment.amount ?? 0, 0),
@@ -1917,12 +2022,31 @@ const matchesStationLabel = useCallback(
         );
         payments.forEach((payment) => {
           const paymentAmount = Math.max(payment.amount ?? 0, 0);
-          const amount =
-            paymentsTotal > 0
-              ? (paymentAmount / paymentsTotal) * net
-              : net / payments.length;
-          addMethodAmount(payment.method, amount);
+          const amount = paymentsTotal > 0
+            ? (paymentAmount / paymentsTotal) * gross
+            : gross / payments.length;
+          addMethodAmount(
+            methodGrossMap,
+            extraMethodGrossMap,
+            payment.method,
+            amount
+          );
         });
+        if (refund > 0) {
+          fallbackRefundsTotal += refund;
+          payments.forEach((payment) => {
+            const paymentAmount = Math.max(payment.amount ?? 0, 0);
+            const amount = paymentsTotal > 0
+              ? (paymentAmount / paymentsTotal) * refund
+              : refund / payments.length;
+            addMethodAmount(
+              fallbackRefundMap,
+              extraMethodRefundFallbackMap,
+              payment.method,
+              amount
+            );
+          });
+        }
         addVendorAmount(vendor, net);
       });
 
@@ -1947,8 +2071,13 @@ const matchesStationLabel = useCallback(
                 )
               : true;
           if (!paymentMatches) return;
-          addMethodAmount(payment.method, payment.amount);
-          totalCollected += payment.amount;
+          addMethodAmount(
+            methodGrossMap,
+            extraMethodGrossMap,
+            payment.method,
+            payment.amount
+          );
+          totalGrossCollected += payment.amount;
           separatedSummary.paymentsTotal += payment.amount;
           const vendorName =
             relatedSale?.vendor_name?.trim() ??
@@ -1957,6 +2086,88 @@ const matchesStationLabel = useCallback(
           addVendorAmount(vendorName, payment.amount);
         });
       });
+
+      filteredPendingReturns.forEach((ret) => {
+        const payments =
+          ret.payments?.filter((payment) => (payment.amount ?? 0) > 0) ?? [];
+        if (payments.length > 0) {
+          hasReturnRefunds = true;
+          payments.forEach((payment) => {
+            const amount = Math.max(payment.amount ?? 0, 0);
+            if (amount <= 0) return;
+            addMethodAmount(
+              methodRefundMap,
+              extraMethodRefundMap,
+              payment.method,
+              amount
+            );
+            refundsFromReturnsTotal += amount;
+          });
+          return;
+        }
+
+        const refundAmount = Math.max(ret.total_refund ?? 0, 0);
+        if (refundAmount <= 0) return;
+        hasReturnRefunds = true;
+        const relatedSale = ret.sale_id
+          ? allSalesMap.get(ret.sale_id)
+          : undefined;
+        const salePayments =
+          relatedSale?.payments && relatedSale.payments.length > 0
+            ? relatedSale.payments
+            : relatedSale?.payment_method
+              ? [
+                  {
+                    method: relatedSale.payment_method,
+                    amount: refundAmount,
+                  },
+                ]
+              : [];
+        if (salePayments.length > 0) {
+          const paymentsTotal = salePayments.reduce(
+            (sum, payment) => sum + Math.max(payment.amount ?? 0, 0),
+            0
+          );
+          salePayments.forEach((payment) => {
+            const paymentAmount = Math.max(payment.amount ?? 0, 0);
+            const amount = paymentsTotal > 0
+              ? (paymentAmount / paymentsTotal) * refundAmount
+              : refundAmount / salePayments.length;
+            addMethodAmount(
+              methodRefundMap,
+              extraMethodRefundMap,
+              payment.method,
+              amount
+            );
+          });
+        } else {
+          addMethodAmount(
+            methodRefundMap,
+            extraMethodRefundMap,
+            "Otro método",
+            refundAmount
+          );
+        }
+        refundsFromReturnsTotal += refundAmount;
+      });
+
+      const resolvedRefundsTotal = hasReturnRefunds
+        ? refundsFromReturnsTotal
+        : fallbackRefundsTotal;
+      const resolvedRefundMap = hasReturnRefunds
+        ? methodRefundMap
+        : fallbackRefundMap;
+      const resolvedExtraRefundMap = hasReturnRefunds
+        ? extraMethodRefundMap
+        : extraMethodRefundFallbackMap;
+      const methodNetMap: TotalsByMethod = {
+        cash: methodGrossMap.cash - resolvedRefundMap.cash,
+        card: methodGrossMap.card - resolvedRefundMap.card,
+        qr: methodGrossMap.qr - resolvedRefundMap.qr,
+        nequi: methodGrossMap.nequi - resolvedRefundMap.nequi,
+        daviplata: methodGrossMap.daviplata - resolvedRefundMap.daviplata,
+        credit: methodGrossMap.credit - resolvedRefundMap.credit,
+      };
 
       setClosureUsers(
         Array.from(userTotals.entries())
@@ -1973,31 +2184,104 @@ const matchesStationLabel = useCallback(
       );
 
       const roundedTotals = {
-        totalAmount: Number(totalCollected.toFixed(2)),
-        totalRefunds: Number(totalRefunds.toFixed(2)),
-        totalCash: Number(methodMap.cash.toFixed(2)),
-        totalCard: Number(methodMap.card.toFixed(2)),
-        totalQr: Number(methodMap.qr.toFixed(2)),
-        totalNequi: Number(methodMap.nequi.toFixed(2)),
-        totalDaviplata: Number(methodMap.daviplata.toFixed(2)),
-        totalCredit: Number(methodMap.credit.toFixed(2)),
+        totalAmount: Number(totalGrossCollected.toFixed(2)),
+        totalRefunds: Number(resolvedRefundsTotal.toFixed(2)),
+        totalCash: Number(methodNetMap.cash.toFixed(2)),
+        totalCard: Number(methodNetMap.card.toFixed(2)),
+        totalQr: Number(methodNetMap.qr.toFixed(2)),
+        totalNequi: Number(methodNetMap.nequi.toFixed(2)),
+        totalDaviplata: Number(methodNetMap.daviplata.toFixed(2)),
+        totalCredit: Number(methodNetMap.credit.toFixed(2)),
       };
 
-      const normalizedExtraMethods = Array.from(extraMethodMap.values())
-        .map((entry) => ({
-          slug: entry.slug,
+      const extraMethodDetailsMap = new Map<
+        string,
+        { label: string; order: number; gross: number; refunds: number }
+      >();
+      extraMethodGrossMap.forEach((entry) => {
+        extraMethodDetailsMap.set(entry.slug ?? entry.label, {
           label: entry.label,
-          amount: Number(entry.amount.toFixed(2)),
+          order: entry.order,
+          gross: entry.amount,
+          refunds: 0,
+        });
+      });
+      resolvedExtraRefundMap.forEach((entry) => {
+        const key = entry.slug ?? entry.label;
+        const existing = extraMethodDetailsMap.get(key);
+        extraMethodDetailsMap.set(key, {
+          label: entry.label,
+          order: existing?.order ?? entry.order,
+          gross: existing?.gross ?? 0,
+          refunds: (existing?.refunds ?? 0) + entry.amount,
+        });
+      });
+
+      const extraMethodDetails = Array.from(extraMethodDetailsMap.values())
+        .map((entry) => ({
+          label: entry.label,
+          gross: Number(entry.gross.toFixed(2)),
+          refunds: Number(entry.refunds.toFixed(2)),
+          net: Number((entry.gross - entry.refunds).toFixed(2)),
           order: entry.order,
         }))
-        .filter((entry) => entry.amount > 0)
-        .sort((a, b) => a.order - b.order || b.amount - a.amount)
+        .filter((entry) => entry.gross !== 0 || entry.refunds !== 0)
+        .sort((a, b) => a.order - b.order || b.net - a.net);
+
+      const normalizedExtraMethods = extraMethodDetails
         .map((entry) => ({
-          slug: entry.slug,
+          slug: slugifyMethodKey(entry.label) ?? entry.label,
           label: entry.label,
-          amount: entry.amount,
-        }));
+          amount: entry.net,
+        }))
+        .filter((entry) => entry.amount !== 0);
       setClosureCustomMethods(normalizedExtraMethods);
+
+      const methodDetails: ClosureMethodDetail[] = [
+        {
+          label: "Efectivo",
+          gross: methodGrossMap.cash,
+          refunds: resolvedRefundMap.cash,
+          net: methodNetMap.cash,
+        },
+        {
+          label: "Tarjeta Datáfono",
+          gross: methodGrossMap.card,
+          refunds: resolvedRefundMap.card,
+          net: methodNetMap.card,
+        },
+        {
+          label: "Transferencias / QR",
+          gross: methodGrossMap.qr,
+          refunds: resolvedRefundMap.qr,
+          net: methodNetMap.qr,
+        },
+        {
+          label: "Nequi",
+          gross: methodGrossMap.nequi,
+          refunds: resolvedRefundMap.nequi,
+          net: methodNetMap.nequi,
+        },
+        {
+          label: "Daviplata",
+          gross: methodGrossMap.daviplata,
+          refunds: resolvedRefundMap.daviplata,
+          net: methodNetMap.daviplata,
+        },
+        {
+          label: "Crédito / Separado",
+          gross: methodGrossMap.credit,
+          refunds: resolvedRefundMap.credit,
+          net: methodNetMap.credit,
+        },
+        ...extraMethodDetails.map((entry) => ({
+          label: entry.label,
+          gross: entry.gross,
+          refunds: entry.refunds,
+          net: entry.net,
+        })),
+      ].filter((entry) => entry.gross !== 0 || entry.refunds !== 0 || entry.net !== 0);
+      setClosureMethodDetails(methodDetails);
 
       setClosureForm((prev) => ({
         ...prev,
@@ -2028,6 +2312,7 @@ const matchesStationLabel = useCallback(
           : "No se pudieron prellenar los datos del cierre."
       );
       setClosureCustomMethods([]);
+      setClosureMethodDetails([]);
     } finally {
       setClosureTotalsLoading(false);
     }
@@ -2185,8 +2470,8 @@ const matchesStationLabel = useCallback(
   };
 
   const closureNetAmount = useMemo(
-    () => Math.max(0, closureForm.totalAmount),
-    [closureForm.totalAmount]
+    () => closureForm.totalAmount - closureForm.totalRefunds,
+    [closureForm.totalAmount, closureForm.totalRefunds]
   );
 
   const closureDifference = useMemo(
@@ -2250,52 +2535,72 @@ const matchesStationLabel = useCallback(
     resolvedPosName,
   ]);
 
-  const closurePayments = useMemo(() => {
-    const extra =
-      closureSummary.custom_methods?.reduce(
-        (sum, method) => sum + (method?.amount ?? 0),
-        0
-      ) ?? 0;
-    return (
-      closureSummary.total_cash +
-      closureSummary.total_card +
-      closureSummary.total_qr +
-      closureSummary.total_nequi +
-      closureSummary.total_daviplata +
-      closureSummary.total_credit +
-      extra
-    );
-  }, [closureSummary]);
-
-  const closureMethods = useMemo(
-    () => [
-      { label: "Efectivo", value: closureSummary.total_cash },
-      { label: "Tarjeta Datáfono", value: closureSummary.total_card },
-      { label: "Transferencias / QR", value: closureSummary.total_qr },
-      { label: "Nequi", value: closureSummary.total_nequi },
-      { label: "Daviplata", value: closureSummary.total_daviplata },
-      { label: "Crédito / Separado", value: closureSummary.total_credit },
+  const closureMethods = useMemo(() => {
+    if (closureMethodDetails.length > 0) {
+      return closureMethodDetails;
+    }
+    return [
+      {
+        label: "Efectivo",
+        gross: closureSummary.total_cash,
+        refunds: 0,
+        net: closureSummary.total_cash,
+      },
+      {
+        label: "Tarjeta Datáfono",
+        gross: closureSummary.total_card,
+        refunds: 0,
+        net: closureSummary.total_card,
+      },
+      {
+        label: "Transferencias / QR",
+        gross: closureSummary.total_qr,
+        refunds: 0,
+        net: closureSummary.total_qr,
+      },
+      {
+        label: "Nequi",
+        gross: closureSummary.total_nequi,
+        refunds: 0,
+        net: closureSummary.total_nequi,
+      },
+      {
+        label: "Daviplata",
+        gross: closureSummary.total_daviplata,
+        refunds: 0,
+        net: closureSummary.total_daviplata,
+      },
+      {
+        label: "Crédito / Separado",
+        gross: closureSummary.total_credit,
+        refunds: 0,
+        net: closureSummary.total_credit,
+      },
       ...(closureSummary.custom_methods?.map((method) => ({
         label: method.label || "Otro método",
-        value: method.amount ?? 0,
+        gross: method.amount ?? 0,
+        refunds: 0,
+        net: method.amount ?? 0,
       })) ?? []),
-    ],
-    [closureSummary]
-  );
+    ];
+  }, [closureMethodDetails, closureSummary]);
 
   const closureMethodsUsed = useMemo(
-    () => closureMethods.filter((method) => method.value > 0),
+    () =>
+      closureMethods.filter(
+        (method) => method.gross !== 0 || method.refunds !== 0 || method.net !== 0
+      ),
     [closureMethods]
   );
 
   const closureRegisteredTotals = useMemo(
     () =>
       [
-        { label: "Ventas totales del período", value: closureSummary.total_amount },
-        { label: "Devoluciones / reembolsos", value: closureSummary.total_refunds },
-        ...closureMethodsUsed,
+        { label: "Ventas brutas del período", value: closureSummary.total_amount },
+        { label: "Reembolsos del período", value: -closureSummary.total_refunds },
+        { label: "Neto del período", value: closureNetAmount },
       ],
-    [closureMethodsUsed, closureSummary.total_amount, closureSummary.total_refunds]
+    [closureSummary.total_amount, closureSummary.total_refunds, closureNetAmount]
   );
 
   const closureRangeDescription = useMemo(() => {
@@ -2464,20 +2769,62 @@ const matchesStationLabel = useCallback(
         (payload.custom_methods && payload.custom_methods.length > 0
           ? payload.custom_methods
           : closureCustomMethods) ?? [];
-      const methodRows = [
-        { label: "Efectivo", value: totalsSource.total_cash },
-        { label: "Tarjeta", value: totalsSource.total_card },
-        { label: "Transferencias / QR", value: totalsSource.total_qr },
-        { label: "Nequi", value: totalsSource.total_nequi },
-        { label: "Daviplata", value: totalsSource.total_daviplata },
-        { label: "Crédito / separado", value: totalsSource.total_credit },
-        ...dynamicMethods.map((method) => ({
-          label: method.label || "Otro método",
-          value: method.amount ?? 0,
-        })),
-      ]
-        .filter((m) => m.value > 0)
-        .map((m) => ({ label: m.label, amount: m.value }));
+      const methodDetailsForPrint: ClosureMethodDetail[] =
+        closureMethodDetails.length > 0
+          ? closureMethodDetails
+          : [
+              {
+                label: "Efectivo",
+                gross: totalsSource.total_cash,
+                refunds: 0,
+                net: totalsSource.total_cash,
+              },
+              {
+                label: "Tarjeta",
+                gross: totalsSource.total_card,
+                refunds: 0,
+                net: totalsSource.total_card,
+              },
+              {
+                label: "Transferencias / QR",
+                gross: totalsSource.total_qr,
+                refunds: 0,
+                net: totalsSource.total_qr,
+              },
+              {
+                label: "Nequi",
+                gross: totalsSource.total_nequi,
+                refunds: 0,
+                net: totalsSource.total_nequi,
+              },
+              {
+                label: "Daviplata",
+                gross: totalsSource.total_daviplata,
+                refunds: 0,
+                net: totalsSource.total_daviplata,
+              },
+              {
+                label: "Crédito / separado",
+                gross: totalsSource.total_credit,
+                refunds: 0,
+                net: totalsSource.total_credit,
+              },
+              ...dynamicMethods.map((method) => ({
+                label: method.label || "Otro método",
+                gross: method.amount ?? 0,
+                refunds: 0,
+                net: method.amount ?? 0,
+              })),
+            ];
+      const methodRows = methodDetailsForPrint
+        .filter((method) => method.gross !== 0 || method.refunds !== 0 || method.net !== 0)
+        .map((method) => ({
+          label: method.label,
+          gross: method.gross,
+          refunds: method.refunds,
+          net: method.net,
+          amount: method.net,
+        }));
       const userBreakdown =
         closureUsers.length > 0
           ? closureUsers
@@ -2615,6 +2962,7 @@ const matchesStationLabel = useCallback(
       posSettings,
       closureSeparatedInfo,
       closureCustomMethods,
+      closureMethodDetails,
       resolvedPosName,
       closureRange,
       printerConfig,
@@ -4919,19 +5267,19 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
             <div className="grid md:grid-cols-3 gap-4">
               {[
                 {
-                  title: "Ingresos registrados",
+                  title: "Ventas brutas",
                   value: formatMoney(closureSummary.total_amount),
-                  note: "Ventas normales + abonos del día",
+                  note: "Antes de reembolsos",
                 },
                 {
-                  title: "Pagos recibidos",
-                  value: formatMoney(closurePayments),
-                  note: "Suma por métodos activos",
+                  title: "Reembolsos",
+                  value: formatMoney(-closureSummary.total_refunds),
+                  note: "Devoluciones del período",
                 },
                 {
-                  title: "Diferencia en caja",
-                  value: formatMoney(closureSummary.difference),
-                  note: "Conteo físico vs esperado",
+                  title: "Neto del período",
+                  value: formatMoney(closureNetAmount),
+                  note: "Ventas menos reembolsos",
                 },
               ].map((card) => (
                 <div
@@ -4954,17 +5302,31 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
               <div className="divide-y divide-slate-800">
                 {closureMethodsUsed.length === 0 && (
                   <div className="px-4 py-3 text-xs text-slate-500">
-                    No se registraron pagos por métodos distintos a efectivo.
+                    No se registraron movimientos por método.
+                  </div>
+                )}
+                {closureMethodsUsed.length > 0 && (
+                  <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-3 px-4 py-2 text-[11px] text-slate-500 uppercase tracking-wide">
+                    <span>Método</span>
+                    <span className="text-right">Ventas</span>
+                    <span className="text-right">Reembolsos</span>
+                    <span className="text-right">Neto</span>
                   </div>
                 )}
                 {closureMethodsUsed.map((method) => (
                   <div
                     key={method.label}
-                    className="flex items-center justify-between px-4 py-2 text-slate-200"
+                    className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-3 px-4 py-2 text-slate-200"
                   >
                     <span>{method.label}</span>
-                    <span className="font-mono text-slate-400">
-                      {formatMoney(method.value)}
+                    <span className="text-right font-mono text-slate-300">
+                      {formatMoney(method.gross)}
+                    </span>
+                    <span className="text-right font-mono text-rose-300">
+                      {formatMoney(-method.refunds)}
+                    </span>
+                    <span className="text-right font-mono text-slate-100">
+                      {formatMoney(method.net)}
                     </span>
                   </div>
                 ))}
