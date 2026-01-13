@@ -296,7 +296,7 @@ export function generateCode128Svg(
   const textBlock = opts.includeText
     ? `<text x="50%" y="${(opts.height + opts.includeTextFontSize).toFixed(
         2
-      )}" font-family="monospace" font-size="${opts.includeTextFontSize}" text-anchor="middle" fill="#0f172a">${
+      )}" font-family="monospace" font-size="${opts.includeTextFontSize}" font-weight="700" text-anchor="middle" fill="#0f172a">${
         data
       }</text>`
     : "";
