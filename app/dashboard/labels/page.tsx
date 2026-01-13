@@ -284,6 +284,46 @@ export default function LabelsPage() {
       }));
 
       const blob = await exportLabelsExcel(payloadItems, token);
+      const picker = (
+        window as Window & {
+          showSaveFilePicker?: (options?: {
+            suggestedName?: string;
+            types?: { description?: string; accept?: Record<string, string[]> }[];
+          }) => Promise<{
+            createWritable: () => Promise<{
+              write: (data: Blob) => Promise<void>;
+              close: () => Promise<void>;
+            }>;
+          }>;
+        }
+      ).showSaveFilePicker;
+
+      if (picker) {
+        try {
+          const handle = await picker({
+            suggestedName: "ListaEtiquetas.xlsx",
+            types: [
+              {
+                description: "Excel",
+                accept: {
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+                    [".xlsx"],
+                },
+              },
+            ],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return;
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            return;
+          }
+          throw err;
+        }
+      }
+
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
