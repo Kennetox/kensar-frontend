@@ -2,6 +2,7 @@ export const POS_STATION_STORAGE_KEY = "metrik_pos_station";
 export const POS_MODE_STORAGE_KEY = "metrik_pos_mode";
 export const POS_DEVICE_ID_KEY = "metrik_pos_device_id";
 export const POS_DEVICE_LABEL_KEY = "metrik_pos_device_label";
+const POS_STATION_COOKIE = "metrik_pos_station";
 const POS_DEVICE_ID_COOKIE = "metrik_pos_device_id";
 const POS_DEVICE_LABEL_COOKIE = "metrik_pos_device_label";
 
@@ -32,6 +33,13 @@ const writeCookie = (name: string, value: string) => {
   document.cookie = `${name}=${encodeURIComponent(
     value
   )}; path=/; max-age=${maxAge}; samesite=lax${domainPart}`;
+};
+
+const clearCookie = (name: string) => {
+  if (typeof document === "undefined") return;
+  const domain = resolveCookieDomain();
+  const domainPart = domain ? `; domain=${domain}` : "";
+  document.cookie = `${name}=; path=/; max-age=0; samesite=lax${domainPart}`;
 };
 
 export type PosStationAccess = {
@@ -83,20 +91,39 @@ export function getPosStationAccess(): PosStationAccess | null {
   } catch (err) {
     console.warn("No se pudo leer la estación POS almacenada", err);
   }
+  const cookieRaw = readCookie(POS_STATION_COOKIE);
+  if (!cookieRaw) return null;
+  try {
+    const parsed = JSON.parse(cookieRaw);
+    if (
+      typeof parsed === "object" &&
+      parsed &&
+      typeof parsed.id === "string" &&
+      typeof parsed.email === "string"
+    ) {
+      window.localStorage.setItem(
+        POS_STATION_STORAGE_KEY,
+        JSON.stringify(parsed)
+      );
+      return parsed;
+    }
+  } catch (err) {
+    console.warn("No se pudo leer la estación POS desde cookie", err);
+  }
   return null;
 }
 
 export function setPosStationAccess(access: PosStationAccess) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(
-    POS_STATION_STORAGE_KEY,
-    JSON.stringify(access)
-  );
+  const payload = JSON.stringify(access);
+  window.localStorage.setItem(POS_STATION_STORAGE_KEY, payload);
+  writeCookie(POS_STATION_COOKIE, payload);
 }
 
 export function clearPosStationAccess() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(POS_STATION_STORAGE_KEY);
+  clearCookie(POS_STATION_COOKIE);
 }
 
 export function getOrCreatePosDeviceId(): string {

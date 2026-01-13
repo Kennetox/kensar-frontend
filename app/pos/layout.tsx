@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { PosProvider } from "./poscontext";
 import { useAuth } from "../providers/AuthProvider";
 
-const POS_ALLOWED_ROLES = new Set(["Administrador", "Vendedor"]);
+const POS_ALLOWED_ROLES = new Set(["Administrador", "Supervisor", "Vendedor"]);
 
 export default function PosLayout({
   children,
