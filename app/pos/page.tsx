@@ -2395,7 +2395,7 @@ const matchesStationLabel = useCallback(
   };
 
   const handlePrintClosureTicket = useCallback(
-    (closureData?: PosClosureResult, targetWindow?: Window | null) => {
+    async (closureData?: PosClosureResult, targetWindow?: Window | null) => {
       const payload = closureData ?? closureResult;
       if (!payload) return;
       const now = payload.closed_at ? new Date(payload.closed_at) : new Date();
@@ -2478,39 +2478,88 @@ const matchesStationLabel = useCallback(
         targetWindow && typeof targetWindow.closed === "boolean" && !targetWindow.closed
           ? (targetWindow as Window)
           : null;
-      const winCandidate: Window | null =
-        existingWindow ??
-        (typeof window !== "undefined"
-          ? window.open("", "_blank", "width=420,height=640")
-          : null);
-      if (!winCandidate) return;
-      const win: Window = winCandidate;
-      win.document.write(html);
-      win.document.close();
-      const shouldAutoClose = !existingWindow;
-      const triggerPrint = () => {
+
+      const printWithQz = async (): Promise<boolean> => {
+        if (printerConfig.mode !== "qz-tray") return false;
+        if (!printerConfig.printerName.trim()) {
+          setError("Selecciona la impresora en Configurar impresora.");
+          return false;
+        }
+        if (!qzInstance) {
+          setError("No detectamos QZ Tray. Ábrelo y autoriza este dominio.");
+          return false;
+        }
+        if (!configureQzSecurity()) {
+          setError("No se pudo configurar QZ. Verifica tu sesión.");
+          return false;
+        }
         try {
-          win.focus();
-          win.print();
+          if (!qzInstance.websocket.isActive()) {
+            await qzInstance.websocket.connect();
+          }
+          const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+          const cfg = qzInstance.configs.create(printerConfig.printerName, {
+            altPrinting: true,
+            units: "mm",
+            size: { width: sizeWidth },
+            margins: { top: 0, right: 0, bottom: 0, left: 0 },
+          });
+          await qzInstance.print(cfg, [{ type: "html", format: "plain", data: html }]);
+          setError(null);
+          return true;
         } catch (err) {
-          console.error("No se pudo iniciar la impresión del reporte Z", err);
+          console.error(err);
+          setError(
+            err instanceof Error
+              ? `No se pudo imprimir con QZ Tray: ${err.message}`
+              : "No se pudo imprimir con QZ Tray."
+          );
+          return false;
         }
       };
-      if ("onafterprint" in win) {
-        win.onafterprint = () => {
-          if (shouldAutoClose) {
-            win.close();
+
+      const openAndPrintInBrowser = () => {
+        const winCandidate: Window | null =
+          existingWindow ??
+          (typeof window !== "undefined"
+            ? window.open("", "_blank", "width=420,height=640")
+            : null);
+        if (!winCandidate) return;
+        const win: Window = winCandidate;
+        win.document.write(html);
+        win.document.close();
+        const shouldAutoClose = !existingWindow;
+        const triggerPrint = () => {
+          try {
+            win.focus();
+            win.print();
+          } catch (err) {
+            console.error("No se pudo iniciar la impresión del reporte Z", err);
           }
         };
-      } else if (shouldAutoClose) {
-        const closeTarget: Window = win;
-        setTimeout(() => {
-          if (closeTarget.closed === false) {
-            closeTarget.close();
-          }
-        }, 2000);
+        if ("onafterprint" in win) {
+          win.onafterprint = () => {
+            if (shouldAutoClose) {
+              win.close();
+            }
+          };
+        } else if (shouldAutoClose) {
+          const closeTarget: Window = win;
+          setTimeout(() => {
+            if (closeTarget.closed === false) {
+              closeTarget.close();
+            }
+          }, 2000);
+        }
+        setTimeout(triggerPrint, 120);
+      };
+
+      const printedWithQz = await printWithQz();
+      if (printedWithQz) {
+        if (existingWindow) existingWindow.close();
+        return;
       }
-      setTimeout(triggerPrint, 120);
+      openAndPrintInBrowser();
     },
     [
       closureResult,
@@ -2520,6 +2569,9 @@ const matchesStationLabel = useCallback(
       closureCustomMethods,
       resolvedPosName,
       closureRange,
+      printerConfig,
+      qzInstance,
+      configureQzSecurity,
     ]
   );
 
@@ -3947,7 +3999,7 @@ const matchesStationLabel = useCallback(
 
           {/* Botón Pago grande */}
           <button
-            className={`w-full font-semibold py-4 text-sm rounded-none ${
+            className={`w-full font-semibold py-7 text-xl rounded-none ${
               canProceedToPayment
                 ? "bg-emerald-500 hover:bg-emerald-400 text-slate-900"
                 : "bg-slate-800 text-slate-500 cursor-not-allowed"
@@ -3963,14 +4015,14 @@ const matchesStationLabel = useCallback(
           <div className="border-t border-slate-800 bg-slate-900 px-4 py-3">
             <div className="flex gap-4">
               <button
-                className="flex-1 h-11 bg-red-600 hover:bg-red-700 text-sm font-semibold rounded-md"
+                className="flex-1 h-14 bg-red-600 hover:bg-red-700 text-sm font-semibold rounded-md"
                 onClick={openCancelOrderDialog}
               >
                 Anular orden
               </button>
 
               <button
-                className="flex-1 h-11 bg-slate-800 hover:bg-slate-700 text-sm rounded-md"
+                className="flex-1 h-14 bg-slate-800 hover:bg-slate-700 text-sm rounded-md"
               >
                 Bloquear
               </button>
@@ -3979,7 +4031,7 @@ const matchesStationLabel = useCallback(
                 <button
                   type="button"
                   onClick={() => setSurchargeMenuOpen((prev) => !prev)}
-                  className={`w-full h-11 text-sm rounded-md border ${
+                  className={`w-full h-14 text-sm rounded-md border ${
                     cartSurcharge.enabled
                       ? "border-amber-400 text-amber-200 bg-slate-800"
                       : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -3993,7 +4045,7 @@ const matchesStationLabel = useCallback(
                 </button>
 
                 {surchargeMenuOpen && (
-                  <div className="absolute right-0 bottom-14 w-72 rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl z-20">
+                  <div className="absolute right-0 bottom-16 w-72 rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl z-20">
                     <div className="px-4 py-2 text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-800">
                       Selecciona incremento
                     </div>
