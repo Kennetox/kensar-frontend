@@ -54,13 +54,18 @@ export default function CustomerPanel({
   const [search, setSearch] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pendingDuplicateMatches, setPendingDuplicateMatches] = useState<
+    ApiCustomer[]
+  >([]);
+  const [duplicateOverride, setDuplicateOverride] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<ApiCustomer | null>(null);
 
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
   );
   const apiBase = getApiBase();
-  const loadedCountRef = useRef(0);
   const lastQueryRef = useRef("");
   const PAGE_SIZE = 25;
 
@@ -76,17 +81,14 @@ export default function CustomerPanel({
   }, []);
 
   const fetchCustomers = useCallback(
-    async (term: string, append = false) => {
+    async (term: string, page = 0) => {
       if (!authHeaders) return;
       try {
         setLoading(true);
-        if (!append) {
-          loadedCountRef.current = 0;
-        }
         const normalized = term.trim();
         const params = new URLSearchParams({
           search: normalized,
-          skip: append ? String(loadedCountRef.current) : "0",
+          skip: String(page * PAGE_SIZE),
           limit: PAGE_SIZE.toString(),
         });
         const res = await fetch(`${apiBase}/pos/customers?${params}`, {
@@ -102,12 +104,10 @@ export default function CustomerPanel({
           : Array.isArray(data?.items)
           ? data.items
           : [];
-        setCustomers((prev) => (append ? [...prev, ...list] : list));
-        loadedCountRef.current = append
-          ? loadedCountRef.current + list.length
-          : list.length;
+        setCustomers(list);
         lastQueryRef.current = normalized;
         setHasMore(list.length === PAGE_SIZE);
+        setPageIndex(page);
       } catch (err) {
         console.error(err);
         setFeedback(
@@ -124,19 +124,21 @@ export default function CustomerPanel({
 
   useEffect(() => {
     if (!authHeaders) return;
-    void fetchCustomers("", false);
+    void fetchCustomers("", 0);
   }, [authHeaders, fetchCustomers]);
 
   useEffect(() => {
     if (mode !== "search") return;
     const handler = setTimeout(() => {
-      void fetchCustomers(search, false);
+      void fetchCustomers(search, 0);
     }, 400);
     return () => clearTimeout(handler);
   }, [mode, search, fetchCustomers]);
 
-  function handleLoadMore() {
-    void fetchCustomers(lastQueryRef.current, true);
+  function handlePageChange(nextPage: number) {
+    if (nextPage < 0) return;
+    if (!hasMore && nextPage > pageIndex) return;
+    void fetchCustomers(lastQueryRef.current, nextPage);
   }
 
   function handleSelectCustomer(customer: ApiCustomer) {
@@ -148,8 +150,7 @@ export default function CustomerPanel({
     }
   }
 
-  async function handleCreateCustomer(event: React.FormEvent) {
-    event.preventDefault();
+  const submitCustomer = useCallback(async () => {
     if (!authHeaders) return;
     const trimmedName = form.name.trim();
     if (!trimmedName) {
@@ -166,26 +167,38 @@ export default function CustomerPanel({
     };
     try {
       setLoading(true);
-      const res = await fetch(`${apiBase}/pos/customers`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch(
+        editingCustomer
+          ? `${apiBase}/pos/customers/${editingCustomer.id}`
+          : `${apiBase}/pos/customers`,
+        {
+          method: editingCustomer ? "PUT" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        }
+      );
       if (!res.ok) throw new Error(`Error ${res.status}`);
       const saved: ApiCustomer = await res.json();
       setForm(EMPTY_FORM);
       setMode("none");
+      setDuplicateOverride(false);
+      setPendingDuplicateMatches([]);
+      setEditingCustomer(null);
       const mapped = mapCustomer(saved);
       setSelectedCustomer(mapped);
-      setFeedback("Cliente guardado y asignado a la venta.");
+      setFeedback(
+        editingCustomer
+          ? "Cliente actualizado y asignado a la venta."
+          : "Cliente guardado y asignado a la venta."
+      );
       if (onCustomerSelected) {
         onCustomerSelected(mapped);
       }
-      void fetchCustomers(search);
+      void fetchCustomers(search, 0);
     } catch (err) {
       console.error(err);
       setFeedback(
@@ -196,6 +209,42 @@ export default function CustomerPanel({
     } finally {
       setLoading(false);
     }
+  }, [
+    apiBase,
+    authHeaders,
+    editingCustomer,
+    fetchCustomers,
+    form.address,
+    form.email,
+    form.name,
+    form.phone,
+    form.tax_id,
+    mapCustomer,
+    onCustomerSelected,
+    search,
+    setSelectedCustomer,
+  ]);
+
+  async function handleCreateCustomer(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editingCustomer && !duplicateOverride) {
+      const trimmedName = form.name.trim();
+      if (!trimmedName) {
+        setFeedback("El nombre del cliente es obligatorio.");
+        return;
+      }
+      const matches = await findDuplicateMatches({
+        name: trimmedName,
+        phone: form.phone,
+        email: form.email,
+        tax_id: form.tax_id,
+      });
+      if (matches.length > 0) {
+        setPendingDuplicateMatches(matches);
+        return;
+      }
+    }
+    await submitCustomer();
   }
 
   function handleRemoveSelection() {
@@ -204,22 +253,134 @@ export default function CustomerPanel({
 
   function toggleMode(next: "search" | "new") {
     setFeedback(null);
+    setDuplicateOverride(false);
+    setPendingDuplicateMatches([]);
+    if (next === "search") {
+      setEditingCustomer(null);
+      setForm(EMPTY_FORM);
+    }
     setMode((prev) => (prev === next ? "none" : next));
   }
 
+  const handleEditCustomer = (customer: ApiCustomer) => {
+    setEditingCustomer(customer);
+    setMode("new");
+    setFeedback(null);
+    setForm({
+      name: customer.name ?? "",
+      phone: customer.phone ?? "",
+      email: customer.email ?? "",
+      tax_id: customer.tax_id ?? "",
+      address: customer.address ?? "",
+    });
+  };
+
+  const handleUseExistingMatch = (customer: ApiCustomer) => {
+    const mapped = mapCustomer(customer);
+    setSelectedCustomer(mapped);
+    setPendingDuplicateMatches([]);
+    setDuplicateOverride(false);
+    setMode("none");
+    setFeedback("Cliente asignado a la venta.");
+    if (onCustomerSelected) {
+      onCustomerSelected(mapped);
+    }
+  };
+
+  const handleConfirmCreate = async () => {
+    setDuplicateOverride(true);
+    setPendingDuplicateMatches([]);
+    await submitCustomer();
+  };
+
+  const normalizeName = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const normalizePhone = (value: string) =>
+    value.replace(/\D/g, "").trim();
+
+  const normalizeTax = (value: string) =>
+    value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase().trim();
+
+  const hasStrongMatch = (
+    candidate: ApiCustomer,
+    target: { name: string; phone?: string; email?: string; tax_id?: string }
+  ) => {
+    const name = normalizeName(target.name);
+    const phone = normalizePhone(target.phone ?? "");
+    const email = target.email?.trim().toLowerCase() ?? "";
+    const tax = normalizeTax(target.tax_id ?? "");
+
+    const candidateName = normalizeName(candidate.name ?? "");
+    const candidatePhone = normalizePhone(candidate.phone ?? "");
+    const candidateEmail = candidate.email?.trim().toLowerCase() ?? "";
+    const candidateTax = normalizeTax(candidate.tax_id ?? "");
+
+    const phoneMatch = phone && candidatePhone && phone === candidatePhone;
+    const emailMatch = email && candidateEmail && email === candidateEmail;
+    const taxMatch = tax && candidateTax && tax === candidateTax;
+    const nameMatch = name && candidateName && name === candidateName;
+    const nameStrong = nameMatch && name.length >= 6;
+    const hasOtherId = phone || email || tax;
+    return (
+      phoneMatch ||
+      emailMatch ||
+      taxMatch ||
+      (nameMatch && hasOtherId) ||
+      nameStrong
+    );
+  };
+
+  const findDuplicateMatches = useCallback(
+    async (target: {
+      name: string;
+      phone?: string;
+      email?: string;
+      tax_id?: string;
+    }) => {
+      if (!authHeaders) return [];
+      const searchTerm = target.name.trim();
+      if (!searchTerm) return [];
+      const params = new URLSearchParams({
+        search: searchTerm,
+        skip: "0",
+        limit: "15",
+      });
+      const res = await fetch(`${apiBase}/pos/customers?${params}`, {
+        headers: authHeaders,
+        credentials: "include",
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const list: ApiCustomer[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.items)
+        ? data.items
+        : [];
+      return list.filter((candidate) => hasStrongMatch(candidate, target));
+    },
+    [apiBase, authHeaders]
+  );
+
   const containerClass =
     variant === "page"
-      ? "w-full max-w-3xl bg-slate-950/80 border border-slate-800/80 rounded-2xl px-5 py-5 shadow-xl flex flex-col overflow-hidden"
+      ? "w-full max-w-5xl bg-slate-950/80 border border-slate-800/80 rounded-3xl px-8 py-8 shadow-xl flex flex-col overflow-hidden"
       : "w-[19rem] border-l border-slate-800 bg-slate-950/50 px-5 py-5 flex flex-col gap-4 overflow-hidden";
 
   const listContainerClass =
     variant === "page"
-      ? "flex-1 min-h-[18rem] overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
+      ? "flex-1 min-h-[22rem] max-h-[22rem] overflow-y-auto rounded-2xl border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
       : "flex-1 min-h-[12rem] overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60";
 
   return (
     <section className={containerClass}>
-      <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
+      <div className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
         Cliente
       </div>
 
@@ -229,25 +390,25 @@ export default function CustomerPanel({
         </div>
       ) : (
         <>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3 text-xs shadow-inner">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4 text-sm shadow-inner">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-[11px] font-semibold text-slate-200">
+              <div className="h-11 w-11 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-sm font-semibold text-slate-200">
                 {selectedCustomer
                   ? selectedCustomer.name.slice(0, 2).toUpperCase()
                   : "CL"}
               </div>
               <div>
-                <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                <div className="text-xs uppercase tracking-wide text-slate-400">
                   Cliente actual
                 </div>
-                <div className="text-[13px] text-slate-200">
+                <div className="text-base text-slate-200">
                   {selectedCustomer ? selectedCustomer.name : "Sin cliente asignado"}
                 </div>
               </div>
             </div>
 
             {selectedCustomer ? (
-              <div className="space-y-1 text-[12px] text-slate-300">
+              <div className="space-y-1 text-sm text-slate-300">
                 {selectedCustomer.phone && <div>Tel: {selectedCustomer.phone}</div>}
                 {selectedCustomer.email && <div>Email: {selectedCustomer.email}</div>}
                 {selectedCustomer.taxId && <div>NIT/ID: {selectedCustomer.taxId}</div>}
@@ -255,23 +416,23 @@ export default function CustomerPanel({
                 <button
                   type="button"
                   onClick={handleRemoveSelection}
-                  className="mt-2 text-[11px] text-rose-300 hover:text-rose-200 underline"
+                  className="mt-2 text-xs text-rose-300 hover:text-rose-200 underline"
                 >
                   Quitar cliente
                 </button>
               </div>
             ) : (
-              <div className="text-slate-500 text-[12px] leading-relaxed">
+              <div className="text-slate-500 text-sm leading-relaxed">
                 Selecciona un cliente existente o crea uno nuevo.
               </div>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3 mt-4">
             <button
               type="button"
               onClick={() => toggleMode("search")}
-              className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
                 mode === "search"
                   ? "border-sky-400 bg-sky-500/10 text-sky-100 shadow-inner"
                   : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
@@ -282,7 +443,7 @@ export default function CustomerPanel({
             <button
               type="button"
               onClick={() => toggleMode("new")}
-              className={`rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
                 mode === "new"
                   ? "border-emerald-400 bg-emerald-500/10 text-emerald-100 shadow-inner"
                   : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
@@ -293,60 +454,95 @@ export default function CustomerPanel({
           </div>
 
           {mode === "search" && (
-            <div className="mt-4 text-xs flex flex-col gap-3 min-h-[12rem] flex-1">
+            <div className="mt-5 text-sm flex flex-col gap-4 min-h-[14rem] flex-1">
               <div>
-                <label className="text-[11px] text-slate-400">Buscar</label>
+                <label className="text-xs text-slate-400">Buscar</label>
                 <input
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPageIndex(0);
+                  }}
                   placeholder="Nombre, teléfono o NIT"
-                  className="mt-1 w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-sky-400"
+                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-base outline-none focus:border-sky-400"
                 />
               </div>
               <div className={listContainerClass}>
                 {loading && customers.length === 0 ? (
-                  <div className="p-3 text-[11px] text-slate-400">
+                  <div className="p-4 text-xs text-slate-400">
                     Cargando clientes...
                   </div>
                 ) : customers.length === 0 ? (
-                  <div className="p-3 text-[11px] text-slate-500">
+                  <div className="p-4 text-xs text-slate-500">
                     No hay clientes que coincidan con la búsqueda.
                   </div>
                 ) : (
                   customers.map((customer) => (
-                    <button
+                    <div
                       key={customer.id}
-                      type="button"
-                      onClick={() => handleSelectCustomer(customer)}
-                      className="w-full text-left p-3 hover:bg-slate-900/60 focus:bg-slate-900/70 transition"
+                      className="group flex items-center justify-between gap-3 p-4 hover:bg-slate-900/60 transition"
                     >
-                      <div className="font-semibold text-slate-100">
-                        {customer.name}
-                      </div>
-                      <div className="text-[11px] text-slate-400">
-                        {customer.phone ?? "Sin teléfono"}
-                      </div>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectCustomer(customer)}
+                        className="flex-1 text-left focus:outline-none"
+                      >
+                        <div className="font-semibold text-base text-slate-100">
+                          {customer.name}
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          {customer.phone ?? "Sin teléfono"}
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleEditCustomer(customer);
+                        }}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 text-xs text-slate-300 hover:border-emerald-400 hover:text-emerald-200 transition"
+                        aria-label={`Editar ${customer.name}`}
+                        title="Editar cliente"
+                      >
+                        ✎
+                      </button>
+                    </div>
                   ))
                 )}
               </div>
-              {hasMore && (
+              <div className="flex items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={handleLoadMore}
-                  className="w-full rounded-md border border-slate-700 py-2 text-[11px] text-slate-200 hover:border-emerald-400 transition"
-                  disabled={loading}
+                  onClick={() => handlePageChange(pageIndex - 1)}
+                  className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 hover:border-slate-500 disabled:opacity-40"
+                  disabled={loading || pageIndex === 0}
                 >
-                  {loading ? "Cargando..." : "Cargar más resultados"}
+                  Anterior
                 </button>
-              )}
+                <span className="text-xs text-slate-400">
+                  Página {pageIndex + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handlePageChange(pageIndex + 1)}
+                  className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 hover:border-emerald-400 disabled:opacity-40"
+                  disabled={loading || !hasMore}
+                >
+                  Siguiente
+                </button>
+              </div>
             </div>
           )}
 
           {mode === "new" && (
-            <form onSubmit={handleCreateCustomer} className="mt-4 space-y-3 text-xs">
+            <form onSubmit={handleCreateCustomer} className="mt-5 space-y-4 text-sm">
+              {editingCustomer && (
+                <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-200">
+                  Editando: <span className="font-semibold">{editingCustomer.name}</span>
+                </div>
+              )}
               <div>
-                <label className="text-[11px] text-slate-400">
+                <label className="text-xs text-slate-400">
                   Nombre completo *
                 </label>
                 <input
@@ -354,25 +550,25 @@ export default function CustomerPanel({
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, name: e.target.value }))
                   }
-                  className="mt-1 w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-base outline-none focus:border-emerald-400"
                   placeholder="Ej. Juan Pérez"
                   required
                 />
               </div>
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="text-[11px] text-slate-400">Teléfono</label>
+                  <label className="text-xs text-slate-400">Teléfono</label>
                   <input
                     value={form.phone}
                     onChange={(e) =>
                       setForm((prev) => ({ ...prev, phone: e.target.value }))
                     }
-                    className="mt-1 w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-base outline-none focus:border-emerald-400"
                     placeholder="Celular o fijo"
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] text-slate-400">
+                  <label className="text-xs text-slate-400">
                     Correo electrónico
                   </label>
                   <input
@@ -381,12 +577,12 @@ export default function CustomerPanel({
                     onChange={(e) =>
                       setForm((prev) => ({ ...prev, email: e.target.value }))
                     }
-                    className="mt-1 w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-base outline-none focus:border-emerald-400"
                     placeholder="cliente@correo.com"
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] text-slate-400">
+                  <label className="text-xs text-slate-400">
                     NIT / Documento
                   </label>
                   <input
@@ -394,38 +590,106 @@ export default function CustomerPanel({
                     onChange={(e) =>
                       setForm((prev) => ({ ...prev, tax_id: e.target.value }))
                     }
-                    className="mt-1 w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-base outline-none focus:border-emerald-400"
                     placeholder="CC o NIT"
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] text-slate-400">Dirección</label>
+                  <label className="text-xs text-slate-400">Dirección</label>
                   <input
                     value={form.address}
                     onChange={(e) =>
                       setForm((prev) => ({ ...prev, address: e.target.value }))
                     }
-                    className="mt-1 w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-base outline-none focus:border-emerald-400"
                     placeholder="Dirección principal"
                   />
                 </div>
               </div>
               <button
                 type="submit"
-                className="w-full rounded-md bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2 transition"
+                className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-3 transition"
                 disabled={loading}
               >
-                Guardar y asignar
+                {editingCustomer ? "Guardar cambios" : "Guardar y asignar"}
               </button>
             </form>
           )}
 
           {feedback && (
-            <div className="mt-3 text-[11px] text-amber-300 bg-amber-500/10 border border-amber-400/40 rounded-md px-3 py-2">
+            <div className="mt-4 text-xs text-amber-300 bg-amber-500/10 border border-amber-400/40 rounded-lg px-4 py-3">
               {feedback}
             </div>
           )}
         </>
+      )}
+      {pendingDuplicateMatches.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-6">
+          <div className="w-full max-w-3xl rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-2xl font-semibold text-slate-100">
+                  ¿Ya existe este cliente?
+                </h3>
+                <p className="text-base text-slate-400">
+                  Encontramos coincidencias. Puedes asignar uno existente o crear
+                  el nuevo de todas formas.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingDuplicateMatches([]);
+                  setDuplicateOverride(false);
+                }}
+                className="text-slate-400 hover:text-slate-200 text-xl"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-6 max-h-80 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/60">
+              {pendingDuplicateMatches.map((customer) => (
+                <button
+                  key={customer.id}
+                  type="button"
+                  onClick={() => handleUseExistingMatch(customer)}
+                  className="w-full text-left px-5 py-4 hover:bg-slate-900/60 transition"
+                >
+                  <div className="text-base font-semibold text-slate-100">
+                    {customer.name}
+                  </div>
+                  <div className="text-sm text-slate-400">
+                    {customer.phone ?? "Sin teléfono"}
+                    {customer.email ? ` · ${customer.email}` : ""}
+                    {customer.tax_id ? ` · ${customer.tax_id}` : ""}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6 flex flex-col sm:flex-row gap-4">
+              <button
+                type="button"
+                onClick={handleConfirmCreate}
+                className="flex-1 rounded-2xl bg-emerald-500 py-3 text-base font-semibold text-slate-950 hover:bg-emerald-400"
+              >
+                Crear nuevo de todas formas
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingDuplicateMatches([]);
+                  setDuplicateOverride(false);
+                }}
+                className="flex-1 rounded-2xl border border-slate-700 py-3 text-base text-slate-200 hover:bg-slate-800"
+              >
+                Revisar búsqueda
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );
