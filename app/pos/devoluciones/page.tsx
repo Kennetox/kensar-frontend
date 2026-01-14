@@ -92,6 +92,9 @@ type Sale = {
   refund_count?: number | null;
   pos_name?: string | null;
   vendor_name?: string | null;
+  is_separated?: boolean;
+  initial_payment_amount?: number | null;
+  balance?: number | null;
   items: SaleItem[];
   returns?: SaleReturn[];
 };
@@ -559,6 +562,25 @@ export default function DevolucionesPage() {
       ? (selectedNet / saleNetAfterLine) * cartDiscountValue
       : 0;
   const refundEstimate = Math.max(0, selectedNet - estimatedCartShare);
+  const paidTotal = useMemo(() => {
+    if (!sale) return 0;
+    if (sale.is_separated) {
+      if (sale.total != null && sale.balance != null) {
+        return Math.max(0, sale.total - sale.balance);
+      }
+      return Math.max(0, sale.initial_payment_amount ?? sale.paid_amount ?? 0);
+    }
+    return Math.max(0, sale.paid_amount ?? sale.total ?? 0);
+  }, [sale]);
+  const paidRemaining = useMemo(() => {
+    if (!sale) return 0;
+    const refunded = sale.refunded_total ?? 0;
+    return Math.max(0, paidTotal - refunded);
+  }, [paidTotal, sale]);
+  const cappedRefund = useMemo(() => {
+    if (!sale?.is_separated) return refundEstimate;
+    return Math.min(refundEstimate, paidRemaining);
+  }, [refundEstimate, paidRemaining, sale]);
 
   const fetchSaleById = useCallback(
     async (id: string) => {
@@ -751,12 +773,22 @@ export default function DevolucionesPage() {
   useEffect(() => {
     if (!paymentTouched) {
       setPaymentAmount(
-        refundEstimate > 0
-          ? Math.round(refundEstimate).toString()
+        cappedRefund > 0
+          ? Math.round(cappedRefund).toString()
           : "0"
       );
     }
-  }, [refundEstimate, paymentTouched]);
+  }, [cappedRefund, paymentTouched]);
+
+  useEffect(() => {
+    if (!sale?.is_separated) return;
+    if (!paymentTouched) return;
+    const numericValue = Number(paymentAmount);
+    if (Number.isNaN(numericValue)) return;
+    if (paidRemaining > 0 && numericValue > paidRemaining) {
+      setPaymentAmount(Math.round(paidRemaining).toString());
+    }
+  }, [paidRemaining, paymentAmount, paymentTouched, sale]);
 
 
   const handleQuantityChange = (id: number, value: string) => {
@@ -789,7 +821,8 @@ export default function DevolucionesPage() {
     !!sale &&
     selectedItemsCount > 0 &&
     !submitting &&
-    Number(paymentAmount) > 0;
+    Number(paymentAmount) > 0 &&
+    (!sale.is_separated || paidRemaining > 0);
 
   const handleSubmit = async () => {
     if (!sale) return;
@@ -819,13 +852,16 @@ export default function DevolucionesPage() {
         return;
       }
 
+      const paymentValue = sale.is_separated
+        ? Math.min(Number(paymentAmount), cappedRefund)
+        : Number(paymentAmount);
       const payload = {
         sale_id: sale.id,
         items: itemsPayload,
         payments: [
           {
             method: paymentMethod,
-            amount: Number(paymentAmount),
+            amount: paymentValue,
           },
         ],
         notes: notes || undefined,
@@ -1000,18 +1036,31 @@ export default function DevolucionesPage() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="space-y-4">
-            <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
-              <h2 className="text-sm font-semibold text-slate-100">
-                ¿Cómo registrar una devolución?
-              </h2>
-              <p className="text-sm text-slate-400">
-                Usa el historial de ventas para seleccionar el ticket. Al pulsar el botón
-                “Devolución” llegarás a esta página con la venta lista para procesar.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2">
+      <div className="flex-1 overflow-hidden p-5">
+        <div className="grid h-full grid-rows-[1fr_auto] gap-4">
+          <div className="grid min-h-0 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-slate-400">
+                    Paso 1
+                  </p>
+                  <h2 className="text-lg font-semibold text-slate-100">
+                    Selecciona la venta
+                  </h2>
+                </div>
+                {sale && (
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    className="text-xs text-slate-300 hover:text-slate-100 underline"
+                  >
+                    Cambiar venta
+                  </button>
+                )}
+              </div>
+
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -1021,7 +1070,7 @@ export default function DevolucionesPage() {
                     params.set("origin", resolvedBackPath);
                     router.push(`/pos/historial?${params.toString()}`);
                   }}
-                  className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-sm"
+                  className="flex-1 h-12 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
                 >
                   Abrir historial
                 </button>
@@ -1032,304 +1081,328 @@ export default function DevolucionesPage() {
                     params.set("back", currentDevolucionesPath);
                     router.push(`/pos/documentos?${params.toString()}`);
                   }}
-                  className="px-4 py-2 rounded border border-slate-600 text-sm text-slate-200 hover:bg-slate-800"
+                  className="flex-1 h-12 rounded-lg border border-slate-600 text-sm text-slate-200 hover:bg-slate-800"
                 >
                   Ver documentos
                 </button>
               </div>
-              <div className="space-y-2 pt-1">
-                <p className="text-xs text-slate-400">
-                  ¿Tienes el ticket a la mano? Escanéalo (o escribe su número/documento) para cargarlo al instante.
-                </p>
-                <form
-                  onSubmit={(event) => void handleScanSubmit(event)}
-                  className="flex flex-col sm:flex-row gap-2"
+
+              <form
+                onSubmit={(event) => void handleScanSubmit(event)}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={scanValue}
+                  onChange={(e) => setScanValue(e.target.value)}
+                  placeholder="Escanea o escribe: V-000021"
+                  className="flex-1 h-12 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  ref={scanInputRef}
+                />
+                <button
+                  type="submit"
+                  disabled={scanLoading}
+                  className="h-12 px-5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <input
-                    type="text"
-                    value={scanValue}
-                    onChange={(e) => setScanValue(e.target.value)}
-                    placeholder="Ej: V-000021 o 24"
-                    className="flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    ref={scanInputRef}
-                  />
-                  <button
-                    type="submit"
-                    disabled={scanLoading}
-                    className="px-4 py-2 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {scanLoading ? "Buscando..." : "Cargar ticket"}
-                  </button>
-                </form>
-                {scanError && (
-                  <p className="text-xs text-red-400">{scanError}</p>
+                  {scanLoading ? "Buscando..." : "Cargar"}
+                </button>
+              </form>
+              {(scanError || saleError) && (
+                <p className="text-xs text-red-400">{scanError ?? saleError}</p>
+              )}
+
+              <div className="rounded-xl border border-slate-800/60 bg-slate-950/30 p-4 text-sm text-slate-200 space-y-2">
+                <div className="text-xs uppercase tracking-wide text-slate-400">
+                  Venta seleccionada
+                </div>
+                {sale ? (
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Venta</span>
+                      <span className="font-mono text-slate-100">
+                        #{sale.sale_number ?? sale.id}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Documento</span>
+                      <span className="text-slate-100">
+                        {sale.document_number ?? "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Fecha</span>
+                      <span className="text-slate-100">
+                        {formatBogotaDate(sale.created_at, {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Pagado</span>
+                      <span className="text-slate-100 font-semibold">
+                        {formatMoney(sale.paid_amount ?? sale.total)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Saldo disponible</span>
+                      <span className="text-emerald-300 font-semibold">
+                        {formatMoney(getSaleNetBalance(sale))}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-slate-400 text-sm">
+                    Selecciona un ticket para comenzar la devolución.
+                  </p>
                 )}
               </div>
-              {saleError && (
-                <p className="text-xs text-red-400">{saleError}</p>
-              )}
+              {sale?.returns?.length ? (
+                <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  Esta venta ya tiene {sale.returns.length} devolución(es). El sistema
+                  ajustará cantidades automáticamente.
+                </div>
+              ) : null}
             </section>
-            <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300 space-y-2">
-              <h3 className="text-sm font-semibold text-slate-100">
-                Venta actual
-              </h3>
-              {sale ? (
-                <>
-                  <p>
-                    Has seleccionado la venta{" "}
-                    <span className="font-mono text-slate-50">
-                      #{sale.sale_number ?? sale.id}
-                    </span>
-                    .
-                  </p>
-                  <p>
-                    Si necesitas trabajar con otra venta, vuelve al historial,
-                    elige el ticket y regresa.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={clearSelection}
-                    className="text-[11px] text-slate-400 hover:text-slate-200 underline"
-                  >
-                    Limpiar selección
-                  </button>
-                </>
-              ) : (
-                <p>
-                  No hay ninguna venta cargada. Abre el historial y selecciona un
-                  ticket para comenzar la devolución.
-                </p>
-              )}
-            </section>
-          </div>
 
-          <div className="space-y-4">
-            {!sale && (
-              <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-6 text-center text-sm text-slate-400">
+            {!sale ? (
+              <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-6 text-center text-sm text-slate-400 flex items-center justify-center">
                 Selecciona una venta para configurar la devolución.
               </div>
-            )}
-
-            {sale && (
-              <>
-            <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-2">
-              <div className="flex flex-col sm:flex-row sm:justify-between text-xs">
-                <div className="space-y-1">
+            ) : (
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col gap-4 min-h-0">
+                <div className="flex items-center justify-between">
                   <div>
-                    <span className="text-slate-400">Venta:</span>{" "}
-                    <span className="font-mono text-slate-100">
-                      #{sale.sale_number ?? sale.id}
-                    </span>
+                    <p className="text-xs uppercase tracking-widest text-slate-400">
+                      Paso 2
+                    </p>
+                    <h3 className="text-base font-semibold text-slate-100">
+                      Selecciona productos a devolver
+                    </h3>
                   </div>
-                  <div>
-                    <span className="text-slate-400">Documento:</span>{" "}
-                    <span className="text-slate-100">
-                      {sale.document_number ?? "—"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Fecha:</span>{" "}
-                    <span className="text-slate-100">
-                      {formatBogotaDate(sale.created_at, {
-                        dateStyle: "short",
-                        timeStyle: "short",
-                      })}
-                    </span>
-                  </div>
-                </div>
-                <div className="space-y-1 mt-3 sm:mt-0">
-                  <div>
-                    <span className="text-slate-400">Pagado:</span>{" "}
-                    <span className="text-slate-100 font-semibold">
-                      {formatMoney(sale.paid_amount ?? sale.total)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Descuento carrito:</span>{" "}
-                    <span className="text-slate-100">
-                      {sale.cart_discount_value
-                        ? `-${formatMoney(sale.cart_discount_value)}`
-                        : "0"}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400">Saldo disponible:</span>{" "}
-                    <span className="text-emerald-300 font-semibold">
-                      {formatMoney(getSaleNetBalance(sale))}
-                    </span>
-                  </div>
-                </div>
-                <div className="text-right mt-3 sm:mt-0">
                   <button
                     type="button"
                     onClick={clearSelection}
-                    className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+                    className="text-xs text-slate-300 hover:text-slate-100 underline"
                   >
                     Quitar selección
                   </button>
                 </div>
-              </div>
 
-              {sale.returns && sale.returns.length > 0 && (
-                <div className="mt-3 rounded border border-amber-500/30 bg-amber-500/5 p-3 text-[11px] text-amber-200">
-                  Esta venta ya tiene {sale.returns.length} devolución(es) registradas. El sistema limitará las cantidades disponibles automáticamente.
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-              <h3 className="text-sm font-semibold mb-3">
-                Selecciona productos a devolver
-              </h3>
-              <div className="rounded border border-slate-800 overflow-hidden text-xs">
-                <div className="grid grid-cols-[1fr_70px_80px_80px_100px] bg-slate-950 px-3 py-2 text-[11px] text-slate-400">
-                  <span>Producto</span>
-                  <span className="text-right">Vend.</span>
-                  <span className="text-right">Devuelto</span>
-                  <span className="text-right">Disponible</span>
-                  <span className="text-right">Devolver</span>
-                </div>
-                <div>
-                  {sale.items.map((item) => {
-                    const available = getAvailableQty(item);
-                    return (
-                      <div
-                        key={item.id}
-                        className="grid grid-cols-[1fr_70px_80px_80px_100px] px-3 py-2 border-t border-slate-800/50 text-xs"
-                      >
-                        <span className="text-slate-100 truncate">
-                          {item.product_name ?? item.name ?? "Producto"}
-                        </span>
-                        <span className="text-right text-slate-200">
-                          {item.quantity}
-                        </span>
-                        <span className="text-right text-slate-400">
-                          {getReturnedQty(item.id)}
-                        </span>
-                        <span className="text-right text-emerald-300">
-                          {available}
-                        </span>
-                        <input
-                          type="number"
-                          min="0"
-                          max={available}
-                          value={quantities[item.id] ?? ""}
-                          onChange={(e) =>
-                            handleQuantityChange(item.id, e.target.value)
-                          }
-                          className="w-24 text-right rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
-                          disabled={available === 0}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-
-            <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
-              <h3 className="text-sm font-semibold">
-                Resumen y reembolso
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                <div className="rounded border border-slate-800/60 p-3">
-                  <div className="text-slate-400">Subtotal seleccionado</div>
-                  <div className="text-lg font-semibold text-slate-50">
-                    {formatMoney(Math.round(selectedNet))}
+                <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 flex-1 min-h-0">
+                  <div className="grid grid-cols-[minmax(0,3fr)_120px_120px_160px_260px] gap-x-6 px-6 py-4 text-[13px] text-slate-400 uppercase tracking-wide">
+                    <span>Producto</span>
+                    <span className="text-center">Vend.</span>
+                    <span className="text-center">Devuelto</span>
+                    <span className="text-center">Disponible</span>
+                    <span className="text-right">Devolver</span>
+                  </div>
+                  <div className="h-full max-h-[420px] overflow-auto">
+                    {sale.items.map((item) => {
+                      const available = getAvailableQty(item);
+                      const currentQty = Number(
+                        (quantities[item.id] ?? "0").replace(/[^\d.]/g, "")
+                      ) || 0;
+                      const nextQty = Math.min(available, currentQty + 1);
+                      const prevQty = Math.max(0, currentQty - 1);
+                      return (
+                        <div
+                          key={item.id}
+                          className="grid grid-cols-[minmax(0,3fr)_120px_120px_160px_260px] gap-x-6 items-center px-6 py-5 border-t border-slate-800/50 text-lg"
+                        >
+                          <span className="text-slate-100 truncate font-semibold">
+                            {item.product_name ?? item.name ?? "Producto"}
+                          </span>
+                          <span className="text-center text-slate-200 font-semibold">
+                            {item.quantity}
+                          </span>
+                          <span className="text-center text-slate-300 font-semibold">
+                            {getReturnedQty(item.id)}
+                          </span>
+                          <span className="text-center text-emerald-300 font-semibold">
+                            {available}
+                          </span>
+                          {available <= 1 ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleQuantityChange(
+                                  item.id,
+                                  currentQty === 1 ? "0" : "1"
+                                )
+                              }
+                              disabled={available === 0}
+                              className={`h-12 justify-self-end rounded-xl border px-6 text-base font-semibold ${
+                                currentQty === 1
+                                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                                  : "border-slate-700 bg-slate-950 text-slate-200"
+                              } disabled:opacity-50`}
+                            >
+                              {currentQty === 1 ? "✓ Devolver" : "Devolver"}
+                            </button>
+                          ) : (
+                            <div className="h-12 justify-self-end grid grid-cols-[52px_1fr_52px] items-center rounded-xl border border-slate-700 bg-slate-950 text-slate-100">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleQuantityChange(
+                                    item.id,
+                                    prevQty.toString()
+                                  )
+                                }
+                                className="h-full text-2xl font-semibold hover:bg-slate-800"
+                              >
+                                −
+                              </button>
+                              <div className="text-center text-xl font-semibold">
+                                {currentQty}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleQuantityChange(
+                                    item.id,
+                                    nextQty.toString()
+                                  )
+                                }
+                                className="h-full text-2xl font-semibold hover:bg-slate-800"
+                              >
+                                +
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-                <div className="rounded border border-slate-800/60 p-3">
-                  <div className="text-slate-400">
-                    Prorrateo descuento carrito
-                  </div>
-                  <div className="text-lg font-semibold text-slate-50">
-                    {estimatedCartShare > 0
-                      ? `-${formatMoney(Math.round(estimatedCartShare))}`
-                      : "0"}
-                  </div>
-                </div>
-                <div className="rounded border border-slate-800/60 p-3">
-                  <div className="text-slate-400">Total estimado a devolver</div>
-                  <div className="text-lg font-semibold text-emerald-400">
-                    {formatMoney(Math.round(refundEstimate))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div className="space-y-2">
-                  <label className="text-slate-400 block text-xs">
-                    Motivo / notas (opcional)
-                  </label>
-                  <textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    rows={3}
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    placeholder="Ej: Producto defectuoso"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-slate-400 block text-xs">
-                    Método de reembolso
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={paymentMethod}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                      className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    >
-                      {activePaymentMethods.length === 0 && (
-                        <option value="cash">Efectivo</option>
-                      )}
-                      {activePaymentMethods.map((method) => (
-                        <option key={method.id} value={method.slug}>
-                          {method.name}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      value={paymentAmount}
-                      min={0}
-                      onChange={(e) => {
-                        setPaymentTouched(true);
-                        setPaymentAmount(e.target.value);
-                      }}
-                      className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-right text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {submitError && (
-                <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/40 rounded px-3 py-2">
-                  {submitError}
-                </div>
-              )}
-
-              <div className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={clearSelection}
-                  className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-100 text-sm"
-                >
-                  Limpiar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={!canSubmit}
-                  className="px-4 py-2 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {submitting ? "Registrando..." : "Registrar devolución"}
-                </button>
-              </div>
-            </section>
-          </>
-        )}
+              </section>
+            )}
           </div>
+
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-slate-400">
+                  Paso 3
+                </p>
+                <h3 className="text-base font-semibold text-slate-100">
+                  Resumen y reembolso
+                </h3>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+              <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 p-3">
+                <div className="text-slate-400 text-xs">Subtotal seleccionado</div>
+                <div className="text-lg font-semibold text-slate-50">
+                  {formatMoney(Math.round(selectedNet))}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 p-3">
+                <div className="text-slate-400 text-xs">
+                  Prorrateo descuento carrito
+                </div>
+                <div className="text-lg font-semibold text-slate-50">
+                  {estimatedCartShare > 0
+                    ? `-${formatMoney(Math.round(estimatedCartShare))}`
+                    : "0"}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 p-3">
+                <div className="text-slate-400 text-xs">Total a devolver</div>
+                <div className="text-lg font-semibold text-emerald-400">
+                  {formatMoney(
+                    Math.round(sale?.is_separated ? cappedRefund : refundEstimate)
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {sale?.is_separated && (
+              <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                Reembolso disponible por abonos:{" "}
+                <span className="font-semibold">
+                  {formatMoney(Math.round(paidRemaining))}
+                </span>
+                {refundEstimate > paidRemaining && paidRemaining > 0 && (
+                  <>. El reembolso se ajustará a lo pagado y el saldo pendiente se anulará.</>
+                )}
+                {paidRemaining <= 0 && <>. Esta venta no tiene abonos para reembolsar.</>}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_1fr] gap-3 text-sm">
+              <div className="space-y-2">
+                <label className="text-slate-400 block text-xs">
+                  Motivo / notas (opcional)
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Ej: Producto defectuoso"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-slate-400 block text-xs">
+                  Método de reembolso
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {activePaymentMethods.length === 0 && (
+                    <option value="cash">Efectivo</option>
+                  )}
+                  {activePaymentMethods.map((method) => (
+                    <option key={method.id} value={method.slug}>
+                      {method.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-slate-400 block text-xs">Monto</label>
+                <input
+                  type="number"
+                  value={paymentAmount}
+                  min={0}
+                  onChange={(e) => {
+                    setPaymentTouched(true);
+                    setPaymentAmount(e.target.value);
+                  }}
+                  className="h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-right text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+            </div>
+
+            {submitError && (
+              <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/40 rounded px-3 py-2">
+                {submitError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="h-12 px-5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-sm font-semibold"
+              >
+                Limpiar
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+                className="h-12 px-6 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submitting ? "Registrando..." : "Registrar devolución"}
+              </button>
+            </div>
+          </section>
         </div>
       </div>
       {returnSuccess && (

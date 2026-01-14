@@ -426,7 +426,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         .join("")
     : '<div class="row"><span>Sin pagos registrados</span><span>0</span></div>';
   const separatedPaymentBadge = options.separatedInfo
-    ? `<div class="separated-badge">Venta por separado</div>`
+    ? `<div class="separated-badge">VENTA POR SEPARADO</div>`
     : "";
 
   const changeRow =
@@ -694,11 +694,16 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           text-align: right;
         }
         .separated-badge {
-          font-size: 12px;
-          font-weight: 600;
+          display: table;
+          font-size: 13px;
+          font-weight: 800;
           color: #0f172a;
           text-align: center;
-          margin: 4px 0 4px;
+          margin: 6px auto 6px;
+          padding: 5px 12px;
+          border: 2px solid #0f172a;
+          border-radius: 999px;
+          letter-spacing: 0.08em;
         }
         .separated-row {
           align-items: flex-start;

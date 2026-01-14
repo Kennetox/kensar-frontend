@@ -1097,12 +1097,6 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
     openSaleDocumentWindow(html, { width: 420, height: 640 });
   }
 
-  function handlePrintInvoice() {
-    const html = buildSaleDocumentHtml("invoice");
-    if (!html) return;
-    openSaleDocumentWindow(html, { width: 960, height: 900 });
-  }
-
   function openEmailModal(documentType: "ticket" | "invoice") {
     if (!successSale) return;
     setEmailSubject(
@@ -1688,7 +1682,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       </div>
 
       {/* BOTONES GRANDES — FILA 1 */}
-      <div className="grid grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-2 gap-6 mb-6">
 
         <button
           onClick={() => void handlePrintTicket()}
@@ -1697,16 +1691,6 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           <div className="text-4xl mb-3">🖨️</div>
           <span className="text-sm font-semibold text-slate-100">
             Imprimir ticket
-          </span>
-        </button>
-
-        <button
-          onClick={handlePrintInvoice}
-          className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-        >
-          <div className="text-4xl mb-3">📄</div>
-          <span className="text-sm font-semibold text-slate-100">
-            Imprimir factura
           </span>
         </button>
 

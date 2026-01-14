@@ -31,6 +31,8 @@ export default function PosCustomerSelectorPage() {
   );
   const [frequentLoading, setFrequentLoading] = useState(false);
   const [frequentError, setFrequentError] = useState<string | null>(null);
+  const [pendingFrequentSelection, setPendingFrequentSelection] =
+    useState<FrequentCustomer | null>(null);
 
   useEffect(() => {
     if (!authHeaders) return;
@@ -74,6 +76,12 @@ export default function PosCustomerSelectorPage() {
   }, [apiBase, authHeaders]);
 
   const handleAssignFrequent = (customer: FrequentCustomer) => {
+    setPendingFrequentSelection(customer);
+  };
+
+  const confirmAssignFrequent = () => {
+    if (!pendingFrequentSelection) return;
+    const customer = pendingFrequentSelection;
     setSelectedCustomer({
       id: customer.id,
       name: customer.name,
@@ -82,6 +90,7 @@ export default function PosCustomerSelectorPage() {
       taxId: customer.tax_id ?? undefined,
       address: customer.address ?? undefined,
     });
+    setPendingFrequentSelection(null);
     router.push("/pos");
   };
 
@@ -110,13 +119,13 @@ export default function PosCustomerSelectorPage() {
       </header>
 
       <div className="flex-1 w-full flex items-start justify-center px-4 sm:px-8 py-10 overflow-auto">
-        <div className="w-full max-w-7xl grid gap-6 lg:grid-cols-[1.6fr_1fr] items-start">
+        <div className="w-full max-w-7xl grid gap-8 lg:grid-cols-[1.5fr_1fr] items-start">
           <CustomerPanel
             variant="page"
             onCustomerSelected={() => router.push("/pos")}
           />
 
-          <section className="rounded-3xl border border-slate-800/80 bg-slate-950/80 p-6 shadow-xl">
+          <section className="rounded-3xl border border-slate-800/80 bg-slate-950/80 p-7 shadow-xl">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">
@@ -179,6 +188,63 @@ export default function PosCustomerSelectorPage() {
           </section>
         </div>
       </div>
+
+      {pendingFrequentSelection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-6">
+          <div className="w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-100">
+                  ¿Asignar este cliente?
+                </h3>
+                <p className="text-sm text-slate-400">
+                  Vas a asignar el cliente seleccionado a la venta actual.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingFrequentSelection(null)}
+                className="text-slate-400 hover:text-slate-200 text-xl"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-800/70 bg-slate-950/60 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-100">
+                {pendingFrequentSelection.name}
+              </div>
+              <div className="text-xs text-slate-400">
+                {pendingFrequentSelection.phone ?? "Sin teléfono"}
+                {pendingFrequentSelection.email
+                  ? ` · ${pendingFrequentSelection.email}`
+                  : ""}
+                {pendingFrequentSelection.tax_id
+                  ? ` · ${pendingFrequentSelection.tax_id}`
+                  : ""}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={confirmAssignFrequent}
+                className="flex-1 rounded-2xl bg-emerald-500 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+              >
+                Sí, asignar
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingFrequentSelection(null)}
+                className="flex-1 rounded-2xl border border-slate-700 py-2.5 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

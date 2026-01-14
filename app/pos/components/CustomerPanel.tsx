@@ -60,6 +60,7 @@ export default function CustomerPanel({
   >([]);
   const [duplicateOverride, setDuplicateOverride] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<ApiCustomer | null>(null);
+  const [pendingSelection, setPendingSelection] = useState<ApiCustomer | null>(null);
 
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
@@ -149,6 +150,16 @@ export default function CustomerPanel({
       onCustomerSelected(mapCustomer(customer));
     }
   }
+
+  const requestSelectCustomer = (customer: ApiCustomer) => {
+    setPendingSelection(customer);
+  };
+
+  const confirmSelectCustomer = () => {
+    if (!pendingSelection) return;
+    handleSelectCustomer(pendingSelection);
+    setPendingSelection(null);
+  };
 
   const submitCustomer = useCallback(async () => {
     if (!authHeaders) return;
@@ -276,15 +287,9 @@ export default function CustomerPanel({
   };
 
   const handleUseExistingMatch = (customer: ApiCustomer) => {
-    const mapped = mapCustomer(customer);
-    setSelectedCustomer(mapped);
     setPendingDuplicateMatches([]);
     setDuplicateOverride(false);
-    setMode("none");
-    setFeedback("Cliente asignado a la venta.");
-    if (onCustomerSelected) {
-      onCustomerSelected(mapped);
-    }
+    requestSelectCustomer(customer);
   };
 
   const handleConfirmCreate = async () => {
@@ -293,22 +298,25 @@ export default function CustomerPanel({
     await submitCustomer();
   };
 
-  const normalizeName = (value: string) =>
-    value
+  const normalizeName = useCallback((value: string) => {
+    return value
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9\s]/g, "")
       .replace(/\s+/g, " ")
       .trim();
+  }, []);
 
-  const normalizePhone = (value: string) =>
-    value.replace(/\D/g, "").trim();
+  const normalizePhone = useCallback((value: string) => {
+    return value.replace(/\D/g, "").trim();
+  }, []);
 
-  const normalizeTax = (value: string) =>
-    value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase().trim();
+  const normalizeTax = useCallback((value: string) => {
+    return value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase().trim();
+  }, []);
 
-  const hasStrongMatch = (
+  const hasStrongMatch = useCallback((
     candidate: ApiCustomer,
     target: { name: string; phone?: string; email?: string; tax_id?: string }
   ) => {
@@ -335,7 +343,7 @@ export default function CustomerPanel({
       (nameMatch && hasOtherId) ||
       nameStrong
     );
-  };
+  }, [normalizeName, normalizePhone, normalizeTax]);
 
   const findDuplicateMatches = useCallback(
     async (target: {
@@ -345,32 +353,52 @@ export default function CustomerPanel({
       tax_id?: string;
     }) => {
       if (!authHeaders) return [];
-      const searchTerm = target.name.trim();
-      if (!searchTerm) return [];
-      const params = new URLSearchParams({
-        search: searchTerm,
-        skip: "0",
-        limit: "15",
-      });
-      const res = await fetch(`${apiBase}/pos/customers?${params}`, {
-        headers: authHeaders,
-        credentials: "include",
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      const list: ApiCustomer[] = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.items)
-        ? data.items
-        : [];
-      return list.filter((candidate) => hasStrongMatch(candidate, target));
+      const searchTerms = new Set<string>();
+      const nameTerm = target.name.trim();
+      const phoneTerm = normalizePhone(target.phone ?? "");
+      const emailTerm = target.email?.trim() ?? "";
+      const taxTerm = normalizeTax(target.tax_id ?? "");
+      if (nameTerm) searchTerms.add(nameTerm);
+      if (phoneTerm) searchTerms.add(phoneTerm);
+      if (emailTerm) searchTerms.add(emailTerm);
+      if (taxTerm) searchTerms.add(taxTerm);
+      if (searchTerms.size === 0) return [];
+
+      const results = new Map<number, ApiCustomer>();
+      await Promise.all(
+        Array.from(searchTerms).map(async (term) => {
+          const params = new URLSearchParams({
+            search: term,
+            skip: "0",
+            limit: "15",
+          });
+          const res = await fetch(`${apiBase}/pos/customers?${params}`, {
+            headers: authHeaders,
+            credentials: "include",
+          });
+          if (!res.ok) return;
+          const data = await res.json();
+          const list: ApiCustomer[] = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.items)
+            ? data.items
+            : [];
+          list.forEach((entry) => {
+            results.set(entry.id, entry);
+          });
+        })
+      );
+
+      return Array.from(results.values()).filter((candidate) =>
+        hasStrongMatch(candidate, target)
+      );
     },
-    [apiBase, authHeaders]
+    [apiBase, authHeaders, hasStrongMatch, normalizePhone, normalizeTax]
   );
 
   const containerClass =
     variant === "page"
-      ? "w-full max-w-5xl bg-slate-950/80 border border-slate-800/80 rounded-3xl px-8 py-8 shadow-xl flex flex-col overflow-hidden"
+      ? "w-full max-w-5xl bg-slate-950/80 border border-slate-800/80 rounded-3xl px-10 py-9 shadow-xl flex flex-col overflow-hidden"
       : "w-[19rem] border-l border-slate-800 bg-slate-950/50 px-5 py-5 flex flex-col gap-4 overflow-hidden";
 
   const listContainerClass =
@@ -380,7 +408,7 @@ export default function CustomerPanel({
 
   return (
     <section className={containerClass}>
-      <div className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-4">
+      <div className="text-base font-semibold text-slate-400 uppercase tracking-wide mb-5">
         Cliente
       </div>
 
@@ -390,9 +418,9 @@ export default function CustomerPanel({
         </div>
       ) : (
         <>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4 text-sm shadow-inner">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-5 text-base shadow-inner">
             <div className="flex items-center gap-3">
-              <div className="h-11 w-11 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-sm font-semibold text-slate-200">
+              <div className="h-12 w-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-semibold text-slate-200">
                 {selectedCustomer
                   ? selectedCustomer.name.slice(0, 2).toUpperCase()
                   : "CL"}
@@ -401,14 +429,14 @@ export default function CustomerPanel({
                 <div className="text-xs uppercase tracking-wide text-slate-400">
                   Cliente actual
                 </div>
-                <div className="text-base text-slate-200">
+                <div className="text-lg text-slate-200">
                   {selectedCustomer ? selectedCustomer.name : "Sin cliente asignado"}
                 </div>
               </div>
             </div>
 
             {selectedCustomer ? (
-              <div className="space-y-1 text-sm text-slate-300">
+              <div className="space-y-1 text-base text-slate-300">
                 {selectedCustomer.phone && <div>Tel: {selectedCustomer.phone}</div>}
                 {selectedCustomer.email && <div>Email: {selectedCustomer.email}</div>}
                 {selectedCustomer.taxId && <div>NIT/ID: {selectedCustomer.taxId}</div>}
@@ -416,23 +444,23 @@ export default function CustomerPanel({
                 <button
                   type="button"
                   onClick={handleRemoveSelection}
-                  className="mt-2 text-xs text-rose-300 hover:text-rose-200 underline"
+                  className="mt-3 inline-flex items-center rounded-full border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/20"
                 >
                   Quitar cliente
                 </button>
               </div>
             ) : (
-              <div className="text-slate-500 text-sm leading-relaxed">
+              <div className="text-slate-500 text-base leading-relaxed">
                 Selecciona un cliente existente o crea uno nuevo.
               </div>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mt-4">
+          <div className="grid grid-cols-2 gap-4 mt-5">
             <button
               type="button"
               onClick={() => toggleMode("search")}
-              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+              className={`rounded-xl border px-5 py-3.5 text-base font-semibold transition ${
                 mode === "search"
                   ? "border-sky-400 bg-sky-500/10 text-sky-100 shadow-inner"
                   : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
@@ -443,7 +471,7 @@ export default function CustomerPanel({
             <button
               type="button"
               onClick={() => toggleMode("new")}
-              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+              className={`rounded-xl border px-5 py-3.5 text-base font-semibold transition ${
                 mode === "new"
                   ? "border-emerald-400 bg-emerald-500/10 text-emerald-100 shadow-inner"
                   : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
@@ -484,7 +512,7 @@ export default function CustomerPanel({
                     >
                       <button
                         type="button"
-                        onClick={() => handleSelectCustomer(customer)}
+                        onClick={() => requestSelectCustomer(customer)}
                         className="flex-1 text-left focus:outline-none"
                       >
                         <div className="font-semibold text-base text-slate-100">
@@ -500,7 +528,7 @@ export default function CustomerPanel({
                           event.stopPropagation();
                           handleEditCustomer(customer);
                         }}
-                        className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 text-xs text-slate-300 hover:border-emerald-400 hover:text-emerald-200 transition"
+                        className="flex h-8 min-w-[46px] items-center justify-center rounded-full border border-slate-700 px-3 text-xs text-slate-300 hover:border-emerald-400 hover:text-emerald-200 transition"
                         aria-label={`Editar ${customer.name}`}
                         title="Editar cliente"
                       >
@@ -686,6 +714,59 @@ export default function CustomerPanel({
                 className="flex-1 rounded-2xl border border-slate-700 py-3 text-base text-slate-200 hover:bg-slate-800"
               >
                 Revisar búsqueda
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingSelection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-6">
+          <div className="w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-100">
+                  ¿Asignar este cliente?
+                </h3>
+                <p className="text-sm text-slate-400">
+                  Vas a asignar el cliente seleccionado a la venta actual.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingSelection(null)}
+                className="text-slate-400 hover:text-slate-200 text-xl"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-800/70 bg-slate-950/60 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-100">
+                {pendingSelection.name}
+              </div>
+              <div className="text-xs text-slate-400">
+                {pendingSelection.phone ?? "Sin teléfono"}
+                {pendingSelection.email ? ` · ${pendingSelection.email}` : ""}
+                {pendingSelection.tax_id ? ` · ${pendingSelection.tax_id}` : ""}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={confirmSelectCustomer}
+                className="flex-1 rounded-2xl bg-emerald-500 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+              >
+                Sí, asignar
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingSelection(null)}
+                className="flex-1 rounded-2xl border border-slate-700 py-2.5 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Cancelar
               </button>
             </div>
           </div>

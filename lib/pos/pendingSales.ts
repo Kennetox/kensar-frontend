@@ -106,9 +106,6 @@ export async function submitPendingSale(
   const sanitizePayload = (payload: unknown) => {
     if (payload && typeof payload === "object" && !Array.isArray(payload)) {
       const clone = { ...(payload as Record<string, unknown>) };
-      if (clone.station_id === "pos-web") {
-        delete clone.station_id;
-      }
       return clone;
     }
     return payload;

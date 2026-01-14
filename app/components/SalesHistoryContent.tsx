@@ -1658,8 +1658,8 @@ export default function SalesHistoryContent({
             <button
               onClick={() => router.push(backPath)}
               className="flex items-center gap-2 text-slate-300 hover:text-white
-                         px-3 py-1.5 rounded-md border border-slate-700
-                         hover:bg-slate-800 transition-colors text-xs"
+                         px-5 py-2.5 rounded-lg border border-slate-700
+                         hover:bg-slate-800 transition-colors text-sm"
             >
               <span className="text-lg">←</span>
               {resolvedBackLabel}
@@ -1698,8 +1698,8 @@ export default function SalesHistoryContent({
               type="button"
               onClick={handleRefresh}
               disabled={loading}
-              className="px-3 py-1.5 rounded-md border border-emerald-400/70
-                         text-emerald-300 text-xs hover:bg-emerald-500/10
+              className="px-5 py-2.5 rounded-lg border border-emerald-400/70
+                         text-emerald-300 text-sm hover:bg-emerald-500/10
                          disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Refrescar
@@ -1715,7 +1715,7 @@ export default function SalesHistoryContent({
             <button
               type="button"
               onClick={handleClearFilters}
-              className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+              className="px-4 py-2 rounded-lg border border-slate-700 text-sm text-slate-200 hover:bg-slate-800"
             >
               Limpiar
             </button>
