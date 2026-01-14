@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -24,6 +24,7 @@ export default function PosLoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
+  const pinInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!loading && token) {
@@ -64,6 +65,17 @@ export default function PosLoginPage() {
       window.removeEventListener("focus", focusHandler);
     };
   }, []);
+
+  useEffect(() => {
+    if (!stationInfo) return;
+    const target = pinInputRef.current;
+    if (!target) return;
+    const id = requestAnimationFrame(() => {
+      target.focus();
+      target.select();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [stationInfo]);
 
   function handleClearStation() {
     if (typeof window !== "undefined") {
@@ -149,7 +161,7 @@ export default function PosLoginPage() {
       }}
     >
       <div className="min-h-screen bg-white/70 backdrop-blur-sm">
-        <div className="mx-auto flex min-h-screen max-w-4xl flex-col px-4 py-10 sm:px-6 lg:px-10">
+        <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-12 sm:px-6 lg:px-12">
           <nav className="flex items-center justify-between rounded-2xl bg-white/85 px-8 py-5 shadow-lg">
             <div className="flex items-center gap-3">
               <Image
@@ -185,35 +197,35 @@ export default function PosLoginPage() {
             </div>
           </nav>
 
-          <section className="mt-12 grid flex-1 gap-8 lg:grid-cols-2 items-center">
-            <div className="rounded-3xl bg-white/85 p-8 shadow-2xl flex items-center justify-center mx-auto">
-              <div className="text-center space-y-4 max-w-sm">
+          <section className="mt-12 grid flex-1 gap-10 lg:grid-cols-2 items-center">
+            <div className="rounded-3xl bg-white/85 p-10 shadow-2xl flex items-center justify-center mx-auto">
+              <div className="text-center space-y-5 max-w-md">
                 <Image
                   src="/branding/kensar-logo-moderno.jpg"
                   alt="Logo Kensar Electronic"
-                  width={320}
-                  height={320}
-                  className="mx-auto h-auto w-64 rounded-3xl shadow-lg object-contain"
+                  width={420}
+                  height={420}
+                  className="mx-auto h-auto w-80 rounded-[28px] shadow-lg object-contain"
                   priority
                 />
-                <p className="text-sm text-slate-600">
+                <p className="text-base text-slate-600">
                   Acceso exclusivo al POS de Kensar Electronic.
                 </p>
               </div>
             </div>
 
             <div className="flex items-center">
-              <div className="w-full rounded-3xl border border-slate-200/80 bg-white/90 p-6 shadow-2xl">
+              <div className="w-full rounded-3xl border border-slate-200/80 bg-white/90 p-8 shadow-2xl">
                 <div className="space-y-2 text-center">
-                  <h2 className="text-2xl font-semibold text-slate-900">
+                  <h2 className="text-3xl font-semibold text-slate-900">
                     Autentícate para abrir el POS
                   </h2>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-base text-slate-500">
                     Solo habilitado para usuarios con rol de caja.
                   </p>
                 </div>
-                <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-                  <label className="flex flex-col gap-1 text-sm">
+                <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+                  <label className="flex flex-col gap-1 text-base">
                     <div className="flex items-center justify-between">
                       <span className="text-slate-500">Estación</span>
                       {stationInfo && (
@@ -232,23 +244,24 @@ export default function PosLoginPage() {
                       value={stationInfo?.email ?? ""}
                       readOnly
                       placeholder="Configura esta estación desde el panel"
-                      className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-slate-500 shadow-inner"
+                      className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3.5 text-slate-500 shadow-inner"
                     />
                   </label>
                   {!stationInfo && (
-                    <p className="text-[11px] text-amber-600 bg-amber-100/60 rounded-xl px-3 py-2">
+                    <p className="text-[13px] text-amber-700 bg-amber-100/60 rounded-xl px-3 py-2">
                       Esta estación no está configurada. Ingresa al panel y usa
                       “Configurar aquí” en Seguridad → Estaciones de caja.
                     </p>
                   )}
-                  <label className="flex flex-col gap-1 text-sm">
+                  <label className="flex flex-col gap-1 text-base">
                     <span className="text-slate-500">PIN de caja</span>
                     <div className="relative">
                       <input
                         type={showPin ? "text" : "password"}
+                        ref={pinInputRef}
                         value={pin}
                         onChange={(e) => setPin(e.target.value)}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-16 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 pr-16 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
                         placeholder="Ingresa tu PIN"
                         inputMode="numeric"
                         autoComplete="off"
@@ -256,7 +269,7 @@ export default function PosLoginPage() {
                       <button
                         type="button"
                         onClick={() => setShowPin((prev) => !prev)}
-                        className="absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-slate-500 hover:text-slate-800"
+                        className="absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500 hover:text-slate-800"
                         aria-pressed={showPin}
                         aria-label={showPin ? "Ocultar PIN" : "Mostrar PIN"}
                       >
@@ -265,22 +278,22 @@ export default function PosLoginPage() {
                     </div>
                   </label>
                   {error && (
-                    <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-600">
+                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
                       {error}
-                    </div>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={submitting || !stationInfo}
-                    className="w-full rounded-2xl bg-gradient-to-r from-[#34d399] to-[#06b6d4] px-4 py-3 text-base font-semibold text-white shadow-lg transition hover:scale-[1.01] disabled:opacity-60"
-                  >
-                    {submitting ? "Ingresando…" : "Entrar al POS"}
-                  </button>
-                </form>
-                <div className="mt-4 text-center text-xs text-slate-500">
-                  <Link
-                    href="/forgot-password"
-                    className="font-semibold text-emerald-500 hover:text-emerald-400"
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={submitting || !stationInfo}
+                  className="w-full rounded-2xl bg-gradient-to-r from-[#34d399] to-[#06b6d4] px-4 py-3.5 text-lg font-semibold text-white shadow-lg transition hover:scale-[1.01] disabled:opacity-60"
+                >
+                  {submitting ? "Ingresando…" : "Entrar al POS"}
+                </button>
+              </form>
+              <div className="mt-5 text-center text-sm text-slate-500">
+                <Link
+                  href="/forgot-password"
+                  className="font-semibold text-emerald-500 hover:text-emerald-400"
                   >
                     ¿Olvidaste tu contraseña?
                   </Link>
