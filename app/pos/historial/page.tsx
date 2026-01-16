@@ -16,6 +16,10 @@ export default function PosSalesHistoryPage() {
   const resolvedOriginPath = originParam
     ? decodeURIComponent(originParam)
     : "/pos";
+  const autoReturnOnSelect =
+    resolvedReturnPath?.includes("/pos/cambios") ||
+    resolvedReturnPath?.includes("/pos/devoluciones") ||
+    false;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
@@ -24,6 +28,7 @@ export default function PosSalesHistoryPage() {
         backLabel={backLabel}
         returnPath={resolvedReturnPath}
         returnBackPath={resolvedOriginPath}
+        autoReturnOnSelect={autoReturnOnSelect}
       />
     </div>
   );

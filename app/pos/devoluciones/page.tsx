@@ -37,6 +37,15 @@ type SaleReturn = {
   items: SaleReturnItem[];
 };
 
+type SaleChangeReturnItem = {
+  sale_item_id: number;
+  quantity: number;
+};
+
+type SaleChange = {
+  items_returned?: SaleChangeReturnItem[];
+};
+
 type ReturnItemDetail = {
   product_name: string;
   product_sku?: string | null;
@@ -97,6 +106,7 @@ type Sale = {
   balance?: number | null;
   items: SaleItem[];
   returns?: SaleReturn[];
+  changes?: SaleChange[];
 };
 
 function getSaleNetBalance(entry: {
@@ -197,6 +207,7 @@ export default function DevolucionesPage() {
     useState<PaymentMethodSlug>("cash");
   const [paymentAmount, setPaymentAmount] = useState("0");
   const [paymentTouched, setPaymentTouched] = useState(false);
+  const lastDrawerReturnId = useRef<number | null>(null);
   const [paymentCatalog, setPaymentCatalog] = useState<PaymentMethodRecord[]>(
     DEFAULT_PAYMENT_METHODS
   );
@@ -504,16 +515,48 @@ export default function DevolucionesPage() {
     [paymentLabels]
   );
 
+  const cashRefundAmount = useMemo(() => {
+    if (!returnSuccess) return 0;
+    const cashPayment = (returnSuccess.payments ?? []).find(
+      (payment) => payment.method === "cash"
+    );
+    if (cashPayment?.amount != null) return cashPayment.amount;
+    return paymentMethod === "cash" ? returnSuccess.total_refund : 0;
+  }, [returnSuccess, paymentMethod]);
+
+  const refundSummary = useMemo(() => {
+    if (!returnSuccess) {
+      return { amount: 0, method: "" };
+    }
+    const payment = (returnSuccess.payments ?? [])[0];
+    const method = payment?.method ?? paymentMethod;
+    const amount =
+      payment?.amount != null ? payment.amount : returnSuccess.total_refund;
+    return { amount, method };
+  }, [paymentMethod, returnSuccess]);
+
   const alreadyReturnedMap = useMemo(() => {
     const map = new Map<number, number>();
-    if (!sale?.returns) return map;
-    for (const ret of sale.returns) {
-      if (!ret.items) continue;
-      for (const item of ret.items) {
-        map.set(
-          item.sale_item_id,
-          (map.get(item.sale_item_id) ?? 0) + item.quantity
-        );
+    if (sale?.returns) {
+      for (const ret of sale.returns) {
+        if (!ret.items) continue;
+        for (const item of ret.items) {
+          map.set(
+            item.sale_item_id,
+            (map.get(item.sale_item_id) ?? 0) + item.quantity
+          );
+        }
+      }
+    }
+    if (sale?.changes) {
+      for (const change of sale.changes) {
+        if (!change.items_returned) continue;
+        for (const item of change.items_returned) {
+          map.set(
+            item.sale_item_id,
+            (map.get(item.sale_item_id) ?? 0) + item.quantity
+          );
+        }
       }
     }
     return map;
@@ -1019,388 +1062,469 @@ export default function DevolucionesPage() {
     returnSuccess,
   ]);
 
+  const openDrawerWithQz = useCallback(async () => {
+    if (printerConfig.mode !== "qz-tray") return false;
+    if (!printerConfig.printerName.trim()) return false;
+    if (!qzClient) return false;
+    try {
+      configureQzSecurity();
+      if (!qzClient.websocket.isActive()) {
+        await qzClient.websocket.connect();
+      }
+      const cfg = qzClient.configs.create(printerConfig.printerName, {
+        altPrinting: true,
+      });
+      const drawerPulse = "\x1B\x70\x00\x19\xFA";
+      await qzClient.print(cfg, [
+        { type: "raw", format: "command", data: drawerPulse },
+      ]);
+      return true;
+    } catch (err) {
+      console.error("No se pudo abrir el cajón para la devolución", err);
+      return false;
+    }
+  }, [
+    configureQzSecurity,
+    printerConfig.mode,
+    printerConfig.printerName,
+    qzClient,
+  ]);
+
+  useEffect(() => {
+    if (!returnSuccess) return;
+    if (lastDrawerReturnId.current === returnSuccess.id) return;
+    if (!cashRefundAmount) return;
+    if (!printerConfig.autoOpenDrawer) return;
+    if (printerConfig.mode !== "qz-tray") return;
+
+    const run = async () => {
+      try {
+        await openDrawerWithQz();
+      } finally {
+        lastDrawerReturnId.current = returnSuccess.id;
+      }
+    };
+
+    void run();
+  }, [
+    cashRefundAmount,
+    openDrawerWithQz,
+    printerConfig.autoOpenDrawer,
+    printerConfig.mode,
+    returnSuccess,
+  ]);
+
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
-      <header className="h-14 flex items-center justify-between bg-slate-900 border-b border-slate-800 px-6">
-        <div className="flex items-center gap-3">
+    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 px-6 py-6">
+      <div className="max-w-[1600px] mx-auto space-y-6">
+        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">
+              Devoluciones
+            </p>
+            <h1 className="text-2xl font-semibold text-white">
+              Registra devoluciones de productos
+            </h1>
+            <p className="text-sm text-slate-400">
+              Escanea el ticket y confirma el reembolso antes de imprimir.
+            </p>
+          </div>
           <button
+            type="button"
             onClick={() => router.push(resolvedBackPath)}
-            className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
+            className="h-12 px-4 rounded-xl border border-slate-700 bg-slate-900/70 text-slate-100 hover:bg-slate-800"
           >
-            ← {resolvedBackLabel}
+            {resolvedBackLabel}
           </button>
-          <h1 className="text-lg font-semibold">Registrar devolución</h1>
-        </div>
-        <div className="text-xs text-slate-400">
-          POS 1 · KENSAR ELECTRONIC
-        </div>
-      </header>
+        </header>
 
-      <div className="flex-1 overflow-hidden p-5">
-        <div className="grid h-full grid-rows-[1fr_auto] gap-4">
-          <div className="grid min-h-0 gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-widest text-slate-400">
-                    Paso 1
-                  </p>
-                  <h2 className="text-lg font-semibold text-slate-100">
-                    Selecciona la venta
-                  </h2>
-                </div>
-                {sale && (
-                  <button
-                    type="button"
-                    onClick={clearSelection}
-                    className="text-xs text-slate-300 hover:text-slate-100 underline"
-                  >
-                    Cambiar venta
-                  </button>
-                )}
+        <div className="grid gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-slate-400">
+                  Paso 1
+                </p>
+                <h2 className="text-lg font-semibold text-slate-100">
+                  Selecciona la venta
+                </h2>
               </div>
-
-              <div className="flex gap-2">
+              {sale && (
                 <button
                   type="button"
-                  onClick={() => {
-                    const params = new URLSearchParams();
-                    params.set("returnTo", "/pos/devoluciones");
-                    params.set("back", currentDevolucionesPath);
-                    params.set("origin", resolvedBackPath);
-                    router.push(`/pos/historial?${params.toString()}`);
-                  }}
-                  className="flex-1 h-12 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
+                  onClick={clearSelection}
+                  className="h-10 rounded-full border border-slate-700 bg-slate-900/80 px-4 text-sm font-semibold text-slate-100 hover:bg-slate-800"
                 >
-                  Abrir historial
+                  Cambiar venta
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const params = new URLSearchParams();
-                    params.set("back", currentDevolucionesPath);
-                    router.push(`/pos/documentos?${params.toString()}`);
-                  }}
-                  className="flex-1 h-12 rounded-lg border border-slate-600 text-sm text-slate-200 hover:bg-slate-800"
-                >
-                  Ver documentos
-                </button>
-              </div>
-
-              <form
-                onSubmit={(event) => void handleScanSubmit(event)}
-                className="flex gap-2"
-              >
-                <input
-                  type="text"
-                  value={scanValue}
-                  onChange={(e) => setScanValue(e.target.value)}
-                  placeholder="Escanea o escribe: V-000021"
-                  className="flex-1 h-12 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  ref={scanInputRef}
-                />
-                <button
-                  type="submit"
-                  disabled={scanLoading}
-                  className="h-12 px-5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {scanLoading ? "Buscando..." : "Cargar"}
-                </button>
-              </form>
-              {(scanError || saleError) && (
-                <p className="text-xs text-red-400">{scanError ?? saleError}</p>
               )}
+            </div>
 
-              <div className="rounded-xl border border-slate-800/60 bg-slate-950/30 p-4 text-sm text-slate-200 space-y-2">
-                <div className="text-xs uppercase tracking-wide text-slate-400">
-                  Venta seleccionada
-                </div>
-                {sale ? (
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Venta</span>
-                      <span className="font-mono text-slate-100">
-                        #{sale.sale_number ?? sale.id}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Documento</span>
-                      <span className="text-slate-100">
-                        {sale.document_number ?? "—"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Fecha</span>
-                      <span className="text-slate-100">
-                        {formatBogotaDate(sale.created_at, {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Pagado</span>
-                      <span className="text-slate-100 font-semibold">
-                        {formatMoney(sale.paid_amount ?? sale.total)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Saldo disponible</span>
-                      <span className="text-emerald-300 font-semibold">
-                        {formatMoney(getSaleNetBalance(sale))}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-slate-400 text-sm">
-                    Selecciona un ticket para comenzar la devolución.
-                  </p>
-                )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const params = new URLSearchParams();
+                  params.set("returnTo", "/pos/devoluciones");
+                  params.set("back", currentDevolucionesPath);
+                  params.set("origin", resolvedBackPath);
+                  router.push(`/pos/historial?${params.toString()}`);
+                }}
+                className="flex-1 h-12 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
+              >
+                Abrir historial
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const params = new URLSearchParams();
+                  params.set("back", currentDevolucionesPath);
+                  router.push(`/pos/documentos?${params.toString()}`);
+                }}
+                className="flex-1 h-12 rounded-lg border border-slate-600 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Ver documentos
+              </button>
+            </div>
+
+            <form
+              onSubmit={(event) => void handleScanSubmit(event)}
+              className="flex gap-2"
+            >
+              <input
+                type="text"
+                value={scanValue}
+                onChange={(e) => setScanValue(e.target.value)}
+                placeholder="Escanea o escribe: V-000021"
+                className="flex-1 h-12 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                ref={scanInputRef}
+              />
+              <button
+                type="submit"
+                disabled={scanLoading}
+                className="h-12 px-5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {scanLoading ? "Buscando..." : "Cargar"}
+              </button>
+            </form>
+            {(scanError || saleError) && (
+              <p className="text-xs text-red-400">{scanError ?? saleError}</p>
+            )}
+
+            <div className="rounded-xl border border-slate-800/60 bg-slate-950/30 p-4 text-sm text-slate-200 space-y-2">
+              <div className="text-xs uppercase tracking-wide text-slate-400">
+                Venta seleccionada
               </div>
-              {sale?.returns?.length ? (
-                <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                  Esta venta ya tiene {sale.returns.length} devolución(es). El sistema
-                  ajustará cantidades automáticamente.
+              {sale ? (
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Venta</span>
+                    <span className="font-mono text-slate-100">
+                      #{sale.sale_number ?? sale.id}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Documento</span>
+                    <span className="text-slate-100">
+                      {sale.document_number ?? "—"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Fecha</span>
+                    <span className="text-slate-100">
+                      {formatBogotaDate(sale.created_at, {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Pagado</span>
+                    <span className="text-slate-100 font-semibold">
+                      {formatMoney(
+                        sale.is_separated
+                          ? paidTotal
+                          : sale.paid_amount ?? sale.total
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Saldo disponible</span>
+                    <span className="text-emerald-300 font-semibold">
+                      {formatMoney(
+                        sale.is_separated
+                          ? paidRemaining
+                          : getSaleNetBalance(sale)
+                      )}
+                    </span>
+                  </div>
                 </div>
-              ) : null}
-            </section>
+              ) : (
+                <p className="text-slate-400 text-sm">
+                  Selecciona un ticket para comenzar la devolución.
+                </p>
+              )}
+            </div>
+            {sale?.returns?.length ? (
+              <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                Esta venta ya tiene {sale.returns.length} devolución(es). El sistema
+                ajustará cantidades automáticamente.
+              </div>
+            ) : null}
+          </section>
+
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-6 min-h-0">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-slate-400">
+                  Paso 2
+                </p>
+                <h3 className="text-lg font-semibold text-slate-100">
+                  Selecciona productos a devolver
+                </h3>
+              </div>
+              {sale && (
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="h-10 rounded-full border border-slate-700 bg-slate-900/80 px-4 text-sm font-semibold text-slate-100 hover:bg-slate-800"
+                >
+                  Quitar selección
+                </button>
+              )}
+            </div>
 
             {!sale ? (
-              <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 p-6 text-center text-sm text-slate-400 flex items-center justify-center">
-                Selecciona una venta para configurar la devolución.
+              <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-6 text-sm text-slate-500">
+                Debes seleccionar una venta para continuar.
               </div>
             ) : (
-              <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col gap-4 min-h-0">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-widest text-slate-400">
-                      Paso 2
-                    </p>
-                    <h3 className="text-base font-semibold text-slate-100">
-                      Selecciona productos a devolver
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={clearSelection}
-                    className="text-xs text-slate-300 hover:text-slate-100 underline"
-                  >
-                    Quitar selección
-                  </button>
+              <div className="rounded-xl border border-slate-800/70 bg-slate-950/40 min-h-0">
+                <div className="grid grid-cols-[minmax(0,2.8fr)_100px_110px_140px_210px] gap-x-5 px-6 py-4 text-[13px] text-slate-400 uppercase tracking-wide">
+                  <span>Producto</span>
+                  <span className="text-center">Vend.</span>
+                  <span className="text-center">Devuelto</span>
+                  <span className="text-center">Disponible</span>
+                  <span className="text-center">Devolver</span>
                 </div>
-
-                <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 flex-1 min-h-0">
-                  <div className="grid grid-cols-[minmax(0,3fr)_120px_120px_160px_260px] gap-x-6 px-6 py-4 text-[13px] text-slate-400 uppercase tracking-wide">
-                    <span>Producto</span>
-                    <span className="text-center">Vend.</span>
-                    <span className="text-center">Devuelto</span>
-                    <span className="text-center">Disponible</span>
-                    <span className="text-right">Devolver</span>
-                  </div>
-                  <div className="h-full max-h-[420px] overflow-auto">
-                    {sale.items.map((item) => {
-                      const available = getAvailableQty(item);
-                      const currentQty = Number(
+                <div className="max-h-[360px] overflow-auto">
+                  {sale.items.map((item) => {
+                    const available = getAvailableQty(item);
+                    const currentQty =
+                      Number(
                         (quantities[item.id] ?? "0").replace(/[^\d.]/g, "")
                       ) || 0;
-                      const nextQty = Math.min(available, currentQty + 1);
-                      const prevQty = Math.max(0, currentQty - 1);
-                      return (
-                        <div
-                          key={item.id}
-                          className="grid grid-cols-[minmax(0,3fr)_120px_120px_160px_260px] gap-x-6 items-center px-6 py-5 border-t border-slate-800/50 text-lg"
-                        >
-                          <span className="text-slate-100 truncate font-semibold">
-                            {item.product_name ?? item.name ?? "Producto"}
-                          </span>
-                          <span className="text-center text-slate-200 font-semibold">
-                            {item.quantity}
-                          </span>
-                          <span className="text-center text-slate-300 font-semibold">
-                            {getReturnedQty(item.id)}
-                          </span>
-                          <span className="text-center text-emerald-300 font-semibold">
-                            {available}
-                          </span>
-                          {available <= 1 ? (
+                    const nextQty = Math.min(available, currentQty + 1);
+                    const prevQty = Math.max(0, currentQty - 1);
+                    return (
+                      <div
+                        key={item.id}
+                        className="grid grid-cols-[minmax(0,2.8fr)_100px_110px_140px_210px] gap-x-5 items-center px-6 py-5 border-t border-slate-800/50 text-base"
+                      >
+                        <span className="text-slate-100 truncate font-semibold">
+                          {item.product_name ?? item.name ?? "Producto"}
+                        </span>
+                        <span className="text-center text-slate-200 font-semibold">
+                          {item.quantity}
+                        </span>
+                        <span className="text-center text-slate-300 font-semibold">
+                          {getReturnedQty(item.id)}
+                        </span>
+                        <span className="text-center text-emerald-300 font-semibold">
+                          {available}
+                        </span>
+                        {available <= 1 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleQuantityChange(
+                                item.id,
+                                currentQty === 1 ? "0" : "1"
+                              )
+                            }
+                            disabled={available === 0}
+                            className={`h-11 justify-self-center rounded-xl border px-6 text-sm font-semibold ${
+                              currentQty === 1
+                                ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
+                                : "border-slate-700 bg-slate-950 text-slate-200"
+                            } disabled:opacity-50`}
+                          >
+                            {currentQty === 1 ? "✓ Devolver" : "Devolver"}
+                          </button>
+                        ) : (
+                          <div className="h-11 justify-self-center grid grid-cols-[46px_1fr_46px] items-center rounded-xl border border-slate-700 bg-slate-950 text-slate-100">
                             <button
                               type="button"
                               onClick={() =>
                                 handleQuantityChange(
                                   item.id,
-                                  currentQty === 1 ? "0" : "1"
+                                  prevQty.toString()
                                 )
                               }
-                              disabled={available === 0}
-                              className={`h-12 justify-self-end rounded-xl border px-6 text-base font-semibold ${
-                                currentQty === 1
-                                  ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
-                                  : "border-slate-700 bg-slate-950 text-slate-200"
-                              } disabled:opacity-50`}
+                              className="h-full text-2xl font-semibold hover:bg-slate-800"
                             >
-                              {currentQty === 1 ? "✓ Devolver" : "Devolver"}
+                              −
                             </button>
-                          ) : (
-                            <div className="h-12 justify-self-end grid grid-cols-[52px_1fr_52px] items-center rounded-xl border border-slate-700 bg-slate-950 text-slate-100">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleQuantityChange(
-                                    item.id,
-                                    prevQty.toString()
-                                  )
-                                }
-                                className="h-full text-2xl font-semibold hover:bg-slate-800"
-                              >
-                                −
-                              </button>
-                              <div className="text-center text-xl font-semibold">
-                                {currentQty}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleQuantityChange(
-                                    item.id,
-                                    nextQty.toString()
-                                  )
-                                }
-                                className="h-full text-2xl font-semibold hover:bg-slate-800"
-                              >
-                                +
-                              </button>
+                            <div className="text-center text-lg font-semibold">
+                              {currentQty}
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleQuantityChange(
+                                  item.id,
+                                  nextQty.toString()
+                                )
+                              }
+                              className="h-full text-2xl font-semibold hover:bg-slate-800"
+                            >
+                              +
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-slate-800/70 pt-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-slate-400">
+                    Paso 3
+                  </p>
+                  <h3 className="text-lg font-semibold text-slate-100">
+                    Resumen y reembolso
+                  </h3>
+                </div>
+                <div className="text-sm text-slate-400">
+                  Total a devolver:{" "}
+                  <span className="text-emerald-300 font-semibold">
+                    {formatMoney(
+                      Math.round(
+                        sale?.is_separated ? cappedRefund : refundEstimate
+                      )
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 p-3">
+                  <div className="text-slate-400 text-xs">Subtotal seleccionado</div>
+                  <div className="text-lg font-semibold text-slate-50">
+                    {formatMoney(Math.round(selectedNet))}
                   </div>
                 </div>
-              </section>
-            )}
-          </div>
+                <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 p-3">
+                  <div className="text-slate-400 text-xs">
+                    Prorrateo descuento carrito
+                  </div>
+                  <div className="text-lg font-semibold text-slate-50">
+                    {estimatedCartShare > 0
+                      ? `-${formatMoney(Math.round(estimatedCartShare))}`
+                      : "0"}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 p-3">
+                  <div className="text-slate-400 text-xs">Total a devolver</div>
+                  <div className="text-lg font-semibold text-red-400">
+                    {formatMoney(
+                      Math.round(
+                        sale?.is_separated ? cappedRefund : refundEstimate
+                      )
+                    )}
+                  </div>
+                </div>
+              </div>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-widest text-slate-400">
-                  Paso 3
-                </p>
-                <h3 className="text-base font-semibold text-slate-100">
-                  Resumen y reembolso
-                </h3>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-              <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 p-3">
-                <div className="text-slate-400 text-xs">Subtotal seleccionado</div>
-                <div className="text-lg font-semibold text-slate-50">
-                  {formatMoney(Math.round(selectedNet))}
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 p-3">
-                <div className="text-slate-400 text-xs">
-                  Prorrateo descuento carrito
-                </div>
-                <div className="text-lg font-semibold text-slate-50">
-                  {estimatedCartShare > 0
-                    ? `-${formatMoney(Math.round(estimatedCartShare))}`
-                    : "0"}
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800/70 bg-slate-950/30 p-3">
-                <div className="text-slate-400 text-xs">Total a devolver</div>
-                <div className="text-lg font-semibold text-emerald-400">
-                  {formatMoney(
-                    Math.round(sale?.is_separated ? cappedRefund : refundEstimate)
+              {sale?.is_separated && (
+                <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-5 py-4 text-base text-amber-200">
+                  Reembolso disponible por abonos:{" "}
+                  <span className="font-semibold">
+                    {formatMoney(Math.round(paidRemaining))}
+                  </span>
+                  {refundEstimate > paidRemaining && paidRemaining > 0 && (
+                    <>. El reembolso se ajustará a lo pagado y el saldo pendiente se anulará.</>
                   )}
+                  {paidRemaining <= 0 && <>. Esta venta no tiene abonos para reembolsar.</>}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                <div className="space-y-2">
+                  <label className="text-slate-400 block text-sm">
+                    Motivo / notas (opcional)
+                  </label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={1}
+                    className="h-14 w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-base text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Ej: Producto defectuoso"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-slate-400 block text-sm">
+                    Método de reembolso
+                  </label>
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="h-14 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 text-base text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    {activePaymentMethods.length === 0 && (
+                      <option value="cash">Efectivo</option>
+                    )}
+                    {activePaymentMethods.map((method) => (
+                      <option key={method.id} value={method.slug}>
+                        {method.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-slate-400 block text-sm">Monto</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={paymentAmount ? formatMoney(Number(paymentAmount)) : ""}
+                    min={0}
+                    onChange={(e) => {
+                      setPaymentTouched(true);
+                      const numeric = e.target.value.replace(/[^\d]/g, "");
+                      setPaymentAmount(numeric);
+                    }}
+                    className="h-14 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 text-right text-base text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
                 </div>
               </div>
-            </div>
 
-            {sale?.is_separated && (
-              <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                Reembolso disponible por abonos:{" "}
-                <span className="font-semibold">
-                  {formatMoney(Math.round(paidRemaining))}
-                </span>
-                {refundEstimate > paidRemaining && paidRemaining > 0 && (
-                  <>. El reembolso se ajustará a lo pagado y el saldo pendiente se anulará.</>
-                )}
-                {paidRemaining <= 0 && <>. Esta venta no tiene abonos para reembolsar.</>}
-              </div>
-            )}
+              {submitError && (
+                <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/40 rounded px-3 py-2">
+                  {submitError}
+                </div>
+              )}
 
-            <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr_1fr] gap-3 text-sm">
-              <div className="space-y-2">
-                <label className="text-slate-400 block text-xs">
-                  Motivo / notas (opcional)
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={2}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="Ej: Producto defectuoso"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-slate-400 block text-xs">
-                  Método de reembolso
-                </label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="h-12 px-5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-sm font-semibold"
                 >
-                  {activePaymentMethods.length === 0 && (
-                    <option value="cash">Efectivo</option>
-                  )}
-                  {activePaymentMethods.map((method) => (
-                    <option key={method.id} value={method.slug}>
-                      {method.name}
-                    </option>
-                  ))}
-                </select>
+                  Limpiar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={!canSubmit}
+                  className="h-12 px-6 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting ? "Registrando..." : "Registrar devolución"}
+                </button>
               </div>
-              <div className="space-y-2">
-                <label className="text-slate-400 block text-xs">Monto</label>
-                <input
-                  type="number"
-                  value={paymentAmount}
-                  min={0}
-                  onChange={(e) => {
-                    setPaymentTouched(true);
-                    setPaymentAmount(e.target.value);
-                  }}
-                  className="h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-right text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
-
-            {submitError && (
-              <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/40 rounded px-3 py-2">
-                {submitError}
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={clearSelection}
-                className="h-12 px-5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-sm font-semibold"
-              >
-                Limpiar
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={!canSubmit}
-                className="h-12 px-6 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {submitting ? "Registrando..." : "Registrar devolución"}
-              </button>
             </div>
           </section>
         </div>
@@ -1433,6 +1557,19 @@ export default function DevolucionesPage() {
                   -{formatMoney(Math.round(returnSuccess.total_refund))}
                 </span>
               </div>
+              {refundSummary.amount > 0 && (
+                <div className="sm:col-span-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                  Debes devolver{" "}
+                  <span className="font-semibold">
+                    {formatMoney(Math.round(refundSummary.amount))}
+                  </span>{" "}
+                  por{" "}
+                  <span className="font-semibold">
+                    {resolvePaymentLabel(refundSummary.method)}
+                  </span>{" "}
+                  al cliente.
+                </div>
+              )}
             </div>
             <div className="mt-6 flex flex-col gap-3">
               <button

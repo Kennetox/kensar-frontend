@@ -27,6 +27,27 @@ export type ReturnTicketPayment = {
   amount: number;
 };
 
+export type ChangeTicketReturnItem = {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  sku?: string | null;
+};
+
+export type ChangeTicketNewItem = {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  sku?: string | null;
+};
+
+export type ChangeTicketPayment = {
+  label: string;
+  amount: number;
+};
+
 export type SaleTicketCustomer = {
   name: string;
   phone?: string;
@@ -117,6 +138,23 @@ export type ReturnTicketOptions = {
   notes?: string | null;
 };
 
+export type ChangeTicketOptions = {
+  settings?: PosSettingsPayload | null;
+  documentNumber: string;
+  originalDocumentNumber?: string | null;
+  createdAt?: string | null;
+  posName?: string | null;
+  sellerName?: string | null;
+  itemsReturned: ChangeTicketReturnItem[];
+  itemsNew: ChangeTicketNewItem[];
+  payments: ChangeTicketPayment[];
+  totalCredit: number;
+  totalNew: number;
+  extraPayment: number;
+  refundDue: number;
+  notes?: string | null;
+};
+
 export type ClosureTicketMethod = {
   label: string;
   amount?: number;
@@ -146,6 +184,9 @@ export type ClosureTicketOptions = {
     expectedCash: number;
     countedCash: number;
     difference: number;
+    changeExtra?: number;
+    changeRefund?: number;
+    changeCount?: number;
   };
   methods: ClosureTicketMethod[];
   userBreakdown?: ClosureTicketUserBreakdown[];
@@ -391,6 +432,151 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
           ${paymentRows
             ? `<div class="section">
                 <div class="row"><span>Reembolso</span></div>
+                ${paymentRows}
+              </div>`
+            : ""}
+          ${options.notes ? `<div class="section muted">Notas: ${escapeHtml(options.notes)}</div>` : ""}
+          <div class="line"></div>
+          <div class="muted" style="text-align:center;">${escapeHtml(footer)}</div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+export function renderChangeTicket(options: ChangeTicketOptions): string {
+  const settings = options.settings;
+  const companyName =
+    settings?.company_name?.trim() || FALLBACK_COMPANY.name;
+  const taxId = settings?.tax_id?.trim() || FALLBACK_COMPANY.taxId;
+  const address = settings?.address?.trim() || FALLBACK_COMPANY.address;
+  const phone = settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
+  const email = settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
+  const footer = settings?.ticket_footer?.trim() || FALLBACK_COMPANY.footer;
+  const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
+
+  const returnedRows = options.itemsReturned.length
+    ? options.itemsReturned
+        .map(
+          (item) => `
+          <div class="item-row">
+            <div class="item-name">${escapeHtml(item.name)}</div>
+            <div class="item-meta">${item.quantity} × ${formatMoney(item.unitPrice)}</div>
+            <div class="item-total">${formatMoneySigned(-Math.abs(item.total))}</div>
+          </div>`
+        )
+        .join("")
+    : '<div class="muted">Sin productos devueltos.</div>';
+
+  const newRows = options.itemsNew.length
+    ? options.itemsNew
+        .map(
+          (item) => `
+          <div class="item-row">
+            <div class="item-name">${escapeHtml(item.name)}</div>
+            <div class="item-meta">${item.quantity} × ${formatMoney(item.unitPrice)}</div>
+            <div class="item-total">${formatMoney(item.total)}</div>
+          </div>`
+        )
+        .join("")
+    : '<div class="muted">Sin productos nuevos.</div>';
+
+  const paymentRows = options.payments
+    .filter((payment) => Math.abs(payment.amount) > 0)
+    .map(
+      (payment) => `
+      <div class="row">
+        <span>${escapeHtml(payment.label)}</span>
+        <span>${formatMoney(payment.amount)}</span>
+      </div>`
+    )
+    .join("");
+
+  const originalDoc = options.originalDocumentNumber
+    ? `<div>Venta original: ${escapeHtml(options.originalDocumentNumber)}</div>`
+    : "";
+  const sellerLine = options.sellerName
+    ? `<div>Vendedor: ${escapeHtml(options.sellerName)}</div>`
+    : "";
+  const posLine = options.posName
+    ? `<div>POS: ${escapeHtml(options.posName)}</div>`
+    : "";
+
+  return `
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Cambio ${escapeHtml(options.documentNumber)}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 0; background: #fff; color: #000000; }
+          .ticket { max-width: 340px; margin: 0 auto; padding: 18px; }
+          .header { text-align: center; }
+          .logo { max-height: 60px; margin-bottom: 8px; }
+          .title { font-size: 20px; font-weight: 800; letter-spacing: 0.04em; color: #000000; }
+          .badge { display: inline-block; margin-top: 6px; padding: 5px 12px; border-radius: 999px; border: 2px solid #000000; color: #000000; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; }
+          .meta { font-size: 14px; text-align: left; margin-top: 12px; color: #000000; }
+          .meta div { margin-bottom: 4px; }
+          .section { margin-top: 12px; }
+          .line { border-top: 2px solid #000000; margin: 12px 0; }
+          .row { display: flex; justify-content: space-between; font-size: 14px; margin: 4px 0; color: #000000; }
+          .items { margin-top: 6px; }
+          .item-row { border-bottom: 2px solid #000000; padding: 8px 0; }
+          .item-name { font-size: 14px; font-weight: 700; color: #000000; }
+          .item-meta { font-size: 13px; color: #000000; }
+          .item-total { font-size: 14px; text-align: right; color: #000000; font-weight: 700; }
+          .total { font-size: 16px; font-weight: 800; color: #000000; }
+          .muted { font-size: 13px; color: #000000; }
+        </style>
+      </head>
+      <body>
+        <div class="ticket">
+          <div class="header">
+            ${logoUrl ? `<img class="logo" src="${logoUrl}" alt="${escapeHtml(companyName)}" />` : ""}
+            <div class="title">${escapeHtml(companyName)}</div>
+            <div class="muted">${escapeHtml(address)}</div>
+            <div class="muted">${escapeHtml(taxId)}</div>
+            <div class="muted">${escapeHtml(phone)} · ${escapeHtml(email)}</div>
+            <div class="badge">CAMBIO</div>
+          </div>
+          <div class="meta">
+            <div>Documento: ${escapeHtml(options.documentNumber)}</div>
+            ${originalDoc}
+            ${posLine}
+            ${sellerLine}
+            <div>Fecha: ${escapeHtml(formatDisplayDate(options.createdAt))}</div>
+          </div>
+          <div class="line"></div>
+          <div class="section">
+            <div class="row">
+              <span>Total crédito</span>
+              <span>${formatMoneySigned(-Math.abs(options.totalCredit))}</span>
+            </div>
+            <div class="row">
+              <span>Total nuevo</span>
+              <span>${formatMoney(options.totalNew)}</span>
+            </div>
+            <div class="row total">
+              <span>Diferencia</span>
+              <span>${formatMoneySigned(options.extraPayment - options.refundDue)}</span>
+            </div>
+            ${options.extraPayment > 0
+              ? `<div class="row"><span>Excedente cobrado</span><span>${formatMoney(options.extraPayment)}</span></div>`
+              : ""}
+            ${options.refundDue > 0
+              ? `<div class="row"><span>Saldo devuelto</span><span>${formatMoney(options.refundDue)}</span></div>`
+              : ""}
+          </div>
+          <div class="section">
+            <div class="row"><span>Productos devueltos</span></div>
+            <div class="items">${returnedRows}</div>
+          </div>
+          <div class="section">
+            <div class="row"><span>Productos nuevos</span></div>
+            <div class="items">${newRows}</div>
+          </div>
+          ${paymentRows
+            ? `<div class="section">
+                <div class="row"><span>Pagos del excedente</span></div>
                 ${paymentRows}
               </div>`
             : ""}
@@ -1274,6 +1460,10 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
             .join("")}</div>
         </div>`
       : "";
+  const changeExtra = options.totals.changeExtra ?? 0;
+  const changeRefund = options.totals.changeRefund ?? 0;
+  const changeCount = options.totals.changeCount ?? 0;
+  const hasChanges = changeExtra > 0 || changeRefund > 0 || changeCount > 0;
 
   return `<!DOCTYPE html>
   <html>
@@ -1345,6 +1535,13 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
       <div class="block">
         <div class="row"><span>Total registrado</span><span>${formatMoney(options.totals.registered)}</span></div>
         <div class="row"><span>Devoluciones / reembolsos</span><span>- ${formatMoney(options.totals.refunds)}</span></div>
+        ${
+          hasChanges
+            ? `<div class="row"><span>Cambios (excedente)</span><span>${formatMoney(changeExtra)}</span></div>
+               <div class="row"><span>Cambios (reembolsos)</span><span>- ${formatMoney(changeRefund)}</span></div>
+               ${changeCount > 0 ? `<div class="row"><span>Total cambios</span><span>${changeCount}</span></div>` : ""}`
+            : ""
+        }
         <div class="row emphasize"><span>Neto del día</span><span>${formatMoney(options.totals.net)}</span></div>
         <div class="row"><span>Efectivo esperado</span><span>${formatMoney(options.totals.expectedCash)}</span></div>
         <div class="row"><span>Efectivo contado</span><span>${formatMoney(options.totals.countedCash)}</span></div>

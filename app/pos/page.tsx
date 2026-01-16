@@ -75,6 +75,9 @@ type ClosureFormState = {
   totalDaviplata: number;
   totalCredit: number;
   totalRefunds: number;
+  changeExtraTotal: number;
+  changeRefundTotal: number;
+  changeCount: number;
   countedCash: number;
   notes: string;
 };
@@ -99,6 +102,9 @@ type PosClosureResult = {
   total_credit: number;
   total_refunds: number;
   net_amount: number;
+  change_extra_total?: number | null;
+  change_refund_total?: number | null;
+  change_count?: number | null;
   counted_cash: number;
   difference: number;
   notes?: string | null;
@@ -123,6 +129,9 @@ const initialClosureForm: ClosureFormState = {
   totalDaviplata: 0,
   totalCredit: 0,
   totalRefunds: 0,
+  changeExtraTotal: 0,
+  changeRefundTotal: 0,
+  changeCount: 0,
   countedCash: 0,
   notes: "",
 };
@@ -161,6 +170,23 @@ type ClosureReturnRecord = {
   vendor_name?: string | null;
 };
 
+type ClosureChangePayment = {
+  method: string;
+  amount: number;
+};
+
+type ClosureChangeRecord = {
+  id: number;
+  created_at?: string;
+  closure_id?: number | null;
+  sale_id?: number;
+  pos_name?: string | null;
+  station_id?: string | null;
+  extra_payment?: number | null;
+  refund_due?: number | null;
+  payments?: ClosureChangePayment[];
+};
+
 type TotalsByMethod = {
   cash: number;
   card: number;
@@ -193,6 +219,9 @@ type ClosureAdjustedTotals = {
   total_credit: number;
   total_refunds: number;
   net_amount: number;
+  change_extra_total?: number;
+  change_refund_total?: number;
+  change_count?: number;
   counted_cash: number;
   difference: number;
 };
@@ -1710,7 +1739,7 @@ const matchesStationLabel = useCallback(
       setClosureTotalsLoading(true);
       setClosureError(null);
       const apiBase = getApiBase();
-      const [salesRes, returnsRes, separatedOrders] = await Promise.all([
+      const [salesRes, returnsRes, changesRes, separatedOrders] = await Promise.all([
         fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -1718,6 +1747,12 @@ const matchesStationLabel = useCallback(
           credentials: "include",
         }),
         fetch(`${apiBase}/pos/returns?skip=0&limit=500`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+        }),
+        fetch(`${apiBase}/pos/changes?skip=0&limit=500`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -1731,8 +1766,12 @@ const matchesStationLabel = useCallback(
       if (!returnsRes.ok) {
         throw new Error(`Error ${returnsRes.status} al obtener las devoluciones.`);
       }
+      if (!changesRes.ok) {
+        throw new Error(`Error ${changesRes.status} al obtener los cambios.`);
+      }
       const sales = (await salesRes.json()) as ClosureSale[];
       const returns = (await returnsRes.json()) as ClosureReturnRecord[];
+      const changes = (await changesRes.json()) as ClosureChangeRecord[];
       const allSalesMap = new Map<number, ClosureSale>();
       sales.forEach((sale) => allSalesMap.set(sale.id, sale));
       const pendingSales = sales.filter((sale) => sale.closure_id == null);
@@ -1772,10 +1811,40 @@ const matchesStationLabel = useCallback(
               return isPosWebName(posName);
             })
           : pendingReturns;
+      const pendingChanges = changes.filter(
+        (change) => change.closure_id == null
+      );
+      const filteredPendingChanges = shouldFilterByStation
+        ? pendingChanges.filter((change) => {
+            const relatedSale = change.sale_id
+              ? allSalesMap.get(change.sale_id)
+              : undefined;
+            const stationId =
+              change.station_id ?? relatedSale?.station_id;
+            const posName =
+              change.pos_name ?? relatedSale?.pos_name ?? null;
+            return (
+              stationId === activeStationId ||
+              (!stationId && matchesStationLabel(posName))
+            );
+          })
+        : isWebMode
+          ? pendingChanges.filter((change) => {
+              const relatedSale = change.sale_id
+                ? allSalesMap.get(change.sale_id)
+                : undefined;
+              const posName =
+                change.pos_name ?? relatedSale?.pos_name ?? null;
+              return isPosWebName(posName);
+            })
+          : pendingChanges;
       let totalGrossCollected = 0;
       let fallbackRefundsTotal = 0;
       let refundsFromReturnsTotal = 0;
       let hasReturnRefunds = false;
+      let changeExtraTotal = 0;
+      let changeRefundTotal = 0;
+      let changeCount = 0;
       const methodGrossMap: TotalsByMethod = {
         cash: 0,
         card: 0,
@@ -2151,6 +2220,53 @@ const matchesStationLabel = useCallback(
         refundsFromReturnsTotal += refundAmount;
       });
 
+      filteredPendingChanges.forEach((change) => {
+        const extra = Math.max(change.extra_payment ?? 0, 0);
+        const refund = Math.max(change.refund_due ?? 0, 0);
+        const changeDate = change.created_at
+          ? getLocalDateKey(change.created_at)
+          : null;
+        if (changeDate) {
+          if (!rangeStartKey || changeDate < rangeStartKey) {
+            rangeStartKey = changeDate;
+          }
+          if (!rangeEndKey || changeDate > rangeEndKey) {
+            rangeEndKey = changeDate;
+          }
+        }
+        if (extra > 0 || refund > 0) {
+          changeCount += 1;
+        }
+        changeExtraTotal += extra;
+        changeRefundTotal += refund;
+
+        if (extra > 0) {
+          const payments =
+            change.payments && change.payments.length > 0
+              ? change.payments
+              : [{ method: "cash", amount: extra }];
+          payments.forEach((payment) => {
+            addMethodAmount(
+              methodGrossMap,
+              extraMethodGrossMap,
+              payment.method,
+              payment.amount
+            );
+          });
+        }
+        if (refund > 0) {
+          addMethodAmount(
+            methodRefundMap,
+            extraMethodRefundMap,
+            "cash",
+            refund
+          );
+        }
+      });
+      if (changeRefundTotal > 0) {
+        hasReturnRefunds = true;
+      }
+
       const resolvedRefundsTotal = hasReturnRefunds
         ? refundsFromReturnsTotal
         : fallbackRefundsTotal;
@@ -2192,6 +2308,9 @@ const matchesStationLabel = useCallback(
         totalNequi: Number(methodNetMap.nequi.toFixed(2)),
         totalDaviplata: Number(methodNetMap.daviplata.toFixed(2)),
         totalCredit: Number(methodNetMap.credit.toFixed(2)),
+        changeExtraTotal: Number(changeExtraTotal.toFixed(2)),
+        changeRefundTotal: Number(changeRefundTotal.toFixed(2)),
+        changeCount,
       };
 
       const extraMethodDetailsMap = new Map<
@@ -2470,8 +2589,17 @@ const matchesStationLabel = useCallback(
   };
 
   const closureNetAmount = useMemo(
-    () => closureForm.totalAmount - closureForm.totalRefunds,
-    [closureForm.totalAmount, closureForm.totalRefunds]
+    () =>
+      closureForm.totalAmount -
+      closureForm.totalRefunds +
+      closureForm.changeExtraTotal -
+      closureForm.changeRefundTotal,
+    [
+      closureForm.totalAmount,
+      closureForm.totalRefunds,
+      closureForm.changeExtraTotal,
+      closureForm.changeRefundTotal,
+    ]
   );
 
   const closureDifference = useMemo(
@@ -2504,6 +2632,9 @@ const matchesStationLabel = useCallback(
       total_credit: closureForm.totalCredit,
       total_refunds: closureForm.totalRefunds,
       net_amount: closureNetAmount,
+      change_extra_total: closureForm.changeExtraTotal,
+      change_refund_total: closureForm.changeRefundTotal,
+      change_count: closureForm.changeCount,
       counted_cash: closureForm.countedCash,
       difference: closureDifference,
       notes: closureForm.notes || undefined,
@@ -2520,6 +2651,9 @@ const matchesStationLabel = useCallback(
         total_credit: closureForm.totalCredit,
         total_refunds: closureForm.totalRefunds,
         net_amount: closureNetAmount,
+        change_extra_total: closureForm.changeExtraTotal,
+        change_refund_total: closureForm.changeRefundTotal,
+        change_count: closureForm.changeCount,
         counted_cash: closureForm.countedCash,
         difference: closureDifference,
       },
@@ -2598,9 +2732,38 @@ const matchesStationLabel = useCallback(
       [
         { label: "Ventas brutas del período", value: closureSummary.total_amount },
         { label: "Reembolsos del período", value: -closureSummary.total_refunds },
+        ...(closureSummary.change_extra_total ||
+        closureSummary.change_refund_total ||
+        closureSummary.change_count
+          ? [
+              {
+                label: "Cambios (excedente)",
+                value: closureSummary.change_extra_total ?? 0,
+              },
+              {
+                label: "Cambios (reembolsos)",
+                value: -(closureSummary.change_refund_total ?? 0),
+              },
+              ...(closureSummary.change_count
+                ? [
+                    {
+                      label: "Cambios registrados",
+                      value: closureSummary.change_count ?? 0,
+                    },
+                  ]
+                : []),
+            ]
+          : []),
         { label: "Neto del período", value: closureNetAmount },
       ],
-    [closureSummary.total_amount, closureSummary.total_refunds, closureNetAmount]
+    [
+      closureSummary.total_amount,
+      closureSummary.total_refunds,
+      closureSummary.change_extra_total,
+      closureSummary.change_refund_total,
+      closureSummary.change_count,
+      closureNetAmount,
+    ]
   );
 
   const closureRangeDescription = useMemo(() => {
@@ -2626,7 +2789,9 @@ const matchesStationLabel = useCallback(
       closureSummary.total_qr > 0 ||
       closureSummary.total_nequi > 0 ||
       closureSummary.total_daviplata > 0 ||
-      closureSummary.total_credit > 0;
+      closureSummary.total_credit > 0 ||
+      (closureSummary.change_extra_total ?? 0) > 0 ||
+      (closureSummary.change_refund_total ?? 0) > 0;
     if (!hasPendingReportedTotals) {
       setClosureError("No hay ventas pendientes por cerrar.");
       return;
@@ -2653,6 +2818,9 @@ const matchesStationLabel = useCallback(
         total_credit: closureForm.totalCredit,
         total_refunds: closureForm.totalRefunds,
         net_amount: closureNetAmount,
+        change_extra_total: closureForm.changeExtraTotal,
+        change_refund_total: closureForm.changeRefundTotal,
+        change_count: closureForm.changeCount,
         counted_cash: closureForm.countedCash,
         difference: closureDifference,
         notes: closureForm.notes.trim() || undefined,
@@ -2706,6 +2874,9 @@ const matchesStationLabel = useCallback(
         total_credit: closureForm.totalCredit,
         total_refunds: closureForm.totalRefunds,
         net_amount: closureNetAmount,
+        change_extra_total: closureForm.changeExtraTotal,
+        change_refund_total: closureForm.changeRefundTotal,
+        change_count: closureForm.changeCount,
         counted_cash: closureForm.countedCash,
         difference: closureDifference,
       };
@@ -2862,6 +3033,9 @@ const matchesStationLabel = useCallback(
           expectedCash: totalsSource.total_cash,
           countedCash: totalsSource.counted_cash,
           difference: totalsSource.difference,
+          changeExtra: totalsSource.change_extra_total ?? 0,
+          changeRefund: totalsSource.change_refund_total ?? 0,
+          changeCount: totalsSource.change_count ?? 0,
         },
         methods: methodRows,
         userBreakdown,
@@ -3882,21 +4056,6 @@ const matchesStationLabel = useCallback(
             Eliminar
           </button>
           <button
-            className="px-5 py-3.5 text-base bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold rounded"
-            onClick={handleNewOrder}
-          >
-            Nueva venta
-          </button>
-          <button
-            className="px-5 py-3.5 text-base bg-slate-700/90 hover:bg-slate-600 rounded flex items-center gap-1 border border-slate-600 text-slate-100 transition"
-            onClick={() => router.push("/pos/historial")}
-          >
-            <span role="img" aria-label="historial">
-              📜
-            </span>
-            Historial
-          </button>
-          <button
             className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
             onClick={() => {
               if (shouldBlockSales) {
@@ -3925,6 +4084,12 @@ const matchesStationLabel = useCallback(
             onClick={() => router.push("/pos/clientes")}
           >
             Asignar cliente
+          </button>
+          <button
+            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition"
+            onClick={() => router.push("/pos/cambios")}
+          >
+            Cambio
           </button>
         </div>
 
@@ -3980,6 +4145,17 @@ const matchesStationLabel = useCallback(
                 <div className="px-5 py-3 text-[12px] uppercase tracking-wide text-slate-500 border-b border-slate-800">
                   Acciones de caja
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    router.push("/pos/historial");
+                  }}
+                  className="w-full text-left px-5 py-5 text-[17px] text-slate-100 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  Historial
+                  <span className="text-[12px] text-slate-400">Ventas registradas</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {

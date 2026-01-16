@@ -25,6 +25,7 @@ import {
 } from "@/lib/api/posStations";
 import {
   renderReturnTicket,
+  renderChangeTicket,
   renderSaleTicket,
   buildSaleTicketCustomer,
 } from "@/lib/printing/saleTicket";
@@ -71,6 +72,16 @@ type SaleReturnSummary = {
   total?: number;
 };
 
+type SaleChangeSummary = {
+  id: number;
+  document_number?: string;
+  created_at?: string;
+  extra_payment?: number;
+  refund_due?: number;
+  total_new?: number;
+  total_credit?: number;
+};
+
 type ReturnItemDetail = {
   product_name: string;
   product_sku?: string | null;
@@ -93,6 +104,42 @@ type SaleReturnDetail = {
   created_by?: string | null;
   items: ReturnItemDetail[];
   payments: ReturnPaymentDetail[];
+};
+
+type ChangeReturnItemDetail = {
+  product_name: string;
+  product_sku?: string | null;
+  quantity: number;
+  unit_price_net: number;
+  total_credit: number;
+};
+
+type ChangeNewItemDetail = {
+  product_name: string;
+  product_sku?: string | null;
+  quantity: number;
+  unit_price: number;
+  total: number;
+};
+
+type ChangePaymentDetail = {
+  method: string;
+  amount: number;
+};
+
+type SaleChangeDetail = {
+  id: number;
+  document_number?: string;
+  created_at?: string;
+  total_credit: number;
+  total_new: number;
+  extra_payment: number;
+  refund_due: number;
+  notes?: string | null;
+  created_by?: string | null;
+  items_returned: ChangeReturnItemDetail[];
+  items_new: ChangeNewItemDetail[];
+  payments: ChangePaymentDetail[];
 };
 
 type Sale = {
@@ -121,6 +168,7 @@ type Sale = {
   refunded_total?: number | null;
   refunded_balance?: number | null;
   returns?: SaleReturnSummary[];
+  changes?: SaleChangeSummary[];
   refunded_payments?: RefundPayment[];
   is_separated?: boolean;
   initial_payment_method?: string | null;
@@ -361,15 +409,29 @@ function computeSaleSummary(sale: Sale | null) {
       ? sale.total
       : Math.max(0, afterLineDiscount - cartDiscountValue);
 
-  const refundAmount = Math.max(0, sale.refunded_total ?? 0);
+  const refundedPaymentsTotal = sale.refunded_payments?.reduce(
+    (sum, payment) => sum + (payment.amount ?? 0),
+    0
+  );
+  const refundAmount = Math.max(
+    0,
+    refundedPaymentsTotal ?? sale.refunded_total ?? 0
+  );
 
   const total =
     sale.refunded_balance != null
       ? Math.max(0, sale.refunded_balance)
       : Math.max(0, originalTotal - refundAmount);
 
-  const originalPaid =
+  let originalPaid =
     sale.paid_amount != null ? sale.paid_amount : originalTotal;
+  if (sale.is_separated) {
+    if (sale.total != null && sale.balance != null) {
+      originalPaid = Math.max(0, sale.total - sale.balance);
+    } else if (sale.initial_payment_amount != null) {
+      originalPaid = sale.initial_payment_amount;
+    }
+  }
   const paid = Math.max(0, originalPaid - refundAmount);
   const surchargeAmount = Math.max(0, sale.surcharge_amount ?? 0);
 
@@ -393,6 +455,7 @@ type SalesHistoryContentProps = {
   backLabel?: string;
   returnPath?: string;
   returnBackPath?: string;
+  autoReturnOnSelect?: boolean;
 };
 
 export default function SalesHistoryContent({
@@ -400,6 +463,7 @@ export default function SalesHistoryContent({
   backLabel,
   returnPath,
   returnBackPath,
+  autoReturnOnSelect = false,
 }: SalesHistoryContentProps) {
   const router = useRouter();
   const apiBase = useMemo(() => getApiBase(), []);
@@ -433,6 +497,8 @@ export default function SalesHistoryContent({
   const [showSaleDetails, setShowSaleDetails] = useState(false);
   const [returnPrintError, setReturnPrintError] = useState<string | null>(null);
   const [returnPrintLoading, setReturnPrintLoading] = useState(false);
+  const [changePrintError, setChangePrintError] = useState<string | null>(null);
+  const [changePrintLoading, setChangePrintLoading] = useState(false);
   const { token } = useAuth();
   const [posSettings, setPosSettings] =
     useState<PosSettingsPayload | null>(null);
@@ -791,15 +857,23 @@ export default function SalesHistoryContent({
     void loadSales();
   };
 
+  const handleReturnForSale = useCallback(
+    (sale: Sale) => {
+      if (!returnPath) return;
+      const params = new URLSearchParams();
+      params.set("saleId", sale.id.toString());
+      if (returnBackPath) {
+        params.set("back", returnBackPath);
+      }
+      const target = `${returnPath}?${params.toString()}`;
+      router.push(target);
+    },
+    [returnPath, returnBackPath, router]
+  );
+
   const handleReturn = () => {
     if (!returnPath || !selectedSale) return;
-    const params = new URLSearchParams();
-    params.set("saleId", selectedSale.id.toString());
-    if (returnBackPath) {
-      params.set("back", returnBackPath);
-    }
-    const target = `${returnPath}?${params.toString()}`;
-    router.push(target);
+    handleReturnForSale(selectedSale);
   };
 
   const filteredSales = useMemo(() => {
@@ -1086,6 +1160,8 @@ export default function SalesHistoryContent({
   const canPrintTicket = !!selectedSale;
   const canPrintReturn =
     !!selectedSale?.returns && selectedSale.returns.length > 0;
+  const canPrintChange =
+    !!selectedSale?.changes && selectedSale.changes.length > 0;
   const trimmedRecipient = emailRecipient.trim();
   const canEmailTicket =
     !!selectedSale &&
@@ -1333,6 +1409,22 @@ export default function SalesHistoryContent({
     });
   };
 
+  const getLatestChange = (changes?: SaleChangeSummary[]) => {
+    if (!changes || changes.length === 0) return null;
+    return changes.reduce((latest, current) => {
+      const latestTime = latest.created_at
+        ? new Date(latest.created_at).getTime()
+        : 0;
+      const currentTime = current.created_at
+        ? new Date(current.created_at).getTime()
+        : 0;
+      if (currentTime === latestTime) {
+        return current.id > latest.id ? current : latest;
+      }
+      return currentTime > latestTime ? current : latest;
+    });
+  };
+
   const handlePrintReturnTicket = useCallback(async () => {
     if (!selectedSale?.returns?.length) return;
     const latestReturn = getLatestReturn(selectedSale.returns);
@@ -1440,6 +1532,138 @@ export default function SalesHistoryContent({
       );
     } finally {
       setReturnPrintLoading(false);
+    }
+  }, [
+    apiBase,
+    mapPaymentMethod,
+    posSettings,
+    printerConfig.mode,
+    printerConfig.printerName,
+    printerConfig.width,
+    qzClient,
+    selectedSale,
+    shouldUseQz,
+    token,
+  ]);
+
+  const handlePrintChangeTicket = useCallback(async () => {
+    if (!selectedSale?.changes?.length) return;
+    const latestChange = getLatestChange(selectedSale.changes);
+    if (!latestChange) return;
+    if (!token) {
+      setChangePrintError("Tu sesión expiró. Vuelve a iniciar sesión.");
+      return;
+    }
+    setChangePrintLoading(true);
+    setChangePrintError(null);
+    try {
+      const res = await fetch(`${apiBase}/pos/changes/${latestChange.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error(
+          `No se pudo cargar el cambio (Error ${res.status}).`
+        );
+      }
+      const detail = (await res.json()) as SaleChangeDetail;
+      const returnedItems = (detail.items_returned ?? []).map((item) => ({
+        name: item.product_name,
+        quantity: item.quantity,
+        unitPrice: item.unit_price_net,
+        total: item.total_credit,
+        sku: item.product_sku ?? undefined,
+      }));
+      const newItems = (detail.items_new ?? []).map((item) => ({
+        name: item.product_name,
+        quantity: item.quantity,
+        unitPrice: item.unit_price,
+        total: item.total,
+        sku: item.product_sku ?? undefined,
+      }));
+      const payments = (detail.payments ?? []).map((payment) => ({
+        label: mapPaymentMethod(payment.method),
+        amount: payment.amount,
+      }));
+      const html = renderChangeTicket({
+        settings: posSettings,
+        documentNumber:
+          detail.document_number ??
+          `CB-${detail.id.toString().padStart(6, "0")}`,
+        originalDocumentNumber: selectedSale.document_number,
+        createdAt: detail.created_at,
+        posName: selectedSale.pos_name ?? undefined,
+        sellerName:
+          selectedSale.vendor_name ??
+          detail.created_by ??
+          undefined,
+        itemsReturned: returnedItems,
+        itemsNew: newItems,
+        payments,
+        totalCredit: detail.total_credit ?? 0,
+        totalNew: detail.total_new ?? 0,
+        extraPayment: detail.extra_payment ?? 0,
+        refundDue: detail.refund_due ?? 0,
+        notes: detail.notes,
+      });
+
+      const printTicketWithQz = async () => {
+        if (!shouldUseQz) return false;
+        if (printerConfig.mode !== "qz-tray") return false;
+        if (!printerConfig.printerName.trim()) return false;
+        if (!qzClient) return false;
+        try {
+          if (!qzClient.websocket.isActive()) {
+            await qzClient.websocket.connect();
+          }
+          const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+          const cfg = qzClient.configs.create(printerConfig.printerName, {
+            altPrinting: true,
+            units: "mm",
+            size: { width: sizeWidth },
+            margins: { top: 0, right: 0, bottom: 0, left: 0 },
+          });
+          await qzClient.print(cfg, [
+            { type: "html", format: "plain", data: html },
+          ]);
+          return true;
+        } catch (err) {
+          console.error("No se pudo imprimir cambio con QZ Tray", err);
+          return false;
+        }
+      };
+
+      const printedWithQz = await printTicketWithQz();
+      if (printedWithQz) return;
+
+      const win = window.open("", "_blank", "width=380,height=640");
+      if (!win) return;
+      win.document.write(html);
+      win.document.close();
+      const triggerPrint = () => {
+        try {
+          win.focus();
+          win.print();
+        } catch (err) {
+          console.error("No se pudo imprimir el cambio", err);
+        } finally {
+          win.close();
+        }
+      };
+      if (win.document.readyState === "complete") {
+        triggerPrint();
+      } else {
+        win.onload = triggerPrint;
+      }
+    } catch (err) {
+      console.error(err);
+      setChangePrintError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo imprimir el cambio."
+      );
+    } finally {
+      setChangePrintLoading(false);
     }
   }, [
     apiBase,
@@ -1875,6 +2099,8 @@ export default function SalesHistoryContent({
                     const saleSummary = computeSaleSummary(saleForSummary);
                     const refundAmount = saleSummary.refundAmount ?? 0;
                     const hasRefund = refundAmount > 0;
+                    const latestChange = getLatestChange(sale.changes);
+                    const hasChange = !!latestChange;
                     const rowIsSeparated = !!sale.is_separated;
                     const netTotal =
                       rowSeparatedTotal ?? saleSummary.total;
@@ -1915,7 +2141,12 @@ export default function SalesHistoryContent({
                         <div
                           key={`${sale.id}-${itemIndex}`}
                           className={`${baseGrid} ${zebra} ${selectedClasses} ${refundClasses} hover:bg-slate-800/80 transition-colors`}
-                          onClick={() => setSelectedSale(sale)}
+                          onClick={() => {
+                            setSelectedSale(sale);
+                            if (autoReturnOnSelect && returnPath) {
+                              handleReturnForSale(sale);
+                            }
+                          }}
                         >
                           <div className="font-mono text-slate-200">
                             {showMain
@@ -1936,6 +2167,11 @@ export default function SalesHistoryContent({
                             {showMain && hasRefund && (
                               <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${netTotal <= 0 ? "border-rose-500/50 text-rose-300 bg-rose-500/10" : "border-amber-400/50 text-amber-200 bg-amber-500/10"}`}>
                                 {netTotal <= 0 ? "Devuelta" : "Devolución parcial"}
+                              </span>
+                            )}
+                            {showMain && hasChange && (
+                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-400/50 text-sky-200 bg-sky-500/10">
+                                Cambio
                               </span>
                             )}
                           </div>
@@ -2060,6 +2296,14 @@ export default function SalesHistoryContent({
                 </button>
                 <button
                   type="button"
+                  onClick={handlePrintChangeTicket}
+                  disabled={!canPrintChange || changePrintLoading}
+                  className="px-3 py-2 rounded-md border border-slate-700 text-xs font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {changePrintLoading ? "Imprimiendo..." : "Imprimir cambio"}
+                </button>
+                <button
+                  type="button"
                   onClick={handleEmailTicket}
                   disabled={!canEmailTicket}
                   className="px-3 py-2 rounded-md border border-slate-700 text-xs font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2099,6 +2343,11 @@ export default function SalesHistoryContent({
               {returnPrintError && (
                 <p className="text-[11px] text-rose-300">
                   {returnPrintError}
+                </p>
+              )}
+              {changePrintError && (
+                <p className="text-[11px] text-rose-300">
+                  {changePrintError}
                 </p>
               )}
             </div>

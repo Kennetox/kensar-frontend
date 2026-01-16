@@ -18,6 +18,7 @@ import {
   renderSaleTicket,
   renderSaleInvoice,
   renderClosureTicket,
+  renderChangeTicket,
   buildSaleTicketCustomer,
 } from "@/lib/printing/saleTicket";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
@@ -80,7 +81,7 @@ type SaleRecord = {
   amount: number;
  };
 
- type ReturnRecord = {
+type ReturnRecord = {
   id: number;
   document_number?: string;
   created_at?: string;
@@ -94,7 +95,38 @@ type SaleRecord = {
   notes?: string | null;
   items?: { sale_item_id: number; quantity: number; product_name?: string; name?: string }[];
   payments?: ReturnPayment[];
- };
+};
+
+type ChangeRecord = {
+  id: number;
+  document_number?: string;
+  created_at?: string;
+  sale_id?: number;
+  pos_name?: string | null;
+  seller_name?: string | null;
+  total_credit?: number;
+  total_new?: number;
+  extra_payment?: number;
+  refund_due?: number;
+  notes?: string | null;
+  items_returned?: {
+    sale_item_id: number;
+    quantity: number;
+    product_name?: string;
+    product_sku?: string | null;
+    unit_price_net?: number;
+    total_credit?: number;
+  }[];
+  items_new?: {
+    product_id: number;
+    quantity: number;
+    product_name?: string;
+    product_sku?: string | null;
+    unit_price?: number;
+    total?: number;
+  }[];
+  payments?: ReturnPayment[];
+};
 
 type ClosureRecord = {
   id: number;
@@ -112,6 +144,9 @@ type ClosureRecord = {
   total_credit: number;
   total_refunds: number;
   net_amount: number;
+  change_extra_total?: number | null;
+  change_refund_total?: number | null;
+  change_count?: number | null;
   counted_cash: number;
   difference: number;
   notes?: string | null;
@@ -126,7 +161,7 @@ type ClosureRecord = {
 
 type DocumentRow = {
   id: string;
-  type: "venta" | "devolucion" | "cierre";
+  type: "venta" | "devolucion" | "cambio" | "cierre";
   saleId?: number;
   createdAt: string;
   documentNumber: string;
@@ -141,7 +176,7 @@ type DocumentRow = {
   pos?: string;
   vendor?: string;
   refundAmount?: number;
-  data: SaleRecord | ReturnRecord | ClosureRecord;
+  data: SaleRecord | ReturnRecord | ChangeRecord | ClosureRecord;
 };
 
 type SummaryCard = {
@@ -266,6 +301,9 @@ function printClosureTicket(closure: ClosureRecord, settings?: PosSettingsPayloa
       expectedCash: closure.total_cash,
       countedCash: closure.counted_cash,
       difference: closure.difference,
+      changeExtra: closure.change_extra_total ?? 0,
+      changeRefund: closure.change_refund_total ?? 0,
+      changeCount: closure.change_count ?? 0,
     },
     methods: methodRows.map((m) => ({ label: m.label, amount: m.value })),
     separatedSummary,
@@ -328,6 +366,7 @@ export default function DocumentsExplorer({
   const today = new Date().toISOString().slice(0, 10);
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
+  const [changes, setChanges] = useState<ChangeRecord[]>([]);
   const [closures, setClosures] = useState<ClosureRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -395,12 +434,16 @@ export default function DocumentsExplorer({
       setError(null);
       if (!authHeaders) throw new Error("Sin sesión activa");
       const apiBase = getApiBase();
-      const [salesRes, returnsRes, closuresRes] = await Promise.all([
+      const [salesRes, returnsRes, changesRes, closuresRes] = await Promise.all([
         fetch(`${apiBase}/pos/sales?skip=0&limit=200`, {
           headers: authHeaders,
           credentials: "include",
         }),
         fetch(`${apiBase}/pos/returns?skip=0&limit=200`, {
+          headers: authHeaders,
+          credentials: "include",
+        }),
+        fetch(`${apiBase}/pos/changes?skip=0&limit=200`, {
           headers: authHeaders,
           credentials: "include",
         }),
@@ -421,18 +464,27 @@ export default function DocumentsExplorer({
 
       handleUnauthorized(salesRes);
       handleUnauthorized(returnsRes);
+      handleUnauthorized(changesRes);
       handleUnauthorized(closuresRes);
 
       if (!salesRes.ok) throw new Error("Error al cargar ventas");
       if (!returnsRes.ok) throw new Error("Error al cargar devoluciones");
+      if (!changesRes.ok) throw new Error("Error al cargar cambios");
       if (!closuresRes.ok) throw new Error("Error al cargar cierres");
       const salesData: SaleRecord[] = await salesRes.json();
       const returnsData: ReturnRecord[] = await returnsRes.json();
+      const changesData: ChangeRecord[] = await changesRes.json();
       const closuresData: ClosureRecord[] = await closuresRes.json();
       setSales(salesData);
       setReturns(returnsData);
+      setChanges(changesData);
       setClosures(closuresData);
-      const docsList = mappedDocuments(salesData, returnsData, closuresData);
+      const docsList = mappedDocuments(
+        salesData,
+        returnsData,
+        changesData,
+        closuresData
+      );
       setSelectedDoc((prev) => {
         if (prev) {
           const prevMatch = docsList.find((doc) => doc.id === prev.id);
@@ -556,6 +608,7 @@ export default function DocumentsExplorer({
   function mappedDocuments(
     salesList: SaleRecord[],
     returnsList: ReturnRecord[],
+    changesList: ChangeRecord[],
     closuresList: ClosureRecord[]
   ): DocumentRow[] {
     const saleDocs: DocumentRow[] = salesList.map((sale) => {
@@ -618,6 +671,32 @@ export default function DocumentsExplorer({
       };
     });
 
+    const changeDocs: DocumentRow[] = changesList.map((change) => {
+      const firstItem =
+        change.items_new && change.items_new.length ? change.items_new[0] : undefined;
+      const detail = firstItem
+        ? `${firstItem.product_name ?? "Producto"} x${firstItem.quantity ?? 1}`
+        : "Cambio registrado";
+      const net =
+        (change.extra_payment ?? 0) - (change.refund_due ?? 0);
+      return {
+        id: `change-${change.id}`,
+        type: "cambio",
+        createdAt: change.created_at ?? "",
+        documentNumber: change.document_number ?? `CB-${change.id.toString().padStart(5, "0")}`,
+        reference: change.sale_id ? `Venta #${change.sale_id}` : "Cambio",
+        detail,
+        total: net,
+        paymentMethod:
+          change.payments && change.payments[0]
+            ? change.payments[0].method
+            : undefined,
+        pos: change.pos_name ?? undefined,
+        vendor: change.seller_name ?? undefined,
+        data: change,
+      };
+    });
+
     const closureDocs: DocumentRow[] = closuresList.map((closure) => {
       const detail = `Cierre de caja ${closure.pos_name ?? "POS"}`;
       return {
@@ -636,12 +715,15 @@ export default function DocumentsExplorer({
       };
     });
 
-    return [...saleDocs, ...returnDocs, ...closureDocs].sort(
+    return [...saleDocs, ...returnDocs, ...changeDocs, ...closureDocs].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }
 
-  const documents = useMemo(() => mappedDocuments(sales, returns, closures), [sales, returns, closures]);
+  const documents = useMemo(
+    () => mappedDocuments(sales, returns, changes, closures),
+    [sales, returns, changes, closures]
+  );
 
   const filteredDocuments = useMemo(() => {
     const fromDate = filterFrom ? new Date(filterFrom) : null;
@@ -1172,6 +1254,50 @@ const selectedDocMethodLabel = selectedDocIsSeparated
     const html = renderSaleInvoice(payload);
     openSaleDocumentWindow(html, { width: 960, height: 900 });
   };
+
+  const handlePrintSelectedChange = () => {
+    if (selectedDoc?.type !== "cambio") return;
+    const change = selectedDoc.data as ChangeRecord;
+    const returnedItems =
+      change.items_returned?.map((item) => ({
+        name: item.product_name ?? "Producto",
+        quantity: item.quantity,
+        unitPrice: item.unit_price_net ?? 0,
+        total: item.total_credit ?? 0,
+        sku: item.product_sku ?? undefined,
+      })) ?? [];
+    const newItems =
+      change.items_new?.map((item) => ({
+        name: item.product_name ?? "Producto",
+        quantity: item.quantity,
+        unitPrice: item.unit_price ?? 0,
+        total: item.total ?? 0,
+        sku: item.product_sku ?? undefined,
+      })) ?? [];
+    const payments =
+      change.payments?.map((payment) => ({
+        label: mapPaymentMethod(payment.method),
+        amount: payment.amount,
+      })) ?? [];
+    const html = renderChangeTicket({
+      settings: posSettings,
+      documentNumber:
+        change.document_number ?? `CB-${change.id.toString().padStart(5, "0")}`,
+      originalDocumentNumber: undefined,
+      createdAt: change.created_at ?? undefined,
+      posName: change.pos_name ?? undefined,
+      sellerName: change.seller_name ?? undefined,
+      itemsReturned: returnedItems,
+      itemsNew: newItems,
+      payments,
+      totalCredit: change.total_credit ?? 0,
+      totalNew: change.total_new ?? 0,
+      extraPayment: change.extra_payment ?? 0,
+      refundDue: change.refund_due ?? 0,
+      notes: change.notes,
+    });
+    openSaleDocumentWindow(html, { width: 380, height: 640 });
+  };
   const selectedClosure =
     selectedDoc?.type === "cierre" ? (selectedDetails as ClosureRecord) : null;
   const closureMethodSummaries = useMemo(
@@ -1257,6 +1383,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
               <option value="all">Todos</option>
               <option value="venta">Ventas</option>
               <option value="devolucion">Devoluciones</option>
+              <option value="cambio">Cambios</option>
               <option value="cierre">Cierres de caja</option>
             </select>
           </label>
@@ -1558,6 +1685,15 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                       </button>
                     </>
                   )}
+                  {selectedDoc.type === "cambio" && (
+                    <button
+                      type="button"
+                      onClick={handlePrintSelectedChange}
+                      className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800"
+                    >
+                      Imprimir cambio
+                    </button>
+                  )}
                   {selectedDoc.type === "cierre" && selectedClosure && (
                     <button
                       type="button"
@@ -1585,6 +1721,8 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                       ? "Venta"
                       : selectedDoc.type === "devolucion"
                       ? "Devolución"
+                      : selectedDoc.type === "cambio"
+                      ? "Cambio"
                       : "Cierre de caja"}
                   </span>
                 </div>
@@ -1712,6 +1850,22 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                         -{formatMoney(selectedClosure.total_refunds)}
                       </span>
                     </div>
+                    {(selectedClosure.change_extra_total || selectedClosure.change_refund_total) && (
+                      <>
+                        <div className="flex justify-between gap-3">
+                          <span className="text-slate-400">Cambios (excedente)</span>
+                          <span className="text-right text-emerald-200">
+                            {formatMoney(selectedClosure.change_extra_total ?? 0)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <span className="text-slate-400">Cambios (reembolsos)</span>
+                          <span className="text-right text-rose-300">
+                            -{formatMoney(selectedClosure.change_refund_total ?? 0)}
+                          </span>
+                        </div>
+                      </>
+                    )}
                     <div className="flex justify-between gap-3">
                       <span className="text-slate-400">Neto del día</span>
                       <span className="text-right text-slate-100">
@@ -1960,6 +2114,19 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                   </div>
                 )}
 
+              {selectedDoc.type === "cambio" &&
+                typeof (selectedDetails as ChangeRecord)?.notes === "string" &&
+                (selectedDetails as ChangeRecord)?.notes?.trim() && (
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+                      Notas
+                    </div>
+                    <p className="text-slate-100 text-sm whitespace-pre-line">
+                      {(selectedDetails as ChangeRecord).notes}
+                    </p>
+                  </div>
+                )}
+
               {detailExpanded &&
                 selectedDoc.type === "devolucion" &&
                 selectedReturnPayments.length > 0 && (
@@ -2070,12 +2237,84 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                   </div>
                 )}
 
+              {selectedDoc.type === "cambio" && (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+                      Productos devueltos
+                    </div>
+                    <div className="rounded-2xl border border-slate-800/60 overflow-hidden">
+                      <div className="grid grid-cols-[1fr_80px] bg-slate-950 px-3 py-2 text-[11px] text-slate-400 uppercase tracking-wide">
+                        <span>Producto</span>
+                        <span className="text-right">Cantidad</span>
+                      </div>
+                      <div>
+                        {(selectedDetails as ChangeRecord).items_returned?.map((item) => (
+                          <div
+                            key={`${item.sale_item_id}-${item.product_name ?? ""}`}
+                            className="grid grid-cols-[1fr_80px] px-3 py-2 border-t border-slate-800/40"
+                          >
+                            <span className="text-slate-100 truncate">
+                              {item.product_name ?? "Producto"}
+                            </span>
+                            <span className="text-right text-slate-200">
+                              {item.quantity}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+                      Productos nuevos
+                    </div>
+                    <div className="rounded-2xl border border-slate-800/60 overflow-hidden">
+                      <div className="grid grid-cols-[1fr_80px] bg-slate-950 px-3 py-2 text-[11px] text-slate-400 uppercase tracking-wide">
+                        <span>Producto</span>
+                        <span className="text-right">Cantidad</span>
+                      </div>
+                      <div>
+                        {(selectedDetails as ChangeRecord).items_new?.map((item) => (
+                          <div
+                            key={`${item.product_id}-${item.product_name ?? ""}`}
+                            className="grid grid-cols-[1fr_80px] px-3 py-2 border-t border-slate-800/40"
+                          >
+                            <span className="text-slate-100 truncate">
+                              {item.product_name ?? "Producto"}
+                            </span>
+                            <span className="text-right text-slate-200">
+                              {item.quantity}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {detailExpanded && selectedDoc.type === "cierre" && selectedClosure && (
                 <div className="space-y-4">
                   <div className="grid gap-2 sm:grid-cols-2">
                     {[
                       { label: "Total registrado", value: formatMoney(selectedClosure.total_amount) },
                       { label: "Devoluciones", value: `-${formatMoney(selectedClosure.total_refunds)}`, tone: "danger" as const },
+                      ...(selectedClosure.change_extra_total || selectedClosure.change_refund_total
+                        ? [
+                            {
+                              label: "Cambios (excedente)",
+                              value: formatMoney(selectedClosure.change_extra_total ?? 0),
+                              tone: "positive" as const,
+                            },
+                            {
+                              label: "Cambios (reembolsos)",
+                              value: `-${formatMoney(selectedClosure.change_refund_total ?? 0)}`,
+                              tone: "danger" as const,
+                            },
+                          ]
+                        : []),
                       { label: "Neto del día", value: formatMoney(selectedClosure.net_amount) },
                       { label: "Efectivo esperado", value: formatMoney(selectedClosure.total_cash) },
                       { label: "Efectivo contado", value: formatMoney(selectedClosure.counted_cash) },
