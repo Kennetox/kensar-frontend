@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -80,6 +81,8 @@ type SaleChangeSummary = {
   refund_due?: number;
   total_new?: number;
   total_credit?: number;
+  items_returned?: ChangeReturnItemDetail[];
+  items_new?: ChangeNewItemDetail[];
 };
 
 type ReturnItemDetail = {
@@ -107,6 +110,7 @@ type SaleReturnDetail = {
 };
 
 type ChangeReturnItemDetail = {
+  id?: number;
   product_name: string;
   product_sku?: string | null;
   quantity: number;
@@ -115,6 +119,7 @@ type ChangeReturnItemDetail = {
 };
 
 type ChangeNewItemDetail = {
+  id?: number;
   product_name: string;
   product_sku?: string | null;
   quantity: number;
@@ -476,6 +481,7 @@ export default function SalesHistoryContent({
   const [error, setError] = useState<string | null>(null);
 
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+  const saleRowRefs = useRef(new Map<number, HTMLDivElement>());
 
   const PAGE_SIZE = 100;
   const today = formatDateInputValue(new Date());
@@ -1425,6 +1431,11 @@ export default function SalesHistoryContent({
     });
   };
 
+  const latestSelectedChange = useMemo(
+    () => getLatestChange(selectedSale?.changes),
+    [selectedSale?.changes]
+  );
+
   const handlePrintReturnTicket = useCallback(async () => {
     if (!selectedSale?.returns?.length) return;
     const latestReturn = getLatestReturn(selectedSale.returns);
@@ -1772,6 +1783,13 @@ export default function SalesHistoryContent({
     }
   }, [filteredSales, selectedSale]);
 
+  useEffect(() => {
+    if (!selectedSale) return;
+    const row = saleRowRefs.current.get(selectedSale.id);
+    if (!row) return;
+    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedSale]);
+
   const quickRangeOptions: { label: string; value: QuickRange }[] = [
     { label: "Hoy", value: "today" },
     { label: "Ayer", value: "yesterday" },
@@ -2061,7 +2079,7 @@ export default function SalesHistoryContent({
 
                     const isSelected = selectedSale?.id === sale.id;
                     const selectedClasses = isSelected
-                      ? "ring-1 ring-emerald-400/70 bg-slate-900"
+                      ? "bg-white/8 border-y border-emerald-300/60 border-l-4 border-emerald-300 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.35)]"
                       : "";
 
                     const items: SaleItem[] =
@@ -2073,6 +2091,17 @@ export default function SalesHistoryContent({
                               quantity: 1,
                             },
                           ];
+                    const latestChange = getLatestChange(sale.changes);
+                    const displayItems: SaleItem[] =
+                      latestChange?.items_new?.length
+                        ? latestChange.items_new.map((item, index) => ({
+                            id: item.id ?? index,
+                            product_name: item.product_name,
+                            quantity: item.quantity,
+                            unit_price: item.unit_price,
+                            total: item.total,
+                          }))
+                        : items;
                     const rowItemsTotal = sumSaleItemsTotal(items);
                     const rowSeparatedTotal = resolveSeparatedBaseTotal(
                       sale,
@@ -2099,7 +2128,6 @@ export default function SalesHistoryContent({
                     const saleSummary = computeSaleSummary(saleForSummary);
                     const refundAmount = saleSummary.refundAmount ?? 0;
                     const hasRefund = refundAmount > 0;
-                    const latestChange = getLatestChange(sale.changes);
                     const hasChange = !!latestChange;
                     const rowIsSeparated = !!sale.is_separated;
                     const netTotal =
@@ -2119,7 +2147,7 @@ export default function SalesHistoryContent({
                       hasRefund && !isSelected
                         ? "border border-rose-500/40 bg-rose-500/5"
                         : "";
-                    return items.map((item, itemIndex) => {
+                    return displayItems.map((item, itemIndex) => {
                       const showMain = itemIndex === 0;
                       const initialMethodLabelForRow = mapPaymentMethod(
                         sale.initial_payment_method ??
@@ -2141,6 +2169,11 @@ export default function SalesHistoryContent({
                         <div
                           key={`${sale.id}-${itemIndex}`}
                           className={`${baseGrid} ${zebra} ${selectedClasses} ${refundClasses} hover:bg-slate-800/80 transition-colors`}
+                          ref={(el) => {
+                            if (showMain && el) {
+                              saleRowRefs.current.set(sale.id, el);
+                            }
+                          }}
                           onClick={() => {
                             setSelectedSale(sale);
                             if (autoReturnOnSelect && returnPath) {
@@ -2286,22 +2319,26 @@ export default function SalesHistoryContent({
                 >
                   Imprimir ticket
                 </button>
-                <button
-                  type="button"
-                  onClick={handlePrintReturnTicket}
-                  disabled={!canPrintReturn || returnPrintLoading}
-                  className="px-3 py-2 rounded-md border border-slate-700 text-xs font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {returnPrintLoading ? "Imprimiendo..." : "Imprimir devolución"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePrintChangeTicket}
-                  disabled={!canPrintChange || changePrintLoading}
-                  className="px-3 py-2 rounded-md border border-slate-700 text-xs font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
-                >
-                  {changePrintLoading ? "Imprimiendo..." : "Imprimir cambio"}
-                </button>
+                {canPrintReturn && (
+                  <button
+                    type="button"
+                    onClick={handlePrintReturnTicket}
+                    disabled={returnPrintLoading}
+                    className="px-3 py-2 rounded-md border border-slate-700 text-xs font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {returnPrintLoading ? "Imprimiendo..." : "Imprimir devolución"}
+                  </button>
+                )}
+                {canPrintChange && (
+                  <button
+                    type="button"
+                    onClick={handlePrintChangeTicket}
+                    disabled={changePrintLoading}
+                    className="px-3 py-2 rounded-md border border-slate-700 text-xs font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {changePrintLoading ? "Imprimiendo..." : "Imprimir cambio"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleEmailTicket}
@@ -2712,6 +2749,80 @@ export default function SalesHistoryContent({
                   </div>
                 )}
               </div>
+
+              {latestSelectedChange?.items_new?.length ? (
+                <div className="mt-4">
+                  <h3 className="text-xs font-semibold text-slate-200 mb-2">
+                    Productos del cambio
+                  </h3>
+                  <div className="rounded-xl border border-slate-800/60 overflow-hidden text-xs">
+                    <div className="grid grid-cols-[1fr_70px_90px_100px] bg-slate-950 px-3 py-2 text-[11px] text-slate-400">
+                      <span>Producto</span>
+                      <span className="text-right">Cant.</span>
+                      <span className="text-right">P. unitario</span>
+                      <span className="text-right">Total línea</span>
+                    </div>
+                    <div>
+                      {latestSelectedChange.items_new.map((item) => (
+                        <div
+                          key={`change-new-${item.id}`}
+                          className="grid grid-cols-[1fr_70px_90px_100px] px-3 py-2 text-xs bg-slate-900/60 border-t border-slate-800/40"
+                        >
+                          <span className="text-slate-100 truncate">
+                            {item.product_name}
+                          </span>
+                          <span className="text-right text-slate-200">
+                            {item.quantity}
+                          </span>
+                          <span className="text-right text-slate-200">
+                            {formatMoney(item.unit_price)}
+                          </span>
+                          <span className="text-right text-slate-200">
+                            {formatMoney(item.total)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {latestSelectedChange?.items_returned?.length ? (
+                <div className="mt-4">
+                  <h3 className="text-xs font-semibold text-slate-200 mb-2">
+                    Productos devueltos en el cambio
+                  </h3>
+                  <div className="rounded-xl border border-slate-800/60 overflow-hidden text-xs">
+                    <div className="grid grid-cols-[1fr_70px_90px_100px] bg-slate-950 px-3 py-2 text-[11px] text-slate-400">
+                      <span>Producto</span>
+                      <span className="text-right">Cant.</span>
+                      <span className="text-right">P. unitario</span>
+                      <span className="text-right">Total línea</span>
+                    </div>
+                    <div>
+                      {latestSelectedChange.items_returned.map((item, index) => (
+                        <div
+                          key={`change-return-${item.product_name}-${index}`}
+                          className="grid grid-cols-[1fr_70px_90px_100px] px-3 py-2 text-xs bg-slate-900/60 border-t border-slate-800/40"
+                        >
+                          <span className="text-slate-100 truncate">
+                            {item.product_name}
+                          </span>
+                          <span className="text-right text-slate-200">
+                            {item.quantity}
+                          </span>
+                          <span className="text-right text-slate-200">
+                            {formatMoney(item.unit_price_net)}
+                          </span>
+                          <span className="text-right text-slate-200">
+                            {formatMoney(item.total_credit)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </section>
