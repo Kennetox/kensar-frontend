@@ -220,6 +220,42 @@ export default function ProductsPage() {
     }));
   }
 
+  function formatMoneyInput(value: string): string {
+    const sanitized = value.replace(/[^\d,]/g, "");
+    const [rawInt = "", ...rawDecimals] = sanitized.split(",");
+    const intPart = rawInt.replace(/^0+(?=\d)/, "");
+    const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    const decimalPart = rawDecimals.join("");
+
+    if (decimalPart.length > 0) {
+      return `${formattedInt || "0"},${decimalPart}`;
+    }
+    return formattedInt;
+  }
+
+  function formatMoneyFromNumber(value: number): string {
+    return formatMoneyInput(String(value).replace(".", ","));
+  }
+
+  function parseMoneyValue(value: string): number {
+    if (!value) return 0;
+    const normalized = value.replace(/\./g, "").replace(",", ".");
+    const parsed = Number.parseFloat(normalized);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  function handleMoneyChange(
+    e: ChangeEvent<HTMLInputElement>,
+    setState: React.Dispatch<React.SetStateAction<ProductForm>>,
+  ) {
+    const { name, value } = e.target;
+    const formatted = formatMoneyInput(value);
+    setState((prev) => ({
+      ...prev,
+      [name]: formatted,
+    }));
+  }
+
   function getSuggestedFromField(
     items: Product[],
     field: "sku" | "barcode",
@@ -976,8 +1012,8 @@ export default function ProductsPage() {
       const payload = {
         sku: createForm.sku || null,
         name: createForm.name,
-        price: parseFloat(createForm.price || "0"),
-        cost: parseFloat(createForm.cost || "0"),
+        price: parseMoneyValue(createForm.price),
+        cost: parseMoneyValue(createForm.cost),
         barcode: createForm.barcode || null,
         unit: createForm.unit || null,
         stock_min: parseInt(createForm.stock_min || "0", 10),
@@ -1031,8 +1067,8 @@ export default function ProductsPage() {
     setEditForm({
       sku: product.sku ?? "",
       name: product.name,
-      price: product.price.toString(),
-      cost: product.cost.toString(),
+      price: formatMoneyFromNumber(product.price),
+      cost: formatMoneyFromNumber(product.cost),
       barcode: product.barcode ?? "",
       unit: product.unit ?? "",
       stock_min: product.stock_min.toString(),
@@ -1065,9 +1101,9 @@ export default function ProductsPage() {
       if (editForm.name.trim() !== "") payload.name = editForm.name.trim();
       if (editForm.sku !== "") payload.sku = editForm.sku;
       if (editForm.price !== "")
-        payload.price = parseFloat(editForm.price || "0");
+        payload.price = parseMoneyValue(editForm.price);
       if (editForm.cost !== "")
-        payload.cost = parseFloat(editForm.cost || "0");
+        payload.cost = parseMoneyValue(editForm.cost);
       if (editForm.stock_min !== "")
         payload.stock_min = parseInt(editForm.stock_min || "0", 10);
       if (editForm.preferred_qty !== "")
@@ -1848,9 +1884,10 @@ export default function ProductsPage() {
                 <label className="block text-slate-300">Precio</label>
                 <input
                   name="price"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={createForm.price}
-                  onChange={(e) => handleFormChange(e, setCreateForm)}
+                  onChange={(e) => handleMoneyChange(e, setCreateForm)}
                   className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
                 />
               </div>
@@ -1859,9 +1896,10 @@ export default function ProductsPage() {
                 <label className="block text-slate-300">Costo</label>
                 <input
                   name="cost"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={createForm.cost}
-                  onChange={(e) => handleFormChange(e, setCreateForm)}
+                  onChange={(e) => handleMoneyChange(e, setCreateForm)}
                   className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
                 />
               </div>
@@ -2106,9 +2144,10 @@ export default function ProductsPage() {
                 <label className="block text-slate-300">Precio</label>
                 <input
                   name="price"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={editForm.price}
-                  onChange={(e) => handleFormChange(e, setEditForm)}
+                  onChange={(e) => handleMoneyChange(e, setEditForm)}
                   className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
                 />
               </div>
@@ -2117,9 +2156,10 @@ export default function ProductsPage() {
                 <label className="block text-slate-300">Costo</label>
                 <input
                   name="cost"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={editForm.cost}
-                  onChange={(e) => handleFormChange(e, setEditForm)}
+                  onChange={(e) => handleMoneyChange(e, setEditForm)}
                   className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
                 />
               </div>
