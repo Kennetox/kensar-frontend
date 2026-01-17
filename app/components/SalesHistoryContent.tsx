@@ -12,7 +12,9 @@ import { useAuth } from "../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import {
   fetchPosSettings,
+  fetchPosStations,
   PosSettingsPayload,
+  PosStationRecord,
 } from "@/lib/api/settings";
 import {
   ensureStoredPosMode,
@@ -490,6 +492,8 @@ export default function SalesHistoryContent({
   const [filterTerm, setFilterTerm] = useState("");
   const [filterClient, setFilterClient] = useState("");
   const [filterPayment, setFilterPayment] = useState("");
+  const [filterPos, setFilterPos] = useState("");
+  const [posStations, setPosStations] = useState<PosStationRecord[]>([]);
   const [activeQuickRange, setActiveQuickRange] =
     useState<QuickRange | null>("today");
   const [currentPage, setCurrentPage] = useState(1);
@@ -886,6 +890,7 @@ export default function SalesHistoryContent({
     const term = filterTerm.trim().toLowerCase();
     const clientTerm = filterClient.trim().toLowerCase();
     const payment = filterPayment.trim().toLowerCase();
+    const posFilter = filterPos.trim().toLowerCase();
 
     return sales.filter((sale) => {
       const createdInRange = isWithinFilterRange(sale.created_at);
@@ -934,6 +939,13 @@ export default function SalesHistoryContent({
         }
       }
 
+      if (posFilter) {
+        const salePos = (sale.pos_name ?? "").toLowerCase();
+        if (!salePos.includes(posFilter)) {
+          return false;
+        }
+      }
+
       return true;
     });
   }, [
@@ -941,6 +953,7 @@ export default function SalesHistoryContent({
     filterTerm,
     filterClient,
     filterPayment,
+    filterPos,
     separatedPaymentsMap,
     isWithinFilterRange,
   ]);
@@ -1009,6 +1022,35 @@ export default function SalesHistoryContent({
       active = false;
     };
   }, [token]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadStations() {
+      if (!token) return;
+      try {
+        const stations = await fetchPosStations(token);
+        if (!active) return;
+        setPosStations(stations);
+      } catch (err) {
+        console.warn("No se pudieron cargar estaciones POS", err);
+      }
+    }
+    void loadStations();
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  const posOptions = useMemo(() => {
+    const names = new Set<string>();
+    names.add("POS Web");
+    for (const station of posStations) {
+      if (station.is_active) {
+        names.add(station.label);
+      }
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [posStations]);
 
   const selectedSaleItemsTotal = useMemo(
     () => (selectedSale ? sumSaleItemsTotal(selectedSale.items) : null),
@@ -1753,6 +1795,7 @@ export default function SalesHistoryContent({
     setFilterTerm("");
     setFilterClient("");
     setFilterPayment("");
+    setFilterPos("");
     setActiveQuickRange("today");
   };
 
@@ -1981,7 +2024,7 @@ export default function SalesHistoryContent({
               );
             })}
           </div>
-          <div className="grid gap-3 md:grid-cols-5">
+          <div className="grid gap-3 md:grid-cols-6">
             <label className="flex flex-col gap-1">
               <span className="text-slate-400">Desde</span>
               <input
@@ -2021,6 +2064,21 @@ export default function SalesHistoryContent({
                 placeholder="Nombre del cliente"
                 className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-slate-400">POS</span>
+              <select
+                value={filterPos}
+                onChange={(e) => setFilterPos(e.target.value)}
+                className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50 focus:ring-1 focus:ring-emerald-500"
+              >
+                <option value="">Todos</option>
+                {posOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-slate-400">Método de pago</span>

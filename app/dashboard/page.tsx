@@ -517,7 +517,9 @@ export default function DashboardHomePage() {
 
   const showSummarySkeleton = loading && !data;
   const chartTitle =
-    trendMode === "week" ? "Ventas últimos 7 días" : "Ventas por mes";
+    trendMode === "week"
+      ? "Movimientos últimos 7 días"
+      : "Movimientos por mes";
   const chartSubtitle =
     trendMode === "week"
       ? "Total diario (valor de venta)."
@@ -826,7 +828,7 @@ export default function DashboardHomePage() {
           {/* Ventas hoy */}
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
-              Ventas de hoy
+              Ventas de hoy (movimientos)
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
@@ -867,7 +869,7 @@ export default function DashboardHomePage() {
           {/* Ventas mes actual */}
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
-              Ventas mes actual
+              Ventas mes actual (movimientos)
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
@@ -1048,10 +1050,10 @@ export default function DashboardHomePage() {
             <div className="flex items-center justify-between gap-3 mb-1">
               <div>
                 <h2 className="text-sm font-semibold text-slate-100">
-                  Ventas por método ({PAYMENT_RANGE_LABEL[paymentRange]})
+                  Movimientos por método ({PAYMENT_RANGE_LABEL[paymentRange]})
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Distribución de las ventas según el método de pago.
+                  Distribución de los movimientos por método de pago.
                 </p>
                 {paymentRange !== "month" && separatedError && (
                   <p className="text-[11px] text-amber-300 mt-1">

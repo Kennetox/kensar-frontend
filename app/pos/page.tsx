@@ -445,6 +445,7 @@ export default function PosPage() {
   );
   const isStationMode = posMode === "station";
   const isWebMode = posMode === "web";
+  const isKioskMode = isStationMode;
   const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
   const normalizePosLabel = useCallback((value?: string | null) => {
     return (value ?? "").replace(/^(pos\s+)+/i, "").trim().toLowerCase();
@@ -913,6 +914,15 @@ const matchesStationLabel = useCallback(
   useEffect(() => {
     if (searchInputRef.current) {
       searchInputRef.current.focus();
+    }
+  }, []);
+
+  const focusSearchInput = useCallback((selectAll = false) => {
+    const input = searchInputRef.current;
+    if (!input) return;
+    input.focus();
+    if (selectAll) {
+      input.select();
     }
   }, []);
   const resolveAssetUrl = useCallback(
@@ -3536,6 +3546,21 @@ const matchesStationLabel = useCallback(
     setSyncingCatalog(false);
   }, [authHeaders, loadProducts, loadGroupAppearances, syncingCatalog]);
 
+  const handleReloadPos = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.location.reload();
+    }
+  }, []);
+
+  const handleExitKiosk = useCallback(() => {
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    if (typeof window !== "undefined" && openedAsNewTab) {
+      window.close();
+    }
+  }, [openedAsNewTab]);
+
 
   const buildTiles = useCallback((): GridTile[] => {
     const tiles: GridTile[] = [];
@@ -3710,6 +3735,9 @@ const matchesStationLabel = useCallback(
 
     // Producto normal
     addProductToCart(product, product.price);
+    if (search.trim().length > 0) {
+      focusSearchInput(true);
+    }
   }
 
   function addProductToCart(product: Product, unitPrice: number) {
@@ -4167,6 +4195,34 @@ const matchesStationLabel = useCallback(
                   Cerrar caja
                   <span className="text-[12px] text-amber-200">Reporte Z</span>
                 </button>
+                {isKioskMode && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        handleReloadPos();
+                      }}
+                      className="w-full text-left px-5 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                    >
+                      Recargar POS
+                      <span className="text-[12px] text-slate-400">Actualizar vista</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        handleExitKiosk();
+                      }}
+                      className="w-full text-left px-5 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                    >
+                      Salir de kiosk
+                      <span className="text-[12px] text-slate-400">
+                        {openedAsNewTab ? "Cerrar ventana" : "Salir pantalla completa"}
+                      </span>
+                    </button>
+                  </>
+                )}
                 {printerConfig.showDrawerButton && (
                   <button
                     type="button"
