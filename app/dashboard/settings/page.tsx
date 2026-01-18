@@ -246,6 +246,29 @@ type ControlSaleRecord = {
   balance?: number | null;
 };
 
+type ControlReturnRecord = {
+  id: number;
+  created_at: string;
+  closure_id?: number | null;
+  sale_id?: number | null;
+  station_id?: string | null;
+  pos_name?: string | null;
+  total_refund?: number | null;
+  payments?: { method: string; amount: number }[];
+};
+
+type ControlChangeRecord = {
+  id: number;
+  created_at: string;
+  closure_id?: number | null;
+  sale_id?: number | null;
+  station_id?: string | null;
+  pos_name?: string | null;
+  extra_payment?: number | null;
+  refund_due?: number | null;
+  payments?: { method: string; amount: number }[];
+};
+
 type ControlClosureRecord = {
   id: number;
   consecutive?: string | null;
@@ -823,8 +846,16 @@ export default function SettingsPage() {
         throw new Error("Sesión expirada. Inicia sesión nuevamente.");
       }
       const apiBase = getApiBase();
-      const [salesRes, separatedOrders] = await Promise.all([
+      const [salesRes, returnsRes, changesRes, separatedOrders] = await Promise.all([
         fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
+          headers: authHeaders,
+          credentials: "include",
+        }),
+        fetch(`${apiBase}/pos/returns?skip=0&limit=500`, {
+          headers: authHeaders,
+          credentials: "include",
+        }),
+        fetch(`${apiBase}/pos/changes?skip=0&limit=500`, {
           headers: authHeaders,
           credentials: "include",
         }),
@@ -833,7 +864,15 @@ export default function SettingsPage() {
       if (!salesRes.ok) {
         throw new Error("No se pudieron cargar las ventas recientes.");
       }
+      if (!returnsRes.ok) {
+        throw new Error("No se pudieron cargar las devoluciones recientes.");
+      }
+      if (!changesRes.ok) {
+        throw new Error("No se pudieron cargar los cambios recientes.");
+      }
       const sales: ControlSaleRecord[] = await salesRes.json();
+      const returns: ControlReturnRecord[] = await returnsRes.json();
+      const changes: ControlChangeRecord[] = await changesRes.json();
       const pendingSales = sales.filter((sale) => sale.closure_id == null);
       const isPosWeb = stationId === "pos-web";
       const matchesStation = (value?: string | null, posName?: string | null) => {
@@ -860,6 +899,9 @@ export default function SettingsPage() {
       };
       let totalCollected = 0;
       let totalRefunds = 0;
+      let changeExtraTotal = 0;
+      let changeRefundTotal = 0;
+      let changeCount = 0;
 
       const addMethodAmount = (method?: string | null, amount?: number) => {
         if (!method || !amount || amount <= 0) return;
@@ -909,6 +951,56 @@ export default function SettingsPage() {
         });
       });
 
+      const pendingReturns = returns.filter((ret) => ret.closure_id == null);
+      const filteredReturns = pendingReturns.filter((ret) => {
+        const relatedSale = ret.sale_id ? saleMap.get(ret.sale_id) : undefined;
+        const station = ret.station_id ?? relatedSale?.station_id ?? null;
+        const posName = ret.pos_name ?? relatedSale?.pos_name ?? null;
+        return matchesStation(station, posName);
+      });
+
+      filteredReturns.forEach((ret) => {
+        const refundAmount = Math.max(ret.total_refund ?? 0, 0);
+        if (refundAmount <= 0) return;
+        totalRefunds += refundAmount;
+        if (ret.payments && ret.payments.length > 0) {
+          ret.payments.forEach((payment) => {
+            const amount = Math.max(payment.amount ?? 0, 0);
+            if (!amount) return;
+            const key = mapMethodToKey(payment.method);
+            if (!key) return;
+            methodTotals[key] -= amount;
+          });
+        } else {
+          methodTotals.cash -= refundAmount;
+        }
+      });
+
+      const pendingChanges = changes.filter((change) => change.closure_id == null);
+      const filteredChanges = pendingChanges.filter((change) => {
+        const relatedSale = change.sale_id ? saleMap.get(change.sale_id) : undefined;
+        const station = change.station_id ?? relatedSale?.station_id ?? null;
+        const posName = change.pos_name ?? relatedSale?.pos_name ?? null;
+        return matchesStation(station, posName);
+      });
+      filteredChanges.forEach((change) => {
+        const extra = Math.max(change.extra_payment ?? 0, 0);
+        const refund = Math.max(change.refund_due ?? 0, 0);
+        if (extra > 0 || refund > 0) {
+          changeCount += 1;
+        }
+        changeExtraTotal += extra;
+        changeRefundTotal += refund;
+        if (change.payments && change.payments.length > 0) {
+          change.payments.forEach((payment) =>
+            addMethodAmount(payment.method, Math.max(payment.amount ?? 0, 0))
+          );
+        }
+        if (refund > 0) {
+          methodTotals.cash -= refund;
+        }
+      });
+
       separatedOrders.forEach((order: SeparatedOrder) => {
         const baseSale = saleMap.get(order.sale_id);
         const pendingPayments =
@@ -937,6 +1029,9 @@ export default function SettingsPage() {
         totalNequi: round(methodTotals.nequi),
         totalDaviplata: round(methodTotals.daviplata),
         totalCredit: round(methodTotals.credit),
+        changeExtraTotal: round(changeExtraTotal),
+        changeRefundTotal: round(changeRefundTotal),
+        changeCount,
       };
     },
     [authHeaders, token]
@@ -964,7 +1059,11 @@ export default function SettingsPage() {
           totals.totalQr > 0 ||
           totals.totalNequi > 0 ||
           totals.totalDaviplata > 0 ||
-          totals.totalCredit > 0;
+          totals.totalCredit > 0 ||
+          totals.totalRefunds > 0 ||
+          (totals.changeExtraTotal ?? 0) > 0 ||
+          (totals.changeRefundTotal ?? 0) > 0 ||
+          (totals.changeCount ?? 0) > 0;
         if (!hasPendingTotals) {
           throw new Error("No hay ventas pendientes por cerrar en esta estación.");
         }
@@ -979,6 +1078,9 @@ export default function SettingsPage() {
           total_daviplata: totals.totalDaviplata,
           total_credit: totals.totalCredit,
           total_refunds: totals.totalRefunds,
+          change_extra_total: totals.changeExtraTotal ?? 0,
+          change_refund_total: totals.changeRefundTotal ?? 0,
+          change_count: totals.changeCount ?? 0,
           net_amount: Math.max(0, totals.totalAmount),
           counted_cash: totals.totalCash,
           difference: 0,

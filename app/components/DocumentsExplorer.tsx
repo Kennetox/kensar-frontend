@@ -725,6 +725,38 @@ export default function DocumentsExplorer({
     [sales, returns, changes, closures]
   );
 
+  const filterOptions = useMemo(() => {
+    const posSet = new Set<string>();
+    const vendorSet = new Set<string>();
+    const customerSet = new Set<string>();
+    const paymentSet = new Set<string>();
+
+    documents.forEach((doc) => {
+      if (doc.pos?.trim()) posSet.add(doc.pos.trim());
+      if (doc.vendor?.trim()) vendorSet.add(doc.vendor.trim());
+      if (doc.customer?.trim()) customerSet.add(doc.customer.trim());
+
+      if (doc.isSeparated) {
+        paymentSet.add("Separado");
+      } else {
+        const methodLabel = mapPaymentMethod(doc.paymentMethod);
+        if (methodLabel && methodLabel !== "—") {
+          paymentSet.add(methodLabel);
+        }
+      }
+    });
+
+    const sortOptions = (values: Set<string>) =>
+      Array.from(values).sort((a, b) => a.localeCompare(b, "es"));
+
+    return {
+      pos: sortOptions(posSet),
+      vendors: sortOptions(vendorSet),
+      customers: sortOptions(customerSet),
+      payments: sortOptions(paymentSet),
+    };
+  }, [documents, mapPaymentMethod]);
+
   const filteredDocuments = useMemo(() => {
     const fromDate = filterFrom ? new Date(filterFrom) : null;
     if (fromDate) fromDate.setHours(0, 0, 0, 0);
@@ -1419,13 +1451,24 @@ const selectedDocMethodLabel = selectedDocIsSeparated
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-slate-400">Método de pago</span>
-            <input
-              type="text"
+            <select
               value={filterPayment}
               onChange={(e) => setFilterPayment(e.target.value)}
-              placeholder="Efectivo, QR..."
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
-            />
+            >
+              <option value="">Todos</option>
+              {filterOptions.payments.length === 0 ? (
+                <option value="" disabled>
+                  Sin datos
+                </option>
+              ) : (
+                filterOptions.payments.map((method) => (
+                  <option key={method} value={method}>
+                    {method}
+                  </option>
+                ))
+              )}
+            </select>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-slate-400">Cliente</span>
@@ -1434,28 +1477,56 @@ const selectedDocMethodLabel = selectedDocIsSeparated
               value={filterCustomer}
               onChange={(e) => setFilterCustomer(e.target.value)}
               placeholder="Nombre del cliente"
+              list="documents-customer-options"
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
             />
+            <datalist id="documents-customer-options">
+              {filterOptions.customers.map((customer) => (
+                <option key={customer} value={customer} />
+              ))}
+            </datalist>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-slate-400">POS</span>
-            <input
-              type="text"
+            <select
               value={filterPos}
               onChange={(e) => setFilterPos(e.target.value)}
-              placeholder="POS 1, POS 2..."
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
-            />
+            >
+              <option value="">Todos</option>
+              {filterOptions.pos.length === 0 ? (
+                <option value="" disabled>
+                  Sin datos
+                </option>
+              ) : (
+                filterOptions.pos.map((posName) => (
+                  <option key={posName} value={posName}>
+                    {posName}
+                  </option>
+                ))
+              )}
+            </select>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-slate-400">Vendedor</span>
-            <input
-              type="text"
+            <select
               value={filterVendor}
               onChange={(e) => setFilterVendor(e.target.value)}
-              placeholder="Nombre del vendedor"
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
-            />
+            >
+              <option value="">Todos</option>
+              {filterOptions.vendors.length === 0 ? (
+                <option value="" disabled>
+                  Sin datos
+                </option>
+              ) : (
+                filterOptions.vendors.map((vendor) => (
+                  <option key={vendor} value={vendor}>
+                    {vendor}
+                  </option>
+                ))
+              )}
+            </select>
           </label>
         </div>
         <div className="flex flex-wrap gap-2 text-[11px]">
@@ -1820,9 +1891,20 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                     </span>
                   </div>
                 )}
+                {selectedDoc.type === "cierre" &&
+                  selectedClosure?.opened_at &&
+                  selectedClosure?.closed_at && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-400">Periodo de movimientos</span>
+                      <span className="text-right text-slate-100">
+                        {formatDateTime(selectedClosure.opened_at)} →{" "}
+                        {formatDateTime(selectedClosure.closed_at)}
+                      </span>
+                    </div>
+                  )}
                 {selectedDoc.type === "cierre" && selectedClosure?.opened_at && (
                   <div className="flex justify-between gap-3">
-                    <span className="text-slate-400">Apertura</span>
+                    <span className="text-slate-400">Inicio del periodo</span>
                     <span className="text-right text-slate-100">
                       {formatDateTime(selectedClosure.opened_at)}
                     </span>
@@ -1830,7 +1912,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                 )}
                 {selectedDoc.type === "cierre" && selectedClosure?.closed_at && (
                   <div className="flex justify-between gap-3">
-                    <span className="text-slate-400">Cierre</span>
+                    <span className="text-slate-400">Cierre registrado</span>
                     <span className="text-right text-slate-100">
                       {formatDateTime(selectedClosure.closed_at)}
                     </span>
