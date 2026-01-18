@@ -694,8 +694,16 @@ export default function SettingsPage() {
       setControlLoading(true);
       setControlError(null);
       const apiBase = getApiBase();
-      const [salesRes, closuresRes, separatedOrders] = await Promise.all([
+      const [salesRes, returnsRes, changesRes, closuresRes, separatedOrders] = await Promise.all([
         fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
+          headers: authHeaders,
+          credentials: "include",
+        }),
+        fetch(`${apiBase}/pos/returns?skip=0&limit=500`, {
+          headers: authHeaders,
+          credentials: "include",
+        }),
+        fetch(`${apiBase}/pos/changes?skip=0&limit=500`, {
           headers: authHeaders,
           credentials: "include",
         }),
@@ -708,10 +716,18 @@ export default function SettingsPage() {
       if (!salesRes.ok) {
         throw new Error("No se pudieron cargar las ventas recientes.");
       }
+      if (!returnsRes.ok) {
+        throw new Error("No se pudieron cargar las devoluciones recientes.");
+      }
+      if (!changesRes.ok) {
+        throw new Error("No se pudieron cargar los cambios recientes.");
+      }
       if (!closuresRes.ok) {
         throw new Error("No se pudieron cargar los cierres recientes.");
       }
       const sales: ControlSaleRecord[] = await salesRes.json();
+      const returns: ControlReturnRecord[] = await returnsRes.json();
+      const changes: ControlChangeRecord[] = await changesRes.json();
       const closures: ControlClosureRecord[] = await closuresRes.json();
       const saleMap = new Map<number, ControlSaleRecord>();
       sales.forEach((sale) => saleMap.set(sale.id, sale));
@@ -769,6 +785,24 @@ export default function SettingsPage() {
         if (sale.closure_id != null) return;
         const resolvedStation = resolveStationId(sale.station_id ?? null, sale.pos_name ?? null);
         registerPending(resolvedStation, sale.created_at);
+      });
+      returns.forEach((ret) => {
+        if (ret.closure_id != null) return;
+        const relatedSale = ret.sale_id ? saleMap.get(ret.sale_id) : undefined;
+        const resolvedStation = resolveStationId(
+          ret.station_id ?? relatedSale?.station_id ?? null,
+          ret.pos_name ?? relatedSale?.pos_name ?? null
+        );
+        registerPending(resolvedStation, ret.created_at);
+      });
+      changes.forEach((change) => {
+        if (change.closure_id != null) return;
+        const relatedSale = change.sale_id ? saleMap.get(change.sale_id) : undefined;
+        const resolvedStation = resolveStationId(
+          change.station_id ?? relatedSale?.station_id ?? null,
+          change.pos_name ?? relatedSale?.pos_name ?? null
+        );
+        registerPending(resolvedStation, change.created_at);
       });
       separatedOrders.forEach((order: SeparatedOrder) => {
         const baseSale = saleMap.get(order.sale_id);
