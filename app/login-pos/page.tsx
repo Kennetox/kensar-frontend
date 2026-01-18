@@ -25,6 +25,7 @@ export default function PosLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const pinInputRef = useRef<HTMLInputElement | null>(null);
+  const isKioskMode = !!stationInfo;
 
   useEffect(() => {
     if (!loading && token) {
@@ -91,6 +92,27 @@ export default function PosLoginPage() {
     setEmail("");
     setError(null);
   }
+
+  const handleExitKiosk = () => {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "¿Deseas cerrar la app y salir del modo kiosk?"
+      );
+      if (!confirmed) return;
+    }
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    if (typeof window !== "undefined") {
+      try {
+        window.open("", "_self");
+        window.close();
+      } catch {
+        // ignore close failures
+      }
+      window.location.replace("about:blank");
+    }
+  };
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -194,6 +216,15 @@ export default function PosLoginPage() {
               >
                 Ingresar al panel
               </Link>
+              {isKioskMode && (
+                <button
+                  type="button"
+                  onClick={handleExitKiosk}
+                  className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                >
+                  Cerrar app
+                </button>
+              )}
             </div>
           </nav>
 

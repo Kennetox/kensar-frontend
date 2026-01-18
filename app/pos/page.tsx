@@ -2778,12 +2778,12 @@ const matchesStationLabel = useCallback(
 
   const closureRangeDescription = useMemo(() => {
     if (!closureRange) {
-      return "Mostrando ventas registradas hoy.";
+      return "Mostrando movimientos (ventas, devoluciones y cambios) registrados hoy.";
     }
     if (closureRange.startKey === closureRange.endKey) {
-      return `Mostrando ventas registradas el ${closureRange.startLabel}.`;
+      return `Mostrando movimientos (ventas, devoluciones y cambios) registrados el ${closureRange.startLabel}.`;
     }
-    return `Mostrando ventas registradas desde ${closureRange.startLabel} hasta ${closureRange.endLabel}.`;
+    return `Mostrando movimientos (ventas, devoluciones y cambios) registrados desde ${closureRange.startLabel} hasta ${closureRange.endLabel}.`;
   }, [closureRange]);
 
   const handleSubmitClosure = async (event: FormEvent<HTMLFormElement>) => {
@@ -3553,11 +3553,30 @@ const matchesStationLabel = useCallback(
   }, []);
 
   const handleExitKiosk = useCallback(() => {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "¿Deseas salir del modo kiosk y cerrar la ventana?"
+      );
+      if (!confirmed) return;
+    }
     if (typeof document !== "undefined" && document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
-    if (typeof window !== "undefined" && openedAsNewTab) {
-      window.close();
+    if (typeof window !== "undefined") {
+      try {
+        window.open("", "_self");
+        window.close();
+      } catch {
+        // ignore close failures
+      }
+      if (openedAsNewTab) {
+        try {
+          window.close();
+        } catch {
+          // ignore close failures
+        }
+      }
+      window.location.replace("about:blank");
     }
   }, [openedAsNewTab]);
 
@@ -4195,34 +4214,6 @@ const matchesStationLabel = useCallback(
                   Cerrar caja
                   <span className="text-[12px] text-amber-200">Reporte Z</span>
                 </button>
-                {isKioskMode && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        handleReloadPos();
-                      }}
-                      className="w-full text-left px-5 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
-                    >
-                      Recargar POS
-                      <span className="text-[12px] text-slate-400">Actualizar vista</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        handleExitKiosk();
-                      }}
-                      className="w-full text-left px-5 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
-                    >
-                      Salir de kiosk
-                      <span className="text-[12px] text-slate-400">
-                        {openedAsNewTab ? "Cerrar ventana" : "Salir pantalla completa"}
-                      </span>
-                    </button>
-                  </>
-                )}
                 {printerConfig.showDrawerButton && (
                   <button
                     type="button"
@@ -4272,6 +4263,35 @@ const matchesStationLabel = useCallback(
                   </span>
                 </button>
                 <div className="border-t border-slate-800/60" />
+                {isKioskMode && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        handleReloadPos();
+                      }}
+                      className="w-full text-left px-5 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                    >
+                      Recargar POS
+                      <span className="text-[12px] text-slate-400">Actualizar vista</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        handleExitKiosk();
+                      }}
+                      className="w-full text-left px-5 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                    >
+                      Salir de kiosk
+                      <span className="text-[12px] text-slate-400">
+                        {openedAsNewTab ? "Cerrar ventana" : "Salir pantalla completa"}
+                      </span>
+                    </button>
+                    <div className="border-t border-slate-800/60" />
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -5369,7 +5389,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                   {closureResult.opened_at && closureResult.closed_at && (
                     <>
                       {" "}
-                      Incluye ventas desde{" "}
+                      Incluye movimientos desde{" "}
                       <span className="font-semibold">
                         {formatDateLabelFromIso(closureResult.opened_at)}
                       </span>{" "}
