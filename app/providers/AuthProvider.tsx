@@ -47,19 +47,23 @@ type AuthContextValue = {
 type AuthStorageShape = {
   token: string;
   user: AuthUser;
+  sessionType?: "web" | "pos";
 };
 
 export const STORAGE_KEY = "kensar_auth";
 export const LOGOUT_REASON_KEY = "kensar_logout_reason";
-const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutos
+const WEB_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutos
+const SESSION_IDLE_CHECK_MS = 10 * 60 * 1000; // 10 minutos
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [sessionType, setSessionType] = useState<"web" | "pos" | null>(null);
   const [loading, setLoading] = useState(true);
   const sessionGuardRef = useRef(false);
+  const lastActivityRef = useRef(Date.now());
 
   const persistAuth = useCallback((payload: AuthStorageShape | null) => {
     if (typeof window === "undefined") return;
@@ -87,12 +91,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const parsed: AuthStorageShape = JSON.parse(stored);
         setToken(parsed.token);
         setUser(parsed.user);
+        setSessionType(parsed.sessionType ?? "web");
       } else {
         const transfer = consumeAuthTransferSnapshot<AuthUser>();
         if (transfer) {
           setToken(transfer.token);
           setUser(transfer.user);
-          persistAuth(transfer);
+          setSessionType("web");
+          persistAuth({ token: transfer.token, user: transfer.user, sessionType: "web" });
         }
       }
       window.localStorage.removeItem(STORAGE_KEY);
@@ -101,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [persistAuth]);
+  }, [persistAuth, token]);
 
   const login = useCallback(
     async (
@@ -146,11 +152,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = (await res.json()) as {
         token: string;
         user: AuthUser;
+        expires_at?: string | null;
       };
 
+      const nextSessionType = options?.isPosStation ? "pos" : "web";
       setToken(data.token);
       setUser(data.user);
-      persistAuth({ token: data.token, user: data.user });
+      setSessionType(nextSessionType);
+      persistAuth({ token: data.token, user: data.user, sessionType: nextSessionType });
       if (typeof window !== "undefined") {
         window.sessionStorage.removeItem(LOGOUT_REASON_KEY);
       }
@@ -159,8 +168,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback((reason?: string) => {
+    if (token) {
+      try {
+        void fetch(`${getApiBase()}/auth/logout`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        // ignore best-effort logout
+      }
+    }
     setToken(null);
     setUser(null);
+    setSessionType(null);
     persistAuth(null);
     if (typeof window !== "undefined") {
       clearPersistedAppState({
@@ -173,23 +193,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         window.sessionStorage.removeItem(LOGOUT_REASON_KEY);
       }
     }
-  }, [persistAuth]);
+  }, [persistAuth, token]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || sessionType !== "web") return;
     if (typeof window === "undefined") return;
 
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "visibilitychange"];
     let timerId: number | null = null;
 
     const resetTimer = () => {
+      lastActivityRef.current = Date.now();
       if (timerId !== null) {
         window.clearTimeout(timerId);
       }
       if (document.visibilityState === "hidden") return;
       timerId = window.setTimeout(() => {
         logout("Tu sesión expiró por inactividad. Inicia sesión nuevamente.");
-      }, INACTIVITY_TIMEOUT_MS);
+      }, WEB_INACTIVITY_TIMEOUT_MS);
     };
 
     events.forEach((event) => window.addEventListener(event, resetTimer));
@@ -201,7 +222,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       events.forEach((event) => window.removeEventListener(event, resetTimer));
     };
+  }, [token, sessionType, logout]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (typeof window === "undefined") return;
+
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "visibilitychange"];
+    const markActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+    events.forEach((event) => window.addEventListener(event, markActivity));
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, markActivity));
+    };
+  }, [token]);
+
+  const checkSessionStatus = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${getApiBase()}/auth/session-status`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { status?: string; reason?: string | null };
+      if (data.status === "active") return;
+      if (data.reason === "replaced") {
+        logout("Se inició sesión con este usuario en otro lugar.");
+        return;
+      }
+      if (data.reason === "inactive") {
+        logout("Tu sesión expiró por inactividad. Inicia sesión nuevamente.");
+        return;
+      }
+      logout("Tu sesión expiró. Ingresa nuevamente.");
+    } catch {
+      // ignore status check failures
+    }
   }, [token, logout]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (typeof window === "undefined") return;
+    let timerId: number | null = null;
+
+    const scheduleCheck = () => {
+      timerId = window.setTimeout(async () => {
+        const idleMs = Date.now() - lastActivityRef.current;
+        if (idleMs >= SESSION_IDLE_CHECK_MS) {
+          await checkSessionStatus();
+        }
+        scheduleCheck();
+      }, SESSION_IDLE_CHECK_MS);
+    };
+
+    scheduleCheck();
+
+    return () => {
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+    };
+  }, [token, checkSessionStatus]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
