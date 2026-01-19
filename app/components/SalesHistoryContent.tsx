@@ -2130,6 +2130,9 @@ export default function SalesHistoryContent({
                 Cada venta puede tener varios productos, todos listados aquí.
               </p>
             </div>
+            <div className="text-xs text-slate-400">
+              Resultados: {loading ? "..." : filteredSales.length}
+            </div>
           </div>
 
           {sales.length === 0 && !loading ? (
