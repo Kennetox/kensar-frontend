@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -15,7 +15,7 @@ import {
   setStoredPosMode,
 } from "@/lib/api/posStations";
 
-export default function PosLoginPage() {
+function PosLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login, token, loading } = useAuth();
@@ -243,7 +243,7 @@ export default function PosLoginPage() {
             <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               No se pudo cerrar la ventana automáticamente. Usa
               <strong> Alt + F4</strong> o intenta nuevamente con el botón
-              "Cerrar app".
+              &quot;Cerrar app&quot;.
             </div>
           )}
 
@@ -358,5 +358,19 @@ export default function PosLoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function PosLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-white text-slate-600 flex items-center justify-center">
+          Cargando acceso POS…
+        </div>
+      }
+    >
+      <PosLoginContent />
+    </Suspense>
   );
 }
