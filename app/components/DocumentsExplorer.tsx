@@ -25,6 +25,7 @@ import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabel
 import {
   fetchSeparatedOrders,
   type SeparatedOrder,
+  type SeparatedOrderPayment,
 } from "@/lib/api/separatedOrders";
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
@@ -59,6 +60,11 @@ type SaleRecord = {
  customer_address?: string | null;
  pos_name?: string | null;
  vendor_name?: string | null;
+  status?: string;
+  voided_at?: string | null;
+  void_reason?: string | null;
+  adjustment_reference?: string | null;
+  closure_id?: number | null;
   total?: number;
  paid_amount?: number;
  cart_discount_value?: number | null;
@@ -91,6 +97,11 @@ type ReturnRecord = {
   customer_name?: string | null;
   pos_name?: string | null;
   vendor_name?: string | null;
+  status?: string;
+  voided_at?: string | null;
+  void_reason?: string | null;
+  adjustment_reference?: string | null;
+  closure_id?: number | null;
   total_refund?: number;
   notes?: string | null;
   items?: { sale_item_id: number; quantity: number; product_name?: string; name?: string }[];
@@ -104,6 +115,11 @@ type ChangeRecord = {
   sale_id?: number;
   pos_name?: string | null;
   seller_name?: string | null;
+  status?: string;
+  voided_at?: string | null;
+  void_reason?: string | null;
+  adjustment_reference?: string | null;
+  closure_id?: number | null;
   total_credit?: number;
   total_new?: number;
   extra_payment?: number;
@@ -126,6 +142,20 @@ type ChangeRecord = {
     total?: number;
   }[];
   payments?: ReturnPayment[];
+};
+
+type AbonoRecord = {
+  id: number;
+  order_id: number;
+  sale_id: number;
+  sale_document_number: string;
+  customer_name?: string | null;
+  method: string;
+  amount: number;
+  paid_at: string;
+  status?: string | null;
+  closure_id?: number | null;
+  note?: string | null;
 };
 
 type ClosureRecord = {
@@ -161,7 +191,8 @@ type ClosureRecord = {
 
 type DocumentRow = {
   id: string;
-  type: "venta" | "devolucion" | "cambio" | "cierre";
+  type: "venta" | "devolucion" | "cambio" | "cierre" | "abono";
+  recordId: number;
   saleId?: number;
   createdAt: string;
   documentNumber: string;
@@ -176,7 +207,10 @@ type DocumentRow = {
   pos?: string;
   vendor?: string;
   refundAmount?: number;
-  data: SaleRecord | ReturnRecord | ChangeRecord | ClosureRecord;
+  isAnnulation?: boolean;
+  status?: string;
+  closureId?: number | null;
+  data: SaleRecord | ReturnRecord | ChangeRecord | ClosureRecord | AbonoRecord;
 };
 
 type SummaryCard = {
@@ -208,6 +242,15 @@ type SummaryCard = {
  }
 
 function computeSaleTotals(sale: SaleRecord) {
+  if (sale.status === "voided") {
+    return {
+      refundAmount: 0,
+      netTotal: 0,
+      paid: 0,
+      surchargeAmount: 0,
+      surchargeLabel: sale.surcharge_label ?? null,
+    };
+  }
   const totalBase = sale.total ?? 0;
   const refundAmount = Math.max(0, sale.refunded_total ?? 0);
   const netTotal = sale.refunded_balance != null
@@ -345,7 +388,7 @@ export default function DocumentsExplorer({
   hideManageCustomers = false,
 }: DocumentsExplorerProps = {}) {
   const router = useRouter();
-  const { token, logout } = useAuth();
+  const { token, logout, user } = useAuth();
   const [posSettings, setPosSettings] =
     useState<PosSettingsPayload | null>(null);
   const authHeaders = useMemo(
@@ -368,6 +411,7 @@ export default function DocumentsExplorer({
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [changes, setChanges] = useState<ChangeRecord[]>([]);
   const [closures, setClosures] = useState<ClosureRecord[]>([]);
+  const [separatedOrders, setSeparatedOrders] = useState<SeparatedOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -388,6 +432,10 @@ export default function DocumentsExplorer({
   const [persistedSelectedId, setPersistedSelectedId] = useState<string | null>(
     null
   );
+  const [voidTarget, setVoidTarget] = useState<DocumentRow | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voiding, setVoiding] = useState(false);
+  const [voidError, setVoidError] = useState<string | null>(null);
 
   const formatDateInput = (date: Date) =>
     date.toISOString().slice(0, 10);
@@ -434,7 +482,7 @@ export default function DocumentsExplorer({
       setError(null);
       if (!authHeaders) throw new Error("Sin sesión activa");
       const apiBase = getApiBase();
-      const [salesRes, returnsRes, changesRes, closuresRes] = await Promise.all([
+      const [salesRes, returnsRes, changesRes, closuresRes, separatedOrdersRes] = await Promise.all([
         fetch(`${apiBase}/pos/sales?skip=0&limit=200`, {
           headers: authHeaders,
           credentials: "include",
@@ -451,6 +499,7 @@ export default function DocumentsExplorer({
           headers: authHeaders,
           credentials: "include",
         }),
+        fetchSeparatedOrders({ limit: 200 }, token),
       ]);
 
       const handleUnauthorized = (res: Response) => {
@@ -475,15 +524,18 @@ export default function DocumentsExplorer({
       const returnsData: ReturnRecord[] = await returnsRes.json();
       const changesData: ChangeRecord[] = await changesRes.json();
       const closuresData: ClosureRecord[] = await closuresRes.json();
+      const separatedOrdersData = separatedOrdersRes as SeparatedOrder[];
       setSales(salesData);
       setReturns(returnsData);
       setChanges(changesData);
       setClosures(closuresData);
+      setSeparatedOrders(separatedOrdersData);
       const docsList = mappedDocuments(
         salesData,
         returnsData,
         changesData,
-        closuresData
+        closuresData,
+        separatedOrdersData
       );
       setSelectedDoc((prev) => {
         if (prev) {
@@ -506,6 +558,69 @@ export default function DocumentsExplorer({
       setError(err instanceof Error ? err.message : "Error al cargar documentos");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function openVoidModal(doc: DocumentRow) {
+    setVoidTarget(doc);
+    setVoidReason("");
+    setVoidError(null);
+  }
+
+  function closeVoidModal() {
+    setVoidTarget(null);
+    setVoidReason("");
+    setVoidError(null);
+  }
+
+  async function submitVoid() {
+    if (!voidTarget || !authHeaders) return;
+    setVoiding(true);
+    setVoidError(null);
+    const apiBase = getApiBase();
+    try {
+      if (voidTarget.type === "cierre") {
+        throw new Error("Los cierres no se pueden anular.");
+      }
+      if (voidTarget.type === "abono") {
+        throw new Error("Los abonos se ajustan desde la pantalla de separados.");
+      }
+      let endpoint = "";
+      switch (voidTarget.type) {
+        case "venta":
+          endpoint = `${apiBase}/pos/sales/${voidTarget.recordId}/void`;
+          break;
+        case "devolucion":
+          endpoint = `${apiBase}/pos/returns/${voidTarget.recordId}/void`;
+          break;
+        case "cambio":
+          endpoint = `${apiBase}/pos/changes/${voidTarget.recordId}/void`;
+          break;
+        default:
+          throw new Error("Tipo de documento no soportado.");
+      }
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        credentials: "include",
+        body: JSON.stringify({ reason: voidReason || null }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const message =
+          (data && (data.detail as string)) ||
+          `Error al anular (código ${res.status})`;
+        throw new Error(message);
+      }
+      closeVoidModal();
+      await loadDocuments();
+    } catch (err) {
+      setVoidError(err instanceof Error ? err.message : "Error al anular");
+    } finally {
+      setVoiding(false);
     }
   }
 
@@ -609,8 +724,13 @@ export default function DocumentsExplorer({
     salesList: SaleRecord[],
     returnsList: ReturnRecord[],
     changesList: ChangeRecord[],
-    closuresList: ClosureRecord[]
+    closuresList: ClosureRecord[],
+    separatedOrdersList: SeparatedOrder[]
   ): DocumentRow[] {
+    const salesById = new Map<number, SaleRecord>();
+    salesList.forEach((sale) => {
+      salesById.set(sale.id, sale);
+    });
     const saleDocs: DocumentRow[] = salesList.map((sale) => {
       const { netTotal, refundAmount } = computeSaleTotals(sale);
       const firstItem = sale.items && sale.items.length ? sale.items[0] : undefined;
@@ -626,6 +746,7 @@ export default function DocumentsExplorer({
       return {
         id: `sale-${sale.id}`,
         type: "venta",
+        recordId: sale.id,
         saleId: sale.id,
         createdAt: sale.created_at,
         documentNumber: sale.document_number ?? `V-${sale.id.toString().padStart(5, "0")}`,
@@ -640,33 +761,51 @@ export default function DocumentsExplorer({
         customer: sale.customer_name ?? undefined,
         pos: sale.pos_name ?? undefined,
         vendor: sale.vendor_name ?? undefined,
+        status: sale.status,
+        closureId: sale.closure_id ?? null,
         data: sale,
       };
     });
 
     const returnDocs: DocumentRow[] = returnsList.map((ret) => {
-      const paymentsTotal = ret.payments?.reduce((sum, p) => sum + p.amount, 0) ?? ret.total_refund ?? 0;
+      const isAnnulation = ret.status === "confirmed" && !!ret.adjustment_reference;
+      const paymentsTotal =
+        ret.payments?.reduce((sum, p) => sum + p.amount, 0) ??
+        ret.total_refund ??
+        0;
       const firstItem = ret.items && ret.items.length ? ret.items[0] : undefined;
       const detail = firstItem
         ? `${firstItem.product_name ?? firstItem.name ?? "Producto"} x${firstItem.quantity ?? 1}`
+        : isAnnulation
+        ? "Anulación registrada"
         : "Devolución registrada";
 
       return {
         id: `return-${ret.id}`,
         type: "devolucion",
+        recordId: ret.id,
         createdAt: ret.created_at ?? "",
-        documentNumber: ret.document_number ?? `R-${ret.id.toString().padStart(5, "0")}`,
+        documentNumber:
+          ret.document_number ?? `R-${ret.id.toString().padStart(5, "0")}`,
         reference: ret.sale_document_number
           ? `Ref. ${ret.sale_document_number}`
           : ret.sale_number
           ? `Venta #${ret.sale_number}`
           : "Devolución",
         detail,
-        total: -Math.abs(paymentsTotal),
-        paymentMethod: ret.payments && ret.payments[0] ? ret.payments[0].method : undefined,
+        total: isAnnulation ? 0 : -Math.abs(paymentsTotal),
+        paymentMethod: isAnnulation
+          ? undefined
+          : ret.payments && ret.payments[0]
+          ? ret.payments[0].method
+          : undefined,
         customer: ret.customer_name ?? undefined,
         pos: ret.pos_name ?? undefined,
         vendor: ret.vendor_name ?? undefined,
+        refundAmount: undefined,
+        status: ret.status,
+        closureId: ret.closure_id ?? null,
+        isAnnulation,
         data: ret,
       };
     });
@@ -682,6 +821,7 @@ export default function DocumentsExplorer({
       return {
         id: `change-${change.id}`,
         type: "cambio",
+        recordId: change.id,
         createdAt: change.created_at ?? "",
         documentNumber: change.document_number ?? `CB-${change.id.toString().padStart(5, "0")}`,
         reference: change.sale_id ? `Venta #${change.sale_id}` : "Cambio",
@@ -693,6 +833,8 @@ export default function DocumentsExplorer({
             : undefined,
         pos: change.pos_name ?? undefined,
         vendor: change.seller_name ?? undefined,
+        status: change.status,
+        closureId: change.closure_id ?? null,
         data: change,
       };
     });
@@ -702,6 +844,7 @@ export default function DocumentsExplorer({
       return {
         id: `closure-${closure.id}`,
         type: "cierre",
+        recordId: closure.id,
         createdAt: closure.closed_at ?? closure.opened_at ?? new Date().toISOString(),
         documentNumber: closure.consecutive ?? `CL-${closure.id.toString().padStart(5, "0")}`,
         reference: `Reporte Z - ${closure.pos_name ?? "POS"}`,
@@ -711,19 +854,80 @@ export default function DocumentsExplorer({
         customer: undefined,
         pos: closure.pos_name ?? undefined,
         vendor: closure.closed_by_user_name,
+        status: undefined,
+        closureId: null,
         data: closure,
       };
     });
 
-    return [...saleDocs, ...returnDocs, ...changeDocs, ...closureDocs].sort(
+    const abonoDocs: DocumentRow[] = [];
+    separatedOrdersList.forEach((order) => {
+      const sale = salesById.get(order.sale_id);
+      order.payments?.forEach((payment: SeparatedOrderPayment) => {
+        if (payment?.status === "voided") return;
+        const amount = Number(payment.amount ?? 0);
+        const record: AbonoRecord = {
+          id: payment.id,
+          order_id: order.id,
+          sale_id: order.sale_id,
+          sale_document_number: order.sale_document_number,
+          customer_name: order.customer_name ?? null,
+          method: payment.method,
+          amount,
+          paid_at: payment.paid_at,
+          status: payment.status ?? null,
+          closure_id: payment.closure_id ?? null,
+          note: payment.note ?? null,
+        };
+        abonoDocs.push({
+          id: `abono-${payment.id}`,
+          type: "abono",
+          recordId: payment.id,
+          saleId: order.sale_id,
+          createdAt: payment.paid_at,
+          documentNumber: `AB-${payment.id.toString().padStart(6, "0")}`,
+          reference: order.sale_document_number
+            ? `Separado ${order.sale_document_number}`
+            : `Separado #${order.id}`,
+          detail: order.sale_document_number
+            ? `Abono ${order.sale_document_number}`
+            : "Abono a separado",
+          total: amount,
+          paymentMethod: payment.method,
+          customer: order.customer_name ?? undefined,
+          pos: sale?.pos_name ?? undefined,
+          vendor: sale?.vendor_name ?? undefined,
+          status: payment.status ?? undefined,
+          closureId: payment.closure_id ?? null,
+          data: record,
+        });
+      });
+    });
+
+    return [
+      ...saleDocs,
+      ...returnDocs,
+      ...changeDocs,
+      ...abonoDocs,
+      ...closureDocs,
+    ].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }
 
   const documents = useMemo(
-    () => mappedDocuments(sales, returns, changes, closures),
-    [sales, returns, changes, closures]
+    () => mappedDocuments(sales, returns, changes, closures, separatedOrders),
+    [sales, returns, changes, closures, separatedOrders]
   );
+
+  const isAdmin = user?.role === "Administrador";
+  const getStatusLabel = (status?: string) => {
+    if (!status || status === "active" || status === "confirmed") return null;
+    if (status === "voided") return "Anulado";
+    if (status === "adjusted") return "Ajustado";
+    if (status === "adjustment") return "Ajuste";
+    return status;
+  };
 
   const filterOptions = useMemo(() => {
     const posSet = new Set<string>();
@@ -848,6 +1052,23 @@ useEffect(() => {
 }, [selectedDoc?.id]);
 
 const selectedDetails = selectedDoc?.data;
+const selectedDocStatusLabel = getStatusLabel(selectedDoc?.status);
+const selectedDocIsVoided = selectedDoc?.status === "voided";
+const selectedDocCanShowVoidButton =
+  !!selectedDoc &&
+  isAdmin &&
+  selectedDoc.type !== "cierre" &&
+  selectedDoc.type !== "abono" &&
+  !selectedDocIsVoided;
+const selectedDocCanVoid =
+  !!selectedDoc &&
+  isAdmin &&
+  selectedDoc.type !== "cierre" &&
+  selectedDoc.type !== "abono" &&
+  !selectedDocIsVoided &&
+  (selectedDoc.type === "venta" || selectedDoc.closureId == null);
+const selectedDocActionLabel =
+  selectedDoc?.type === "venta" && selectedDoc?.closureId ? "Ajustar" : "Anular";
 const selectedSaleDocument =
   selectedDoc?.type === "venta"
     ? (selectedDoc.data as SaleRecord)
@@ -1416,6 +1637,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
               <option value="venta">Ventas</option>
               <option value="devolucion">Devoluciones</option>
               <option value="cambio">Cambios</option>
+              <option value="abono">Abonos</option>
               <option value="cierre">Cierres de caja</option>
             </select>
           </label>
@@ -1634,12 +1856,23 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                   )}
                   {!loading && filteredDocuments.map((doc) => {
                     const isSelected = selectedDoc?.id === doc.id;
+                    const isAnnulation =
+                      doc.type === "devolucion" && doc.isAnnulation;
                     const typeBadge =
                       doc.type === "venta"
-                        ? "Venta"
+                        ? doc.status === "voided"
+                          ? "Anulación"
+                          : "Venta"
                         : doc.type === "devolucion"
-                        ? "Devolución"
+                        ? isAnnulation
+                          ? "Anulación"
+                          : "Devolución"
+                        : doc.type === "cambio"
+                        ? "Cambio"
+                        : doc.type === "abono"
+                        ? "Abono"
                         : "Cierre";
+                    const statusLabel = getStatusLabel(doc.status);
                     const docIsSeparated = !!doc.isSeparated;
                     const docInitialMethodLabel = mapPaymentMethod(
                       doc.initialPaymentMethod ?? doc.paymentMethod
@@ -1667,14 +1900,31 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                           <span
                             className={`px-2 py-0.5 rounded-full border text-[11px] ${
                               doc.type === "venta"
-                                ? "border-emerald-400/40 text-emerald-200"
+                                ? doc.status === "voided"
+                                  ? "border-rose-500/40 text-rose-200"
+                                  : "border-emerald-400/40 text-emerald-200"
                                 : doc.type === "devolucion"
-                                ? "border-rose-400/40 text-rose-300"
+                                ? isAnnulation
+                                  ? "border-rose-500/40 text-rose-200"
+                                  : "border-rose-400/40 text-rose-300"
+                                : doc.type === "abono"
+                                ? "border-cyan-400/40 text-cyan-200"
                                 : "border-sky-400/40 text-sky-200"
                             }`}
                           >
                             {typeBadge}
                           </span>
+                          {statusLabel && (
+                            <span
+                              className={`ml-2 px-2 py-0.5 rounded-full border text-[10px] uppercase ${
+                                doc.status === "voided"
+                                  ? "border-rose-500/40 text-rose-200"
+                                  : "border-amber-400/40 text-amber-100"
+                              }`}
+                            >
+                              {statusLabel}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-sm align-top">
                           <span className="block truncate">{doc.detail}</span>
@@ -1736,6 +1986,21 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {selectedDocCanShowVoidButton && (
+                    <button
+                      type="button"
+                      onClick={() => openVoidModal(selectedDoc)}
+                      disabled={!selectedDocCanVoid}
+                      title={
+                        !selectedDocCanVoid
+                          ? "Solo se puede anular antes del cierre"
+                          : undefined
+                      }
+                      className="px-3 py-1.5 rounded-md border border-rose-500/40 text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+                    >
+                      {selectedDocActionLabel}
+                    </button>
+                  )}
                   {selectedDoc.type === "venta" && (
                     <>
                       <button
@@ -1791,12 +2056,30 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                     {selectedDoc.type === "venta"
                       ? "Venta"
                       : selectedDoc.type === "devolucion"
-                      ? "Devolución"
+                      ? selectedDoc.isAnnulation
+                        ? "Anulación"
+                        : "Devolución"
                       : selectedDoc.type === "cambio"
                       ? "Cambio"
+                      : selectedDoc.type === "abono"
+                      ? "Abono"
                       : "Cierre de caja"}
                   </span>
                 </div>
+                {selectedDocStatusLabel && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-slate-400">Estado</span>
+                    <span
+                      className={`text-right font-semibold ${
+                        selectedDoc.status === "voided"
+                          ? "text-rose-200"
+                          : "text-amber-100"
+                      }`}
+                    >
+                      {selectedDocStatusLabel}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between gap-3">
                   <span className="text-slate-400">Referencia</span>
                   <span className="text-right text-slate-100">
@@ -1829,6 +2112,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                     </div>
                   )}
                 {selectedDoc.type === "devolucion" &&
+                  !selectedDoc.isAnnulation &&
                   selectedReturnRecord?.sale_document_number && (
                     <div className="flex justify-between gap-3">
                       <span className="text-slate-400">Documento origen</span>
@@ -2184,6 +2468,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                 )}
 
               {selectedDoc.type === "devolucion" &&
+                !selectedDoc.isAnnulation &&
                 typeof (selectedDetails as ReturnRecord)?.notes === "string" &&
                 (selectedDetails as ReturnRecord)?.notes?.trim() && (
                   <div>
@@ -2211,6 +2496,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
 
               {detailExpanded &&
                 selectedDoc.type === "devolucion" &&
+                !selectedDoc.isAnnulation &&
                 selectedReturnPayments.length > 0 && (
                   <div>
                     <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
@@ -2290,6 +2576,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
 
               {detailExpanded &&
                 selectedDoc.type === "devolucion" &&
+                !selectedDoc.isAnnulation &&
                 Array.isArray((selectedDetails as ReturnRecord)?.items) && (
                   <div>
                     <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
@@ -2524,6 +2811,47 @@ const selectedDocMethodLabel = selectedDocIsSeparated
           )}
         </section>
       </div>
+      {voidTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl">
+            <div className="text-sm font-semibold text-slate-100">
+              {selectedDocActionLabel} documento {voidTarget.documentNumber}
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              Esta acción genera un ajuste y no elimina el registro.
+            </p>
+            <label className="mt-3 block text-xs text-slate-300">
+              Motivo (opcional)
+            </label>
+            <textarea
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 focus:border-rose-400 outline-none"
+            />
+            {voidError && (
+              <div className="mt-2 text-xs text-rose-300">{voidError}</div>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeVoidModal}
+                className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800 text-xs"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={submitVoid}
+                disabled={voiding}
+                className="px-3 py-1.5 rounded-md border border-rose-500/40 text-rose-100 hover:bg-rose-500/10 text-xs disabled:opacity-50"
+              >
+                {voiding ? "Procesando..." : selectedDocActionLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
- }
+}

@@ -335,42 +335,6 @@ export default function DashboardHomePage() {
     loadSeparatedOrders,
   ]);
 
-  const separatedAdjustments = useMemo(() => {
-    const byDateReserved = new Map<string, number>();
-    const byDateCollected = new Map<string, number>();
-    const byMonthReserved = new Map<string, number>();
-    const byMonthCollected = new Map<string, number>();
-    const addValue = (map: Map<string, number>, key: string, amount: number) => {
-      if (!key || !Number.isFinite(amount) || amount === 0) return;
-      map.set(key, (map.get(key) ?? 0) + amount);
-    };
-    separatedOrders.forEach((order) => {
-      const dateKey = getBogotaDateKey(order.created_at);
-      if (!dateKey) return;
-      const monthKey = dateKey.slice(0, 7);
-      addValue(byDateReserved, dateKey, order.total_amount ?? 0);
-      addValue(byMonthReserved, monthKey, order.total_amount ?? 0);
-      const initial = order.initial_payment ?? 0;
-      if (initial > 0) {
-        addValue(byDateCollected, dateKey, initial);
-        addValue(byMonthCollected, monthKey, initial);
-      }
-      order.payments?.forEach((payment) => {
-        const payDateKey = getBogotaDateKey(payment.paid_at);
-        if (!payDateKey) return;
-        const payMonthKey = payDateKey.slice(0, 7);
-        addValue(byDateCollected, payDateKey, payment.amount ?? 0);
-        addValue(byMonthCollected, payMonthKey, payment.amount ?? 0);
-      });
-    });
-    return {
-      byDateReserved,
-      byDateCollected,
-      byMonthReserved,
-      byMonthCollected,
-    };
-  }, [separatedOrders]);
-
   /* --------- Datos derivados --------- */
 
   // Semana actual (lunes a domingo) con totales por día
@@ -384,26 +348,12 @@ export default function DashboardHomePage() {
     [todayDateKey]
   );
   const adjustTotalForDate = useCallback(
-    (baseTotal: number, key: string) => {
-      const reserved =
-        separatedAdjustments.byDateReserved.get(key) ?? 0;
-      const collected =
-        separatedAdjustments.byDateCollected.get(key) ?? 0;
-      const adjusted = baseTotal - reserved + collected;
-      return Math.max(0, adjusted);
-    },
-    [separatedAdjustments]
+    (baseTotal: number) => Math.max(0, baseTotal),
+    []
   );
   const adjustTotalForMonth = useCallback(
-    (baseTotal: number, key: string) => {
-      const reserved =
-        separatedAdjustments.byMonthReserved.get(key) ?? 0;
-      const collected =
-        separatedAdjustments.byMonthCollected.get(key) ?? 0;
-      const adjusted = baseTotal - reserved + collected;
-      return Math.max(0, adjusted);
-    },
-    [separatedAdjustments]
+    (baseTotal: number) => Math.max(0, baseTotal),
+    []
   );
   const weekPoints = useMemo(() => {
     if (!data) return [];
@@ -436,7 +386,7 @@ export default function DashboardHomePage() {
       const key = getBogotaDateKey(d);
       const fromMap = map.get(key);
       const baseTotal = fromMap?.total ?? 0;
-      const adjustedTotal = adjustTotalForDate(baseTotal, key);
+      const adjustedTotal = adjustTotalForDate(baseTotal);
       result.push({
         date: d.toISOString(),
         total: adjustedTotal,
@@ -457,7 +407,7 @@ export default function DashboardHomePage() {
         const monthKey = key.slice(0, 7);
         return {
           ...point,
-          total: adjustTotalForMonth(point.total ?? 0, monthKey),
+          total: adjustTotalForMonth(point.total ?? 0),
         };
       }),
     [yearTrend, adjustTotalForMonth]
@@ -465,17 +415,11 @@ export default function DashboardHomePage() {
 
   const adjustedTodaySales = useMemo(() => {
     if (!data) return 0;
-    return adjustTotalForDate(
-      data.today_sales_total ?? 0,
-      todayDateKey
-    );
+    return adjustTotalForDate(data.today_sales_total ?? 0);
   }, [data, adjustTotalForDate, todayDateKey]);
   const adjustedMonthSales = useMemo(() => {
     if (!data) return 0;
-    return adjustTotalForMonth(
-      data.month_sales_total ?? 0,
-      currentMonthKey
-    );
+    return adjustTotalForMonth(data.month_sales_total ?? 0);
   }, [data, adjustTotalForMonth, currentMonthKey]);
   const adjustedTodayAvgTicket = useMemo(() => {
     if (!data) return 0;
@@ -607,11 +551,6 @@ export default function DashboardHomePage() {
       };
     }
 
-    const hasSales = recentSales.length > 0;
-    if (!hasSales) {
-      return { entries: [], separated: null as SeparatedOverview | null };
-    }
-
     const dayStart = buildBogotaDateFromKey(todayDateKey);
     const end = new Date(dayStart);
     end.setUTCDate(dayStart.getUTCDate() + 1);
@@ -671,7 +610,53 @@ export default function DashboardHomePage() {
       paymentsTotal: 0,
     };
 
+    const initialPaymentMap = new Map<
+      number,
+      { method: string; amount: number }
+    >();
     recentSales.forEach((sale) => {
+      if (!sale.is_separated) return;
+      const amount = sale.initial_payment_amount ?? 0;
+      if (amount <= 0) return;
+      const method = sale.initial_payment_method ?? sale.payment_method ?? "separado";
+      initialPaymentMap.set(sale.id, { method, amount });
+    });
+
+    separatedOrders.forEach((order) => {
+      const orderDate = parseDateInput(order.created_at);
+      const orderInRange = orderDate ? isWithinRange(orderDate) : false;
+      if (orderInRange) {
+        separatedSummary.tickets += 1;
+        separatedSummary.reservedTotal += order.total_amount ?? 0;
+        separatedSummary.pendingTotal += Math.max(order.balance ?? 0, 0);
+        const initial = initialPaymentMap.get(order.sale_id);
+        if (initial && initial.amount > 0) {
+          addEntry(initial.method, initial.amount, order.sale_id, true);
+          separatedSummary.paymentsTotal += initial.amount;
+        }
+      }
+
+      if (order.payments?.length) {
+        order.payments.forEach((payment) => {
+          if (payment.status === "voided") return;
+          const paidAt = payment.paid_at
+            ? parseDateInput(payment.paid_at)
+            : null;
+          if (
+            paidAt &&
+            isWithinRange(paidAt) &&
+            (payment.amount ?? 0) > 0
+          ) {
+            const amount = Math.max(payment.amount ?? 0, 0);
+            addEntry(payment.method, amount, order.sale_id, false);
+            separatedSummary.paymentsTotal += amount;
+          }
+        });
+      }
+    });
+
+    recentSales.forEach((sale) => {
+      if (sale.is_separated) return;
       const saleDate = parseDateInput(sale.created_at);
       if (!saleDate) return;
       const saleInRange = isWithinRange(saleDate);
@@ -681,46 +666,6 @@ export default function DashboardHomePage() {
         sale.refunded_balance != null
           ? Math.max(0, sale.refunded_balance)
           : Math.max(0, baseTotal - Math.max(0, sale.refunded_total ?? 0));
-
-      const order = separatedOrdersMap.get(sale.id);
-      const isSeparated = !!sale.is_separated;
-
-      if (isSeparated) {
-        const initialAmount =
-          sale.initial_payment_amount ?? order?.initial_payment ?? 0;
-        const initialMethod =
-          sale.initial_payment_method ?? sale.payment_method ?? "separado";
-
-        if (saleInRange) {
-          separatedSummary.tickets += 1;
-          separatedSummary.reservedTotal += order?.total_amount ?? baseTotal;
-          const pending = sale.balance ?? order?.balance ?? 0;
-          separatedSummary.pendingTotal += Math.max(pending, 0);
-          if (initialAmount > 0) {
-            addEntry(initialMethod, initialAmount, sale.id, true);
-            separatedSummary.paymentsTotal += initialAmount;
-          }
-        }
-
-        if (order?.payments?.length) {
-          order.payments.forEach((payment) => {
-            const paidAt = payment.paid_at
-              ? parseDateInput(payment.paid_at)
-              : null;
-            if (
-              paidAt &&
-              isWithinRange(paidAt) &&
-              (payment.amount ?? 0) > 0
-            ) {
-              const amount = Math.max(payment.amount ?? 0, 0);
-              addEntry(payment.method, amount, sale.id, false);
-              separatedSummary.paymentsTotal += amount;
-            }
-          });
-        }
-
-        return;
-      }
 
       if (!saleInRange || netAmount <= 0) return;
 
@@ -1243,7 +1188,8 @@ export default function DashboardHomePage() {
 
                     const saleNumber =
                       sale.sale_number ?? sale.number ?? sale.id;
-                    const hasRefund = refundAmount > 0;
+                    const isVoided = sale.status === "voided";
+                    const hasRefund = refundAmount > 0 && !isVoided;
                     const netPaid = Math.max(
                       0,
                       (sale.paid_amount ?? sale.total) - refundAmount
@@ -1275,6 +1221,11 @@ export default function DashboardHomePage() {
                         <div className="flex flex-col">
                           <span className="truncate text-slate-100 flex items-center gap-2">
                             {detail}
+                            {isVoided && (
+                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-rose-500/50 text-rose-300 bg-rose-500/10">
+                                Anulada
+                              </span>
+                            )}
                             {hasRefund && (
                               <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${netTotal <= 0 ? "border-rose-500/50 text-rose-300 bg-rose-500/10" : "border-amber-400/50 text-amber-200 bg-amber-500/10"}`}>
                                 {netTotal <= 0 ? "Devuelta" : "Dev. parcial"}

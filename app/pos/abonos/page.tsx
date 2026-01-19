@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/providers/AuthProvider";
 import { POS_DISPLAY_NAME } from "@/app/pos/poscontext";
@@ -21,9 +21,11 @@ import {
   getPosStationAccess,
   formatPosDisplayName,
   type PosStationAccess,
+  type PosStationPrinterConfig,
   ensureStoredPosMode,
   getWebPosStation,
   subscribeToPosStationChanges,
+  fetchPosStationPrinterConfig,
   type PosAccessMode,
 } from "@/lib/api/posStations";
 import { formatBogotaDate } from "@/lib/time/bogota";
@@ -85,6 +87,7 @@ function formatDateOnly(value?: string | null): string {
 export default function AbonosPage() {
   const { token, user } = useAuth();
   const router = useRouter();
+  const apiBase = useMemo(() => getApiBase(), []);
   const searchParams = useSearchParams();
   const ticketParam = searchParams.get("ticket");
   const paymentCatalog = usePaymentMethodsCatalog();
@@ -127,10 +130,51 @@ export default function AbonosPage() {
   const [canPrintTicket, setCanPrintTicket] = useState(false);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
+  const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
+    mode: "qz-tray",
+    printerName: "",
+    width: "80mm",
+    autoOpenDrawer: false,
+    showDrawerButton: true,
+  });
+  const [successSummary, setSuccessSummary] = useState<{
+    amount: number;
+    totalPaid: number;
+    balance: number;
+    method: string;
+  } | null>(null);
+  const [successModalOpen, setSuccessModalOpen] = useState(false);
+  const lastDrawerPaymentId = useRef<string | null>(null);
   const resolvedPosName = useMemo(
     () => formatPosDisplayName(stationInfo, POS_DISPLAY_NAME),
     [stationInfo]
   );
+
+  type QzPromiseResolver<T> = (value: T | PromiseLike<T>) => void;
+  type QzPromiseReject = (reason?: unknown) => void;
+  type QzType = {
+    websocket: { isActive: () => boolean; connect: () => Promise<void> };
+    configs: { create: (printer: string, options?: Record<string, unknown>) => unknown };
+    print: (config: unknown, data: unknown) => Promise<void>;
+    security?: {
+      setCertificatePromise: (
+        promise: (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => void
+      ) => void;
+      setSignaturePromise: (
+        promise: (
+          toSign: string
+        ) => (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => void
+      ) => void;
+    };
+  };
+  const [qzClient, setQzClient] = useState<QzType | null>(() => {
+    if (typeof window !== "undefined") {
+      const w = window as unknown as { qz?: QzType };
+      return w.qz ?? null;
+    }
+    return null;
+  });
+  const qzSecurityConfiguredRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -155,6 +199,162 @@ export default function AbonosPage() {
   }, [posMode]);
   const isStationMode = posMode === "station";
   const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
+  const printerStorageKey = useMemo(
+    () => `kensar_pos_printer_${activeStationId ?? "pos-web"}`,
+    [activeStationId]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const fallbackKey = "kensar_pos_printer_pos-web";
+      const raw = window.localStorage.getItem(printerStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PosStationPrinterConfig;
+        setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+        return;
+      }
+      if (printerStorageKey !== fallbackKey) {
+        const fallbackRaw = window.localStorage.getItem(fallbackKey);
+        if (fallbackRaw) {
+          const parsed = JSON.parse(fallbackRaw) as PosStationPrinterConfig;
+          setPrinterConfig((prev) => ({ ...prev, ...parsed }));
+          window.localStorage.setItem(printerStorageKey, fallbackRaw);
+        }
+      }
+    } catch (err) {
+      console.warn("No se pudo cargar la configuración de impresora", err);
+    }
+  }, [printerStorageKey]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (!isStationMode || !activeStationId) return;
+    let cancelled = false;
+    const loadRemote = async () => {
+      try {
+        const remote = await fetchPosStationPrinterConfig(
+          apiBase,
+          token,
+          activeStationId
+        );
+        if (!remote || cancelled) return;
+        setPrinterConfig((prev) => {
+          const next = { ...prev, ...remote };
+          if (typeof window !== "undefined") {
+            try {
+              window.localStorage.setItem(
+                printerStorageKey,
+                JSON.stringify(next)
+              );
+            } catch (err) {
+              console.warn(
+                "No se pudo guardar la configuración de impresora",
+                err
+              );
+            }
+          }
+          return next;
+        });
+      } catch (err) {
+        console.warn("No se pudo cargar la impresora guardada", err);
+      }
+    };
+    loadRemote();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, apiBase, activeStationId, isStationMode, printerStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+    const setIfPresent = () => {
+      if (cancelled) return;
+      const w = window as unknown as { qz?: QzType };
+      if (w.qz) setQzClient(w.qz);
+    };
+    const w = window as unknown as { qz?: QzType };
+    if (w.qz) {
+      setIfPresent();
+      return () => {
+        cancelled = true;
+      };
+    }
+    const existing = document.querySelector(
+      'script[data-qz-tray]'
+    ) as HTMLScriptElement | null;
+    const script = existing ?? document.createElement("script");
+    if (!existing) {
+      script.src = "https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
+      script.async = true;
+      script.dataset.qzTray = "1";
+      script.onerror = () =>
+        console.warn("No se pudo cargar el script de QZ Tray desde la CDN.");
+      document.head.appendChild(script);
+    }
+    script.addEventListener("load", setIfPresent);
+    return () => {
+      cancelled = true;
+      script.removeEventListener("load", setIfPresent);
+    };
+  }, []);
+
+  const configureQzSecurity = useCallback(() => {
+    if (!qzClient?.security) return true;
+    if (!token) return false;
+    if (qzSecurityConfiguredRef.current) return true;
+    const authHeaders = {
+      Authorization: `Bearer ${token}`,
+    };
+    qzClient.security.setCertificatePromise(
+      (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => {
+        fetch(`${apiBase}/pos/qz/cert`, { credentials: "include" })
+          .then(async (res) => {
+            if (!res.ok) {
+              throw new Error(
+                `No se pudo obtener el certificado (Error ${res.status}).`
+              );
+            }
+            return res.text();
+          })
+          .then(resolve)
+          .catch(reject);
+      }
+    );
+    qzClient.security.setSignaturePromise(
+      (toSign: string) =>
+        (resolve: QzPromiseResolver<string>, reject: QzPromiseReject) => {
+          fetch(`${apiBase}/pos/qz/sign`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...authHeaders,
+            },
+            credentials: "include",
+            body: JSON.stringify({ data: toSign }),
+          })
+            .then(async (res) => {
+              if (!res.ok) {
+                const detail = await res.json().catch(() => null);
+                throw new Error(
+                  detail?.detail ??
+                    `No se pudo firmar el reto (Error ${res.status}).`
+                );
+              }
+              const data = (await res.json()) as { signature?: string };
+              if (!data?.signature) {
+                throw new Error("La API no devolvió la firma.");
+              }
+              return data.signature;
+            })
+            .then(resolve)
+            .catch(reject);
+        }
+    );
+    qzSecurityConfiguredRef.current = true;
+    return true;
+  }, [apiBase, qzClient, token]);
 
   useEffect(() => {
     setSelectedMethod((prev) => {
@@ -354,7 +554,15 @@ export default function AbonosPage() {
       } catch (err) {
         console.warn("No pudimos actualizar la venta vinculada", err);
       }
-      setSubmitSuccess("Abono registrado correctamente.");
+      const totalPaid =
+        updated.total_amount - Math.max(updated.balance ?? 0, 0);
+      setSuccessSummary({
+        amount: Math.round(value),
+        totalPaid: Math.max(0, totalPaid),
+        balance: Math.max(updated.balance ?? 0, 0),
+        method: selectedMethod,
+      });
+      setSuccessModalOpen(true);
       setReference("");
       setNote("");
     } catch (err) {
@@ -403,6 +611,88 @@ export default function AbonosPage() {
     !selectedMethod ||
     submitting ||
     Number(amount) <= 0;
+
+  const historyEntries = useMemo(() => {
+    if (!result) return [];
+    const initialMethod =
+      saleDetail?.payments?.[0]?.method ??
+      result.payments?.[0]?.method ??
+      "";
+    const entries = [
+      {
+        id: "initial",
+        label: "Abono inicial",
+        method: initialMethod,
+        amount: result.initial_payment ?? 0,
+        paid_at: result.created_at,
+        reference: null as string | null,
+      },
+    ];
+    result.payments.forEach((payment, index) => {
+      entries.push({
+        id: `payment-${payment.id}`,
+        label: `Abono ${index + 2}`,
+        method: payment.method,
+        amount: payment.amount,
+        paid_at: payment.paid_at,
+        reference: payment.reference ?? null,
+      });
+    });
+    return entries;
+  }, [result, saleDetail?.payments]);
+
+  const openDrawerWithQz = useCallback(async () => {
+    if (printerConfig.mode !== "qz-tray") return false;
+    if (!printerConfig.printerName.trim()) return false;
+    if (!qzClient) return false;
+    try {
+      configureQzSecurity();
+      if (!qzClient.websocket.isActive()) {
+        await qzClient.websocket.connect();
+      }
+      const cfg = qzClient.configs.create(printerConfig.printerName, {
+        altPrinting: true,
+      });
+      const drawerPulse = "\x1B\x70\x00\x19\xFA";
+      await qzClient.print(cfg, [
+        { type: "raw", format: "command", data: drawerPulse },
+      ]);
+      return true;
+    } catch (err) {
+      console.error("No se pudo abrir el cajón para el abono", err);
+      return false;
+    }
+  }, [configureQzSecurity, printerConfig.mode, printerConfig.printerName, qzClient]);
+
+  useEffect(() => {
+    if (!successSummary || !successModalOpen) return;
+    if (!printerConfig.autoOpenDrawer) return;
+    if (printerConfig.mode !== "qz-tray") return;
+    const methodSlug = successSummary.method?.toLowerCase() ?? "";
+    const isCash =
+      methodSlug === "cash" ||
+      methodSlug === "efectivo" ||
+      methodSlug.includes("cash") ||
+      methodSlug.includes("efectivo");
+    if (!isCash) return;
+    const key = `${result?.id ?? "order"}-${successSummary.amount}-${successSummary.totalPaid}`;
+    if (lastDrawerPaymentId.current === key) return;
+    const run = async () => {
+      try {
+        await openDrawerWithQz();
+      } finally {
+        lastDrawerPaymentId.current = key;
+      }
+    };
+    void run();
+  }, [
+    openDrawerWithQz,
+    printerConfig.autoOpenDrawer,
+    printerConfig.mode,
+    result?.id,
+    successModalOpen,
+    successSummary,
+  ]);
 
   function formatAmountInput(value: string): string {
     if (!value) return "";
@@ -553,27 +843,39 @@ export default function AbonosPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-        <div>
-          <p className="text-xs text-slate-400 uppercase tracking-wide">
-            POS · módulo en desarrollo
-          </p>
-          <h1 className="text-2xl font-semibold">Abono de separados</h1>
-        </div>
-        <Link
-          href="/pos"
-          className="px-4 py-2 rounded-full border border-slate-700 text-sm hover:bg-slate-900"
-        >
-          ← Volver al POS
-        </Link>
-      </header>
+    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 px-6 py-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">
+              Abonos
+            </p>
+            <h1 className="text-2xl font-semibold text-white">
+              Gestiona abonos de separados
+            </h1>
+            <p className="text-sm text-slate-400">
+              Escanea el ticket y registra los pagos parciales con claridad.
+            </p>
+          </div>
+          <Link
+            href="/pos"
+            className="h-12 px-4 rounded-xl border border-slate-700 bg-slate-900/70 text-slate-100 hover:bg-slate-800 inline-flex items-center justify-center"
+          >
+            ← Volver al POS
+          </Link>
+        </header>
 
-      <div className="flex-1 overflow-auto px-6 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <section className="lg:col-span-1 space-y-4">
+        <div className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)] lg:items-start">
+          <section className="space-y-5">
             <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-3">
-              <h2 className="text-lg font-semibold">Escanea o ingresa ticket</h2>
+              <div>
+                <p className="text-xs uppercase tracking-widest text-slate-400">
+                  Paso 1
+                </p>
+                <h2 className="text-lg font-semibold">
+                  Escanea o ingresa ticket
+                </h2>
+              </div>
               <p className="text-sm text-slate-400">
                 Usa el código de barras del ticket para buscar el separado y
                 registrar un abono.
@@ -615,12 +917,66 @@ export default function AbonosPage() {
                 </p>
               )}
             </div>
+
+            {result && (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Historial de abonos</h3>
+                  <span className="text-xs text-slate-400">
+                    {historyEntries.length} movimientos
+                  </span>
+                </div>
+                {historyEntries.length ? (
+                  <div className="divide-y divide-slate-800 rounded-xl border border-slate-800">
+                    {historyEntries.map((payment) => (
+                      <div
+                        key={payment.id}
+                        className="flex items-center justify-between px-4 py-3 text-sm"
+                      >
+                        <div>
+                          <p className="font-semibold">
+                            {payment.label}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {formatDateTime(payment.paid_at)}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {getMethodLabel(payment.method)}
+                          </p>
+                          {payment.reference ? (
+                            <p className="text-xs text-slate-500">
+                              Ref: {payment.reference}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span className="font-semibold text-emerald-400">
+                          {formatMoney(payment.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {result.payments.length === 0 && (
+                  <p className="text-sm text-slate-400">
+                    Solo figura el pago inicial.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
 
-          <section className="lg:col-span-2 space-y-5">
+          <section className="space-y-5">
             {result ? (
               <>
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+                  <div className="mb-4">
+                    <p className="text-xs uppercase tracking-widest text-slate-400">
+                      Paso 2
+                    </p>
+                    <h2 className="text-lg font-semibold text-slate-100">
+                      Resumen del separado
+                    </h2>
+                  </div>
                   <div className="grid gap-5 lg:grid-cols-[1.2fr,1fr]">
                     <div className="space-y-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -667,7 +1023,7 @@ export default function AbonosPage() {
                         </div>
                         <div>
                           <p className="text-slate-400">Saldo pendiente</p>
-                          <p className="font-semibold text-emerald-400">
+                          <p className="font-semibold text-rose-400">
                             {formatMoney(result.balance)}
                           </p>
                         </div>
@@ -760,48 +1116,10 @@ export default function AbonosPage() {
 
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Historial de abonos</h3>
-                    <span className="text-xs text-slate-400">
-                      {result.payments.length} movimientos
-                    </span>
-                  </div>
-                  {result.payments.length ? (
-                    <div className="divide-y divide-slate-800 rounded-xl border border-slate-800">
-                      {result.payments.map((payment) => (
-                        <div
-                          key={payment.id}
-                          className="flex items-center justify-between px-4 py-3 text-sm"
-                        >
-                          <div>
-                            <p className="font-semibold">
-                              {getMethodLabel(payment.method)}
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              {formatDateTime(payment.paid_at)}
-                            </p>
-                            {payment.reference && (
-                              <p className="text-xs text-slate-500">
-                                Ref: {payment.reference}
-                              </p>
-                            )}
-                          </div>
-                          <span className="font-semibold text-emerald-400">
-                            {formatMoney(payment.amount)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-400">
-                      Aún no se registran abonos adicionales. Solo figura el
-                      pago inicial.
-                    </p>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
-                  <div className="flex items-center justify-between">
                     <div>
+                      <p className="text-xs uppercase tracking-widest text-slate-400">
+                        Paso 3
+                      </p>
                       <h3 className="text-lg font-semibold">
                         Registrar nuevo abono
                       </h3>
@@ -851,13 +1169,20 @@ export default function AbonosPage() {
                         )}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <label className="text-sm text-slate-400 space-y-1">
-                          <span>Monto del abono</span>
+                        <label className="text-sm text-emerald-200 space-y-1">
+                          <span className="font-semibold">Monto del abono</span>
                           <input
                             value={formatAmountInput(amount)}
                             onChange={(e) => handleAmountChange(e.target.value)}
                             inputMode="numeric"
-                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base font-semibold text-slate-100 outline-none focus:border-emerald-500"
+                            onFocus={(e) => e.target.select()}
+                            onClick={(e) => e.currentTarget.select()}
+                            onMouseUp={(e) => {
+                              if (document.activeElement === e.currentTarget) {
+                                e.preventDefault();
+                              }
+                            }}
+                            className="w-full rounded-lg border border-emerald-300/80 bg-slate-950 px-3 py-2 text-base font-semibold text-emerald-50 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-500/30"
                             placeholder="Ej: 20.000"
                           />
                         </label>
@@ -917,6 +1242,62 @@ export default function AbonosPage() {
           </section>
         </div>
       </div>
+
+      {successModalOpen && successSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 py-6">
+          <div className="w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900 p-8 shadow-2xl">
+            <div className="text-lg text-emerald-300 font-semibold mb-4">
+              Abono registrado correctamente
+            </div>
+            <div className="grid gap-2 text-base text-slate-300 sm:grid-cols-2">
+              <div>
+                Abono registrado:{" "}
+                <span className="text-slate-100 font-semibold text-lg">
+                  {formatMoney(successSummary.amount)}
+                </span>
+              </div>
+              <div>
+                Total pagado:{" "}
+                <span className="text-slate-100 font-semibold text-lg">
+                  {formatMoney(successSummary.totalPaid)}
+                </span>
+              </div>
+              <div className="sm:col-span-2">
+                Saldo pendiente:{" "}
+                <span className="text-rose-300 font-semibold text-lg">
+                  {formatMoney(successSummary.balance)}
+                </span>
+              </div>
+            </div>
+            <div className="mt-6 flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  handlePrintTicket();
+                  setSuccessModalOpen(false);
+                }}
+                className="px-6 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-base font-semibold"
+              >
+                Imprimir ticket de abono
+              </button>
+              <button
+                type="button"
+                onClick={() => setSuccessModalOpen(false)}
+                className="px-6 py-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-base font-semibold"
+              >
+                Registrar otro abono
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push("/pos")}
+                className="px-6 py-4 rounded-xl border border-slate-600 text-slate-200 text-base font-semibold hover:bg-slate-800"
+              >
+                Volver al POS
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

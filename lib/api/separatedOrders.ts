@@ -21,6 +21,11 @@ export type SeparatedOrderPayment = {
   note?: string | null;
   station_id?: string | null;
   closure_id?: number | null;
+  status?: string | null;
+  voided_at?: string | null;
+  voided_by_user_id?: number | null;
+  void_reason?: string | null;
+  adjustment_reference?: string | null;
 };
 
 export type SeparatedOrder = {

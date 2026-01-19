@@ -139,6 +139,7 @@ type ClosureSale = {
   id: number;
   created_at: string;
   closure_id?: number | null;
+  status?: string | null;
   pos_name?: string | null;
   total?: number;
   payment_method: string;
@@ -163,6 +164,7 @@ type ClosureReturnRecord = {
   created_at?: string;
   closure_id?: number | null;
   sale_id?: number;
+  status?: string | null;
   pos_name?: string | null;
   station_id?: string | null;
   total_refund?: number | null;
@@ -180,6 +182,7 @@ type ClosureChangeRecord = {
   created_at?: string;
   closure_id?: number | null;
   sale_id?: number;
+  status?: string | null;
   pos_name?: string | null;
   station_id?: string | null;
   extra_payment?: number | null;
@@ -1648,7 +1651,9 @@ const matchesStationLabel = useCallback(
         const sales = (await salesRes.json()) as ClosureSale[];
         const allSalesMap = new Map<number, ClosureSale>();
         sales.forEach((sale) => allSalesMap.set(sale.id, sale));
-        const pendingSales = sales.filter((sale) => sale.closure_id == null);
+        const pendingSales = sales.filter(
+          (sale) => sale.closure_id == null && sale.status !== "voided"
+        );
         const filteredSales =
           activeStationId && activeStationId !== ""
             ? pendingSales.filter(
@@ -1681,7 +1686,7 @@ const matchesStationLabel = useCallback(
         separatedOrders.forEach((order) => {
           const baseSale = allSalesMap.get(order.sale_id);
           (order.payments ?? []).forEach((payment) => {
-            if (payment.closure_id != null) return;
+            if (payment.closure_id != null || payment.status === "voided") return;
             if (activeStationId) {
               if (
                 payment.station_id !== activeStationId &&
@@ -1784,7 +1789,9 @@ const matchesStationLabel = useCallback(
       const changes = (await changesRes.json()) as ClosureChangeRecord[];
       const allSalesMap = new Map<number, ClosureSale>();
       sales.forEach((sale) => allSalesMap.set(sale.id, sale));
-      const pendingSales = sales.filter((sale) => sale.closure_id == null);
+      const pendingSales = sales.filter(
+        (sale) => sale.closure_id == null && sale.status !== "voided"
+      );
       const shouldFilterByStation =
         Boolean(activeStationId) && activeStationId !== "";
       const filteredPendingSales = shouldFilterByStation
@@ -1798,7 +1805,7 @@ const matchesStationLabel = useCallback(
           : pendingSales;
       const filteredSaleIds = new Set(filteredPendingSales.map((sale) => sale.id));
       const pendingReturns = returns.filter(
-        (ret) => ret.closure_id == null
+        (ret) => ret.closure_id == null && ret.status === "confirmed"
       );
       const filteredPendingReturns = shouldFilterByStation
         ? pendingReturns.filter((ret) => {
@@ -1822,7 +1829,7 @@ const matchesStationLabel = useCallback(
             })
           : pendingReturns;
       const pendingChanges = changes.filter(
-        (change) => change.closure_id == null
+        (change) => change.closure_id == null && change.status === "confirmed"
       );
       const filteredPendingChanges = shouldFilterByStation
         ? pendingChanges.filter((change) => {
@@ -1906,7 +1913,10 @@ const matchesStationLabel = useCallback(
         .map<NormalizedSeparatedOrder | null>((order) => {
           const baseSale = allSalesMap.get(order.sale_id);
           const pendingPayments =
-            order.payments?.filter((payment) => payment.closure_id == null) ?? [];
+            order.payments?.filter(
+              (payment) =>
+                payment.closure_id == null && payment.status !== "voided"
+            ) ?? [];
           const saleMatches = filteredSaleIds.has(order.sale_id);
           const paymentMatches = shouldFilterByStation
             ? pendingPayments.some(
@@ -1990,7 +2000,9 @@ const matchesStationLabel = useCallback(
         descriptor: { label: string; slug?: string | null; order: number } | null,
         amount?: number
       ) => {
-        if (!descriptor || !amount || amount <= 0) return;
+        if (!descriptor || amount == null || Number.isNaN(amount) || amount === 0) {
+          return;
+        }
         const slugKey = descriptor.slug?.trim().length
           ? slugifyMethodKey(descriptor.slug)
           : slugifyMethodKey(descriptor.label);
@@ -2013,7 +2025,9 @@ const matchesStationLabel = useCallback(
         method?: string | null,
         amount?: number
       ) => {
-        if (!method || !amount || amount <= 0) return;
+        if (!method || amount == null || Number.isNaN(amount) || amount === 0) {
+          return;
+        }
         const catalogRecord = findCatalogMethod(method);
         const catalogSlug =
           catalogRecord?.slug && slugifyMethodKey(catalogRecord.slug);
@@ -2039,7 +2053,9 @@ const matchesStationLabel = useCallback(
       };
 
       const addVendorAmount = (vendor?: string | null, amount?: number) => {
-        if (!vendor || !amount || amount <= 0) return;
+        if (!vendor || amount == null || Number.isNaN(amount) || amount === 0) {
+          return;
+        }
         userTotals.set(vendor, (userTotals.get(vendor) ?? 0) + amount);
       };
 
@@ -2133,6 +2149,17 @@ const matchesStationLabel = useCallback(
         const { order, baseSale, pendingPayments } = entry;
         const relatedSale = saleMap.get(order.sale_id);
         pendingPayments.forEach((payment) => {
+          const paymentDate = payment.paid_at
+            ? getLocalDateKey(payment.paid_at)
+            : null;
+          if (paymentDate) {
+            if (!rangeStartKey || paymentDate < rangeStartKey) {
+              rangeStartKey = paymentDate;
+            }
+            if (!rangeEndKey || paymentDate > rangeEndKey) {
+              rangeEndKey = paymentDate;
+            }
+          }
           const paymentMatches = shouldFilterByStation
             ? payment.station_id === activeStationId ||
               (!payment.station_id &&
@@ -2167,6 +2194,17 @@ const matchesStationLabel = useCallback(
       });
 
       filteredPendingReturns.forEach((ret) => {
+        const returnDate = ret.created_at
+          ? getLocalDateKey(ret.created_at)
+          : null;
+        if (returnDate) {
+          if (!rangeStartKey || returnDate < rangeStartKey) {
+            rangeStartKey = returnDate;
+          }
+          if (!rangeEndKey || returnDate > rangeEndKey) {
+            rangeEndKey = returnDate;
+          }
+        }
         const payments =
           ret.payments?.filter((payment) => (payment.amount ?? 0) > 0) ?? [];
         if (payments.length > 0) {
@@ -2778,12 +2816,12 @@ const matchesStationLabel = useCallback(
 
   const closureRangeDescription = useMemo(() => {
     if (!closureRange) {
-      return "Mostrando movimientos (ventas, devoluciones y cambios) registrados hoy.";
+      return "Mostrando movimientos (ventas, devoluciones, cambios y abonos) registrados hoy.";
     }
     if (closureRange.startKey === closureRange.endKey) {
-      return `Mostrando movimientos (ventas, devoluciones y cambios) registrados el ${closureRange.startLabel}.`;
+      return `Mostrando movimientos (ventas, devoluciones, cambios y abonos) registrados el ${closureRange.startLabel}.`;
     }
-    return `Mostrando movimientos (ventas, devoluciones y cambios) registrados desde ${closureRange.startLabel} hasta ${closureRange.endLabel}.`;
+    return `Mostrando movimientos (ventas, devoluciones, cambios y abonos) registrados desde ${closureRange.startLabel} hasta ${closureRange.endLabel}.`;
   }, [closureRange]);
 
   const handleSubmitClosure = async (event: FormEvent<HTMLFormElement>) => {

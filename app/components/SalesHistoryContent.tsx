@@ -360,8 +360,26 @@ function computeSaleSummary(sale: Sale | null) {
       total: 0,
       paid: 0,
       cartDiscountPercent: 0,
+      originalTotal: 0,
+      originalPaid: 0,
+      refundAmount: 0,
       surcharge: 0,
       surchargeLabel: null,
+    };
+  }
+  if (sale.status === "voided") {
+    return {
+      subtotal: 0,
+      lineDiscount: 0,
+      cartDiscount: 0,
+      total: 0,
+      paid: 0,
+      cartDiscountPercent: 0,
+      originalTotal: 0,
+      originalPaid: 0,
+      refundAmount: 0,
+      surcharge: 0,
+      surchargeLabel: sale.surcharge_label ?? null,
     };
   }
 
@@ -497,8 +515,13 @@ export default function SalesHistoryContent({
   const [activeQuickRange, setActiveQuickRange] =
     useState<QuickRange | null>("today");
   const [currentPage, setCurrentPage] = useState(1);
+  type SeparatedPaymentInfo = {
+    paid_at: string;
+    amount: number;
+    method?: string | null;
+  };
   const [separatedPaymentsMap, setSeparatedPaymentsMap] =
-    useState<Record<number, string[]>>({});
+    useState<Record<number, SeparatedPaymentInfo[]>>({});
   const [emailSending, setEmailSending] = useState(false);
   const [emailFeedback, setEmailFeedback] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -762,7 +785,8 @@ export default function SalesHistoryContent({
     filterTo,
   ]);
   const isWithinFilterRange = useCallback(
-    (value: string) => {
+    (value?: string | null) => {
+      if (!value) return false;
       const dateKey = getBogotaDateKey(value);
       if (!dateKey) return false;
       if (filterFromKey && dateKey < filterFromKey) return false;
@@ -896,9 +920,9 @@ export default function SalesHistoryContent({
       const createdInRange = isWithinFilterRange(sale.created_at);
       let hasMatchingAbono = false;
       if (!createdInRange && sale.is_separated) {
-        const paymentDates = separatedPaymentsMap[sale.id] ?? [];
-        hasMatchingAbono = paymentDates.some((date) =>
-          isWithinFilterRange(date)
+        const paymentEntries = separatedPaymentsMap[sale.id] ?? [];
+        hasMatchingAbono = paymentEntries.some((payment) =>
+          isWithinFilterRange(payment.paid_at)
         );
       }
       if (!createdInRange && !hasMatchingAbono) {
@@ -1871,30 +1895,24 @@ export default function SalesHistoryContent({
           try {
             const order = await fetchSeparatedOrderForSale(sale);
             if (!order) {
-              return { saleId: sale.id, dates: [] as string[] };
+              return { saleId: sale.id, payments: [] as SeparatedPaymentInfo[] };
             }
-            const paymentDates: string[] = [];
-            const initialDate =
-              order.created_at ??
-              sale.created_at ??
-              null;
-            if (initialDate) {
-              paymentDates.push(initialDate);
-            }
-            order.payments?.forEach((payment) => {
-              const paidAt =
-                payment.paid_at ??
-                (payment as { created_at?: string }).created_at ??
-                null;
-              if (paidAt) {
-                paymentDates.push(paidAt);
-              }
-            });
-            const uniqueDates = Array.from(new Set(paymentDates));
-            return { saleId: sale.id, dates: uniqueDates };
+            const payments =
+              order.payments
+                ?.filter((payment) => payment.status !== "voided")
+                .map((payment) => ({
+                  paid_at:
+                    payment.paid_at ??
+                    (payment as { created_at?: string }).created_at ??
+                    "",
+                  amount: Number(payment.amount ?? 0),
+                  method: payment.method ?? null,
+                }))
+                .filter((payment) => payment.paid_at) ?? [];
+            return { saleId: sale.id, payments };
           } catch (err) {
             console.warn("No pudimos cargar abonos del separado", err);
-            return { saleId: sale.id, dates: [] as string[] };
+            return { saleId: sale.id, payments: [] as SeparatedPaymentInfo[] };
           }
         })
       );
@@ -1902,7 +1920,7 @@ export default function SalesHistoryContent({
       setSeparatedPaymentsMap((prev) => {
         const next = { ...prev };
         for (const entry of entries) {
-          next[entry.saleId] = entry.dates;
+          next[entry.saleId] = entry.payments;
         }
         return next;
       });
@@ -2185,7 +2203,8 @@ export default function SalesHistoryContent({
                         : sale;
                     const saleSummary = computeSaleSummary(saleForSummary);
                     const refundAmount = saleSummary.refundAmount ?? 0;
-                    const hasRefund = refundAmount > 0;
+                    const isVoided = sale.status === "voided";
+                    const hasRefund = refundAmount > 0 && !isVoided;
                     const hasChange = !!latestChange;
                     const rowIsSeparated = !!sale.is_separated;
                     const netTotal =
@@ -2212,16 +2231,20 @@ export default function SalesHistoryContent({
                           sale.payments?.[0]?.method ??
                           sale.payment_method
                       );
-                      const abonoDates =
-                        (separatedPaymentsMap[sale.id] ?? []).filter(
-                          (date) => !!date && isWithinFilterRange(date)
+                      const abonoPayments =
+                        (separatedPaymentsMap[sale.id] ?? []).filter((payment) =>
+                          isWithinFilterRange(payment.paid_at)
                         );
-                      const hasAbonoHighlight =
-                        showMain && abonoDates.length > 0;
+                      const abonoCount = abonoPayments.length;
+                      const abonoTotal = abonoPayments.reduce(
+                        (sum, payment) => sum + (payment.amount ?? 0),
+                        0
+                      );
+                      const hasAbonoHighlight = showMain && abonoCount > 0;
                       const abonoLabel =
-                        abonoDates.length === 1
-                          ? `Abono ${formatShortDate(abonoDates[0])}`
-                          : `Abonos (${abonoDates.length})`;
+                        abonoCount === 1
+                          ? `Abono ${formatShortDate(abonoPayments[0].paid_at)}`
+                          : `Abonos (${abonoCount})`;
 
                       return (
                         <div
@@ -2255,6 +2278,11 @@ export default function SalesHistoryContent({
                             {(item.product_name ?? item.name ?? "Producto") +
                               " x" +
                               (item.quantity ?? 1)}
+                            {showMain && isVoided && (
+                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-rose-500/50 text-rose-300 bg-rose-500/10">
+                                Anulada
+                              </span>
+                            )}
                             {showMain && hasRefund && (
                               <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${netTotal <= 0 ? "border-rose-500/50 text-rose-300 bg-rose-500/10" : "border-amber-400/50 text-amber-200 bg-amber-500/10"}`}>
                                 {netTotal <= 0 ? "Devuelta" : "Devolución parcial"}
@@ -2278,6 +2306,11 @@ export default function SalesHistoryContent({
 
                           <div className="text-right text-slate-200">
                             {showMain ? formatMoney(netPaid) : ""}
+                            {showMain && rowIsSeparated && abonoTotal > 0 && (
+                              <span className="block text-[10px] text-emerald-300">
+                                Abonos: {formatMoney(abonoTotal)}
+                              </span>
+                            )}
                           </div>
 
                           <div className="text-right text-slate-200 flex flex-col items-end">
