@@ -155,6 +155,7 @@ type Sale = {
   document_number?: string;
   created_at: string;
   closure_id?: number | null;
+  status?: string;
   pos_name?: string | null;
   vendor_name?: string | null;
   total?: number;
