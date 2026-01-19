@@ -494,11 +494,13 @@ export default function DashboardHomePage() {
     const todayKey = todayDateKey;
 
     const normalized = recentSales.map((sale) => {
-      const refundAmount = sale.refunded_total ?? 0;
+      const isVoided = sale.status === "voided";
+      const refundAmount = isVoided ? 0 : sale.refunded_total ?? 0;
       const netTotal =
         sale.refunded_balance != null
           ? Math.max(0, sale.refunded_balance)
           : Math.max(0, sale.total - refundAmount);
+      const safeNetTotal = isVoided ? 0 : netTotal;
       const dateObj = parseDateInput(sale.created_at) ?? new Date();
       const firstItem =
         sale.items && sale.items.length > 0 ? sale.items[0] : undefined;
@@ -511,7 +513,7 @@ export default function DashboardHomePage() {
         sale,
         detail,
         refundAmount,
-        netTotal,
+        netTotal: safeNetTotal,
         dateObj,
         dateKey: getBogotaDateKey(dateObj),
       };
@@ -645,6 +647,7 @@ export default function DashboardHomePage() {
 
     recentSales.forEach((sale) => {
       if (sale.is_separated) return;
+      if (sale.status === "voided") return;
       const saleDate = parseDateInput(sale.created_at);
       if (!saleDate) return;
       const saleInRange = isWithinRange(saleDate);
@@ -1184,10 +1187,12 @@ export default function DashboardHomePage() {
                       sale.sale_number ?? sale.number ?? sale.id;
                     const isVoided = sale.status === "voided";
                     const hasRefund = refundAmount > 0 && !isVoided;
-                    const netPaid = Math.max(
-                      0,
-                      (sale.paid_amount ?? sale.total) - refundAmount
-                    );
+                    const netPaid = isVoided
+                      ? 0
+                      : Math.max(
+                          0,
+                          (sale.paid_amount ?? sale.total) - refundAmount
+                        );
 
                     return (
                       <div
