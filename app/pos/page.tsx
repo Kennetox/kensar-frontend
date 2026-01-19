@@ -3602,19 +3602,20 @@ const matchesStationLabel = useCallback(
     }
     if (typeof window !== "undefined") {
       try {
-        window.open("", "_self");
         window.close();
       } catch {
         // ignore close failures
       }
-      if (openedAsNewTab) {
-        try {
-          window.close();
-        } catch {
-          // ignore close failures
+      const fallback = () => {
+        if (!window.closed) {
+          window.location.assign("/login-pos?exit=kiosk");
         }
+      };
+      if (openedAsNewTab) {
+        window.setTimeout(fallback, 200);
+      } else {
+        fallback();
       }
-      window.location.replace("about:blank");
     }
   }, [openedAsNewTab]);
 
