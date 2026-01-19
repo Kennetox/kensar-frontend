@@ -52,6 +52,14 @@ function formatDate(value?: string | null) {
   return formatted || value;
 }
 
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
 function buildSelectionCode(order: SeparatedOrder) {
   return (
     order.barcode ??
@@ -96,7 +104,11 @@ export default function ListaAbonosPage() {
         if (normalizedSearch) {
           if (/^\d+$/.test(normalizedSearch)) {
             params.saleNumber = Number(normalizedSearch);
-          } else if (/^[a-z0-9-]+$/i.test(normalizedSearch) && !/\s/.test(normalizedSearch)) {
+          } else if (
+            /[0-9]/.test(normalizedSearch) &&
+            /^[a-z0-9-]+$/i.test(normalizedSearch) &&
+            !/\s/.test(normalizedSearch)
+          ) {
             params.barcode = normalizedSearch;
           }
         }
@@ -146,19 +158,21 @@ export default function ListaAbonosPage() {
 
   const filteredOrders = useMemo(() => {
     const base = timeFilteredOrders;
-    const term = debouncedSearch.trim().toLowerCase();
+    const term = normalizeText(debouncedSearch);
     if (!term) return base;
     return base.filter((order) => {
-      const code = buildSelectionCode(order).toLowerCase();
-      const customer = (order.customer_name ?? "").toLowerCase();
-      const summaryKey = order.sale_id ? saleSummaries[order.sale_id] : undefined;
-      const summary = summaryKey ? summaryKey.toLowerCase() : "";
-      const summaryMatch = summaryKey === undefined ? true : summary.includes(term);
-      return (
-        code.includes(term) ||
-        customer.includes(term) ||
-        summaryMatch
+      const summary = order.sale_id ? saleSummaries[order.sale_id] ?? "" : "";
+      const haystack = normalizeText(
+        [
+          buildSelectionCode(order),
+          order.customer_name ?? "",
+          order.sale_document_number ?? "",
+          order.barcode ?? "",
+          order.sale_number ? String(order.sale_number) : "",
+          summary,
+        ].join(" ")
       );
+      return haystack.includes(term);
     });
   }, [timeFilteredOrders, debouncedSearch, saleSummaries]);
 
@@ -211,26 +225,28 @@ export default function ListaAbonosPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-        <div>
-          <p className="text-xs text-slate-400 uppercase tracking-wide">
-            POS · módulo en desarrollo
-          </p>
-          <h1 className="text-2xl font-semibold">Seleccionar separado</h1>
-          <p className="text-sm text-slate-400">
-            Busca en el listado si el cliente no trae su ticket físico.
-          </p>
-        </div>
-        <Link
-          href="/pos/abonos"
-          className="px-4 py-2 rounded-full border border-slate-700 text-sm hover:bg-slate-900"
-        >
-          ← Volver a abonos
-        </Link>
-      </header>
+    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 px-6 py-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">
+              Abonos
+            </p>
+            <h1 className="text-2xl font-semibold text-white">
+              Seleccionar separado
+            </h1>
+            <p className="text-sm text-slate-400">
+              Busca en el listado si el cliente no trae su ticket físico.
+            </p>
+          </div>
+          <Link
+            href="/pos/abonos"
+            className="h-12 px-4 rounded-xl border border-slate-700 bg-slate-900/70 text-slate-100 hover:bg-slate-800 inline-flex items-center justify-center"
+          >
+            ← Volver a abonos
+          </Link>
+        </header>
 
-      <div className="flex-1 overflow-auto px-6 py-6 space-y-5">
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap gap-2">
