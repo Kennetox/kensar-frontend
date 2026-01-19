@@ -220,16 +220,65 @@ type SummaryCard = {
   highlight?: "positive" | "warning" | "danger";
 };
 
- function formatMoney(value: number | string | undefined | null): string {
+function formatMoney(value: number | string | undefined | null): string {
   if (value == null) return "0";
   const numeric =
-    typeof value === "string" ? Number(value.replace(/,/g, "")) : value;
+    typeof value === "string" ? parseMoneyString(value) : value;
   if (!Number.isFinite(numeric)) return "0";
-  return numeric.toLocaleString("es-CO", {
+  const formatted = numeric.toLocaleString("es-CO", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   });
- }
+  if (/^0+$/.test(formatted)) return "0";
+  return formatted;
+}
+
+function parseMoneyString(raw: string): number {
+  const trimmed = raw.trim();
+  if (!trimmed) return 0;
+
+  const thousandMatch = trimmed.match(/^(-?\d{1,3})\.0{4}$/);
+  if (thousandMatch) {
+    const base = Number(thousandMatch[1]);
+    return Number.isFinite(base) ? base * 1000 : 0;
+  }
+
+  const hasComma = trimmed.includes(",");
+  const hasDot = trimmed.includes(".");
+  let normalized = trimmed;
+
+  if (hasComma && hasDot) {
+    normalized = trimmed.replace(/\./g, "").replace(",", ".");
+  } else if (hasComma) {
+    normalized = trimmed.replace(",", ".");
+  } else if (hasDot) {
+    const parts = trimmed.split(".");
+    if (
+      parts.length === 2 &&
+      /^[0]+$/.test(parts[1]) &&
+      parts[0].length <= 2
+    ) {
+      normalized = `${parts[0]}000`;
+    }
+  }
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toExportNumber(value: number | string | null | undefined): number {
+  if (value == null) return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const normalized = value.replace(/,/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toNumber(value: number | string | null | undefined): number {
+  if (value == null) return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  return parseMoneyString(value);
+}
 
  function formatDateTime(value: string | undefined): string {
   if (!value) return "—";
@@ -757,8 +806,8 @@ export default function DocumentsExplorer({
         documentNumber: sale.document_number ?? `V-${sale.id.toString().padStart(5, "0")}`,
         reference: `Ticket #${sale.sale_number ?? sale.id}`,
         detail,
-        total: netTotal,
-        refundAmount,
+        total: toNumber(netTotal),
+        refundAmount: toNumber(refundAmount),
         paymentMethod: sale.payment_method ?? sale.payments?.[0]?.method,
         isSeparated,
         initialPaymentMethod: initialMethod,
@@ -775,7 +824,7 @@ export default function DocumentsExplorer({
     const returnDocs: DocumentRow[] = returnsList.map((ret) => {
       const isAnnulation = ret.status === "confirmed" && !!ret.adjustment_reference;
       const paymentsTotal =
-        ret.payments?.reduce((sum, p) => sum + p.amount, 0) ??
+        ret.payments?.reduce((sum, p) => sum + toNumber(p.amount), 0) ??
         ret.total_refund ??
         0;
       const firstItem = ret.items && ret.items.length ? ret.items[0] : undefined;
@@ -798,7 +847,7 @@ export default function DocumentsExplorer({
           ? `Venta #${ret.sale_number}`
           : "Devolución",
         detail,
-        total: isAnnulation ? 0 : -Math.abs(paymentsTotal),
+        total: isAnnulation ? 0 : -Math.abs(toNumber(paymentsTotal)),
         paymentMethod: isAnnulation
           ? undefined
           : ret.payments && ret.payments[0]
@@ -822,7 +871,7 @@ export default function DocumentsExplorer({
         ? `${firstItem.product_name ?? "Producto"} x${firstItem.quantity ?? 1}`
         : "Cambio registrado";
       const net =
-        (change.extra_payment ?? 0) - (change.refund_due ?? 0);
+        toNumber(change.extra_payment) - toNumber(change.refund_due);
       return {
         id: `change-${change.id}`,
         type: "cambio",
@@ -831,7 +880,7 @@ export default function DocumentsExplorer({
         documentNumber: change.document_number ?? `CB-${change.id.toString().padStart(5, "0")}`,
         reference: change.sale_id ? `Venta #${change.sale_id}` : "Cambio",
         detail,
-        total: net,
+        total: toNumber(net),
         paymentMethod:
           change.payments && change.payments[0]
             ? change.payments[0].method
@@ -854,7 +903,7 @@ export default function DocumentsExplorer({
         documentNumber: closure.consecutive ?? `CL-${closure.id.toString().padStart(5, "0")}`,
         reference: `Reporte Z - ${closure.pos_name ?? "POS"}`,
         detail,
-        total: closure.net_amount ?? closure.total_amount,
+        total: toNumber(closure.net_amount ?? closure.total_amount),
         paymentMethod: "cierre",
         customer: undefined,
         pos: closure.pos_name ?? undefined,
@@ -870,7 +919,7 @@ export default function DocumentsExplorer({
       const sale = salesById.get(order.sale_id);
       order.payments?.forEach((payment: SeparatedOrderPayment) => {
         if (payment?.status === "voided") return;
-        const amount = Number(payment.amount ?? 0);
+        const amount = toNumber(payment.amount ?? 0);
         const record: AbonoRecord = {
           id: payment.id,
           order_id: order.id,
@@ -1057,8 +1106,72 @@ useEffect(() => {
 }, [selectedDoc?.id]);
 
 const selectedDetails = selectedDoc?.data;
-const selectedDocStatusLabel = getStatusLabel(selectedDoc?.status);
-const selectedDocIsVoided = selectedDoc?.status === "voided";
+  const selectedDocStatusLabel = getStatusLabel(selectedDoc?.status);
+  const selectedDocIsVoided = selectedDoc?.status === "voided";
+
+  const handleExportXlsx = useCallback(async () => {
+    if (!authHeaders) return;
+    const rows = filteredDocuments.map((doc) => {
+      const isAnnulation =
+        doc.type === "devolucion" && doc.isAnnulation;
+      const typeLabel =
+        doc.type === "venta"
+          ? doc.status === "voided"
+            ? "Anulacion"
+            : "Venta"
+          : doc.type === "devolucion"
+          ? isAnnulation
+            ? "Anulacion"
+            : "Devolucion"
+          : doc.type === "cambio"
+          ? "Cambio"
+          : doc.type === "abono"
+          ? "Abono"
+          : "Cierre";
+      const statusLabel = getStatusLabel(doc.status) ?? "";
+      const methodLabel = doc.isSeparated
+        ? "SEPARADO"
+        : mapPaymentMethod(doc.initialPaymentMethod ?? doc.paymentMethod);
+      return {
+        document_number: doc.documentNumber,
+        doc_type: typeLabel,
+        detail: doc.detail,
+        total: toExportNumber(doc.total),
+        method: methodLabel,
+        customer: doc.customer ?? "",
+        pos: doc.pos ?? "",
+        vendor: doc.vendor ?? "",
+        reference: doc.reference ?? "",
+        status: statusLabel,
+        created_at: formatDateTime(doc.createdAt),
+      };
+    });
+
+    const apiBase = getApiBase();
+    const res = await fetch(`${apiBase}/dashboard/documents/export/xlsx`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+      },
+      credentials: "include",
+      body: JSON.stringify({ items: rows }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(detail || `Error ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const today = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `documentos_${today}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, [authHeaders, filteredDocuments, mapPaymentMethod]);
 const selectedDocCanShowVoidButton =
   !!selectedDoc &&
   isAdmin &&
@@ -1781,21 +1894,36 @@ const selectedDocMethodLabel = selectedDocIsSeparated
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col min-h-[370px]">
           <div className="flex items-center justify-between mb-2">
             <div>
-              <h3 className="text-sm font-semibold text-slate-100">
-                Documentos registrados
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-slate-100">
+                  Documentos registrados
+                </h3>
+                <span className="text-[11px] text-slate-500">
+                  Resultados: {filteredDocuments.length}
+                </span>
+              </div>
               <p className="text-xs text-slate-400">
                 Selecciona un documento para ver el detalle completo.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => void loadDocuments()}
-              disabled={loading}
-              className="px-3 py-1 rounded-md border border-emerald-400/60 text-emerald-200 text-[11px] hover:bg-emerald-500/10"
-            >
-              {loading ? "Cargando..." : "Refrescar"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleExportXlsx()}
+                disabled={loading || filteredDocuments.length === 0}
+                className="px-3 py-1 rounded-md border border-slate-700 text-slate-200 text-[11px] hover:bg-slate-800 disabled:opacity-40"
+              >
+                Exportar Excel
+              </button>
+              <button
+                type="button"
+                onClick={() => void loadDocuments()}
+                disabled={loading}
+                className="px-3 py-1 rounded-md border border-emerald-400/60 text-emerald-200 text-[11px] hover:bg-emerald-500/10"
+              >
+                {loading ? "Cargando..." : "Refrescar"}
+              </button>
+            </div>
           </div>
 
           <div className="mt-2 rounded-xl border border-slate-800/60 overflow-hidden flex flex-col">
@@ -1935,10 +2063,13 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                           <span className="block truncate">{doc.detail}</span>
                         </td>
                         <td className="px-3 py-2 text-right font-semibold text-slate-100 tabular-nums align-top">
-                          {formatMoney(doc.total)}
-                          {doc.refundAmount && doc.refundAmount > 0 && (
+                          {toNumber(doc.total) === 0
+                            ? "0"
+                            : formatMoney(toNumber(doc.total))}
+                          {doc.refundAmount != null &&
+                            toNumber(doc.refundAmount) > 0 && (
                             <span className="block text-[10px] text-rose-300">
-                              -{formatMoney(doc.refundAmount)}
+                              -{formatMoney(toNumber(doc.refundAmount))}
                             </span>
                           )}
                         </td>
@@ -2094,7 +2225,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                 <div className="flex justify-between gap-3">
                   <span className="text-slate-400">Total</span>
                   <span className="text-right text-slate-100">
-                    {formatMoney(selectedDoc.total)}
+                    {formatMoney(toNumber(selectedDoc.total))}
                   </span>
                 </div>
                 {selectedDoc.type === "venta" && selectedSaleSurchargeAmount > 0 && (
