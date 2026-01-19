@@ -1965,8 +1965,8 @@ export default function SalesHistoryContent({
             <button
               onClick={() => router.push(backPath)}
               className="flex items-center gap-2 text-slate-300 hover:text-white
-                         px-5 py-2.5 rounded-lg border border-slate-700
-                         hover:bg-slate-800 transition-colors text-sm"
+                         px-6 py-3 rounded-lg border border-slate-700
+                         hover:bg-slate-800 transition-colors text-base"
             >
               <span className="text-lg">←</span>
               {resolvedBackLabel}
@@ -2027,7 +2027,7 @@ export default function SalesHistoryContent({
               Limpiar
             </button>
           </div>
-          <div className="flex flex-wrap gap-2 text-[11px]">
+          <div className="flex flex-wrap gap-2 text-sm">
             {quickRangeOptions.map((option) => {
               const isActive = activeQuickRange === option.value;
               return (
@@ -2035,7 +2035,7 @@ export default function SalesHistoryContent({
                   key={option.value}
                   type="button"
                   onClick={() => handleQuickRangeSelect(option.value)}
-                  className={`px-3 py-1 rounded-full border transition ${
+                  className={`px-4 py-2 rounded-full border transition ${
                     isActive
                       ? "border-emerald-400 text-emerald-300 bg-emerald-500/10"
                       : "border-slate-700 text-slate-400 hover:text-slate-100 hover:border-slate-500"

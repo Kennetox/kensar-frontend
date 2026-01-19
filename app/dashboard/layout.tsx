@@ -308,7 +308,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => router.replace("/pos")}
-                className="text-[11px] px-3 py-1 rounded-md border border-emerald-400 text-emerald-200 hover:bg-emerald-500/10"
+                className="text-sm px-4 py-2 rounded-lg border border-emerald-400 text-emerald-200 hover:bg-emerald-500/10"
               >
                 Volver al POS
               </button>
