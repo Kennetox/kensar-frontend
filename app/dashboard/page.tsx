@@ -344,6 +344,13 @@ export default function DashboardHomePage() {
     () => buildBogotaDateFromKey(todayDateKey),
     [todayDateKey]
   );
+  const weekStart = useMemo(() => {
+    const jsDay = todayStart.getUTCDay();
+    const diffToMonday = (jsDay + 6) % 7;
+    const monday = new Date(todayStart);
+    monday.setUTCDate(todayStart.getUTCDate() - diffToMonday);
+    return monday;
+  }, [todayStart]);
   const adjustTotalForDate = useCallback(
     (baseTotal: number) => Math.max(0, baseTotal),
     []
@@ -545,15 +552,7 @@ export default function DashboardHomePage() {
     const end = new Date(dayStart);
     end.setUTCDate(dayStart.getUTCDate() + 1);
     end.setUTCMilliseconds(-1);
-    const start =
-      paymentRange === "week"
-        ? (() => {
-            const startKey = getBogotaDateKey(
-              new Date(dayStart.getTime() - 6 * 24 * 60 * 60 * 1000)
-            );
-            return buildBogotaDateFromKey(startKey);
-          })()
-        : dayStart;
+    const start = paymentRange === "week" ? weekStart : dayStart;
 
     const map = new Map<
       string,
@@ -700,6 +699,7 @@ export default function DashboardHomePage() {
     data,
     separatedOrders,
     todayDateKey,
+    weekStart,
   ]);
 
   const paymentMethodData = paymentMethodCalc.entries;
