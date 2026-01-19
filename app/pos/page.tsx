@@ -362,6 +362,25 @@ function formatMoney(value: number): string {
   });
 }
 
+function formatCashInput(value: number): string {
+  if (!Number.isFinite(value)) return "";
+  const hasCents = Math.abs(value % 1) > 0.001;
+  return value.toLocaleString("es-CO", {
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
+}
+
+function parseCashInput(value: string): number {
+  const normalized = value
+    .replace(/\./g, "")
+    .replace(",", ".")
+    .replace(/[^\d.]/g, "");
+  if (!normalized) return 0;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function formatDateTime(value: string): string {
   const formatted = formatBogotaDate(value, {
     year: "numeric",
@@ -5385,11 +5404,8 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                   Cierre de caja
                 </p>
                 <h2 className="text-2xl font-semibold text-slate-100">
-                  Reporte Z preliminar
+                  Reporte Z
                 </h2>
-                <p className="text-slate-400">
-                  Esta vista es un adelanto del cierre. Cuando conectemos los datos reales del backend, aquí verás los totales exactos por método de pago y las diferencias en caja.
-                </p>
                 <p className="text-xs text-slate-400 mt-2">
                   {closureRangeDescription}
                 </p>
@@ -5510,11 +5526,14 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                   <label className="text-xs text-slate-300 flex flex-col gap-1">
                     Efectivo contado en caja
                     <input
-                      type="number"
-                      step="0.01"
-                      value={closureForm.countedCash}
+                      type="text"
+                      inputMode="decimal"
+                      value={formatCashInput(closureForm.countedCash)}
                       onChange={(e) =>
-                        updateClosureField("countedCash", Number(e.target.value))
+                        updateClosureField(
+                          "countedCash",
+                          parseCashInput(e.target.value)
+                        )
                       }
                       className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
                     />
