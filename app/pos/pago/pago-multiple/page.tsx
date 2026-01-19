@@ -51,6 +51,7 @@ type SaleResponse = {
   paid_amount: number;
   change_amount: number;
   payment_method: string;
+  has_cash_payment?: boolean;
   customer_id?: number | null;
   customer_name?: string | null;
   customer_phone?: string | null;
@@ -918,6 +919,7 @@ export default function PagoMultiplePage() {
 
       let responseSurchargeAmount: number | undefined;
       let responseSurchargeLabel: string | undefined;
+      let shouldOpenDrawer = false;
 
       if (isSeparatedSale) {
         const order: SeparatedOrder = await res.json();
@@ -995,6 +997,9 @@ export default function PagoMultiplePage() {
         if (sale.surcharge_label) {
           responseSurchargeLabel = sale.surcharge_label;
         }
+        shouldOpenDrawer = Boolean(
+          printerConfig.autoOpenDrawer && sale.has_cash_payment
+        );
       }
 
       const fallbackSurchargeAmount =
@@ -1060,6 +1065,10 @@ export default function PagoMultiplePage() {
         customer: ticketCustomer,
         separatedInfo,
       });
+
+      if (shouldOpenDrawer) {
+        void openDrawerWithQz();
+      }
 
       clearSale();
       setMessage(
@@ -1196,6 +1205,29 @@ export default function PagoMultiplePage() {
       return false;
     }
   }
+
+  const openDrawerWithQz = useCallback(async () => {
+    if (printerConfig.mode !== "qz-tray") return false;
+    if (!printerConfig.printerName.trim()) return false;
+    if (!qzClient) return false;
+    try {
+      configureQzSecurity();
+      if (!qzClient.websocket.isActive()) {
+        await qzClient.websocket.connect();
+      }
+      const cfg = qzClient.configs.create(printerConfig.printerName, {
+        altPrinting: true,
+      });
+      const drawerPulse = "\x1B\x70\x00\x19\xFA";
+      await qzClient.print(cfg, [
+        { type: "raw", format: "command", data: drawerPulse },
+      ]);
+      return true;
+    } catch (err) {
+      console.error("No se pudo abrir el cajon al confirmar el pago", err);
+      return false;
+    }
+  }, [configureQzSecurity, printerConfig.mode, printerConfig.printerName, qzClient]);
 
   function handlePrintTicket() {
     const html = buildSaleDocumentHtml("ticket");

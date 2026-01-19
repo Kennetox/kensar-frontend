@@ -43,6 +43,7 @@ type SaleResponse = {
   paid_amount: number;
   change_amount: number;
   payment_method: string;
+  has_cash_payment?: boolean;
   customer_name?: string | null;
   customer_id?: number | null;
   customer_phone?: string | null;
@@ -805,6 +806,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       let separatedInfo: SuccessSaleSummary["separatedInfo"] | undefined;
       let responseSurchargeAmount: number | undefined;
       let responseSurchargeLabel: string | undefined;
+      let shouldOpenDrawer = false;
 
       const saleItemsNetTotal = saleItemsPayload.reduce(
         (sum, item) => sum + (item.total ?? item.quantity * item.unit_price),
@@ -883,6 +885,9 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         if (sale.surcharge_label) {
           responseSurchargeLabel = sale.surcharge_label;
         }
+        shouldOpenDrawer = Boolean(
+          printerConfig.autoOpenDrawer && sale.has_cash_payment
+        );
       }
 
       const fallbackSurchargeAmount =
@@ -949,6 +954,10 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         customer: ticketCustomer,
         separatedInfo,
       });
+
+      if (shouldOpenDrawer) {
+        void openDrawerWithQz();
+      }
 
       // Limpiamos carrito y descuentos
       clearSale();
@@ -1088,6 +1097,29 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       return false;
     }
   }
+
+  const openDrawerWithQz = useCallback(async () => {
+    if (printerConfig.mode !== "qz-tray") return false;
+    if (!printerConfig.printerName.trim()) return false;
+    if (!qzClient) return false;
+    try {
+      configureQzSecurity();
+      if (!qzClient.websocket.isActive()) {
+        await qzClient.websocket.connect();
+      }
+      const cfg = qzClient.configs.create(printerConfig.printerName, {
+        altPrinting: true,
+      });
+      const drawerPulse = "\x1B\x70\x00\x19\xFA";
+      await qzClient.print(cfg, [
+        { type: "raw", format: "command", data: drawerPulse },
+      ]);
+      return true;
+    } catch (err) {
+      console.error("No se pudo abrir el cajon al confirmar el pago", err);
+      return false;
+    }
+  }, [configureQzSecurity, printerConfig.mode, printerConfig.printerName, qzClient]);
 
   async function handlePrintTicket() {
     const html = buildSaleDocumentHtml("ticket");
