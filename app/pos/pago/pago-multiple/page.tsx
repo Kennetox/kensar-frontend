@@ -82,6 +82,7 @@ type SuccessSaleSummary = {
   items: { name: string; quantity: number; unitPrice: number; total: number }[];
   payments: { label: string; amount: number }[];
   changeAmount: number;
+  showChange?: boolean;
   customer?: PosCustomer | null;
   separatedInfo?: {
     dueDate?: string | null;
@@ -919,6 +920,7 @@ export default function PagoMultiplePage() {
 
       let responseSurchargeAmount: number | undefined;
       let responseSurchargeLabel: string | undefined;
+      let shouldShowChange = false;
       let shouldOpenDrawer = false;
 
       if (isSeparatedSale) {
@@ -1001,6 +1003,13 @@ export default function PagoMultiplePage() {
           printerConfig.autoOpenDrawer && sale.has_cash_payment
         );
       }
+      const hasChangeMethod = normalizedPayments.some((payment) => {
+        const methodConfig = paymentCatalog.find(
+          (method) => method.slug === payment.method
+        );
+        return methodConfig?.allow_change;
+      });
+      shouldShowChange = hasChangeMethod && changeAmountValue > 0;
 
       const fallbackSurchargeAmount =
         cartSurcharge.enabled && cartSurcharge.amount > 0
@@ -1062,6 +1071,7 @@ export default function PagoMultiplePage() {
         items: saleItemsForTicket,
         payments: paymentSummary,
         changeAmount: changeAmountValue,
+        showChange: shouldShowChange,
         customer: ticketCustomer,
         separatedInfo,
       });
@@ -1982,6 +1992,14 @@ export default function PagoMultiplePage() {
                   {successSale.total.toLocaleString("es-CO")}
                 </span>
               </div>
+              {successSale.showChange && successSale.changeAmount > 0 && (
+                <div className="flex justify-between py-1 text-amber-300 text-base">
+                  <span className="font-semibold">Cambio</span>
+                  <span className="font-semibold text-lg">
+                    {successSale.changeAmount.toLocaleString("es-CO")}
+                  </span>
+                </div>
+              )}
         {successSale.notes && (
           <div className="pt-3 text-left text-slate-300 text-sm">
             <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">

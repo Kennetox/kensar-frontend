@@ -74,6 +74,7 @@ type SuccessSaleSummary = {
   items: { name: string; quantity: number; unitPrice: number; total: number }[];
   payments: { label: string; amount: number }[];
   changeAmount: number;
+  showChange?: boolean;
   customer?: PosCustomer | null;
   separatedInfo?: {
     dueDate?: string | null;
@@ -807,6 +808,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       let responseSurchargeAmount: number | undefined;
       let responseSurchargeLabel: string | undefined;
       let shouldOpenDrawer = false;
+      let shouldShowChange = false;
 
       const saleItemsNetTotal = saleItemsPayload.reduce(
         (sum, item) => sum + (item.total ?? item.quantity * item.unit_price),
@@ -889,6 +891,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           printerConfig.autoOpenDrawer && sale.has_cash_payment
         );
       }
+      shouldShowChange = allowsChange && changeAmountForTicket > 0;
 
       const fallbackSurchargeAmount =
         cartSurcharge.enabled && cartSurcharge.amount > 0
@@ -951,6 +954,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         items: saleItemsForTicket,
         payments: paymentSummary,
         changeAmount: changeAmountForTicket,
+        showChange: shouldShowChange,
         customer: ticketCustomer,
         separatedInfo,
       });
@@ -1685,6 +1689,14 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             {successSale.total.toLocaleString("es-CO")}
           </span>
         </div>
+        {successSale.showChange && successSale.changeAmount > 0 && (
+          <div className="flex justify-between py-1 text-amber-300 text-base">
+            <span className="font-semibold">Cambio</span>
+            <span className="font-semibold text-lg">
+              {successSale.changeAmount.toLocaleString("es-CO")}
+            </span>
+          </div>
+        )}
         {successSale.notes && (
           <div className="pt-3 text-left text-slate-300 text-sm">
             <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
