@@ -220,9 +220,12 @@ type SummaryCard = {
   highlight?: "positive" | "warning" | "danger";
 };
 
- function formatMoney(value: number | undefined | null): string {
-  if (value == null || Number.isNaN(value)) return "0";
-  return value.toLocaleString("es-CO", {
+ function formatMoney(value: number | string | undefined | null): string {
+  if (value == null) return "0";
+  const numeric =
+    typeof value === "string" ? Number(value.replace(/,/g, "")) : value;
+  if (!Number.isFinite(numeric)) return "0";
+  return numeric.toLocaleString("es-CO", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   });
