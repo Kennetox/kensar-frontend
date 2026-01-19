@@ -468,21 +468,30 @@ export default function CambiosPage() {
     [payments]
   );
 
+  const formatAmountInput = useCallback((value: string) => {
+    const normalized = value.replace(/[^\d]/g, "");
+    if (!normalized) return "";
+    const numberValue = Number(normalized);
+    if (!Number.isFinite(numberValue)) return "";
+    return numberValue.toLocaleString("es-CO");
+  }, []);
+
   useEffect(() => {
     if (extraPayment <= 0) {
       setPayments([]);
       return;
     }
+    const formattedExtra = formatAmountInput(String(Math.round(extraPayment)));
     if (payments.length === 0) {
-      setPayments([{ method: "cash", amount: extraPayment.toString() }]);
+      setPayments([{ method: "cash", amount: formattedExtra }]);
       return;
     }
     if (payments.length === 1) {
       setPayments((prev) => [
-        { ...prev[0], amount: extraPayment.toString() },
+        { ...prev[0], amount: formattedExtra },
       ]);
     }
-  }, [extraPayment, payments.length]);
+  }, [extraPayment, payments.length, formatAmountInput]);
 
   const fetchSaleById = useCallback(
     async (id: string) => {
@@ -704,7 +713,13 @@ export default function CambiosPage() {
   ) => {
     setPayments((prev) =>
       prev.map((entry, idx) =>
-        idx === index ? { ...entry, [field]: value } : entry
+        idx === index
+          ? {
+              ...entry,
+              [field]:
+                field === "amount" ? formatAmountInput(value) : value,
+            }
+          : entry
       )
     );
   };
