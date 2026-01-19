@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth, LOGOUT_REASON_KEY } from "../providers/AuthProvider";
 import {
   getPosStationAccess,
@@ -17,6 +17,7 @@ import {
 
 export default function PosLoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login, token, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
@@ -24,14 +25,16 @@ export default function PosLoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
+  const [exitFailed, setExitFailed] = useState(false);
   const pinInputRef = useRef<HTMLInputElement | null>(null);
   const isKioskMode = !!stationInfo;
+  const exitMode = searchParams.get("exit") === "kiosk";
 
   useEffect(() => {
-    if (!loading && token) {
+    if (!loading && token && !exitMode) {
       router.replace("/pos");
     }
-  }, [loading, token, router]);
+  }, [loading, token, router, exitMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -105,12 +108,15 @@ export default function PosLoginPage() {
     }
     if (typeof window !== "undefined") {
       try {
-        window.open("", "_self");
         window.close();
       } catch {
         // ignore close failures
       }
-      window.location.replace("about:blank");
+      window.setTimeout(() => {
+        if (!window.closed) {
+          setExitFailed(true);
+        }
+      }, 200);
     }
   };
 
@@ -227,6 +233,19 @@ export default function PosLoginPage() {
               )}
             </div>
           </nav>
+          {exitMode && (
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Modo salida de kiosk activado. Si la ventana no se cierra,
+              presiona <strong>Alt + F4</strong> en el teclado.
+            </div>
+          )}
+          {exitFailed && (
+            <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              No se pudo cerrar la ventana automáticamente. Usa
+              <strong> Alt + F4</strong> o intenta nuevamente con el botón
+              "Cerrar app".
+            </div>
+          )}
 
           <section className="mt-12 grid flex-1 gap-10 lg:grid-cols-2 items-center">
             <div className="rounded-3xl bg-white/85 p-10 shadow-2xl flex items-center justify-center mx-auto">
