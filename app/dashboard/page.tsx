@@ -74,6 +74,7 @@ type RecentSale = {
   sale_number?: number;
   number?: number;
   created_at: string;
+  status?: string;
   total: number;
   payment_method: string;
   items?: RecentSaleItem[];
@@ -343,10 +344,6 @@ export default function DashboardHomePage() {
     () => buildBogotaDateFromKey(todayDateKey),
     [todayDateKey]
   );
-  const currentMonthKey = useMemo(
-    () => todayDateKey.slice(0, 7),
-    [todayDateKey]
-  );
   const adjustTotalForDate = useCallback(
     (baseTotal: number) => Math.max(0, baseTotal),
     []
@@ -404,11 +401,10 @@ export default function DashboardHomePage() {
         if (!key) {
           return point;
         }
-        const monthKey = key.slice(0, 7);
-        return {
-          ...point,
-          total: adjustTotalForMonth(point.total ?? 0),
-        };
+      return {
+        ...point,
+        total: adjustTotalForMonth(point.total ?? 0),
+      };
       }),
     [yearTrend, adjustTotalForMonth]
   );
@@ -416,11 +412,11 @@ export default function DashboardHomePage() {
   const adjustedTodaySales = useMemo(() => {
     if (!data) return 0;
     return adjustTotalForDate(data.today_sales_total ?? 0);
-  }, [data, adjustTotalForDate, todayDateKey]);
+  }, [data, adjustTotalForDate]);
   const adjustedMonthSales = useMemo(() => {
     if (!data) return 0;
     return adjustTotalForMonth(data.month_sales_total ?? 0);
-  }, [data, adjustTotalForMonth, currentMonthKey]);
+  }, [data, adjustTotalForMonth]);
   const adjustedTodayAvgTicket = useMemo(() => {
     if (!data) return 0;
     const tickets = data.today_tickets ?? 0;
@@ -490,14 +486,6 @@ export default function DashboardHomePage() {
       minute: "2-digit",
     });
   }, []);
-
-  const separatedOrdersMap = useMemo(() => {
-    const map = new Map<number, SeparatedOrder>();
-    separatedOrders.forEach((order) => {
-      map.set(order.sale_id, order);
-    });
-    return map;
-  }, [separatedOrders]);
 
   // Filas “planas” para la tabla de últimas ventas
   const recentRows = useMemo(() => {
@@ -703,7 +691,13 @@ export default function DashboardHomePage() {
           ? separatedSummary
           : null,
     };
-  }, [paymentRange, recentSales, data, separatedOrdersMap, todayDateKey]);
+  }, [
+    paymentRange,
+    recentSales,
+    data,
+    separatedOrders,
+    todayDateKey,
+  ]);
 
   const paymentMethodData = paymentMethodCalc.entries;
   const separatedOverview = paymentMethodCalc.separated;
