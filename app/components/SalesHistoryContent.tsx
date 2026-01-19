@@ -451,6 +451,9 @@ function computeSaleSummary(sale: Sale | null) {
 
   let originalPaid =
     sale.paid_amount != null ? sale.paid_amount : originalTotal;
+  if (!sale.is_separated) {
+    originalPaid = Math.min(originalPaid, originalTotal);
+  }
   if (sale.is_separated) {
     if (sale.total != null && sale.balance != null) {
       originalPaid = Math.max(0, sale.total - sale.balance);

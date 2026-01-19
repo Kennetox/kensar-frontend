@@ -256,7 +256,9 @@ function computeSaleTotals(sale: SaleRecord) {
   const netTotal = sale.refunded_balance != null
     ? Math.max(0, sale.refunded_balance)
     : Math.max(0, totalBase - refundAmount);
-  const paid = Math.max(0, (sale.paid_amount ?? totalBase) - refundAmount);
+  const paidAmountRaw = sale.paid_amount ?? totalBase;
+  const cappedPaid = sale.is_separated ? paidAmountRaw : Math.min(paidAmountRaw, totalBase);
+  const paid = Math.max(0, cappedPaid - refundAmount);
   const surchargeAmount = Math.max(0, sale.surcharge_amount ?? 0);
   return {
     refundAmount,

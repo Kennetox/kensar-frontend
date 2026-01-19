@@ -1187,12 +1187,13 @@ export default function DashboardHomePage() {
                       sale.sale_number ?? sale.number ?? sale.id;
                     const isVoided = sale.status === "voided";
                     const hasRefund = refundAmount > 0 && !isVoided;
+                    const paidRaw = sale.paid_amount ?? sale.total;
+                    const paidBase = sale.is_separated
+                      ? paidRaw
+                      : Math.min(paidRaw, sale.total);
                     const netPaid = isVoided
                       ? 0
-                      : Math.max(
-                          0,
-                          (sale.paid_amount ?? sale.total) - refundAmount
-                        );
+                      : Math.max(0, paidBase - refundAmount);
 
                     return (
                       <div
