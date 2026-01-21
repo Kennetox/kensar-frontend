@@ -330,6 +330,15 @@ function formatDisplayDate(value?: string | null): string {
   );
 }
 
+function formatDisplayDateOnly(value?: string | null): string {
+  if (!value) return "";
+  return (
+    formatBogotaDate(value, {
+      dateStyle: "short",
+    }) || value
+  );
+}
+
 export function renderReturnTicket(options: ReturnTicketOptions): string {
   const settings = options.settings;
   const companyName =
@@ -648,7 +657,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
               .join("")
           : '<div class="row separated-row"><div class="sep-label">Sin abonos registrados</div><span>0</span></div>';
         const dueLine = options.separatedInfo?.dueDate
-          ? `<div class="line"><span>Fecha límite</span><span>${formatDisplayDate(
+          ? `<div class="line"><span>Fecha límite</span><span>${formatDisplayDateOnly(
               options.separatedInfo?.dueDate
             )}</span></div>`
           : "";

@@ -438,6 +438,14 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   }
 };
 
+const SURCHARGE_PRESET_RATES: Record<
+  Exclude<SurchargeMethod, "manual" | null>,
+  number
+> = {
+  addi: 0.1,
+  sistecredito: 0.05,
+};
+
 function splitGroupPath(groupName: string | null): string[] | null {
   if (!groupName) return null;
   const parts = groupName
@@ -1301,13 +1309,15 @@ const matchesStationLabel = useCallback(
 
   const applySurchargePreset = useCallback(
     (method: PresetSurchargeMethod) => {
-      const amount = roundUpToThousand(baseTotalForSurcharge * 0.05);
+      const rate = SURCHARGE_PRESET_RATES[method] ?? 0;
+      const amount = roundUpToThousand(baseTotalForSurcharge * rate);
       setCartSurcharge({
         method,
         amount,
         enabled: true,
         isManual: false,
       });
+      setCustomSurchargePercent(String(Math.round(rate * 100)));
       setSurchargeMenuOpen(false);
     },
     [baseTotalForSurcharge, setCartSurcharge]
@@ -1396,8 +1406,13 @@ const matchesStationLabel = useCallback(
       setCustomSurchargeValue(
         cartSurcharge.amount > 0 ? cartSurcharge.amount.toString() : ""
       );
-      if (!cartSurcharge.isManual && cartSurcharge.method) {
-        setCustomSurchargePercent("5");
+      if (
+        !cartSurcharge.isManual &&
+        cartSurcharge.method &&
+        cartSurcharge.method !== "manual"
+      ) {
+        const rate = SURCHARGE_PRESET_RATES[cartSurcharge.method] ?? 0.05;
+        setCustomSurchargePercent(String(Math.round(rate * 100)));
       }
     } else {
       setCustomSurchargeValue("");
@@ -4697,7 +4712,7 @@ const matchesStationLabel = useCallback(
                 </div>
               </div>
             )}
-            <div className="flex justify-between px-4 py-3 bg-slate-900 font-semibold text-lg">
+            <div className="flex justify-between px-4 py-5 bg-slate-900 font-extrabold text-3xl">
               <span>TOTAL</span>
               <span>{formatMoney(cartTotal)}</span>
             </div>
@@ -4761,8 +4776,8 @@ const matchesStationLabel = useCallback(
                         onClick={() => applySurchargePreset("addi")}
                         className="w-full rounded-md border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20"
                       >
-                        Addi · 5% ({formatMoney(
-                          roundUpToThousand(baseTotalForSurcharge * 0.05)
+                        Addi · 10% ({formatMoney(
+                          roundUpToThousand(baseTotalForSurcharge * 0.1)
                         )})
                       </button>
                       <button
@@ -4819,7 +4834,7 @@ const matchesStationLabel = useCallback(
                       <button
                         type="button"
                         onClick={handleDeactivateSurcharge}
-                        className="text-xs text-rose-300 hover:text-rose-200 underline"
+                        className="w-full rounded-md border border-rose-500/60 bg-rose-500/10 py-3 text-sm font-semibold text-rose-100 hover:bg-rose-500/20"
                       >
                         Desactivar incremento
                       </button>

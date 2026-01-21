@@ -496,7 +496,7 @@ function formatMoney(value: number): string {
 
 function getDefaultDueDate(): string {
   const due = new Date();
-  due.setMonth(due.getMonth() + 3);
+  due.setMonth(due.getMonth() + 2);
   return due.toISOString();
 }
 
@@ -1261,7 +1261,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => router.push("/pos")}
-            className="px-3 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-xs"
+            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
           >
             ← Volver al POS
           </button>
@@ -1288,14 +1288,14 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       {/* Cuerpo principal */}
       <div className="flex-1 flex overflow-hidden">
         {/* Columna izquierda: artículos */}
-        <section className="w-[26rem] border-r border-slate-800 flex flex-col overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-800 text-xs font-semibold tracking-wide text-slate-400">
+        <section className="w-[30rem] border-r border-slate-800 flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-800 text-sm font-semibold tracking-wide text-slate-400">
             Artículos
           </div>
           <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto">
             {cart.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+              <div className="h-full flex items-center justify-center text-slate-500 text-sm">
                 No hay artículos en la venta.
               </div>
             ) : (
@@ -1307,26 +1307,26 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                 return (
                   <div
                     key={item.id}
-                    className="px-4 py-2 text-xs border-b border-slate-900"
+                    className="px-4 py-3 text-sm border-b border-slate-900"
                   >
-                    <div className="font-semibold truncate">
+                    <div className="font-semibold truncate text-base">
                       {item.product.name}
                     </div>
-                    <div className="flex justify-between gap-3 text-slate-400 mt-1">
+                    <div className="flex justify-between gap-3 text-slate-400 mt-1 text-sm">
                       <span>
                         {item.quantity} x {formatMoney(item.unitPrice)}
                       </span>
                       <div className="text-right">
                         {hasDiscount && (
-                          <div className="text-[11px] text-slate-500 line-through">
+                          <div className="text-xs text-slate-500 line-through">
                             {formatMoney(gross)}
                           </div>
                         )}
-                        <div className="font-semibold text-slate-100">
+                        <div className="font-semibold text-slate-100 text-base">
                           {formatMoney(lineTotal)}
                         </div>
                         {hasDiscount && (
-                          <div className="text-[11px] text-emerald-400">
+                          <div className="text-xs text-emerald-400">
                             Descuento -{formatMoney(item.lineDiscountValue)}
                           </div>
                         )}
@@ -1338,30 +1338,30 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             )}
           </div>
           {/* Totales abajo */}
-          <div className="border-t border-slate-800 px-4 py-3 space-y-2 shrink-0">
+          <div className="border-t border-slate-800 px-4 py-4 space-y-3 shrink-0 text-sm">
             {cartLineDiscountTotal > 0 && (
               <>
-                <div className="flex items-center justify-between text-xs text-slate-400">
+                <div className="flex items-center justify-between text-sm text-slate-300">
                   <span>Subtotal sin descuentos</span>
-                  <span className="font-medium text-slate-100">
+                  <span className="font-semibold text-slate-100">
                     {formatMoney(cartGrossSubtotal)}
                   </span>
                 </div>
-                <div className="flex items-center justify-between text-xs text-emerald-400">
+                <div className="flex items-center justify-between text-sm text-emerald-400">
                   <span>Descuento artículos</span>
-                  <span className="font-medium">
+                  <span className="font-semibold">
                     -{formatMoney(cartLineDiscountTotal)}
                   </span>
                 </div>
               </>
             )}
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center justify-between text-sm text-slate-300">
               <span>Subtotal</span>
-              <span className="font-medium text-slate-100">
+              <span className="font-semibold text-slate-100">
                 {formatMoney(cartSubtotal)}
               </span>
             </div>
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center justify-between text-sm text-slate-300">
               <span>
                 {cartDiscountValue > 0 || cartDiscountPercent > 0
                   ? "Descuento carrito"
@@ -1373,7 +1373,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                     }`
                   : "Descuento carrito"}
               </span>
-            <span className="font-medium text-slate-100">
+            <span className="font-semibold text-slate-100">
                 {cartDiscountValue > 0
                   ? `-${formatMoney(cartDiscountValue)}`
                   : cartDiscountPercent > 0
@@ -1383,11 +1383,11 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   : "0"}
               </span>
             </div>
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-sm font-semibold text-slate-300">
+            <div className="flex items-center justify-between pt-3">
+              <span className="text-base font-bold text-slate-200">
                 TOTAL
               </span>
-              <span className="text-2xl font-extrabold text-emerald-400">
+              <span className="text-3xl font-extrabold text-emerald-400">
                 {formatMoney(totalToPay)}
               </span>
             </div>
@@ -1416,7 +1416,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   key={m.id}
                   onClick={() => handleSelectMethod(m.slug)}
                   className={
-                    "w-full text-left px-3 py-2.5 rounded-lg text-xs border shadow-inner transition-colors " +
+                    "w-full text-left px-4 py-3.5 rounded-xl text-sm font-semibold border shadow-inner transition-colors " +
                     (method === m.slug
                       ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-emerald-500/30"
                       : "bg-slate-900/80 hover:bg-slate-800 border-slate-700 text-slate-200")
@@ -1540,7 +1540,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                     <button
                       type="button"
                       onClick={() => setSaleNotes("")}
-                      className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+                      className="rounded-full border border-slate-700/80 bg-slate-950/70 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
                     >
                       Limpiar
                     </button>
