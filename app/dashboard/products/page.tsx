@@ -135,6 +135,11 @@ export default function ProductsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [showOnlyActive, setShowOnlyActive] = useState(false);
+  const [selectedGroupFilter, setSelectedGroupFilter] = useState("");
+  const [selectedBrand, setSelectedBrand] = useState("");
+  const [selectedSupplier, setSelectedSupplier] = useState("");
+  const [priceMinInput, setPriceMinInput] = useState("");
+  const [priceMaxInput, setPriceMaxInput] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("recent");
 
   // paginación
@@ -206,7 +211,16 @@ export default function ProductsPage() {
   // reset de página cuando cambian filtros
   useEffect(() => {
     setPage(1);
-  }, [search, showOnlyActive, sortOption]);
+  }, [
+    search,
+    showOnlyActive,
+    sortOption,
+    selectedGroupFilter,
+    selectedBrand,
+    selectedSupplier,
+    priceMinInput,
+    priceMaxInput,
+  ]);
 
   // utilidades
   function handleFormChange(
@@ -1272,6 +1286,8 @@ export default function ProductsPage() {
   // filtros + orden con useMemo
   const filteredProducts = useMemo(() => {
     const term = search.toLowerCase().trim();
+    const minPrice = parseMoneyValue(priceMinInput);
+    const maxPrice = parseMoneyValue(priceMaxInput);
 
     return products.filter((p) => {
       const matchesSearch =
@@ -1284,10 +1300,35 @@ export default function ProductsPage() {
         (p.supplier && p.supplier.toLowerCase().includes(term));
 
       const matchesActive = !showOnlyActive || p.active;
+      const matchesGroup =
+        !selectedGroupFilter || (p.group_name ?? "") === selectedGroupFilter;
+      const matchesBrand =
+        !selectedBrand || (p.brand ?? "") === selectedBrand;
+      const matchesSupplier =
+        !selectedSupplier || (p.supplier ?? "") === selectedSupplier;
+      const matchesMinPrice = minPrice <= 0 || p.price >= minPrice;
+      const matchesMaxPrice = maxPrice <= 0 || p.price <= maxPrice;
 
-      return matchesSearch && matchesActive;
+      return (
+        matchesSearch &&
+        matchesActive &&
+        matchesGroup &&
+        matchesBrand &&
+        matchesSupplier &&
+        matchesMinPrice &&
+        matchesMaxPrice
+      );
     });
-  }, [products, search, showOnlyActive]);
+  }, [
+    products,
+    search,
+    showOnlyActive,
+    selectedGroupFilter,
+    selectedBrand,
+    selectedSupplier,
+    priceMinInput,
+    priceMaxInput,
+  ]);
 
   const sortedProducts = useMemo(() => {
     const arr = [...filteredProducts];
@@ -1323,11 +1364,50 @@ export default function ProductsPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
   }, [products]);
 
+  const brandOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      if (p.brand) {
+        set.add(p.brand);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+  }, [products]);
+
+  const supplierOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      if (p.supplier) {
+        set.add(p.supplier);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+  }, [products]);
+
   const [createGroupFocused, setCreateGroupFocused] = useState(false);
   const [editGroupFocused, setEditGroupFocused] = useState(false);
 
   const totalCount = products.length;
   const filteredCount = filteredProducts.length;
+  const hasActiveFilters =
+    searchInput.trim() !== "" ||
+    showOnlyActive ||
+    selectedGroupFilter !== "" ||
+    selectedBrand !== "" ||
+    selectedSupplier !== "" ||
+    priceMinInput.trim() !== "" ||
+    priceMaxInput.trim() !== "";
+
+  const clearFilters = () => {
+    setSearchInput("");
+    setSearch("");
+    setShowOnlyActive(false);
+    setSelectedGroupFilter("");
+    setSelectedBrand("");
+    setSelectedSupplier("");
+    setPriceMinInput("");
+    setPriceMaxInput("");
+  };
 
   const totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -1452,7 +1532,7 @@ export default function ProductsPage() {
 
         {/* FILTROS */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex flex-col md:flex-row gap-2 md:items-center">
+          <div className="flex flex-col md:flex-row md:flex-wrap gap-2 md:items-center">
             <input
               type="text"
               placeholder="Buscar por nombre, SKU o código..."
@@ -1469,6 +1549,72 @@ export default function ProductsPage() {
               />
               Mostrar solo activos
             </label>
+            <select
+              value={selectedGroupFilter}
+              onChange={(e) => setSelectedGroupFilter(e.target.value)}
+              className="w-full md:w-56 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+            >
+              <option value="">Todos los grupos</option>
+              {groupOptions.map((group) => (
+                <option key={group} value={group}>
+                  {group}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedBrand}
+              onChange={(e) => setSelectedBrand(e.target.value)}
+              className="w-full md:w-48 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+            >
+              <option value="">Todas las marcas</option>
+              {brandOptions.map((brand) => (
+                <option key={brand} value={brand}>
+                  {brand}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedSupplier}
+              onChange={(e) => setSelectedSupplier(e.target.value)}
+              className="w-full md:w-48 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+            >
+              <option value="">Todos los proveedores</option>
+              {supplierOptions.map((supplier) => (
+                <option key={supplier} value={supplier}>
+                  {supplier}
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Precio min"
+                value={priceMinInput}
+                onChange={(e) =>
+                  setPriceMinInput(formatMoneyInput(e.target.value))
+                }
+                className="w-full md:w-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+              />
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Precio max"
+                value={priceMaxInput}
+                onChange={(e) =>
+                  setPriceMaxInput(formatMoneyInput(e.target.value))
+                }
+                className="w-full md:w-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={clearFilters}
+              disabled={!hasActiveFilters}
+              className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Limpiar filtros
+            </button>
           </div>
 
           <div className="text-xs md:text-sm text-slate-400 text-right">
@@ -1567,7 +1713,7 @@ export default function ProductsPage() {
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold">ID</th>
                     <th className="px-4 py-3 text-left font-semibold">SKU</th>
-                    <th className="px-4 py-3 text-left font-semibold">
+                    <th className="px-4 py-3 text-left font-semibold min-w-[260px]">
                       Nombre
                     </th>
                   <th className="px-4 py-3 text-left font-semibold">
@@ -1630,7 +1776,7 @@ export default function ProductsPage() {
 
                     <td className="px-4 py-3">{p.id}</td>
                     <td className="px-4 py-3">{p.sku}</td>
-                    <td className="px-4 py-3">{p.name}</td>
+                    <td className="px-4 py-3 min-w-[260px]">{p.name}</td>
                     <td className="px-4 py-3">{p.group_name}</td>
                     <td className="px-4 py-3">{p.brand}</td>
                     <td className="px-4 py-3">{p.supplier}</td>
