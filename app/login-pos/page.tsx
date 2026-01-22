@@ -15,6 +15,30 @@ import {
   setStoredPosMode,
 } from "@/lib/api/posStations";
 
+const attemptCloseWindow = (onFailure?: () => void) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.open("", "_self");
+  } catch {
+    // ignore
+  }
+  try {
+    window.close();
+  } catch {
+    // ignore
+  }
+  try {
+    window.top?.close();
+  } catch {
+    // ignore
+  }
+  window.setTimeout(() => {
+    if (!window.closed) {
+      onFailure?.();
+    }
+  }, 250);
+};
+
 function PosLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -107,16 +131,9 @@ function PosLoginContent() {
       document.exitFullscreen().catch(() => {});
     }
     if (typeof window !== "undefined") {
-      try {
-        window.close();
-      } catch {
-        // ignore close failures
-      }
-      window.setTimeout(() => {
-        if (!window.closed) {
-          setExitFailed(true);
-        }
-      }, 200);
+      attemptCloseWindow(() => {
+        setExitFailed(true);
+      });
     }
   };
 

@@ -446,6 +446,30 @@ const SURCHARGE_PRESET_RATES: Record<
   sistecredito: 0.05,
 };
 
+const attemptCloseWindow = (onFailure?: () => void) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.open("", "_self");
+  } catch {
+    // ignore
+  }
+  try {
+    window.close();
+  } catch {
+    // ignore
+  }
+  try {
+    window.top?.close();
+  } catch {
+    // ignore
+  }
+  window.setTimeout(() => {
+    if (!window.closed) {
+      onFailure?.();
+    }
+  }, 250);
+};
+
 function splitGroupPath(groupName: string | null): string[] | null {
   if (!groupName) return null;
   const parts = groupName
@@ -3635,23 +3659,12 @@ const matchesStationLabel = useCallback(
       document.exitFullscreen().catch(() => {});
     }
     if (typeof window !== "undefined") {
-      try {
-        window.close();
-      } catch {
-        // ignore close failures
-      }
-      const fallback = () => {
-        if (!window.closed) {
-          window.location.assign("/login-pos?exit=kiosk");
-        }
-      };
-      if (openedAsNewTab) {
-        window.setTimeout(fallback, 200);
-      } else {
-        fallback();
-      }
+      window.sessionStorage.removeItem(OPENED_NEW_TAB_STORAGE_KEY);
+      attemptCloseWindow(() => {
+        window.location.assign("/login-pos?exit=kiosk");
+      });
     }
-  }, [openedAsNewTab]);
+  }, []);
 
 
   const buildTiles = useCallback((): GridTile[] => {
