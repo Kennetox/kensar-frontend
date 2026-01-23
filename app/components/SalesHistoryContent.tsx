@@ -1886,6 +1886,12 @@ export default function SalesHistoryContent({
     return filteredSales.slice(start, start + PAGE_SIZE);
   }, [filteredSales, currentPage]);
 
+  const todayKey = getBogotaDateKey();
+  const isTodayRange = Boolean(
+    todayKey && filterFrom === todayKey && filterTo === todayKey
+  );
+  const abonoRangeLabel = isTodayRange ? "Abonos hoy" : "Abonos del rango";
+
   useEffect(() => {
     if (!token) return;
     const pendingSales = sales.filter(
@@ -2315,7 +2321,7 @@ export default function SalesHistoryContent({
                             {showMain ? formatMoney(netPaid) : ""}
                             {showMain && rowIsSeparated && abonoTotal > 0 && (
                               <span className="block text-xs text-emerald-300">
-                                Abonos: {formatMoney(abonoTotal)}
+                                {abonoRangeLabel}: {formatMoney(abonoTotal)}
                               </span>
                             )}
                           </div>
