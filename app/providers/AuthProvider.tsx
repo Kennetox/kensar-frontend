@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 import { getApiBase } from "@/lib/api/base";
 import {
   clearPersistedAppState,
@@ -62,8 +63,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [sessionType, setSessionType] = useState<"web" | "pos" | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
   const sessionGuardRef = useRef(false);
   const lastActivityRef = useRef(Date.now());
+  const lastSessionTypeRef = useRef<"web" | "pos">("web");
 
   const persistAuth = useCallback((payload: AuthStorageShape | null) => {
     if (typeof window === "undefined") return;
@@ -108,6 +111,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     }
   }, [persistAuth, token]);
+
+  useEffect(() => {
+    if (sessionType) {
+      lastSessionTypeRef.current = sessionType;
+    }
+  }, [sessionType]);
 
   const login = useCallback(
     async (
@@ -168,6 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback((reason?: string) => {
+    const redirectTarget = sessionType ?? lastSessionTypeRef.current ?? "web";
     if (token) {
       try {
         void fetch(`${getApiBase()}/auth/logout`, {
@@ -192,8 +202,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         window.sessionStorage.removeItem(LOGOUT_REASON_KEY);
       }
+      const nextPath = redirectTarget === "pos" ? "/login-pos" : "/login";
+      if (window.location.pathname !== nextPath) {
+        window.location.assign(nextPath);
+      } else {
+        router.replace(nextPath);
+      }
     }
-  }, [persistAuth, token]);
+  }, [persistAuth, router, sessionType, token]);
 
   useEffect(() => {
     if (!token || sessionType !== "web") return;
@@ -244,7 +260,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`${getApiBase()}/auth/session-status`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        logout("Tu sesión expiró. Ingresa nuevamente.");
+        return;
+      }
       const data = (await res.json()) as { status?: string; reason?: string | null };
       if (data.status === "active") return;
       if (data.reason === "replaced") {
@@ -297,8 +316,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else if (args[0] instanceof Request) {
           requestUrl = args[0].url;
         }
-        if (!requestUrl || !requestUrl.includes("/auth/login")) {
-          logout("Tu sesión expiró. Ingresa nuevamente.");
+        const isAuthEndpoint =
+          requestUrl &&
+          (requestUrl.includes("/auth/login") ||
+            requestUrl.includes("/auth/pos-login") ||
+            requestUrl.includes("/auth/session-status"));
+        if (!isAuthEndpoint) {
+          await checkSessionStatus();
         }
       }
       return response;
@@ -307,7 +331,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       window.fetch = originalFetch;
     };
-  }, [logout]);
+  }, [checkSessionStatus]);
 
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
