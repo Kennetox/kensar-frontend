@@ -1411,20 +1411,29 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                 </p>
               )}
 
-              {activePaymentMethods.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => handleSelectMethod(m.slug)}
-                  className={
-                    "w-full text-left px-4 py-3.5 rounded-xl text-sm font-semibold border shadow-inner transition-colors " +
-                    (method === m.slug
-                      ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-emerald-500/30"
-                      : "bg-slate-900/80 hover:bg-slate-800 border-slate-700 text-slate-200")
-                  }
-                >
-                  {m.name}
-                </button>
-              ))}
+              {activePaymentMethods.map((m) => {
+                const methodColor = m.color?.trim();
+                const isSelected = method === m.slug;
+                const idleStyle = methodColor
+                  ? { backgroundColor: methodColor, borderColor: methodColor }
+                  : undefined;
+
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => handleSelectMethod(m.slug)}
+                    className={
+                      "w-full text-left px-4 py-3.5 rounded-xl text-sm font-semibold border shadow-inner transition-colors " +
+                      (isSelected
+                        ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-emerald-500/30"
+                        : "bg-slate-900/80 hover:bg-slate-800 border-slate-700 text-slate-200")
+                    }
+                    style={!isSelected ? idleStyle : undefined}
+                  >
+                    {m.name}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Área de pago */}

@@ -4358,15 +4358,30 @@ export default function SettingsPage() {
                 </label>
                 <label className="text-sm flex flex-col gap-1 text-slate-300">
                   Color (opcional)
-                  <input
-                    type="text"
-                    value={paymentForm.color}
-                    onChange={(e) =>
-                      handlePaymentInput("color", e.target.value)
-                    }
-                    placeholder="#10b981"
-                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                  />
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={
+                        /^#([0-9a-fA-F]{6})$/.test(paymentForm.color.trim())
+                          ? paymentForm.color.trim()
+                          : "#10b981"
+                      }
+                      onChange={(e) =>
+                        handlePaymentInput("color", e.target.value)
+                      }
+                      className="h-10 w-12 rounded-md border border-slate-700 bg-slate-950"
+                      aria-label="Seleccionar color del método"
+                    />
+                    <input
+                      type="text"
+                      value={paymentForm.color}
+                      onChange={(e) =>
+                        handlePaymentInput("color", e.target.value)
+                      }
+                      placeholder="#10b981"
+                      className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                    />
+                  </div>
                 </label>
                 {paymentFormError && (
                   <p className="text-xs text-red-400">{paymentFormError}</p>

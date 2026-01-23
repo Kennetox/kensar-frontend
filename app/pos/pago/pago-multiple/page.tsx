@@ -1529,6 +1529,7 @@ export default function PagoMultiplePage() {
               {activePaymentMethods.map((m) => {
                 const inUse = payments.some((p) => p.method === m.slug);
                 const isSelected = currentLine?.method === m.slug;
+                const methodColor = m.color?.trim();
 
                 const base =
                   "w-full text-left px-4 py-3.5 rounded-xl text-sm font-semibold border shadow-inner transition-colors ";
@@ -1544,11 +1545,16 @@ export default function PagoMultiplePage() {
                     "bg-slate-900/80 border-emerald-500/60 text-emerald-200";
                 }
 
+                const idleStyle = methodColor
+                  ? { backgroundColor: methodColor, borderColor: methodColor }
+                  : undefined;
+
                 return (
                   <button
                     key={m.id}
                     onClick={() => handleMethodClick(m.slug)}
                     className={base + extra}
+                    style={!isSelected ? idleStyle : undefined}
                   >
                     {m.name}
                   </button>
