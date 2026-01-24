@@ -25,6 +25,11 @@ type AuthUser = {
   name: string;
   email: string;
   role: string;
+  avatar_url?: string | null;
+  birth_date?: string | null;
+  location?: string | null;
+  bio?: string | null;
+  phone?: string | null;
 };
 
 type AuthContextValue = {

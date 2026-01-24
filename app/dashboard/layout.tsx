@@ -1,10 +1,13 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../providers/AuthProvider";
 import { defaultRolePermissions, fetchRolePermissions } from "@/lib/api/settings";
+import { fetchUserProfile, type UserProfileRecord } from "@/lib/api/profile";
+import { getApiBase } from "@/lib/api/base";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
 
@@ -73,6 +76,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const posPreview = searchParams.get("posPreview") === "1";
   const [navOpen, setNavOpen] = useState(false);
   const [roleModules, setRoleModules] = useState(defaultRolePermissions);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [profile, setProfile] = useState<UserProfileRecord | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -101,6 +107,43 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     }
   }, [loading, token, router]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetchUserProfile(token)
+      .then((data) => {
+        if (!cancelled) {
+          setProfile(data);
+        }
+      })
+      .catch((err) => {
+        console.error("No pudimos cargar el perfil.", err);
+        if (!cancelled) {
+          setProfile(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !token) return;
+    let cancelled = false;
+    const handleUpdate = () => {
+      fetchUserProfile(token)
+        .then((data) => {
+          if (!cancelled) setProfile(data);
+        })
+        .catch((err) => console.error("No pudimos actualizar el perfil.", err));
+    };
+    window.addEventListener("kensar-profile:update", handleUpdate);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("kensar-profile:update", handleUpdate);
+    };
+  }, [token]);
 
   const routeAllowed = useMemo(() => {
     if (posPreview) {
@@ -133,6 +176,18 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     handler(media as unknown as MediaQueryListEvent);
     media.addEventListener("change", handler);
     return () => media.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleClick = (event: MouseEvent) => {
+      if (!profileMenuRef.current) return;
+      if (!profileMenuRef.current.contains(event.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+    window.addEventListener("click", handleClick);
+    return () => window.removeEventListener("click", handleClick);
   }, []);
 
   if (!token) {
@@ -169,6 +224,19 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
+
+  const displayName = profile?.name?.trim() || user?.name || "Usuario";
+  const displayRole = profile?.role ?? user?.role ?? "";
+  const avatarUrl = profile?.avatar_url ?? "";
+  const resolvedAvatarUrl = avatarUrl.startsWith("/")
+    ? `${getApiBase()}${avatarUrl}`
+    : avatarUrl;
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 
   return (
     <div className="min-h-screen flex bg-slate-950 text-slate-100">
@@ -313,24 +381,62 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 Volver al POS
               </button>
             )}
-            <div className="text-right">
-              <div className="text-sm font-semibold text-slate-100">
-                {user?.name ?? "Usuario"}
-              </div>
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                {user?.role ?? ""}
-              </div>
+            <div className="relative" ref={profileMenuRef}>
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen((prev) => !prev)}
+                className="flex items-center gap-3 rounded-full border border-slate-800 px-2 py-1.5 hover:border-slate-600"
+              >
+                <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden flex items-center justify-center text-[11px] text-slate-200">
+                  {resolvedAvatarUrl ? (
+                    <Image
+                      src={resolvedAvatarUrl}
+                      alt={displayName}
+                      width={32}
+                      height={32}
+                      className="w-full h-full object-cover"
+                      unoptimized
+                    />
+                  ) : (
+                    <span className="font-semibold">{initials || "US"}</span>
+                  )}
+                </div>
+                <div className="text-right leading-tight">
+                  <div className="text-sm font-semibold text-slate-100">
+                    {displayName}
+                  </div>
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                    {displayRole}
+                  </div>
+                </div>
+              </button>
+              {profileMenuOpen && (
+                <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-800 bg-slate-950/95 backdrop-blur shadow-lg overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      router.push("/dashboard/profile");
+                    }}
+                    className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-800"
+                  >
+                    Perfil
+                  </button>
+                  <div className="border-t border-slate-800" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      logout();
+                      router.replace("/login");
+                    }}
+                    className="w-full text-left px-4 py-3 text-sm text-rose-300 hover:bg-rose-500/10"
+                  >
+                    Cerrar sesión
+                  </button>
+                </div>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                logout();
-                router.replace("/login");
-              }}
-              className="text-[11px] px-3 py-1 rounded-md border border-slate-700 hover:border-red-400 hover:text-red-300"
-            >
-              Cerrar sesión
-            </button>
           </div>
         </header>
 
