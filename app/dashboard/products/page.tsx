@@ -123,6 +123,8 @@ export default function ProductsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<ProductForm>(emptyForm);
   const [savingCreate, setSavingCreate] = useState(false);
+  const [createSkuLocked, setCreateSkuLocked] = useState(true);
+  const [createBarcodeLocked, setCreateBarcodeLocked] = useState(true);
 
   // edición
   const [editOpen, setEditOpen] = useState(false);
@@ -130,6 +132,8 @@ export default function ProductsPage() {
   const [editForm, setEditForm] = useState<ProductForm>(emptyForm);
   const [savingEdit, setSavingEdit] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [editSkuLocked, setEditSkuLocked] = useState(true);
+  const [editBarcodeLocked, setEditBarcodeLocked] = useState(true);
 
   // filtros / orden
   const [searchInput, setSearchInput] = useState("");
@@ -309,10 +313,14 @@ export default function ProductsPage() {
       sku: suggestedSku,
       barcode: suggestedBarcode,
     });
+    setCreateSkuLocked(true);
+    setCreateBarcodeLocked(true);
   }
   function handleCloseCreateModal() {
     setCreateOpen(false);
     setCreateForm(emptyForm);
+    setCreateSkuLocked(true);
+    setCreateBarcodeLocked(true);
   }
 
   function handleCloseEditModal() {
@@ -325,6 +333,8 @@ export default function ProductsPage() {
     setProductTileColorValue(DEFAULT_TILE_COLOR);
     setShowAppearanceSettings(false);
     setConfirmDeleteOpen(false);
+    setEditSkuLocked(true);
+    setEditBarcodeLocked(true);
     if (productImageInputRef.current) {
       productImageInputRef.current.value = "";
     }
@@ -1098,6 +1108,8 @@ export default function ProductsPage() {
       allow_price_change: product.allow_price_change,
 
     });
+    setEditSkuLocked(true);
+    setEditBarcodeLocked(true);
     setEditOpen(true);
   }
 
@@ -1945,12 +1957,28 @@ export default function ProductsPage() {
             >
               <div className="space-y-1">
                 <label className="block text-slate-300">SKU</label>
-                <input
-                  name="sku"
-                  value={createForm.sku}
-                  onChange={(e) => handleFormChange(e, setCreateForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
+                <div className="relative">
+                  <input
+                    name="sku"
+                    value={createForm.sku}
+                    onChange={(e) => handleFormChange(e, setCreateForm)}
+                    disabled={createSkuLocked}
+                    className={`w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 pr-10 outline-none focus:border-emerald-400 ${createSkuLocked ? "text-slate-400" : ""}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCreateSkuLocked((prev) => !prev)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                    aria-pressed={!createSkuLocked}
+                    aria-label={
+                      createSkuLocked
+                        ? "Desbloquear campo SKU"
+                        : "Bloquear campo SKU"
+                    }
+                  >
+                    {createSkuLocked ? "🔒" : "🔓"}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-1 md:col-span-2">
@@ -2112,12 +2140,28 @@ export default function ProductsPage() {
                 <label className="block text-slate-300">
                   Código de barras
                 </label>
-                <input
-                  name="barcode"
-                  value={createForm.barcode}
-                  onChange={(e) => handleFormChange(e, setCreateForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
+                <div className="relative">
+                  <input
+                    name="barcode"
+                    value={createForm.barcode}
+                    onChange={(e) => handleFormChange(e, setCreateForm)}
+                    disabled={createBarcodeLocked}
+                    className={`w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 pr-10 outline-none focus:border-emerald-400 ${createBarcodeLocked ? "text-slate-400" : ""}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCreateBarcodeLocked((prev) => !prev)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                    aria-pressed={!createBarcodeLocked}
+                    aria-label={
+                      createBarcodeLocked
+                        ? "Desbloquear campo código de barras"
+                        : "Bloquear campo código de barras"
+                    }
+                  >
+                    {createBarcodeLocked ? "🔒" : "🔓"}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -2206,12 +2250,28 @@ export default function ProductsPage() {
             >
               <div className="space-y-1">
                 <label className="block text-slate-300">SKU</label>
-                <input
-                  name="sku"
-                  value={editForm.sku}
-                  onChange={(e) => handleFormChange(e, setEditForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
+                <div className="relative">
+                  <input
+                    name="sku"
+                    value={editForm.sku}
+                    onChange={(e) => handleFormChange(e, setEditForm)}
+                    disabled={editSkuLocked}
+                    className={`w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 pr-10 outline-none focus:border-emerald-400 ${editSkuLocked ? "text-slate-400" : ""}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEditSkuLocked((prev) => !prev)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                    aria-pressed={!editSkuLocked}
+                    aria-label={
+                      editSkuLocked
+                        ? "Desbloquear campo SKU"
+                        : "Bloquear campo SKU"
+                    }
+                  >
+                    {editSkuLocked ? "🔒" : "🔓"}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-1 md:col-span-2">
@@ -2372,12 +2432,28 @@ export default function ProductsPage() {
                 <label className="block text-slate-300">
                   Código de barras
                 </label>
-                <input
-                  name="barcode"
-                  value={editForm.barcode}
-                  onChange={(e) => handleFormChange(e, setEditForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
+                <div className="relative">
+                  <input
+                    name="barcode"
+                    value={editForm.barcode}
+                    onChange={(e) => handleFormChange(e, setEditForm)}
+                    disabled={editBarcodeLocked}
+                    className={`w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 pr-10 outline-none focus:border-emerald-400 ${editBarcodeLocked ? "text-slate-400" : ""}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEditBarcodeLocked((prev) => !prev)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                    aria-pressed={!editBarcodeLocked}
+                    aria-label={
+                      editBarcodeLocked
+                        ? "Desbloquear campo código de barras"
+                        : "Bloquear campo código de barras"
+                    }
+                  >
+                    {editBarcodeLocked ? "🔒" : "🔓"}
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-1">
