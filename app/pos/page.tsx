@@ -4161,8 +4161,8 @@ const matchesStationLabel = useCallback(
       )}
       {/* Top bar */}
       <header className="bg-slate-900 border-b border-slate-800">
-        <div className="min-h-[72px] flex flex-wrap items-start justify-between gap-4 px-4 py-3">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+        <div className="min-h-[72px] grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-4 py-3">
+          <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
             <button
               className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
               onClick={() => setCartDrawerOpen(true)}
@@ -4986,7 +4986,7 @@ const matchesStationLabel = useCallback(
                     <button
                       key={tile.id}
                       onClick={() => handleTileClick(tile)}
-                      className={`group relative w-full h-full min-h-[190px] rounded-xl border border-slate-700/60 px-3 py-3 text-xs text-slate-50 overflow-hidden select-none ${tileBgClass}`}
+                      className={`group relative w-full h-full rounded-xl border border-slate-700/60 px-3 py-3 text-xs text-slate-50 overflow-hidden select-none ${tileBgClass}`}
                       style={tileStyle}
                     >
                       {hasProductImage ? (
