@@ -4176,10 +4176,16 @@ const matchesStationLabel = useCallback(
         flexShrink: 0,
       };
   return (
-    <main
-      className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden"
-      style={{ zoom: uiZoom }}
-    >
+    <main className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
+      <div
+        className="h-full w-full"
+        style={{
+          transform: `scale(${uiZoom})`,
+          transformOrigin: "top left",
+          width: `${100 / uiZoom}%`,
+          height: `${100 / uiZoom}%`,
+        }}
+      >
       {loading && (
         <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col gap-6 px-6 py-8">
           <div className="h-12 rounded-2xl bg-slate-900/70 animate-pulse" />
@@ -6256,6 +6262,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
           Error: {error}
         </div>
       )}
+      </div>
     </main>
   );
 }
