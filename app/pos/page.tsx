@@ -4161,8 +4161,8 @@ const matchesStationLabel = useCallback(
       )}
       {/* Top bar */}
       <header className="bg-slate-900 border-b border-slate-800">
-        <div className="h-16 min-h-[72px] flex items-center justify-between px-4">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="min-h-[72px] flex flex-wrap items-start justify-between gap-4 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
             <button
               className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
               onClick={() => setCartDrawerOpen(true)}
@@ -4170,111 +4170,113 @@ const matchesStationLabel = useCallback(
               ☰ Carrito
             </button>
             {/* Botones estilo Aronium arriba de la pantalla */}
-          <button
-            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
-            onClick={() => handleOpenDiscountModal()}
-          >
-            <span className="font-semibold">Descuento</span>
-          </button>
-          <button
-            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded"
-            onClick={handleOpenQuantityModal}
-          >
-            Cantidad
-          </button>
-          <button
-            className="px-6 py-3.5 text-base font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md min-w-[128px]"
-            onClick={handleDeleteSelected}
-          >
-            Eliminar
-          </button>
-          <button
-            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
-            onClick={() => {
-              if (shouldBlockSales) {
-                setClosureReminderOpen(true);
-                return;
-              }
-              router.push("/pos/devoluciones");
-            }}
-          >
-            Devolución
-          </button>
-          <button
-            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition"
-            onClick={() => {
-              if (shouldBlockSales) {
-                setClosureReminderOpen(true);
-                return;
-              }
-              router.push("/pos/abonos");
-            }}
-          >
-            Abono de separados
-          </button>
-          <button
-            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
-            onClick={() => router.push("/pos/clientes")}
-          >
-            Asignar cliente
-          </button>
-          <button
-            className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition"
-            onClick={() => router.push("/pos/cambios")}
-          >
-            Cambio
-          </button>
-        </div>
+            <button
+              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
+              onClick={() => handleOpenDiscountModal()}
+            >
+              <span className="font-semibold">Descuento</span>
+            </button>
+            <button
+              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded"
+              onClick={handleOpenQuantityModal}
+            >
+              Cantidad
+            </button>
+            <button
+              className="px-6 py-3.5 text-base font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md min-w-[128px]"
+              onClick={handleDeleteSelected}
+            >
+              Eliminar
+            </button>
+            <button
+              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
+              onClick={() => {
+                if (shouldBlockSales) {
+                  setClosureReminderOpen(true);
+                  return;
+                }
+                router.push("/pos/devoluciones");
+              }}
+            >
+              Devolución
+            </button>
+            <button
+              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition"
+              onClick={() => {
+                if (shouldBlockSales) {
+                  setClosureReminderOpen(true);
+                  return;
+                }
+                router.push("/pos/abonos");
+              }}
+            >
+              Abono de separados
+            </button>
+            <button
+              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
+              onClick={() => router.push("/pos/clientes")}
+            >
+              Asignar cliente
+            </button>
+            <button
+              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition"
+              onClick={() => router.push("/pos/cambios")}
+            >
+              Cambio
+            </button>
+          </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex flex-col items-end gap-1 text-sm">
-            <div className="flex items-center gap-2">
-              {currentTime && (
-                <span className="flex items-center gap-2 text-base text-slate-400 tracking-wide whitespace-nowrap">
-                  <span>{currentTime}</span>
-                  {currentPeriod && <span>{currentPeriod}</span>}
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-col items-end gap-1 text-sm">
+              <div className="flex items-center gap-2">
+                {currentTime && (
+                  <span className="flex items-center gap-2 text-base text-slate-400 tracking-wide whitespace-nowrap">
+                    <span>{currentTime}</span>
+                    {currentPeriod && <span>{currentPeriod}</span>}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleManualSync()}
+                  disabled={syncingCatalog}
+                  className="flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <span role="img" aria-label="sincronizar">
+                    🔄
+                  </span>
+                  {syncingCatalog ? "Sincronizando…" : "Sincronizar"}
+                </button>
+              </div>
+              {syncStatus && (
+                <span
+                  className={`text-[11px] ${
+                    syncStatus.type === "error"
+                      ? "text-red-300"
+                      : "text-emerald-300"
+                  }`}
+                >
+                  {syncStatus.message}
                 </span>
               )}
+            </div>
+            <div className="relative" ref={userMenuRef}>
               <button
                 type="button"
-                onClick={() => void handleManualSync()}
-                disabled={syncingCatalog}
-                className="flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                onClick={() => setUserMenuOpen((prev) => !prev)}
+                className="flex items-center gap-3 text-xs hover:bg-slate-800/70 rounded-full px-4 py-2 transition"
               >
-                <span role="img" aria-label="sincronizar">
-                  🔄
-                </span>
-                {syncingCatalog ? "Sincronizando…" : "Sincronizar"}
-              </button>
-            </div>
-            {syncStatus && (
-              <span
-                className={`text-[11px] ${
-                  syncStatus.type === "error" ? "text-red-300" : "text-emerald-300"
-                }`}
-              >
-                {syncStatus.message}
-              </span>
-            )}
-          </div>
-          <div className="relative" ref={userMenuRef}>
-            <button
-              type="button"
-              onClick={() => setUserMenuOpen((prev) => !prev)}
-              className="flex items-center gap-3 text-xs hover:bg-slate-800/70 rounded-full px-4 py-2 transition"
-            >
-              <div className="text-right leading-tight">
-                <div className="text-base font-semibold text-slate-100">
-                  {user?.name ?? "Usuario sin identificar"}
+                <div className="text-right leading-tight">
+                  <div className="text-base font-semibold text-slate-100">
+                    {user?.name ?? "Usuario sin identificar"}
+                  </div>
+                  <div className="text-[12px] text-slate-400">{sellerRole}</div>
                 </div>
-                <div className="text-[12px] text-slate-400">{sellerRole}</div>
-              </div>
-              <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-semibold text-slate-100">
-                {sellerInitials}
-              </div>
-            </button>
-            {userMenuOpen && (
-              <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden z-30">
+                <div className="w-11 h-11 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-semibold text-slate-100">
+                  {sellerInitials}
+                </div>
+              </button>
+              {userMenuOpen && (
+                <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden z-30">
                 <div className="px-5 py-3 text-[12px] uppercase tracking-wide text-slate-500 border-b border-slate-800">
                   Acciones de caja
                 </div>
@@ -4408,10 +4410,9 @@ const matchesStationLabel = useCallback(
                   </>
                 )}
               </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
-
         </div>
 
         <div className="flex items-center justify-between px-4 py-3 text-sm border-t border-slate-800">
