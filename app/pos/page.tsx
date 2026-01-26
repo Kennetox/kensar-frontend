@@ -4182,8 +4182,8 @@ const matchesStationLabel = useCallback(
         style={{
           transform: `scale(${uiZoom})`,
           transformOrigin: "top left",
-          width: `${100 / uiZoom}%`,
-          height: `${100 / uiZoom}%`,
+          width: `calc(100vw / ${uiZoom})`,
+          height: `calc(100vh / ${uiZoom})`,
         }}
       >
       {loading && (
