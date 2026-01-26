@@ -4178,7 +4178,7 @@ const matchesStationLabel = useCallback(
   return (
     <main className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
       <div
-        className="h-full w-full"
+        className="absolute inset-0"
         style={{
           transform: `scale(${uiZoom})`,
           transformOrigin: "top left",
