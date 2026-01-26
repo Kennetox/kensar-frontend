@@ -428,6 +428,8 @@ const UI_ZOOM_STORAGE_PREFIX = "kensar_pos_ui_zoom";
 const UI_ZOOM_MIN = 0.67;
 const UI_ZOOM_MAX = 1;
 const UI_ZOOM_STEP = 0.03;
+const UI_ZOOM_DEFAULT_STATION = 0.83;
+const UI_ZOOM_DEFAULT_WEB = 1;
 
 const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   switch (method) {
@@ -1050,7 +1052,7 @@ const matchesStationLabel = useCallback(
   const [isResizingCartPanel, setIsResizingCartPanel] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
   const [gridZoom, setGridZoom] = useState(GRID_ZOOM_DEFAULT);
-  const [uiZoom, setUiZoom] = useState(1);
+  const [uiZoom, setUiZoom] = useState(UI_ZOOM_DEFAULT_WEB);
   const [isMobile, setIsMobile] = useState(false);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const gridZoomHydratedRef = useRef(false);
@@ -1156,7 +1158,7 @@ const matchesStationLabel = useCallback(
     [clampUiZoom]
   );
   const handleUiZoomReset = useCallback(() => {
-    setUiZoom(posMode === "web" ? 1 : UI_ZOOM_MIN);
+    setUiZoom(posMode === "web" ? UI_ZOOM_DEFAULT_WEB : UI_ZOOM_DEFAULT_STATION);
   }, [posMode]);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1191,7 +1193,9 @@ const matchesStationLabel = useCallback(
         setUiZoom(clampUiZoom(parsed));
       }
     } else {
-      setUiZoom(posMode === "web" ? 1 : UI_ZOOM_MIN);
+      setUiZoom(
+        posMode === "web" ? UI_ZOOM_DEFAULT_WEB : UI_ZOOM_DEFAULT_STATION
+      );
     }
     uiZoomHydratedRef.current = true;
   }, [uiZoomStorageKey, clampUiZoom, posMode]);
