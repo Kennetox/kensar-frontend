@@ -424,6 +424,10 @@ const GRID_ZOOM_MIN = 0.8;
 const GRID_ZOOM_MAX = 1.25;
 const GRID_ZOOM_STEP = 0.05;
 const GRID_ZOOM_DEFAULT = 1;
+const UI_ZOOM_STORAGE_PREFIX = "kensar_pos_ui_zoom";
+const UI_ZOOM_MIN = 0.67;
+const UI_ZOOM_MAX = 1;
+const UI_ZOOM_STEP = 0.03;
 
 const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   switch (method) {
@@ -1046,9 +1050,11 @@ const matchesStationLabel = useCallback(
   const [isResizingCartPanel, setIsResizingCartPanel] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
   const [gridZoom, setGridZoom] = useState(GRID_ZOOM_DEFAULT);
+  const [uiZoom, setUiZoom] = useState(1);
   const [isMobile, setIsMobile] = useState(false);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const gridZoomHydratedRef = useRef(false);
+  const uiZoomHydratedRef = useRef(false);
   const cartWidthStorageKey = useMemo(
     () =>
       activeStationId
@@ -1062,6 +1068,15 @@ const matchesStationLabel = useCallback(
     }
     if (posMode === "web") {
       return `${GRID_ZOOM_STORAGE_PREFIX}:pos-web`;
+    }
+    return null;
+  }, [activeStationId, posMode]);
+  const uiZoomStorageKey = useMemo(() => {
+    if (activeStationId) {
+      return `${UI_ZOOM_STORAGE_PREFIX}:${activeStationId}`;
+    }
+    if (posMode === "web") {
+      return `${UI_ZOOM_STORAGE_PREFIX}:pos-web`;
     }
     return null;
   }, [activeStationId, posMode]);
@@ -1121,6 +1136,10 @@ const matchesStationLabel = useCallback(
     (value: number) => clampNumber(value, GRID_ZOOM_MIN, GRID_ZOOM_MAX),
     []
   );
+  const clampUiZoom = useCallback(
+    (value: number) => clampNumber(value, UI_ZOOM_MIN, UI_ZOOM_MAX),
+    []
+  );
   const handleZoomChange = useCallback(
     (delta: number) => {
       setGridZoom((prev) => clampGridZoom(prev + delta));
@@ -1130,6 +1149,15 @@ const matchesStationLabel = useCallback(
   const handleZoomReset = useCallback(() => {
     setGridZoom(GRID_ZOOM_DEFAULT);
   }, []);
+  const handleUiZoomChange = useCallback(
+    (delta: number) => {
+      setUiZoom((prev) => clampUiZoom(prev + delta));
+    },
+    [clampUiZoom]
+  );
+  const handleUiZoomReset = useCallback(() => {
+    setUiZoom(posMode === "web" ? 1 : UI_ZOOM_MIN);
+  }, [posMode]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!cartWidthStorageKey) return;
@@ -1154,6 +1182,21 @@ const matchesStationLabel = useCallback(
   }, [gridZoomStorageKey, clampGridZoom]);
   useEffect(() => {
     if (typeof window === "undefined") return;
+    uiZoomHydratedRef.current = false;
+    if (!uiZoomStorageKey) return;
+    const stored = window.localStorage.getItem(uiZoomStorageKey);
+    if (stored) {
+      const parsed = Number(stored);
+      if (Number.isFinite(parsed)) {
+        setUiZoom(clampUiZoom(parsed));
+      }
+    } else {
+      setUiZoom(posMode === "web" ? 1 : UI_ZOOM_MIN);
+    }
+    uiZoomHydratedRef.current = true;
+  }, [uiZoomStorageKey, clampUiZoom, posMode]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
     if (!cartWidthStorageKey) return;
     window.localStorage.setItem(
       cartWidthStorageKey,
@@ -1166,6 +1209,12 @@ const matchesStationLabel = useCallback(
     if (!gridZoomHydratedRef.current) return;
     window.localStorage.setItem(gridZoomStorageKey, String(gridZoom));
   }, [gridZoom, gridZoomStorageKey]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!uiZoomStorageKey) return;
+    if (!uiZoomHydratedRef.current) return;
+    window.localStorage.setItem(uiZoomStorageKey, String(uiZoom));
+  }, [uiZoom, uiZoomStorageKey]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!isResizingCartPanel) return;
@@ -4127,7 +4176,10 @@ const matchesStationLabel = useCallback(
         flexShrink: 0,
       };
   return (
-    <main className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
+    <main
+      className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden"
+      style={{ zoom: uiZoom }}
+    >
       {loading && (
         <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col gap-6 px-6 py-8">
           <div className="h-12 rounded-2xl bg-slate-900/70 animate-pulse" />
@@ -5060,7 +5112,7 @@ const matchesStationLabel = useCallback(
               </span>
               <div className="flex items-center gap-4">
                 <div className="hidden items-center gap-2 text-xs text-slate-300 lg:flex">
-                  <span className="text-slate-400">Zoom</span>
+                  <span className="text-slate-400">Grid</span>
                   <button
                     type="button"
                     onClick={() => handleZoomChange(-GRID_ZOOM_STEP)}
@@ -5078,6 +5130,29 @@ const matchesStationLabel = useCallback(
                   <button
                     type="button"
                     onClick={() => handleZoomChange(GRID_ZOOM_STEP)}
+                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
+                  >
+                    +
+                  </button>
+                  <span className="ml-2 text-slate-600">|</span>
+                  <span className="text-slate-400">UI</span>
+                  <button
+                    type="button"
+                    onClick={() => handleUiZoomChange(-UI_ZOOM_STEP)}
+                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
+                  >
+                    –
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUiZoomReset}
+                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
+                  >
+                    {Math.round(uiZoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUiZoomChange(UI_ZOOM_STEP)}
                     className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
                   >
                     +
