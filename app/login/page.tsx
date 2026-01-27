@@ -136,10 +136,10 @@ export default function LoginPage() {
                 ← Volver al sitio principal
               </Link>
               <Link
-                href="/login-pos"
+                href="/descargar-pos"
                 className="rounded-full border border-emerald-300 bg-emerald-400/20 px-4 py-2 text-sm font-semibold text-emerald-600 transition hover:bg-emerald-300/30"
               >
-                Ingresar al POS
+                Descargar POS
               </Link>
             </div>
           </nav>

@@ -144,7 +144,7 @@ function PosLoginContent() {
       return;
     }
     if (!pin.trim()) {
-      setError("Debes ingresar tu PIN de caja.");
+      setError("Debes ingresar tu PIN de usuario.");
       return;
     }
     setError(null);
@@ -308,7 +308,7 @@ function PosLoginContent() {
                     </div>
                     <input
                       type="text"
-                      value={stationInfo?.email ?? ""}
+                      value={stationInfo?.label ?? stationInfo?.email ?? ""}
                       readOnly
                       placeholder="Configura esta estación desde el panel"
                       className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3.5 text-slate-500 shadow-inner"
@@ -316,12 +316,12 @@ function PosLoginContent() {
                   </label>
                   {!stationInfo && (
                     <p className="text-[13px] text-amber-700 bg-amber-100/60 rounded-xl px-3 py-2">
-                      Esta estación no está configurada. Ingresa al panel y usa
-                      “Configurar aquí” en Seguridad → Estaciones de caja.
+                      Esta estación no está configurada. Vincula el equipo desde
+                      la app de escritorio con las credenciales de la estación.
                     </p>
                   )}
                   <label className="flex flex-col gap-1 text-base">
-                    <span className="text-slate-500">PIN de caja</span>
+                  <span className="text-slate-500">PIN de usuario</span>
                     <div className="relative">
                       <input
                         type={showPin ? "text" : "password"}

@@ -94,10 +94,10 @@ export default function LandingPage() {
                     Ingresar al panel
                   </Link>
                   <Link
-                    href="/login-pos"
+                    href="/descargar-pos"
                     className="rounded-2xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:scale-105 sm:px-8 sm:py-4 sm:text-lg w-full sm:w-auto text-center"
                   >
-                    Ingresar al POS
+                    Descargar POS
                   </Link>
                 </div>
               </div>

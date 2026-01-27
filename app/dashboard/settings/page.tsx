@@ -49,7 +49,7 @@ import {
   type PaymentMethodRecord,
 } from "@/lib/api/paymentMethods";
 import { useAuth } from "../../providers/AuthProvider";
-import { clearPosStationAccess, getPosStationAccess, setPosStationAccess } from "@/lib/api/posStations";
+import { clearPosStationAccess, getPosStationAccess } from "@/lib/api/posStations";
 import { getApiBase } from "@/lib/api/base";
 import { fetchSeparatedOrders, SeparatedOrder } from "@/lib/api/separatedOrders";
 import {
@@ -525,6 +525,7 @@ export default function SettingsPage() {
     notes: string;
     role: PosUserRecord["role"];
     password: string;
+    pin: string;
   }>({
     name: "",
     email: "",
@@ -533,6 +534,7 @@ export default function SettingsPage() {
     notes: "",
     role: "Vendedor",
     password: "",
+    pin: "",
   });
   const [creatingUser, setCreatingUser] = useState(false);
   const [userFormError, setUserFormError] = useState<string | null>(null);
@@ -612,37 +614,24 @@ export default function SettingsPage() {
   const [stationsLoading, setStationsLoading] = useState(false);
   const [stationsError, setStationsError] = useState<string | null>(null);
   const [stationModalOpen, setStationModalOpen] = useState(false);
+  const [editingStation, setEditingStation] = useState<PosStationRecord | null>(null);
   const [stationForm, setStationForm] = useState<{
     label: string;
     email: string;
-    pin: string;
-    confirmPin: string;
+    password: string;
+    confirmPassword: string;
     sendClosureEmail: boolean;
   }>({
     label: "",
     email: "",
-    pin: "",
-    confirmPin: "",
+    password: "",
+    confirmPassword: "",
     sendClosureEmail: true,
   });
   const [stationSaving, setStationSaving] = useState(false);
-  const [stationPinNotice, setStationPinNotice] = useState<{ label: string; pin: string } | null>(null);
   const [stationMessage, setStationMessage] = useState<string | null>(null);
   const [stationFormError, setStationFormError] = useState<string | null>(null);
   const [updatingStationId, setUpdatingStationId] = useState<string | null>(null);
-  const [customPinModal, setCustomPinModal] = useState<{
-    station: PosStationRecord | null;
-    pin: string;
-    confirm: string;
-    error: string | null;
-    saving: boolean;
-  }>({
-    station: null,
-    pin: "",
-    confirm: "",
-    error: null,
-    saving: false,
-  });
   const [controlRows, setControlRows] = useState<StationControlRow[]>([]);
   const [controlLoading, setControlLoading] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -684,6 +673,7 @@ export default function SettingsPage() {
       notes: "",
       role: "Vendedor",
       password: "",
+      pin: "",
     });
     setEditingUser(null);
   }, []);
@@ -753,7 +743,7 @@ export default function SettingsPage() {
       };
       const resolveEmail = (stationId: string | null) =>
         stationId && stationRecordsMap.get(stationId)
-          ? stationRecordsMap.get(stationId)!.pos_user_email ?? null
+          ? stationRecordsMap.get(stationId)!.station_email ?? null
           : null;
       const ensureRow = (stationId: string | null, fallback?: string | null) => {
         const key = stationId ?? "__legacy__";
@@ -1241,90 +1231,34 @@ export default function SettingsPage() {
     setStationForm({
       label: "",
       email: "",
-      pin: "",
-      confirmPin: "",
+      password: "",
+      confirmPassword: "",
       sendClosureEmail: true,
     });
     setStationFormError(null);
+    setEditingStation(null);
+    setStationModalOpen(true);
+  }
+
+  function openEditStationModal(station: PosStationRecord) {
+    setStationForm({
+      label: station.label ?? "",
+      email: station.station_email ?? "",
+      password: "",
+      confirmPassword: "",
+      sendClosureEmail: Boolean(
+        station.send_closure_email ?? form.stationEmailOverrides?.[station.id] ?? true
+      ),
+    });
+    setStationFormError(null);
+    setEditingStation(station);
     setStationModalOpen(true);
   }
 
   function closeStationModal() {
     if (stationSaving) return;
     setStationModalOpen(false);
-  }
-
-  function openCustomPinModal(station: PosStationRecord) {
-    setCustomPinModal({
-      station,
-      pin: "",
-      confirm: "",
-      error: null,
-      saving: false,
-    });
-  }
-
-  function closeCustomPinModal() {
-    setCustomPinModal({
-      station: null,
-      pin: "",
-      confirm: "",
-      error: null,
-      saving: false,
-    });
-  }
-
-  async function handleSaveCustomPin(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!token || !customPinModal.station) return;
-    const pin = customPinModal.pin.trim();
-    const confirm = customPinModal.confirm.trim();
-    if (!pin) {
-      setCustomPinModal((prev) => ({ ...prev, error: "Ingresa un PIN." }));
-      return;
-    }
-    if (pin !== confirm) {
-      setCustomPinModal((prev) => ({
-        ...prev,
-        error: "El PIN y la confirmación no coinciden.",
-      }));
-      return;
-    }
-    if (!/^\d{4,8}$/.test(pin)) {
-      setCustomPinModal((prev) => ({
-        ...prev,
-        error: "El PIN debe tener entre 4 y 8 dígitos.",
-      }));
-      return;
-    }
-    try {
-      setCustomPinModal((prev) => ({ ...prev, saving: true, error: null }));
-      const response = await updatePosStation(
-        customPinModal.station.id,
-        { pin_plain: pin },
-        token
-      );
-      const updatedStation = getStationRecordFromResponse(response);
-      setStationPinNotice(
-        updatedStation
-          ? { label: updatedStation.label, pin }
-          : { label: customPinModal.station.label, pin }
-      );
-      setStationMessage("PIN actualizado manualmente.");
-      closeCustomPinModal();
-      await loadStations();
-    } catch (err) {
-      console.error(err);
-      setCustomPinModal((prev) => ({
-        ...prev,
-        error:
-          err instanceof Error
-            ? err.message
-            : "No pudimos actualizar el PIN.",
-      }));
-    } finally {
-      setCustomPinModal((prev) => ({ ...prev, saving: false }));
-    }
+    setEditingStation(null);
   }
 
   async function handleSubmitStation(e: FormEvent<HTMLFormElement>) {
@@ -1332,54 +1266,88 @@ export default function SettingsPage() {
     if (!token) return;
     const label = stationForm.label.trim();
     const email = stationForm.email.trim();
-    const pin = stationForm.pin.trim();
-    const confirmPin = stationForm.confirmPin.trim();
+    const password = stationForm.password.trim();
+    const confirmPassword = stationForm.confirmPassword.trim();
     if (!label || !email) {
-      setStationFormError("Debes ingresar el nombre y el correo asignado.");
+      setStationFormError("Debes ingresar el nombre y el correo de la estación.");
       return;
     }
-    if (pin || confirmPin) {
-      if (pin !== confirmPin) {
-        setStationFormError("El PIN y su confirmación no coinciden.");
+    if (editingStation) {
+      if (password || confirmPassword) {
+        if (password !== confirmPassword) {
+          setStationFormError("La contraseña y su confirmación no coinciden.");
+          return;
+        }
+        if (password.length < 6) {
+          setStationFormError("La contraseña debe tener al menos 6 caracteres.");
+          return;
+        }
+      }
+    } else {
+      if (!password || !confirmPassword) {
+        setStationFormError("Debes definir una contraseña para la estación.");
         return;
       }
-      if (!/^\d{4,8}$/.test(pin)) {
-        setStationFormError("El PIN debe tener entre 4 y 8 dígitos.");
+      if (password !== confirmPassword) {
+        setStationFormError("La contraseña y su confirmación no coinciden.");
+        return;
+      }
+      if (password.length < 6) {
+        setStationFormError("La contraseña debe tener al menos 6 caracteres.");
         return;
       }
     }
     try {
       setStationSaving(true);
       setStationFormError(null);
-      const payload: {
-        label: string;
-        pos_user_email: string;
-        send_closure_email: boolean;
-        pin_plain?: string;
-      } = {
-        label,
-        pos_user_email: email,
-        send_closure_email: stationForm.sendClosureEmail,
-      };
-      if (pin) {
-        payload.pin_plain = pin;
+      let createdStation: PosStationRecord | null = null;
+      if (editingStation) {
+        const payload: {
+          label: string;
+          station_email: string;
+          station_password?: string;
+          send_closure_email: boolean;
+        } = {
+          label,
+          station_email: email,
+          send_closure_email: stationForm.sendClosureEmail,
+        };
+        if (password) {
+          payload.station_password = password;
+        }
+        const response = await updatePosStation(editingStation.id, payload, token);
+        const updatedStation = getStationRecordFromResponse(response);
+        if (updatedStation) {
+          setStations((prev) =>
+            prev.map((item) => (item.id === updatedStation.id ? updatedStation : item))
+          );
+        }
+        setStationMessage("Estación actualizada correctamente.");
+      } else {
+        const payload: {
+          label: string;
+          send_closure_email: boolean;
+          station_email: string;
+          station_password: string;
+        } = {
+          label,
+          send_closure_email: stationForm.sendClosureEmail,
+          station_email: email,
+          station_password: password,
+        };
+        const response = await createPosStation(payload, token);
+        createdStation = getStationRecordFromResponse(response);
+        setStationMessage("Estación creada correctamente.");
       }
-      const response = await createPosStation(payload, token);
-      const createdStation = getStationRecordFromResponse(response);
-      setStationPinNotice(
-        createdStation && response.pin_plain
-          ? { label: createdStation.label, pin: response.pin_plain }
-          : null
-      );
-      setStationMessage("Estación creada correctamente.");
       setStationModalOpen(false);
       setStationForm({
         label: "",
         email: "",
-        pin: "",
-        confirmPin: "",
+        password: "",
+        confirmPassword: "",
         sendClosureEmail: true,
       });
+      setEditingStation(null);
       if (createdStation && !stationForm.sendClosureEmail) {
         const overrides = {
           ...form.stationEmailOverrides,
@@ -1409,46 +1377,6 @@ export default function SettingsPage() {
       );
     } finally {
       setStationSaving(false);
-    }
-  }
-
-  async function handleResetStationPin(
-    station: PosStationRecord,
-    options?: { skipConfirm?: boolean }
-  ): Promise<boolean> {
-    if (!token) return false;
-    if (!options?.skipConfirm) {
-      const confirmed = window.confirm(
-        `¿Regenerar el PIN de la estación "${station.label}"?`
-      );
-      if (!confirmed) return false;
-    }
-    try {
-      setUpdatingStationId(station.id);
-      const response = await updatePosStation(
-        station.id,
-        { reset_pin: true },
-        token
-      );
-      const updatedStation = getStationRecordFromResponse(response);
-      setStationPinNotice(
-        updatedStation && response.pin_plain
-          ? { label: updatedStation.label, pin: response.pin_plain }
-          : null
-      );
-      setStationMessage("PIN actualizado.");
-      await loadStations();
-      return true;
-    } catch (err) {
-      console.error(err);
-      setStationsError(
-        err instanceof Error
-          ? err.message
-          : "No pudimos regenerar el PIN."
-      );
-      return false;
-    } finally {
-      setUpdatingStationId(null);
     }
   }
 
@@ -1600,17 +1528,6 @@ export default function SettingsPage() {
     } finally {
       setUpdatingStationId(null);
     }
-  }
-
-  function handleConfigureStationLocal(station: PosStationRecord) {
-    setPosStationAccess({
-      id: station.id,
-      email: station.pos_user_email,
-      label: station.label,
-    });
-    setStationMessage(
-      `La estación "${station.label}" se configuró en este navegador.`
-    );
   }
 
   const handlePaymentInput = <K extends keyof typeof paymentForm>(
@@ -2041,6 +1958,7 @@ export default function SettingsPage() {
         notes: user.notes ?? "",
         role: user.role,
         password: "",
+        pin: "",
       });
     } else {
       resetUserForm();
@@ -2070,6 +1988,7 @@ export default function SettingsPage() {
       position?: string;
       notes?: string;
       password?: string;
+      pin_plain?: string;
     } = {
       name: userForm.name.trim(),
       email: userForm.email.trim(),
@@ -2080,6 +1999,13 @@ export default function SettingsPage() {
     if (userForm.notes.trim()) payload.notes = userForm.notes.trim();
     if (userForm.password.trim()) {
       payload.password = userForm.password.trim();
+    }
+    if (userForm.pin.trim()) {
+      if (!/^\d{4,8}$/.test(userForm.pin.trim())) {
+        setUserFormError("El PIN debe tener entre 4 y 8 dígitos.");
+        return;
+      }
+      payload.pin_plain = userForm.pin.trim();
     }
     try {
       setCreatingUser(true);
@@ -2728,7 +2654,7 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold">Estaciones de caja POS</h2>
           <p className="text-sm text-slate-400">
             Administra los equipos autorizados para abrir el POS. Cada estación tiene
-            un PIN único que solo debe usarse en la caja asignada.
+            un correo y una contraseña para configurarla una sola vez en su equipo.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -2754,28 +2680,6 @@ export default function SettingsPage() {
       {stationMessage && (
         <div className="text-xs rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-100 px-3 py-2">
           {stationMessage}
-        </div>
-      )}
-      {stationPinNotice && (
-        <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100 space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="font-semibold">
-              PIN para {stationPinNotice.label}
-            </p>
-            <button
-              type="button"
-              className="text-xs text-amber-200 underline"
-              onClick={() => setStationPinNotice(null)}
-            >
-              Ocultar
-            </button>
-          </div>
-          <p className="text-2xl font-mono tracking-widest">
-            {stationPinNotice.pin}
-          </p>
-          <p className="text-xs">
-            Compártelo solo con el cajero autorizado y configúralo en el navegador de la estación.
-          </p>
         </div>
       )}
       {!stationsLoading && stations.length > 0 && (
@@ -2806,7 +2710,7 @@ export default function SettingsPage() {
           <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-400">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Estación</th>
-              <th className="text-left px-4 py-2 font-medium">Correo POS</th>
+              <th className="text-left px-4 py-2 font-medium">Correo estación</th>
               <th className="text-left px-4 py-2 font-medium">Estado</th>
               <th className="text-left px-4 py-2 font-medium">Último acceso</th>
               <th className="text-left px-4 py-2 font-medium">Reporte email</th>
@@ -2885,7 +2789,7 @@ export default function SettingsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-slate-200">
-                      {station.pos_user_email}
+                      {station.station_email ?? "Sin asignar"}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -2933,19 +2837,11 @@ export default function SettingsPage() {
                         )}
                         <button
                           type="button"
-                          onClick={() => handleConfigureStationLocal(station)}
-                          className="text-slate-300 hover:text-emerald-300"
-                        >
-                          Configurar aquí
-                        </button>
-                        <span className="text-slate-600">|</span>
-                        <button
-                          type="button"
-                          onClick={() => openCustomPinModal(station)}
+                          onClick={() => openEditStationModal(station)}
                           disabled={isUpdating}
                           className="text-slate-300 hover:text-emerald-300 disabled:opacity-40"
                         >
-                          PIN / Reset
+                          Editar
                         </button>
                         <span className="text-slate-600">|</span>
                         <button
@@ -4225,6 +4121,22 @@ export default function SettingsPage() {
                       placeholder="Solo si deseas definirla manualmente"
                     />
                   </label>
+                  <label className="text-sm text-slate-300 flex flex-col gap-1">
+                    PIN de acceso POS (opcional)
+                    <input
+                      type="password"
+                      value={userForm.pin}
+                      onChange={(e) =>
+                        setUserForm((prev) => ({
+                          ...prev,
+                          pin: e.target.value,
+                        }))
+                      }
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                      placeholder="4 a 8 dígitos"
+                      inputMode="numeric"
+                    />
+                  </label>
                 </div>
                 <label className="text-sm text-slate-300 flex flex-col gap-1">
                   Notas internas
@@ -4494,10 +4406,12 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-100">
-                    Nueva estación POS
+                    {editingStation ? "Editar estación POS" : "Nueva estación POS"}
                   </h3>
                   <p className="text-sm text-slate-400">
-                    Define un nombre y asigna el correo del usuario POS que usará esta caja.
+                    {editingStation
+                      ? "Actualiza el correo y la contraseña de la estación."
+                      : "Define un nombre, correo y contraseña para la estación."}
                   </p>
                 </div>
                 <button
@@ -4521,7 +4435,7 @@ export default function SettingsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-slate-400">Correo del usuario POS</span>
+                <span className="text-slate-400">Correo de estación</span>
                 <input
                   type="email"
                   value={stationForm.email}
@@ -4529,41 +4443,36 @@ export default function SettingsPage() {
                     setStationForm((prev) => ({ ...prev, email: e.target.value }))
                   }
                   className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                  placeholder="caja@kensar.com"
+                  placeholder="caja1@kensar.com"
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-slate-400">
-                  PIN personalizado (opcional)
+                  Contraseña de estación
                 </span>
                 <input
                   type="password"
-                  value={stationForm.pin}
+                  value={stationForm.password}
                   onChange={(e) =>
-                    setStationForm((prev) => ({ ...prev, pin: e.target.value }))
+                    setStationForm((prev) => ({ ...prev, password: e.target.value }))
                   }
                   className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                  placeholder="4 a 8 dígitos"
-                  inputMode="numeric"
+                  placeholder={editingStation ? "Deja vacío para no cambiar" : "Minimo 6 caracteres"}
                 />
-                <span className="text-[11px] text-slate-500">
-                  Déjalo vacío para generar uno automático.
-                </span>
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-slate-400">Confirma el PIN</span>
+                <span className="text-slate-400">Confirma la contraseña</span>
                 <input
                   type="password"
-                  value={stationForm.confirmPin}
+                  value={stationForm.confirmPassword}
                   onChange={(e) =>
                     setStationForm((prev) => ({
                       ...prev,
-                      confirmPin: e.target.value,
+                      confirmPassword: e.target.value,
                     }))
                   }
                   className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                  placeholder="Repite el PIN"
-                  inputMode="numeric"
+                  placeholder={editingStation ? "Solo si cambias la contraseña" : "Repite la contraseña"}
                 />
               </label>
               <label className="flex items-start gap-3 text-sm">
@@ -4604,99 +4513,13 @@ export default function SettingsPage() {
                   disabled={stationSaving}
                   className="px-4 py-2 rounded-md bg-emerald-500 text-slate-900 font-semibold hover:bg-emerald-400 disabled:opacity-50"
                 >
-                  {stationSaving ? "Creando…" : "Crear estación"}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {customPinModal.station && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur">
-            <form
-              onSubmit={handleSaveCustomPin}
-              className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-100">
-                    PIN para {customPinModal.station.label}
-                  </h3>
-                  <p className="text-sm text-slate-400">
-                    Ingresa un PIN único para esta estación o genera uno
-                    automáticamente.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={closeCustomPinModal}
-                  className="text-slate-400 hover:text-slate-100 text-xl leading-none"
-                  aria-label="Cerrar"
-                  disabled={customPinModal.saving}
-                >
-                  ×
-                </button>
-              </div>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-slate-400">Nuevo PIN</span>
-                <input
-                  type="password"
-                  value={customPinModal.pin}
-                  onChange={(e) =>
-                    setCustomPinModal((prev) => ({
-                      ...prev,
-                      pin: e.target.value,
-                    }))
-                  }
-                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                  placeholder="4 a 8 dígitos"
-                  inputMode="numeric"
-                  disabled={customPinModal.saving}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <span className="text-slate-400">Confirma el PIN</span>
-                <input
-                  type="password"
-                  value={customPinModal.confirm}
-                  onChange={(e) =>
-                    setCustomPinModal((prev) => ({
-                      ...prev,
-                      confirm: e.target.value,
-                    }))
-                  }
-                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                  placeholder="Repite el PIN"
-                  inputMode="numeric"
-                  disabled={customPinModal.saving}
-                />
-              </label>
-              {customPinModal.error && (
-                <p className="text-xs text-red-400">{customPinModal.error}</p>
-              )}
-              <div className="flex flex-wrap justify-between gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!customPinModal.station) return;
-                    const ok = await handleResetStationPin(customPinModal.station, {
-                      skipConfirm: true,
-                    });
-                    if (ok) {
-                      closeCustomPinModal();
-                    }
-                  }}
-                  disabled={customPinModal.saving}
-                  className="flex-1 rounded-md border border-slate-700 px-4 py-2 text-slate-200 text-sm hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Generar PIN automático
-                </button>
-                <button
-                  type="submit"
-                  disabled={customPinModal.saving}
-                  className="flex-1 rounded-md bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-emerald-400 disabled:opacity-50"
-                >
-                  {customPinModal.saving ? "Guardando…" : "Guardar PIN"}
+                  {stationSaving
+                    ? editingStation
+                      ? "Actualizando…"
+                      : "Creando…"
+                    : editingStation
+                      ? "Guardar cambios"
+                      : "Crear estación"}
                 </button>
               </div>
             </form>

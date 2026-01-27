@@ -44,7 +44,7 @@ const clearCookie = (name: string) => {
 
 export type PosStationAccess = {
   id: string;
-  email: string;
+  email?: string | null;
   label?: string;
 };
 
@@ -80,13 +80,13 @@ export function getPosStationAccess(): PosStationAccess | null {
     const raw = window.localStorage.getItem(POS_STATION_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (
-      typeof parsed === "object" &&
-      parsed &&
-      typeof parsed.id === "string" &&
-      typeof parsed.email === "string"
-    ) {
-      return parsed;
+    if (typeof parsed === "object" && parsed && typeof parsed.id === "string") {
+      const access: PosStationAccess = {
+        id: parsed.id,
+        label: typeof parsed.label === "string" ? parsed.label : undefined,
+        email: typeof parsed.email === "string" ? parsed.email : undefined,
+      };
+      return access;
     }
   } catch (err) {
     console.warn("No se pudo leer la estación POS almacenada", err);
@@ -95,17 +95,17 @@ export function getPosStationAccess(): PosStationAccess | null {
   if (!cookieRaw) return null;
   try {
     const parsed = JSON.parse(cookieRaw);
-    if (
-      typeof parsed === "object" &&
-      parsed &&
-      typeof parsed.id === "string" &&
-      typeof parsed.email === "string"
-    ) {
+    if (typeof parsed === "object" && parsed && typeof parsed.id === "string") {
+      const access: PosStationAccess = {
+        id: parsed.id,
+        label: typeof parsed.label === "string" ? parsed.label : undefined,
+        email: typeof parsed.email === "string" ? parsed.email : undefined,
+      };
       window.localStorage.setItem(
         POS_STATION_STORAGE_KEY,
-        JSON.stringify(parsed)
+        JSON.stringify(access)
       );
-      return parsed;
+      return access;
     }
   } catch (err) {
     console.warn("No se pudo leer la estación POS desde cookie", err);

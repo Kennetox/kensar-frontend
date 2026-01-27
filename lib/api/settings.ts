@@ -80,7 +80,7 @@ export type RolePermissionModule = {
 export type PosStationRecord = {
   id: string;
   label: string;
-  pos_user_email: string;
+  station_email?: string | null;
   is_active: boolean;
   send_closure_email?: boolean | null;
   last_login_at?: string | null;
@@ -529,8 +529,8 @@ export async function fetchPosStations(
 export async function createPosStation(
   payload: {
     label: string;
-    pos_user_email: string;
-    pin_plain?: string;
+    station_email: string;
+    station_password: string;
     send_closure_email?: boolean;
   },
   token?: string | null
@@ -553,6 +553,8 @@ export async function updatePosStation(
     is_active?: boolean;
     reset_pin?: boolean;
     pin_plain?: string;
+    station_email?: string;
+    station_password?: string;
     send_closure_email?: boolean;
   },
   token?: string | null
@@ -671,6 +673,7 @@ export async function createPosUser(input: {
   notes?: string;
   role: PosUserRecord["role"];
   password?: string;
+  pin_plain?: string;
 }, token?: string | null): Promise<PosUserRecord> {
   return request<PosUserRecord>(
     "/pos/users",
@@ -702,6 +705,7 @@ export async function updatePosUser(
       "role" | "status" | "name" | "email" | "phone" | "position" | "notes"
     > & {
       password?: string;
+      pin_plain?: string;
     }
   >,
   token?: string | null
