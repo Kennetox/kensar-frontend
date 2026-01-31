@@ -835,15 +835,22 @@ function PosLoginContent() {
           </span>
         </footer>
 
-        {settingsOpen && (
-          <>
-            <button
-              type="button"
-              aria-label="Cerrar ajustes"
-              onClick={() => setSettingsOpen(false)}
-              className="absolute inset-0 z-30 cursor-default"
-            />
-            <div className="absolute left-6 bottom-20 z-40 w-64 origin-bottom-left animate-[fadeInUp_160ms_ease-out] rounded-2xl border border-white/10 bg-slate-950/95 p-4 text-xs text-slate-200 shadow-2xl backdrop-blur">
+        <>
+          <button
+            type="button"
+            aria-label="Cerrar ajustes"
+            onClick={() => setSettingsOpen(false)}
+            className={`absolute inset-0 z-30 cursor-default transition-opacity duration-150 ${
+              settingsOpen ? "opacity-100" : "pointer-events-none opacity-0"
+            }`}
+          />
+          <div
+            className={`absolute left-6 bottom-20 z-40 w-64 origin-bottom-left rounded-2xl border border-white/10 bg-slate-950/95 p-4 text-xs text-slate-200 shadow-2xl backdrop-blur transition-all duration-150 ${
+              settingsOpen
+                ? "translate-y-0 scale-100 opacity-100"
+                : "pointer-events-none translate-y-2 scale-95 opacity-0"
+            }`}
+          >
             <div className="text-[11px] uppercase tracking-wide text-slate-500">
               Configuración rápida
             </div>
@@ -896,7 +903,22 @@ function PosLoginContent() {
                     : "border-slate-600/40 bg-slate-500/10 text-slate-300 hover:bg-slate-500/20"
                 }`}
               >
-                Apagar equipo
+                <span className="flex items-center gap-2">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 3v9" />
+                    <path d="M7.5 5.5a7 7 0 1 0 9 0" />
+                  </svg>
+                  <span>Apagar equipo</span>
+                </span>
                 {!isWindows && (
                   <span className="mt-1 block text-[11px] text-slate-400">
                     Solo Windows
@@ -904,9 +926,8 @@ function PosLoginContent() {
                 )}
               </button>
             )}
-            </div>
-          </>
-        )}
+          </div>
+        </>
       </div>
     </main>
   );

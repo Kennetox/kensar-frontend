@@ -4800,14 +4800,14 @@ const matchesStationLabel = useCallback(
           }`}
           style={cartPanelStyle}
         >
-          <div className="px-4 py-2 text-sm border-b border-slate-800 bg-slate-950/70">
+          <div className="px-4 py-2 text-sm border-b border-slate-800 bg-slate-900/70">
             <div className="flex items-center gap-4">
               <span className="font-semibold text-base">{resolvedPosName}</span>
               <span className="text-slate-300 text-base">{sellerName}</span>
             </div>
           </div>
           {/* Encabezado carrito */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-slate-900/60">
             <div className="flex flex-col">
               <span className="text-base font-semibold uppercase tracking-wide">
                 Carrito
