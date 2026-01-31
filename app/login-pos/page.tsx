@@ -13,6 +13,7 @@ import {
   type PosStationAccess,
   setPosStationAccess,
   setStoredPosMode,
+  clearStoredPosMode,
   setPosDeviceId,
   setPosDeviceLabel,
 } from "@/lib/api/posStations";
@@ -220,7 +221,13 @@ function PosLoginContent() {
       if (!bridge?.kensar?.getConfig) return;
       try {
         const config = await bridge.kensar.getConfig();
-        if (!config?.stationId) return;
+        if (!config?.stationId) {
+          clearPosStationAccess();
+          clearStoredPosMode();
+          setStationInfo(null);
+          lastStationIdRef.current = null;
+          return;
+        }
         const current = getPosStationAccess();
         if (!current || current.id !== config.stationId) {
           setPosStationAccess({
