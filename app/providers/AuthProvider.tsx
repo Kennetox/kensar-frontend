@@ -15,6 +15,7 @@ import {
   clearPersistedAppState,
   ensureFreshSessionState,
 } from "@/lib/storage/persistedState";
+import { getStoredPosMode } from "@/lib/api/posStations";
 import {
   AUTH_TRANSFER_STORAGE_KEY,
   consumeAuthTransferSnapshot,
@@ -44,6 +45,7 @@ type AuthContextValue = {
       isPosStation?: boolean;
       deviceId?: string;
       deviceLabel?: string;
+      posAuthMode?: "pin" | "password";
     }
   ) => Promise<void>;
   logout: (reason?: string) => void;
@@ -132,6 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isPosStation?: boolean;
         deviceId?: string;
         deviceLabel?: string;
+        posAuthMode?: "pin" | "password";
       }
     ) => {
       const apiBase = getApiBase();
@@ -139,14 +142,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         options?.isPosStation && options.stationId
           ? "/auth/pos-login"
           : "/auth/login";
-      const payload = options?.isPosStation && options.stationId
-        ? {
-            station_id: options.stationId,
-            pin: password,
-            device_id: options.deviceId,
-            device_label: options.deviceLabel,
-          }
-        : { email, password };
+      const payload =
+        options?.isPosStation && options.stationId
+          ? options.posAuthMode === "password"
+            ? {
+                station_id: options.stationId,
+                email,
+                password,
+                device_id: options.deviceId,
+                device_label: options.deviceLabel,
+              }
+            : {
+                station_id: options.stationId,
+                pin: password,
+                device_id: options.deviceId,
+                device_label: options.deviceLabel,
+              }
+          : { email, password };
       const res = await fetch(`${apiBase}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -201,13 +213,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearPersistedAppState({
         preserveSessionKeys: reason ? [LOGOUT_REASON_KEY] : [],
         preserveLocalPrefixes: ["kensar_pos_grid_zoom"],
+        preserveLocalKeys: ["metrik_pos_station", "metrik_pos_mode"],
       });
       if (reason) {
         window.sessionStorage.setItem(LOGOUT_REASON_KEY, reason);
       } else {
         window.sessionStorage.removeItem(LOGOUT_REASON_KEY);
       }
-      const nextPath = redirectTarget === "pos" ? "/login-pos" : "/login";
+      const posMode = getStoredPosMode();
+      const nextPath =
+        redirectTarget === "pos" && posMode !== "web" ? "/login-pos" : "/login";
       if (window.location.pathname !== nextPath) {
         window.location.assign(nextPath);
       } else {

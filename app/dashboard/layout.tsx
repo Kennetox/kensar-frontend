@@ -381,62 +381,64 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 Volver al POS
               </button>
             )}
-            <div className="relative" ref={profileMenuRef}>
-              <button
-                type="button"
-                onClick={() => setProfileMenuOpen((prev) => !prev)}
-                className="flex items-center gap-3 rounded-full border border-slate-800 px-2 py-1.5 hover:border-slate-600"
-              >
-                <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden flex items-center justify-center text-[11px] text-slate-200">
-                  {resolvedAvatarUrl ? (
-                    <Image
-                      src={resolvedAvatarUrl}
-                      alt={displayName}
-                      width={32}
-                      height={32}
-                      className="w-full h-full object-cover"
-                      unoptimized
-                    />
-                  ) : (
-                    <span className="font-semibold">{initials || "US"}</span>
-                  )}
-                </div>
-                <div className="text-right leading-tight">
-                  <div className="text-sm font-semibold text-slate-100">
-                    {displayName}
+            {!posPreview && (
+              <div className="relative" ref={profileMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen((prev) => !prev)}
+                  className="flex items-center gap-3 rounded-full border border-slate-800 px-2 py-1.5 hover:border-slate-600"
+                >
+                  <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden flex items-center justify-center text-[11px] text-slate-200">
+                    {resolvedAvatarUrl ? (
+                      <Image
+                        src={resolvedAvatarUrl}
+                        alt={displayName}
+                        width={32}
+                        height={32}
+                        className="w-full h-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <span className="font-semibold">{initials || "US"}</span>
+                    )}
                   </div>
-                  <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                    {displayRole}
+                  <div className="text-right leading-tight">
+                    <div className="text-sm font-semibold text-slate-100">
+                      {displayName}
+                    </div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                      {displayRole}
+                    </div>
                   </div>
-                </div>
-              </button>
-              {profileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-800 bg-slate-950/95 backdrop-blur shadow-lg overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileMenuOpen(false);
-                      router.push("/dashboard/profile");
-                    }}
-                    className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-800"
-                  >
-                    Perfil
-                  </button>
-                  <div className="border-t border-slate-800" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileMenuOpen(false);
-                      logout();
-                      router.replace("/login");
-                    }}
-                    className="w-full text-left px-4 py-3 text-sm text-rose-300 hover:bg-rose-500/10"
-                  >
-                    Cerrar sesión
-                  </button>
-                </div>
-              )}
-            </div>
+                </button>
+                {profileMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-800 bg-slate-950/95 backdrop-blur shadow-lg overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        router.push("/dashboard/profile");
+                      }}
+                      className="w-full text-left px-4 py-3 text-sm text-slate-200 hover:bg-slate-800"
+                    >
+                      Perfil
+                    </button>
+                    <div className="border-t border-slate-800" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        logout();
+                        router.replace("/login");
+                      }}
+                      className="w-full text-left px-4 py-3 text-sm text-rose-300 hover:bg-rose-500/10"
+                    >
+                      Cerrar sesión
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </header>
 

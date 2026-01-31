@@ -4,6 +4,7 @@ const SESSION_STORAGE_PREFIXES = ["kensar_", "metrik_"];
 const LOCAL_STORAGE_EXCLUDED_KEYS = new Set<string>([
   "kensar_report_favorites",
   "metrik_pos_station",
+  "metrik_pos_mode",
 ]);
 const SESSION_STORAGE_EXCLUDED_KEYS = new Set<string>();
 

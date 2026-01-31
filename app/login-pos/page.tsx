@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, Suspense, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth, LOGOUT_REASON_KEY } from "../providers/AuthProvider";
@@ -12,47 +11,123 @@ import {
   getOrCreatePosDeviceId,
   getOrCreatePosDeviceLabel,
   type PosStationAccess,
+  setPosStationAccess,
   setStoredPosMode,
 } from "@/lib/api/posStations";
 
-const attemptCloseWindow = (onFailure?: () => void) => {
-  if (typeof window === "undefined") return;
-  try {
-    window.open("", "_self");
-  } catch {
-    // ignore
-  }
-  try {
-    window.close();
-  } catch {
-    // ignore
-  }
-  try {
-    window.top?.close();
-  } catch {
-    // ignore
-  }
-  window.setTimeout(() => {
-    if (!window.closed) {
-      onFailure?.();
-    }
-  }, 250);
+type KensarBridge = {
+  kensar?: {
+    quitApp?: () => Promise<void>;
+    clearConfig?: () => Promise<void>;
+    openConfig?: () => Promise<void>;
+    getConfig?: () => Promise<{
+      stationId?: string | null;
+      stationLabel?: string | null;
+      stationEmail?: string | null;
+    } | null>;
+    hasAdminPin?: () => Promise<boolean>;
+    setAdminPin?: (pin: string) => Promise<{ ok: boolean; error?: string }>;
+    verifyAdminPin?: (pin: string) => Promise<boolean>;
+    getZoomFactor?: () => Promise<number>;
+    setZoomFactor?: (value: number) => Promise<number>;
+    shutdownSystem?: () => Promise<boolean>;
+  };
 };
 
 function PosLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login, token, loading } = useAuth();
-  const [email, setEmail] = useState("");
+  const [isClient, setIsClient] = useState(false);
+  const [isDesktopApp, setIsDesktopApp] = useState(false);
+  const [isWindows, setIsWindows] = useState(false);
+  const [adminPinOpen, setAdminPinOpen] = useState(false);
+  const [adminPinLabel, setAdminPinLabel] = useState("Ingresa el PIN admin.");
+  const [adminPinValue, setAdminPinValue] = useState("");
+  const [adminPinError, setAdminPinError] = useState<string | null>(null);
+  const [adminPinStage, setAdminPinStage] = useState<"enter" | "confirm">("enter");
+  const [adminPinConfirmValue, setAdminPinConfirmValue] = useState("");
+  const adminPinResolverRef = useRef<((value: string | null) => void) | null>(null);
+  const adminPinFirstRef = useRef<string | null>(null);
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [stationError, setStationError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
-  const [exitFailed, setExitFailed] = useState(false);
+  const [timeLabel, setTimeLabel] = useState("");
+  const [appZoom, setAppZoom] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const pinInputRef = useRef<HTMLInputElement | null>(null);
-  const isKioskMode = !!stationInfo;
+  const lastStationIdRef = useRef<string | null>(null);
   const exitMode = searchParams.get("exit") === "kiosk";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setIsClient(true);
+    const desktopDetected = Boolean((window as Window & KensarBridge).kensar?.quitApp);
+    setIsDesktopApp(desktopDetected);
+    setIsWindows(/Windows/i.test(navigator.userAgent || ""));
+    if (!desktopDetected && !exitMode) {
+      router.replace("/login");
+    }
+  }, [exitMode, router]);
+
+  const requestAdminPin = (label: string, requireConfirm = false) => {
+    setAdminPinLabel(label);
+    setAdminPinValue("");
+    setAdminPinConfirmValue("");
+    setAdminPinError(null);
+    adminPinFirstRef.current = null;
+    setAdminPinStage("enter");
+    setAdminPinOpen(true);
+    return new Promise<string | null>((resolve) => {
+      adminPinResolverRef.current = resolve;
+      if (requireConfirm) {
+        adminPinFirstRef.current = "__require_confirm__";
+      }
+    });
+  };
+
+  const closeAdminPin = (value: string | null) => {
+    setAdminPinOpen(false);
+    setAdminPinError(null);
+    setAdminPinValue("");
+    setAdminPinConfirmValue("");
+    adminPinFirstRef.current = null;
+    const resolver = adminPinResolverRef.current;
+    adminPinResolverRef.current = null;
+    resolver?.(value);
+  };
+
+  const handleAdminPinSubmit = () => {
+    const validate = (value: string) => /^\d{4,8}$/.test(value);
+    if (adminPinStage === "enter") {
+      if (!validate(adminPinValue)) {
+        setAdminPinError("PIN inválido. Usa 4 a 8 dígitos.");
+        return;
+      }
+      if (adminPinFirstRef.current === "__require_confirm__") {
+        adminPinFirstRef.current = adminPinValue;
+        setAdminPinStage("confirm");
+        setAdminPinLabel("Confirma el PIN admin.");
+        setAdminPinConfirmValue("");
+        setAdminPinError(null);
+        return;
+      }
+      closeAdminPin(adminPinValue.trim());
+      return;
+    }
+    if (!validate(adminPinConfirmValue)) {
+      setAdminPinError("PIN inválido. Usa 4 a 8 dígitos.");
+      return;
+    }
+    if (adminPinConfirmValue.trim() !== adminPinFirstRef.current) {
+      setAdminPinError("Los PIN no coinciden.");
+      return;
+    }
+    closeAdminPin(adminPinConfirmValue.trim());
+  };
 
   useEffect(() => {
     if (!loading && token && !exitMode) {
@@ -62,6 +137,14 @@ function PosLoginContent() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const stationIdParam = searchParams.get("station_id");
+    if (stationIdParam) {
+      setPosStationAccess({
+        id: stationIdParam,
+        label: searchParams.get("station_label") ?? undefined,
+        email: searchParams.get("station_email") ?? undefined,
+      });
+    }
     const reason = window.sessionStorage.getItem(LOGOUT_REASON_KEY);
     if (reason) {
       setError(reason);
@@ -71,13 +154,40 @@ function PosLoginContent() {
     const syncStation = () => {
       const cached = getPosStationAccess();
       setStationInfo(cached);
-      setEmail(cached?.email ?? "");
-      if (!cached) {
+      const nextId = cached?.id ?? null;
+      if (lastStationIdRef.current !== nextId) {
         setPin("");
+        lastStationIdRef.current = nextId;
       }
     };
 
     syncStation();
+
+    const hydrateFromDesktop = async () => {
+      const bridge =
+        typeof window !== "undefined"
+          ? (window as Window & KensarBridge)
+          : null;
+      if (!bridge?.kensar?.getConfig) return;
+      try {
+        const config = await bridge.kensar.getConfig();
+        if (!config?.stationId) return;
+        const current = getPosStationAccess();
+        if (!current || current.id !== config.stationId) {
+          setPosStationAccess({
+            id: config.stationId,
+            label: config.stationLabel ?? undefined,
+            email: config.stationEmail ?? undefined,
+          });
+          setStoredPosMode("station");
+          syncStation();
+        }
+      } catch {
+        // ignore hydration failures
+      }
+    };
+
+    void hydrateFromDesktop();
 
     const unsubscribe = subscribeToPosStationChanges(() => {
       syncStation();
@@ -85,14 +195,17 @@ function PosLoginContent() {
       setError(null);
     });
 
-    const focusHandler = () => syncStation();
+    const focusHandler = () => {
+      syncStation();
+      void hydrateFromDesktop();
+    };
     window.addEventListener("focus", focusHandler);
 
     return () => {
       unsubscribe();
       window.removeEventListener("focus", focusHandler);
     };
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!stationInfo) return;
@@ -105,7 +218,84 @@ function PosLoginContent() {
     return () => cancelAnimationFrame(id);
   }, [stationInfo]);
 
+  useEffect(() => {
+    const bridge =
+      typeof window !== "undefined"
+        ? (window as Window & KensarBridge)
+        : null;
+    if (bridge?.kensar?.getZoomFactor) {
+      bridge.kensar
+        .getZoomFactor()
+        .then((value) => {
+          if (typeof value === "number") setAppZoom(value);
+        })
+        .catch(() => {});
+    }
+    const updateTime = () => {
+      const now = new Date();
+      // Colombia (America/Bogota) is UTC-5 year-round.
+      const utcHours = now.getUTCHours();
+      const minutes = now.getUTCMinutes();
+      const colHours24 = (utcHours + 19) % 24;
+      const period = colHours24 >= 12 ? "PM" : "AM";
+      const normalized = colHours24 % 12 || 12;
+      const padded = minutes < 10 ? `0${minutes}` : `${minutes}`;
+      setTimeLabel(`${normalized}:${padded} ${period}`);
+    };
+    updateTime();
+    const interval = window.setInterval(updateTime, 60000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   function handleClearStation() {
+    const desktopBridge =
+      typeof window !== "undefined"
+        ? (window as Window & KensarBridge)
+        : null;
+    if (
+      desktopBridge?.kensar?.hasAdminPin &&
+      desktopBridge?.kensar?.setAdminPin &&
+      desktopBridge?.kensar?.verifyAdminPin
+    ) {
+      const promptAdminPin = async () => {
+        const hasPin = await desktopBridge.kensar!.hasAdminPin!();
+        if (!hasPin) {
+          const pin = await requestAdminPin(
+            "Crea un PIN admin (4-8 dígitos).",
+            true
+          );
+          if (!pin) return false;
+          const result = await desktopBridge.kensar!.setAdminPin!(pin);
+          if (!result?.ok) {
+            if (typeof window !== "undefined") {
+              window.alert(result?.error || "No pudimos guardar el PIN admin.");
+            }
+            return false;
+          }
+          return true;
+        }
+        const pin = await requestAdminPin("Ingresa el PIN admin.");
+        if (!pin) return false;
+        const ok = await desktopBridge.kensar!.verifyAdminPin!(pin);
+        if (!ok) {
+          if (typeof window !== "undefined") {
+            window.alert("PIN admin incorrecto.");
+          }
+        }
+        return ok;
+      };
+
+      void promptAdminPin().then((ok) => {
+        if (!ok) return;
+        if (desktopBridge.kensar?.clearConfig && desktopBridge.kensar?.openConfig) {
+          desktopBridge.kensar
+            .clearConfig()
+            .then(() => desktopBridge.kensar?.openConfig?.())
+            .catch((err) => console.error("No pudimos reconfigurar la estación", err));
+        }
+      });
+      return;
+    }
     if (typeof window !== "undefined") {
       const confirmed = window.confirm(
         "Esta acción olvidará la estación configurada en este equipo. ¿Estás seguro de continuar?"
@@ -114,27 +304,38 @@ function PosLoginContent() {
         return;
       }
     }
+    if (desktopBridge?.kensar?.clearConfig && desktopBridge?.kensar?.openConfig) {
+      desktopBridge.kensar
+        .clearConfig()
+        .then(() => desktopBridge.kensar?.openConfig?.())
+        .catch((err) => console.error("No pudimos reconfigurar la estación", err));
+      return;
+    }
     clearPosStationAccess();
     setStationInfo(null);
-    setEmail("");
+    setPin("");
+    lastStationIdRef.current = null;
     setError(null);
   }
 
-  const handleExitKiosk = () => {
+  const handleShutdown = () => {
+    if (!isWindows) {
+      if (typeof window !== "undefined") {
+        window.alert("Apagar equipo solo está disponible en Windows.");
+      }
+      return;
+    }
     if (typeof window !== "undefined") {
       const confirmed = window.confirm(
-        "¿Deseas cerrar la app y salir del modo kiosk?"
+        "Esto apagará el equipo inmediatamente. ¿Deseas continuar?"
       );
       if (!confirmed) return;
     }
-    if (typeof document !== "undefined" && document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-    if (typeof window !== "undefined") {
-      attemptCloseWindow(() => {
-        setExitFailed(true);
-      });
-    }
+    const bridge =
+      typeof window !== "undefined"
+        ? (window as Window & KensarBridge)
+        : null;
+    bridge?.kensar?.shutdownSystem?.().catch(() => {});
   };
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -144,15 +345,17 @@ function PosLoginContent() {
       return;
     }
     if (!pin.trim()) {
-      setError("Debes ingresar tu PIN de usuario.");
+      setError("Debes ingresar tu PIN.");
       return;
     }
     setError(null);
+    setStationError(false);
     setSubmitting(true);
     try {
-      await login(email, pin, {
+      await login("", pin, {
         stationId: stationInfo.id,
         isPosStation: true,
+        posAuthMode: "pin",
         deviceId: getOrCreatePosDeviceId(),
         deviceLabel: getOrCreatePosDeviceLabel(),
       });
@@ -169,26 +372,34 @@ function PosLoginContent() {
           ? (err as { status?: number }).status
           : undefined;
 
-      const stationRemoved =
-        status === 404 ||
-        status === 410 ||
-        (typeof detail === "string" &&
-          detail.toLowerCase().includes("estación"));
+      const stationRemoved = status === 404 || status === 410;
+
+      const detailText =
+        typeof detail === "string"
+          ? detail
+          : err instanceof Error
+            ? err.message
+            : undefined;
+      const lowerDetail = detailText?.toLowerCase() ?? "";
 
       if (status === 409) {
         setError(
           detail ??
             "Esta estación ya está vinculada a otro equipo. Solicita al administrador que la libere."
         );
+      } else if (status === 400 && lowerDetail.includes("estación")) {
+        setStationError(true);
+        setError(
+          "Estación inválida o inactiva. Usa “Cambiar estación” para reconfigurarla."
+        );
+      } else if (status === 401) {
+        setError("PIN inválido o usuario inactivo.");
       } else if (stationRemoved) {
-        handleClearStation();
         setError(
           "Esta estación ya no está disponible. Configúrala nuevamente desde el panel."
         );
-      } else if (err instanceof Error) {
-        setError(err.message || "Ocurrió un error inesperado.");
-      } else if (typeof detail === "string") {
-        setError(detail);
+      } else if (detailText) {
+        setError(detailText);
       } else {
         setError("No pudimos iniciar sesión, revisa tu PIN.");
       }
@@ -197,182 +408,422 @@ function PosLoginContent() {
     }
   }
 
+  const focusPinInput = () => {
+    const target = pinInputRef.current;
+    if (!target) return;
+    requestAnimationFrame(() => {
+      target.focus();
+      target.setSelectionRange?.(target.value.length, target.value.length);
+    });
+  };
+
+  const handleDigit = (value: string) => {
+    setPin((prev) => {
+      const next = `${prev}${value}`;
+      return next.slice(0, 8);
+    });
+    focusPinInput();
+  };
+
+  const handleBackspace = () => {
+    setPin((prev) => prev.slice(0, -1));
+    focusPinInput();
+  };
+
+  const handleClearPin = () => {
+    setPin("");
+    focusPinInput();
+  };
+
+  const adjustAppZoom = (delta: number) => {
+    const bridge =
+      typeof window !== "undefined"
+        ? (window as typeof window & {
+            kensar?: { setZoomFactor?: (value: number) => Promise<number> };
+          })
+        : null;
+    if (!bridge?.kensar?.setZoomFactor) return;
+    setAppZoom((prev) => {
+      const next = Number.isFinite(prev ?? 1) ? (prev ?? 1) + delta : 1 + delta;
+      bridge.kensar
+        ?.setZoomFactor?.(next)
+        .then((value) => {
+          if (typeof value === "number") setAppZoom(value);
+        })
+        .catch(() => {});
+      return prev ?? 1;
+    });
+  };
+
+  const handleToggleSettings = () => {
+    setSettingsOpen((prev) => !prev);
+  };
+
   return (
-    <main
-      className="relative min-h-screen bg-cover bg-center overflow-x-hidden"
-      style={{
-        backgroundImage:
-          "url('https://images.unsplash.com/photo-1556742044-3c52d6e88c62?auto=format&fit=crop&q=80&w=2070')",
-      }}
-    >
-      <div className="min-h-screen bg-white/70 backdrop-blur-sm">
-        <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-12 sm:px-6 lg:px-12">
-          <nav className="flex items-center justify-between rounded-2xl bg-white/85 px-8 py-5 shadow-lg">
-            <div className="flex items-center gap-3">
-              <Image
-                src="/branding/metriklogo.png"
-                alt="Logo Metrik"
-                width={48}
-                height={48}
-                className="h-12 w-12 rounded-2xl"
-                priority
+    <main className="relative min-h-screen bg-[#0a0f1a] text-slate-100 overflow-hidden">
+      <style>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(12px) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+      `}</style>
+      {isClient && isDesktopApp && (
+        <div className="absolute left-6 top-6 z-40 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              const confirmed =
+                typeof window === "undefined"
+                  ? true
+                  : window.confirm("¿Deseas cerrar la app?");
+              if (!confirmed) return;
+              const bridge =
+                typeof window !== "undefined"
+                  ? (window as Window & KensarBridge)
+                  : null;
+              bridge?.kensar?.quitApp?.();
+            }}
+            className="h-12 w-12 rounded-full border border-white/15 bg-white/10 text-xl text-slate-100 shadow-lg backdrop-blur hover:bg-white/20"
+            aria-label="Cerrar app"
+          >
+            ✕
+          </button>
+          <button
+            type="button"
+            onClick={handleShutdown}
+            className={`h-12 w-12 rounded-full border text-xl shadow-lg backdrop-blur ${
+              isWindows
+                ? "border-amber-300/50 bg-amber-400/20 text-amber-100 hover:bg-amber-400/30"
+                : "border-slate-600/40 bg-white/10 text-slate-200 hover:bg-white/20"
+            }`}
+            aria-label="Apagar equipo"
+          >
+            ⏻
+          </button>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleToggleSettings}
+        className="absolute left-6 bottom-6 z-40 h-12 w-12 rounded-full border border-white/10 bg-white/5 text-xl text-slate-200 shadow-lg backdrop-blur hover:bg-white/10"
+        aria-label="Abrir ajustes"
+      >
+        ⚙︎
+      </button>
+      <div
+        className="pointer-events-none absolute inset-0 opacity-45"
+        style={{
+          backgroundImage:
+            "radial-gradient(rgba(148, 163, 184, 0.28) 1.3px, transparent 1.3px)",
+          backgroundSize: "20px 20px",
+        }}
+      />
+      <div className="pointer-events-none absolute -top-40 left-[-10%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,rgba(16,185,129,0.22),rgba(10,15,26,0))] blur-3xl" />
+      <div className="pointer-events-none absolute bottom-[-20%] right-[-5%] h-96 w-96 rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.25),rgba(10,15,26,0))] blur-[90px]" />
+      <svg
+        className="pointer-events-none absolute -top-10 right-0 h-72 w-96 opacity-45"
+        viewBox="0 0 400 260"
+        fill="none"
+      >
+        <circle cx="310" cy="30" r="3" fill="#4cc9f0" />
+        <circle cx="360" cy="80" r="2" fill="#4cc9f0" />
+        <circle cx="260" cy="110" r="2" fill="#4cc9f0" />
+        <circle cx="320" cy="150" r="2" fill="#4cc9f0" />
+        <circle cx="210" cy="70" r="2" fill="#4cc9f0" />
+        <path
+          d="M210 70L310 30L360 80L320 150L260 110Z"
+          stroke="rgba(76,201,240,0.4)"
+          strokeWidth="1"
+        />
+      </svg>
+      <svg
+        className="pointer-events-none absolute -bottom-16 left-0 h-64 w-96 opacity-4"
+        viewBox="0 0 400 260"
+        fill="none"
+      >
+        <circle cx="60" cy="200" r="3" fill="#60a5fa" />
+        <circle cx="110" cy="150" r="2" fill="#60a5fa" />
+        <circle cx="170" cy="220" r="2" fill="#60a5fa" />
+        <circle cx="220" cy="170" r="2" fill="#60a5fa" />
+        <path
+          d="M60 200L110 150L220 170L170 220Z"
+          stroke="rgba(96,165,250,0.35)"
+          strokeWidth="1"
+        />
+      </svg>
+
+      <div className="relative w-full min-h-screen">
+        {isClient && adminPinOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-6">
+            <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-950/90 p-5 shadow-2xl backdrop-blur">
+              <p className="text-sm text-slate-200">{adminPinLabel}</p>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={8}
+                autoFocus
+                value={adminPinStage === "enter" ? adminPinValue : adminPinConfirmValue}
+                onChange={(e) =>
+                  adminPinStage === "enter"
+                    ? setAdminPinValue(e.target.value)
+                    : setAdminPinConfirmValue(e.target.value)
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAdminPinSubmit();
+                  }
+                }}
+                className="mt-3 w-full rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-300/70"
+                placeholder="PIN admin"
               />
-              <div>
-                <p className="text-xl font-bold tracking-tight text-slate-900">
-                  METRIK POS
-                </p>
-                <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">
-                  Estaciones de caja
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Link
-                href="/"
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
-              >
-                Volver al inicio
-              </Link>
-              <Link
-                href="/login"
-                className="rounded-full border border-sky-300 bg-sky-50 px-4 py-2 text-xs font-semibold text-sky-700 hover:bg-sky-100"
-              >
-                Ingresar al panel
-              </Link>
-              {isKioskMode && (
+              {adminPinError && (
+                <p className="mt-2 text-xs text-rose-300">{adminPinError}</p>
+              )}
+              <div className="mt-4 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={handleExitKiosk}
-                  className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                  onClick={() => closeAdminPin(null)}
+                  className="rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-200 hover:bg-white/10"
                 >
-                  Cerrar app
+                  Cancelar
                 </button>
+                <button
+                  type="button"
+                  onClick={handleAdminPinSubmit}
+                  className="rounded-lg border border-emerald-300/40 bg-emerald-400/20 px-3 py-2 text-xs text-emerald-100 hover:bg-emerald-400/30"
+                >
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center px-6 pb-8 pt-24">
+          <div className="absolute top-16 left-1/2 flex -translate-x-1/2 items-center gap-8">
+            <Image
+              src="/branding/metriklogo.png"
+              alt="Logo Metrik"
+              width={156}
+              height={156}
+              className="h-32 w-32"
+              priority
+            />
+            <div className="text-left">
+              <p className="text-[44px] font-semibold tracking-tight">METRIK POS</p>
+              <p className="mt-2 text-[14px] uppercase tracking-[0.6em] text-slate-400">
+                Estación de caja
+              </p>
+            </div>
+          </div>
+
+        <div className="relative mt-28 w-full max-w-lg rounded-[30px] bg-gradient-to-br from-white/35 via-white/10 to-white/5 p-[1px] shadow-2xl">
+          <div className="relative rounded-[26px] border border-white/15 bg-white/10 px-6 pb-7 pt-16 backdrop-blur-[16px]">
+            <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-[70%] rounded-[28px] border border-white/25 bg-white/25 p-6 shadow-[0_16px_50px_rgba(0,0,0,0.4)] backdrop-blur">
+              <Image
+                src="/branding/kensar-logo-moderno.jpg"
+                alt="Kensar Electronic"
+                width={136}
+                height={136}
+                className="h-28 w-28 rounded-[20px] bg-white p-2.5 shadow-[0_10px_24px_rgba(0,0,0,0.25)]"
+                priority
+              />
+            </div>
+
+            <div className="text-center">
+              <h1 className="text-xl font-semibold">Inicio de sesión</h1>
+              <p className="mt-1 text-sm text-slate-300">
+                {stationInfo?.label
+                  ? `Estación: ${stationInfo.label}`
+                  : "Estación no configurada"}
+              </p>
+              {!stationInfo && (
+                <p className="mt-2 text-[11px] text-amber-200/80">
+                  Vincula esta estación desde la app de escritorio para
+                  continuar.
+                </p>
               )}
             </div>
-          </nav>
-          {exitMode && (
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-              Modo salida de kiosk activado. Si la ventana no se cierra,
-              presiona <strong>Alt + F4</strong> en el teclado.
-            </div>
-          )}
-          {exitFailed && (
-            <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              No se pudo cerrar la ventana automáticamente. Usa
-              <strong> Alt + F4</strong> o intenta nuevamente con el botón
-              &quot;Cerrar app&quot;.
-            </div>
-          )}
 
-          <section className="mt-12 grid flex-1 gap-10 lg:grid-cols-2 items-center">
-            <div className="rounded-3xl bg-white/85 p-10 shadow-2xl flex items-center justify-center mx-auto">
-              <div className="text-center space-y-5 max-w-md">
-                <Image
-                  src="/branding/kensar-logo-moderno.jpg"
-                  alt="Logo Kensar Electronic"
-                  width={420}
-                  height={420}
-                  className="mx-auto h-auto w-80 rounded-[28px] shadow-lg object-contain"
-                  priority
-                />
-                <p className="text-base text-slate-600">
-                  Acceso exclusivo al POS de Kensar Electronic.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center">
-              <div className="w-full rounded-3xl border border-slate-200/80 bg-white/90 p-8 shadow-2xl">
-                <div className="space-y-2 text-center">
-                  <h2 className="text-3xl font-semibold text-slate-900">
-                    Autentícate para abrir el POS
-                  </h2>
-                  <p className="text-base text-slate-500">
-                    Solo habilitado para usuarios con rol de caja.
-                  </p>
-                </div>
-                <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-                  <label className="flex flex-col gap-1 text-base">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500">Estación</span>
-                      {stationInfo && (
-                        <button
-                          type="button"
-                          onClick={handleClearStation}
-                          className="inline-flex text-[11px] text-slate-500 hover:text-slate-900 underline"
-                          aria-label="Olvidar estación"
-                        >
-                          Olvidar estación
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      type="text"
-                      value={stationInfo?.label ?? stationInfo?.email ?? ""}
-                      readOnly
-                      placeholder="Configura esta estación desde el panel"
-                      className="rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3.5 text-slate-500 shadow-inner"
-                    />
-                  </label>
-                  {!stationInfo && (
-                    <p className="text-[13px] text-amber-700 bg-amber-100/60 rounded-xl px-3 py-2">
-                      Esta estación no está configurada. Vincula el equipo desde
-                      la app de escritorio con las credenciales de la estación.
-                    </p>
-                  )}
-                  <label className="flex flex-col gap-1 text-base">
-                  <span className="text-slate-500">PIN de usuario</span>
-                    <div className="relative">
-                      <input
-                        type={showPin ? "text" : "password"}
-                        ref={pinInputRef}
-                        value={pin}
-                        onChange={(e) => setPin(e.target.value)}
-                        className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 pr-16 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                        placeholder="Ingresa tu PIN"
-                        inputMode="numeric"
-                        autoComplete="off"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPin((prev) => !prev)}
-                        className="absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500 hover:text-slate-800"
-                        aria-pressed={showPin}
-                        aria-label={showPin ? "Ocultar PIN" : "Mostrar PIN"}
-                      >
-                        {showPin ? "Ocultar" : "Ver"}
-                      </button>
-                    </div>
-                  </label>
-                  {error && (
-                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-                      {error}
-                  </div>
-                )}
-                <button
-                  type="submit"
-                  disabled={submitting || !stationInfo}
-                  className="w-full rounded-2xl bg-gradient-to-r from-[#34d399] to-[#06b6d4] px-4 py-3.5 text-lg font-semibold text-white shadow-lg transition hover:scale-[1.01] disabled:opacity-60"
-                >
-                  {submitting ? "Ingresando…" : "Entrar al POS"}
-                </button>
-              </form>
-              <div className="mt-5 text-center text-sm text-slate-500">
-                <Link
-                  href="/forgot-password"
-                  className="font-semibold text-emerald-500 hover:text-emerald-400"
+            <form
+              onSubmit={handleSubmit}
+              className="mt-5 flex flex-col items-center gap-4"
+            >
+              <label className="flex w-full max-w-[380px] flex-col gap-1 text-xs text-slate-300">
+                PIN de usuario
+                <div className="relative">
+                  <input
+                    type={showPin ? "text" : "password"}
+                    ref={pinInputRef}
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value)}
+                    className="w-full rounded-2xl border border-amber-300/70 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 shadow-inner outline-none focus:border-amber-200"
+                    placeholder="PIN de acceso"
+                    inputMode="numeric"
+                    maxLength={8}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"
+                    onClick={() => setShowPin((prev) => !prev)}
+                    aria-label={showPin ? "Ocultar PIN" : "Mostrar PIN"}
                   >
-                    ¿Olvidaste tu contraseña?
-                  </Link>
+                    {showPin ? "Ocultar" : "Ver"}
+                  </button>
+                </div>
+              </label>
+
+              <div className="grid w-full max-w-[380px] grid-cols-3 gap-3">
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
+                  <button
+                    key={digit}
+                    type="button"
+                    onClick={() => handleDigit(digit)}
+                    className="rounded-2xl border border-white/10 bg-white/5 py-3 text-base font-semibold text-slate-100 shadow-[0_8px_24px_rgba(15,23,42,0.35)] transition hover:border-emerald-400/50 hover:bg-white/10"
+                  >
+                    {digit}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={handleClearPin}
+                  className="rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-slate-300 transition hover:border-rose-400/50 hover:bg-rose-500/10"
+                >
+                  Limpiar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDigit("0")}
+                  className="rounded-2xl border border-white/10 bg-white/5 py-3 text-base font-semibold text-slate-100 transition hover:border-emerald-400/50 hover:bg-white/10"
+                >
+                  0
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBackspace}
+                  className="rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-slate-300 transition hover:border-amber-400/50 hover:bg-amber-500/10"
+                >
+                  Borrar
+                </button>
+              </div>
+
+              {error && (
+                <div className="w-full max-w-[380px] rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
+                  <p>{error}</p>
+                  {stationError && (
+                    <button
+                      type="button"
+                      onClick={handleClearStation}
+                      className="mt-2 text-[11px] font-semibold text-rose-200 underline-offset-2 hover:underline"
+                    >
+                      Cambiar estación
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting || !stationInfo}
+                className="w-full max-w-[380px] rounded-2xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-5 py-3 text-sm font-semibold text-slate-900 shadow-[0_0_24px_rgba(16,185,129,0.45)] transition hover:scale-[1.01] disabled:opacity-50"
+              >
+                {submitting ? "Validando..." : "Entrar al POS"}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        </div>
+
+        <footer className="absolute bottom-6 left-0 right-0 mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-3 px-8 text-[13px] text-slate-400">
+          <span className="text-slate-500"> </span>
+          <div className="flex items-center gap-3 text-base text-slate-200">
+            <span className="font-semibold tracking-wide">{timeLabel}</span>
+            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.9)]" />
+            <span className="text-slate-300">Online</span>
+          </div>
+          <span className="text-slate-500"> </span>
+        </footer>
+
+        {settingsOpen && (
+          <>
+            <button
+              type="button"
+              aria-label="Cerrar ajustes"
+              onClick={() => setSettingsOpen(false)}
+              className="absolute inset-0 z-30 cursor-default"
+            />
+            <div className="absolute left-6 bottom-20 z-40 w-64 origin-bottom-left animate-[fadeInUp_160ms_ease-out] rounded-2xl border border-white/10 bg-slate-950/95 p-4 text-xs text-slate-200 shadow-2xl backdrop-blur">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500">
+              Configuración rápida
+            </div>
+            {appZoom !== null && (
+              <div className="mt-3 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                <span>Zoom</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => adjustAppZoom(-0.05)}
+                    className="h-7 w-7 rounded-full bg-white/10 text-slate-200 hover:bg-white/20"
+                  >
+                    –
+                  </button>
+                  <span className="min-w-[36px] text-center">
+                    {Math.round(appZoom * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => adjustAppZoom(0.05)}
+                    className="h-7 w-7 rounded-full bg-white/10 text-slate-200 hover:bg-white/20"
+                  >
+                    +
+                  </button>
                 </div>
               </div>
+            )}
+            {stationInfo && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  handleClearStation();
+                }}
+                className="mt-3 w-full rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-left text-rose-100 hover:bg-rose-500/20"
+              >
+                Cambiar estación
+              </button>
+            )}
+            {isDesktopApp && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  handleShutdown();
+                }}
+                className={`mt-3 w-full rounded-xl border px-3 py-2 text-left ${
+                  isWindows
+                    ? "border-amber-300/40 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20"
+                    : "border-slate-600/40 bg-slate-500/10 text-slate-300 hover:bg-slate-500/20"
+                }`}
+              >
+                Apagar equipo
+                {!isWindows && (
+                  <span className="mt-1 block text-[11px] text-slate-400">
+                    Solo Windows
+                  </span>
+                )}
+              </button>
+            )}
             </div>
-          </section>
-
-          <footer className="mt-10 text-center text-xs text-slate-500">
-            © {new Date().getFullYear()} Metrik · POS seguro para tus cajeros
-          </footer>
-        </div>
+          </>
+        )}
       </div>
     </main>
   );

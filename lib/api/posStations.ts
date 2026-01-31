@@ -179,7 +179,7 @@ export function getOrCreatePosDeviceLabel(): string {
 export function getStoredPosMode(): PosAccessMode | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(POS_MODE_STORAGE_KEY);
+    const raw = window.localStorage.getItem(POS_MODE_STORAGE_KEY);
     if (raw === "station" || raw === "web") {
       return raw;
     }
@@ -192,7 +192,7 @@ export function getStoredPosMode(): PosAccessMode | null {
 export function setStoredPosMode(mode: PosAccessMode) {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(POS_MODE_STORAGE_KEY, mode);
+    window.localStorage.setItem(POS_MODE_STORAGE_KEY, mode);
   } catch (err) {
     console.warn("No se pudo almacenar el modo del POS", err);
   }
@@ -200,7 +200,7 @@ export function setStoredPosMode(mode: PosAccessMode) {
 
 export function clearStoredPosMode() {
   if (typeof window === "undefined") return;
-  window.sessionStorage.removeItem(POS_MODE_STORAGE_KEY);
+  window.localStorage.removeItem(POS_MODE_STORAGE_KEY);
 }
 
 export function getWebPosStation(): PosStationAccess {

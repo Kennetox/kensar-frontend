@@ -424,12 +424,6 @@ const GRID_ZOOM_MIN = 0.8;
 const GRID_ZOOM_MAX = 1.25;
 const GRID_ZOOM_STEP = 0.05;
 const GRID_ZOOM_DEFAULT = 1;
-const UI_ZOOM_STORAGE_PREFIX = "kensar_pos_ui_zoom";
-const UI_ZOOM_MIN = 0.67;
-const UI_ZOOM_MAX = 1;
-const UI_ZOOM_STEP = 0.03;
-const UI_ZOOM_DEFAULT_STATION = 0.83;
-const UI_ZOOM_DEFAULT_WEB = 1;
 
 const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   switch (method) {
@@ -591,6 +585,13 @@ const matchesStationLabel = useCallback(
   });
   const router = useRouter();
   const { token, user, logout } = useAuth();
+  const isDesktopApp =
+    typeof window !== "undefined" &&
+    Boolean((window as Window & { kensar?: { quitApp?: () => Promise<void> } }).kensar?.quitApp);
+  const isWindows =
+    typeof navigator !== "undefined" &&
+    /Windows/i.test(navigator.userAgent || "");
+  const [appZoom, setAppZoom] = useState<number | null>(null);
   const isOnline = useOnlineStatus();
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
@@ -1052,11 +1053,9 @@ const matchesStationLabel = useCallback(
   const [isResizingCartPanel, setIsResizingCartPanel] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
   const [gridZoom, setGridZoom] = useState(GRID_ZOOM_DEFAULT);
-  const [uiZoom, setUiZoom] = useState(UI_ZOOM_DEFAULT_WEB);
   const [isMobile, setIsMobile] = useState(false);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const gridZoomHydratedRef = useRef(false);
-  const uiZoomHydratedRef = useRef(false);
   const cartWidthStorageKey = useMemo(
     () =>
       activeStationId
@@ -1070,15 +1069,6 @@ const matchesStationLabel = useCallback(
     }
     if (posMode === "web") {
       return `${GRID_ZOOM_STORAGE_PREFIX}:pos-web`;
-    }
-    return null;
-  }, [activeStationId, posMode]);
-  const uiZoomStorageKey = useMemo(() => {
-    if (activeStationId) {
-      return `${UI_ZOOM_STORAGE_PREFIX}:${activeStationId}`;
-    }
-    if (posMode === "web") {
-      return `${UI_ZOOM_STORAGE_PREFIX}:pos-web`;
     }
     return null;
   }, [activeStationId, posMode]);
@@ -1138,10 +1128,6 @@ const matchesStationLabel = useCallback(
     (value: number) => clampNumber(value, GRID_ZOOM_MIN, GRID_ZOOM_MAX),
     []
   );
-  const clampUiZoom = useCallback(
-    (value: number) => clampNumber(value, UI_ZOOM_MIN, UI_ZOOM_MAX),
-    []
-  );
   const handleZoomChange = useCallback(
     (delta: number) => {
       setGridZoom((prev) => clampGridZoom(prev + delta));
@@ -1151,15 +1137,6 @@ const matchesStationLabel = useCallback(
   const handleZoomReset = useCallback(() => {
     setGridZoom(GRID_ZOOM_DEFAULT);
   }, []);
-  const handleUiZoomChange = useCallback(
-    (delta: number) => {
-      setUiZoom((prev) => clampUiZoom(prev + delta));
-    },
-    [clampUiZoom]
-  );
-  const handleUiZoomReset = useCallback(() => {
-    setUiZoom(posMode === "web" ? UI_ZOOM_DEFAULT_WEB : UI_ZOOM_DEFAULT_STATION);
-  }, [posMode]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!cartWidthStorageKey) return;
@@ -1184,23 +1161,6 @@ const matchesStationLabel = useCallback(
   }, [gridZoomStorageKey, clampGridZoom]);
   useEffect(() => {
     if (typeof window === "undefined") return;
-    uiZoomHydratedRef.current = false;
-    if (!uiZoomStorageKey) return;
-    const stored = window.localStorage.getItem(uiZoomStorageKey);
-    if (stored) {
-      const parsed = Number(stored);
-      if (Number.isFinite(parsed)) {
-        setUiZoom(clampUiZoom(parsed));
-      }
-    } else {
-      setUiZoom(
-        posMode === "web" ? UI_ZOOM_DEFAULT_WEB : UI_ZOOM_DEFAULT_STATION
-      );
-    }
-    uiZoomHydratedRef.current = true;
-  }, [uiZoomStorageKey, clampUiZoom, posMode]);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     if (!cartWidthStorageKey) return;
     window.localStorage.setItem(
       cartWidthStorageKey,
@@ -1213,12 +1173,6 @@ const matchesStationLabel = useCallback(
     if (!gridZoomHydratedRef.current) return;
     window.localStorage.setItem(gridZoomStorageKey, String(gridZoom));
   }, [gridZoom, gridZoomStorageKey]);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!uiZoomStorageKey) return;
-    if (!uiZoomHydratedRef.current) return;
-    window.localStorage.setItem(uiZoomStorageKey, String(uiZoom));
-  }, [uiZoom, uiZoomStorageKey]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!isResizingCartPanel) return;
@@ -1534,21 +1488,27 @@ const matchesStationLabel = useCallback(
   const [closureEmailError, setClosureEmailError] = useState<string | null>(null);
   const lastClosureEmailedRef = useRef<number | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [userMenuClosing, setUserMenuClosing] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(null);
 
   const canProceedToPayment = cart.length > 0;
-  const sellerName = user?.name
-    ? `Vendedor: ${user.name}`
+  const sellerDisplayName = user?.name || user?.email || null;
+  const sellerName = sellerDisplayName
+    ? `Vendedor: ${sellerDisplayName}`
     : "Vendedor: (no identificado)";
   const sellerRole = user?.role ?? "Sin rol asignado";
   const sellerInitials = useMemo(() => {
-    if (!user?.name) return "👤";
-    const [first, second] = user.name.split(" ");
+    if (!sellerDisplayName) return "👤";
+    const [first, second] = sellerDisplayName.split(" ");
     const initials = `${first?.[0] ?? ""}${second?.[0] ?? ""}`.trim();
-    return initials.toUpperCase() || user.name[0]?.toUpperCase() || "👤";
-  }, [user?.name]);
+    return (
+      initials.toUpperCase() ||
+      sellerDisplayName[0]?.toUpperCase() ||
+      "👤"
+    );
+  }, [sellerDisplayName]);
 
   const isClosureEmailEnabledForStation = useMemo(() => {
     if (!posSettings) return false;
@@ -3522,11 +3482,19 @@ const matchesStationLabel = useCallback(
     void loadGroupAppearances();
   }, [authHeaders, loadGroupAppearances]);
 
+  const closeUserMenu = useCallback(() => {
+    setUserMenuClosing(true);
+    window.setTimeout(() => {
+      setUserMenuOpen(false);
+      setUserMenuClosing(false);
+    }, 180);
+  }, []);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (!userMenuRef.current) return;
       if (userMenuRef.current.contains(event.target as Node)) return;
-      setUserMenuOpen(false);
+      closeUserMenu();
     }
     if (userMenuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
@@ -3534,7 +3502,7 @@ const matchesStationLabel = useCallback(
       document.removeEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [userMenuOpen]);
+  }, [userMenuOpen, closeUserMenu]);
 
   /* Atajos de teclado: Delete para borrar item seleccionado */
   useEffect(() => {
@@ -3716,6 +3684,81 @@ const matchesStationLabel = useCallback(
       attemptCloseWindow(() => {
         window.location.assign("/login-pos?exit=kiosk");
       });
+    }
+  }, []);
+
+  const handleQuitDesktopApp = useCallback(() => {
+    const bridge =
+      typeof window !== "undefined"
+        ? (window as typeof window & {
+            kensar?: { quitApp?: () => Promise<void> };
+          })
+        : null;
+    if (bridge?.kensar?.quitApp) {
+      void bridge.kensar.quitApp();
+      return;
+    }
+    if (typeof window !== "undefined") {
+      window.close();
+    }
+  }, []);
+
+  const handleShutdownSystem = useCallback(() => {
+    if (!isWindows) {
+      if (typeof window !== "undefined") {
+        window.alert("Apagar equipo solo está disponible en Windows.");
+      }
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "Esto apagará el equipo inmediatamente. ¿Deseas continuar?"
+      );
+      if (!confirmed) return;
+    }
+    const bridge =
+      typeof window !== "undefined"
+        ? (window as typeof window & {
+            kensar?: { shutdownSystem?: () => Promise<boolean> };
+          })
+        : null;
+    bridge?.kensar?.shutdownSystem?.().catch(() => {});
+  }, [isWindows]);
+
+  const adjustAppZoom = useCallback((delta: number) => {
+    const bridge =
+      typeof window !== "undefined"
+        ? (window as typeof window & {
+            kensar?: { setZoomFactor?: (value: number) => Promise<number> };
+          })
+        : null;
+    if (!bridge?.kensar?.setZoomFactor) return;
+    setAppZoom((prev) => {
+      const next = Number.isFinite(prev ?? 1) ? (prev ?? 1) + delta : 1 + delta;
+      bridge.kensar
+        ?.setZoomFactor?.(next)
+        .then((value) => {
+          if (typeof value === "number") setAppZoom(value);
+        })
+        .catch(() => {});
+      return prev ?? 1;
+    });
+  }, []);
+
+  useEffect(() => {
+    const bridge =
+      typeof window !== "undefined"
+        ? (window as typeof window & {
+            kensar?: { getZoomFactor?: () => Promise<number> };
+          })
+        : null;
+    if (bridge?.kensar?.getZoomFactor) {
+      bridge.kensar
+        .getZoomFactor()
+        .then((value) => {
+          if (typeof value === "number") setAppZoom(value);
+        })
+        .catch(() => {});
     }
   }, []);
 
@@ -4181,15 +4224,7 @@ const matchesStationLabel = useCallback(
       };
   return (
     <main className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
-      <div
-        className="absolute inset-0"
-        style={{
-          transform: `scale(${uiZoom})`,
-          transformOrigin: "top left",
-          width: `calc(100vw / ${uiZoom})`,
-          height: `calc(100vh / ${uiZoom})`,
-        }}
-      >
+      <div className="relative flex min-h-0 flex-1 w-full flex-col">
       {loading && (
         <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col gap-6 px-6 py-8">
           <div className="h-12 rounded-2xl bg-slate-900/70 animate-pulse" />
@@ -4324,7 +4359,13 @@ const matchesStationLabel = useCallback(
             <div className="relative" ref={userMenuRef}>
               <button
                 type="button"
-                onClick={() => setUserMenuOpen((prev) => !prev)}
+                onClick={() => {
+                  if (userMenuOpen) {
+                    closeUserMenu();
+                  } else {
+                    setUserMenuOpen(true);
+                  }
+                }}
                 className="flex items-center gap-3 text-xs hover:bg-slate-800/70 rounded-full px-4 py-2 transition"
               >
                 <div className="text-right leading-tight">
@@ -4338,153 +4379,281 @@ const matchesStationLabel = useCallback(
                 </div>
               </button>
               {userMenuOpen && (
-                <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-slate-700 bg-slate-900 shadow-xl overflow-hidden z-30">
-                <div className="px-5 py-3 text-[12px] uppercase tracking-wide text-slate-500 border-b border-slate-800">
-                  Acciones de caja
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    router.push("/pos/historial");
-                  }}
-                  className="w-full text-left px-5 py-5 text-[17px] text-slate-100 hover:bg-slate-800 flex items-center justify-between"
-                >
-                  Historial
-                  <span className="text-[12px] text-slate-400">Ventas registradas</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    handleOpenClosureModal();
-                  }}
-                  className="w-full text-left px-5 py-5 text-[17px] text-slate-100 hover:bg-slate-800 flex items-center justify-between"
-                >
-                  Cerrar caja
-                  <span className="text-[12px] text-amber-200">Reporte Z</span>
-                </button>
-                {printerConfig.showDrawerButton && (
+                <>
                   <button
                     type="button"
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      void handleOpenDrawerCommand();
-                    }}
-                    className="w-full text-left px-5 py-5 text-[17px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                    aria-label="Cerrar menú"
+                    onClick={closeUserMenu}
+                    className={`fixed inset-0 z-30 bg-slate-950/60 backdrop-blur-sm transition-opacity ${
+                      userMenuClosing ? "opacity-0" : "opacity-100"
+                    }`}
+                  />
+                  <aside
+                    className={`fixed right-6 top-6 z-40 flex h-[calc(100vh-3rem)] w-80 flex-col overflow-hidden rounded-[26px] border border-slate-700/60 bg-slate-900/95 shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl ${
+                      userMenuClosing
+                        ? "animate-[slideOut_180ms_ease-in]"
+                        : "animate-[slideIn_180ms_ease-out]"
+                    }`}
                   >
-                    Abrir cajón
-                    <span className="text-[11px] text-slate-400">
-                      {printerConfig.mode === "qz-tray" ? "" : "Requiere QZ Tray"}
-                    </span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    router.push("/dashboard?posPreview=1");
-                  }}
-                  className="w-full text-left px-5 py-5 text-[17px] text-slate-200 hover:bg-slate-800"
-                >
-                  Ir al panel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    setPrinterModalOpen(true);
-                  }}
-                  className="w-full text-left px-5 py-5 text-[15px] text-slate-200 hover:bg-slate-800"
-                >
-                  Configurar impresora
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    void handleToggleFullscreen();
-                  }}
-                  className="w-full text-left px-5 py-5 text-[15px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
-                >
-                  {isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-                  <span className="text-[12px] text-slate-400">
-                    {isFullscreen ? "Desactivar" : "Activar"}
-                  </span>
-                </button>
-                <div className="border-t border-slate-800/60" />
-                {isKioskMode && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        handleReloadPos();
-                      }}
-                      className="w-full text-left px-5 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
-                    >
-                      Recargar POS
-                      <span className="text-[12px] text-slate-400">Actualizar vista</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        handleExitKiosk();
-                      }}
-                      className="w-full text-left px-5 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
-                    >
-                      Salir de kiosk
-                      <span className="text-[12px] text-slate-400">
-                        {openedAsNewTab ? "Cerrar ventana" : "Salir pantalla completa"}
-                      </span>
-                    </button>
-                    <div className="border-t border-slate-800/60" />
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    logout("Cerraste sesión del POS.");
-                    router.replace("/login-pos");
-                  }}
-                  className="w-full text-left px-5 py-5 text-[17px] text-rose-200 hover:bg-rose-500/10 flex items-center justify-between"
-                >
-                  Cerrar sesión
-                  <span className="text-[12px] text-rose-300">Volver a ingresar</span>
-                </button>
-                {openedAsNewTab && (
-                  <>
-                    <div className="border-t border-slate-800/60" />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        if (typeof window !== "undefined") {
-                          window.close();
-                        }
-                      }}
-                      className="w-full text-left px-5 py-5 text-[15px] text-slate-300 hover:bg-slate-800"
-                    >
-                      Cerrar pestaña POS
-                    </button>
-                  </>
-                )}
-              </div>
+                    <style>{`
+                      @keyframes slideIn {
+                        from { transform: translateX(16px); opacity: 0; }
+                        to { transform: translateX(0); opacity: 1; }
+                      }
+                      @keyframes slideOut {
+                        from { transform: translateX(0); opacity: 1; }
+                        to { transform: translateX(24px); opacity: 0; }
+                      }
+                    `}</style>
+                    <div className="px-6 py-5 border-b border-slate-800/80 flex items-center justify-between">
+                      <div>
+                        <div className="text-[12px] uppercase tracking-[0.22em] text-slate-500">
+                          Acciones de caja
+                        </div>
+                        <div className="mt-2 text-base font-semibold text-slate-100">
+                          {user?.name ?? "Usuario sin identificar"}
+                        </div>
+                        <div className="text-[12px] text-slate-400">{sellerRole}</div>
+                      </div>
+                      <div className="h-12 w-12 rounded-full border border-slate-700 bg-slate-800 text-slate-100 flex items-center justify-center text-base font-semibold">
+                        {sellerInitials}
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeUserMenu();
+                          router.push("/pos/historial");
+                        }}
+                        className="w-full text-left px-6 py-5 text-[17px] text-slate-100 hover:bg-slate-800 flex items-center justify-between"
+                      >
+                        <span className="flex items-center gap-3">
+                          <span aria-hidden>🧾</span>
+                          Historial
+                        </span>
+                        <span className="text-[12px] text-slate-400">Ventas registradas</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeUserMenu();
+                          handleOpenClosureModal();
+                        }}
+                        className="w-full text-left px-6 py-5 text-[17px] text-slate-100 hover:bg-slate-800 flex items-center justify-between"
+                      >
+                        <span className="flex items-center gap-3">
+                          <span aria-hidden>🔒</span>
+                          Cerrar caja
+                        </span>
+                        <span className="text-[12px] text-amber-200">Reporte Z</span>
+                      </button>
+                      {printerConfig.showDrawerButton && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeUserMenu();
+                            void handleOpenDrawerCommand();
+                          }}
+                          className="w-full text-left px-6 py-5 text-[17px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                        >
+                          <span className="flex items-center gap-3">
+                            <span aria-hidden>💵</span>
+                            Abrir cajón
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {printerConfig.mode === "qz-tray" ? "" : "Requiere QZ Tray"}
+                          </span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeUserMenu();
+                          router.push("/dashboard?posPreview=1");
+                        }}
+                        className="w-full text-left px-6 py-5 text-[17px] text-slate-200 hover:bg-slate-800"
+                      >
+                        <span className="flex items-center gap-3">
+                          <span aria-hidden>📊</span>
+                          Ir al panel
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeUserMenu();
+                          setPrinterModalOpen(true);
+                        }}
+                        className="w-full text-left px-6 py-5 text-[15px] text-slate-200 hover:bg-slate-800"
+                      >
+                        <span className="flex items-center gap-3">
+                          <span aria-hidden>🖨️</span>
+                          Configurar impresora
+                        </span>
+                      </button>
+                      {!isDesktopApp && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeUserMenu();
+                            void handleToggleFullscreen();
+                          }}
+                          className="w-full text-left px-6 py-5 text-[15px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                        >
+                          {isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+                          <span className="text-[12px] text-slate-400">
+                            {isFullscreen ? "Desactivar" : "Activar"}
+                          </span>
+                        </button>
+                      )}
+                      <div className="border-t border-slate-800/60" />
+                      {(isKioskMode || isDesktopApp) && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeUserMenu();
+                              handleReloadPos();
+                            }}
+                            className="w-full text-left px-6 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                          >
+                            <span className="flex items-center gap-3">
+                              <span aria-hidden>🔄</span>
+                              Recargar POS
+                            </span>
+                            <span className="text-[12px] text-slate-400">
+                              Actualizar vista
+                            </span>
+                          </button>
+                          {!isDesktopApp && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                closeUserMenu();
+                                handleExitKiosk();
+                              }}
+                              className="w-full text-left px-6 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                            >
+                              Salir de kiosk
+                              <span className="text-[12px] text-slate-400">
+                                {openedAsNewTab ? "Cerrar ventana" : "Salir pantalla completa"}
+                              </span>
+                            </button>
+                          )}
+                          <div className="border-t border-slate-800/60" />
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeUserMenu();
+                          logout("Cerraste sesión del POS.");
+                          router.replace("/login-pos");
+                        }}
+                        className="w-full text-left px-6 py-5 text-[17px] text-rose-200 hover:bg-rose-500/10 flex items-center justify-between"
+                      >
+                        <span className="flex items-center gap-3">
+                          <span aria-hidden>🚪</span>
+                          Cerrar sesión
+                        </span>
+                        <span className="text-[12px] text-rose-300">Volver a ingresar</span>
+                      </button>
+                      {isDesktopApp && (
+                        <>
+                          <div className="border-t border-slate-800/60" />
+                          {appZoom !== null && (
+                            <div className="px-6 py-4">
+                              <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                                Zoom app
+                              </div>
+                              <div className="mt-2 flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => adjustAppZoom(-0.05)}
+                                  className="h-9 w-9 rounded-full bg-slate-800 text-slate-200 hover:bg-slate-700"
+                                >
+                                  –
+                                </button>
+                                <span className="text-sm text-slate-200">
+                                  {Math.round(appZoom * 100)}%
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => adjustAppZoom(0.05)}
+                                  className="h-9 w-9 rounded-full bg-slate-800 text-slate-200 hover:bg-slate-700"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeUserMenu();
+                              handleShutdownSystem();
+                            }}
+                            className={`w-full text-left px-6 py-5 text-[16px] flex items-center justify-between ${
+                              isWindows
+                                ? "text-amber-100 hover:bg-amber-500/10"
+                                : "text-slate-300 hover:bg-slate-800"
+                            }`}
+                          >
+                            <span className="flex items-center gap-3">
+                              <span aria-hidden>⏻</span>
+                              Apagar equipo
+                            </span>
+                            <span className="text-[12px] text-slate-400">
+                              {isWindows ? "Apagar Windows" : "Solo Windows"}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeUserMenu();
+                              const confirmed =
+                                typeof window === "undefined"
+                                  ? true
+                                  : window.confirm("¿Deseas cerrar la app de caja?");
+                              if (!confirmed) return;
+                              handleQuitDesktopApp();
+                            }}
+                            className="w-full text-left px-6 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                          >
+                            <span className="flex items-center gap-3">
+                              <span aria-hidden>✕</span>
+                              Cerrar app
+                            </span>
+                            <span className="text-[12px] text-slate-400">Salir del programa</span>
+                          </button>
+                        </>
+                      )}
+                      {openedAsNewTab && (
+                        <>
+                          <div className="border-t border-slate-800/60" />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeUserMenu();
+                              if (typeof window !== "undefined") {
+                                window.close();
+                              }
+                            }}
+                            className="w-full text-left px-6 py-5 text-[15px] text-slate-300 hover:bg-slate-800"
+                          >
+                            Cerrar pestaña POS
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </aside>
+                </>
               )}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-4 py-3 text-sm border-t border-slate-800">
-          <div className="flex items-center gap-4">
-            <span className="font-semibold text-base">{resolvedPosName}</span>
-            <span className="text-slate-300 text-base">
-              {sellerName}
-            </span>
-          </div>
-        </div>
       </header>
 
       {(!isOnline || pendingBannerStatus || pendingSales.length > 0) && (
@@ -4631,6 +4800,12 @@ const matchesStationLabel = useCallback(
           }`}
           style={cartPanelStyle}
         >
+          <div className="px-4 py-2 text-sm border-b border-slate-800 bg-slate-950/70">
+            <div className="flex items-center gap-4">
+              <span className="font-semibold text-base">{resolvedPosName}</span>
+              <span className="text-slate-300 text-base">{sellerName}</span>
+            </div>
+          </div>
           {/* Encabezado carrito */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
             <div className="flex flex-col">
@@ -4944,27 +5119,25 @@ const matchesStationLabel = useCallback(
         {/* Grid productos / grupos */}
         <section className="flex-1 flex flex-col">
           {/* Búsqueda y breadcrumb */}
-          <div className="min-h-[65.5px] flex items-center px-4 py-2 border-b border-slate-800 bg-slate-900 gap-3">
-            <div className="flex-1">
+          <div className="border-b border-slate-800 bg-slate-900">
+            <div className="flex items-center gap-3 px-4 py-3">
               <input
                 ref={searchInputRef}
                 value={search}
                 onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                  setSearch(e.target.value)                  
+                  setSearch(e.target.value)
                 }
                 onKeyDown={handleSearchKeyDown}
                 placeholder="Buscar productos por nombre, código o código de barras"
-                className="w-full rounded-lg bg-slate-950 border border-slate-700 px-4 py-2 text-base outline-none focus:border-emerald-400"
+                className="flex-1 rounded-xl bg-slate-950 border border-emerald-400/60 px-4 py-3.5 text-lg outline-none focus:border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.2)]"
               />
-            </div>
-            <div className="text-xs text-slate-400">
-              {currentPath.length === 0 ? (
-                <span>Inicio</span>
-              ) : (
-                <span>
-                  {["Inicio", ...currentPath].join(" › ")}
-                </span>
-              )}
+              <div className="text-xs text-slate-400 whitespace-nowrap">
+                {currentPath.length === 0 ? (
+                  <span>Inicio</span>
+                ) : (
+                  <span>{["Inicio", ...currentPath].join(" › ")}</span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -5140,29 +5313,6 @@ const matchesStationLabel = useCallback(
                   <button
                     type="button"
                     onClick={() => handleZoomChange(GRID_ZOOM_STEP)}
-                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
-                  >
-                    +
-                  </button>
-                  <span className="ml-2 text-slate-600">|</span>
-                  <span className="text-slate-400">UI</span>
-                  <button
-                    type="button"
-                    onClick={() => handleUiZoomChange(-UI_ZOOM_STEP)}
-                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
-                  >
-                    –
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleUiZoomReset}
-                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
-                  >
-                    {Math.round(uiZoom * 100)}%
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleUiZoomChange(UI_ZOOM_STEP)}
                     className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
                   >
                     +
@@ -6266,6 +6416,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
           Error: {error}
         </div>
       )}
+
       </div>
     </main>
   );
