@@ -35,7 +35,13 @@ type KensarBridge = {
     shutdownSystem?: () => Promise<boolean>;
     getDeviceInfo?: () => Promise<{ deviceId?: string; deviceLabel?: string }>;
     getAppVersion?: () => Promise<string>;
-    onUpdateStatus?: (handler: (payload: { status?: string }) => void) => void;
+    onUpdateStatus?: (
+      handler: (payload: {
+        status?: string;
+        countdownSeconds?: number;
+        message?: string;
+      }) => void
+    ) => void;
   };
 };
 
@@ -93,14 +99,23 @@ function PosLoginContent() {
         .catch(() => {});
     }
     if (bridge?.kensar?.onUpdateStatus) {
-      bridge.kensar.onUpdateStatus((payload: { status?: string }) => {
+      bridge.kensar.onUpdateStatus((payload: {
+        status?: string;
+        countdownSeconds?: number;
+      }) => {
         if (!payload || typeof payload !== "object") return;
         const status = "status" in payload ? String(payload.status) : null;
         if (!status) return;
         if (status === "checking") setUpdateStatus("Buscando actualización...");
         else if (status === "available") setUpdateStatus("Actualización disponible.");
         else if (status === "downloading") setUpdateStatus("Descargando actualización...");
-        else if (status === "downloaded") setUpdateStatus("Actualización lista. Reinicia la app.");
+        else if (status === "downloaded") {
+          const seconds =
+            typeof payload.countdownSeconds === "number"
+              ? ` Reinicio en ${payload.countdownSeconds}s.`
+              : "";
+          setUpdateStatus(`Actualización lista.${seconds}`);
+        }
         else if (status === "error") setUpdateStatus("Error al actualizar.");
         else setUpdateStatus(null);
       });
