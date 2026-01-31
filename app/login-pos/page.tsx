@@ -61,6 +61,8 @@ function PosLoginContent() {
   const [timeLabel, setTimeLabel] = useState("");
   const [appZoom, setAppZoom] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
   const pinInputRef = useRef<HTMLInputElement | null>(null);
   const lastStationIdRef = useRef<string | null>(null);
   const exitMode = searchParams.get("exit") === "kiosk";
@@ -73,6 +75,33 @@ function PosLoginContent() {
     setIsWindows(/Windows/i.test(navigator.userAgent || ""));
     if (!desktopDetected && !exitMode) {
       router.replace("/login");
+    }
+    const bridge =
+      typeof window !== "undefined"
+        ? (window as Window & KensarBridge)
+        : null;
+    if (bridge?.kensar?.getAppVersion) {
+      bridge.kensar
+        .getAppVersion()
+        .then((version) => {
+          if (typeof version === "string") {
+            setAppVersion(version);
+          }
+        })
+        .catch(() => {});
+    }
+    if (bridge?.kensar?.onUpdateStatus) {
+      bridge.kensar.onUpdateStatus((payload) => {
+        if (!payload || typeof payload !== "object") return;
+        const status = "status" in payload ? String(payload.status) : null;
+        if (!status) return;
+        if (status === "checking") setUpdateStatus("Buscando actualización...");
+        else if (status === "available") setUpdateStatus("Actualización disponible.");
+        else if (status === "downloading") setUpdateStatus("Descargando actualización...");
+        else if (status === "downloaded") setUpdateStatus("Actualización lista. Reinicia la app.");
+        else if (status === "error") setUpdateStatus("Error al actualizar.");
+        else setUpdateStatus(null);
+      });
     }
   }, [exitMode, router]);
 
@@ -768,13 +797,17 @@ function PosLoginContent() {
         </div>
 
         <footer className="absolute bottom-6 left-0 right-0 mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-3 px-8 text-[13px] text-slate-400">
-          <span className="text-slate-500"> </span>
+          <span className="text-[11px] text-slate-500">
+            {appVersion ? `v${appVersion}` : ""}
+          </span>
           <div className="flex items-center gap-3 text-base text-slate-200">
             <span className="font-semibold tracking-wide">{timeLabel}</span>
             <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.9)]" />
             <span className="text-slate-300">Online</span>
           </div>
-          <span className="text-slate-500"> </span>
+          <span className="text-[11px] text-slate-500">
+            {updateStatus ?? ""}
+          </span>
         </footer>
 
         {settingsOpen && (
