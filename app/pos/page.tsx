@@ -4601,7 +4601,19 @@ const matchesStationLabel = useCallback(
                             }`}
                           >
                             <span className="flex items-center gap-3">
-                              <span aria-hidden>⏻</span>
+                              <svg
+                                viewBox="0 0 24 24"
+                                className="h-5 w-5 flex-shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M12 3v9" />
+                                <path d="M7.5 5.5a7 7 0 1 0 9 0" />
+                              </svg>
                               Apagar equipo
                             </span>
                             <span className="text-[12px] text-slate-400">
@@ -4622,7 +4634,18 @@ const matchesStationLabel = useCallback(
                             className="w-full text-left px-6 py-5 text-[16px] text-slate-200 hover:bg-slate-800 flex items-center justify-between"
                           >
                             <span className="flex items-center gap-3">
-                              <span aria-hidden>✕</span>
+                              <svg
+                                viewBox="0 0 24 24"
+                                className="h-5 w-5 flex-shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M6 6l12 12M18 6L6 18" />
+                              </svg>
                               Cerrar app
                             </span>
                             <span className="text-[12px] text-slate-400">Salir del programa</span>
