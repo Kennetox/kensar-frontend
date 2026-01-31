@@ -399,7 +399,7 @@ export default function CustomerPanel({
   const containerClass =
     variant === "page"
       ? "w-full max-w-5xl bg-slate-950/80 border border-slate-800/80 rounded-3xl px-10 py-9 shadow-xl flex flex-col overflow-hidden"
-      : "w-[19rem] border-l border-slate-800 bg-slate-950/50 px-5 py-5 flex flex-col gap-4 overflow-hidden";
+      : "w-[20rem] border-l border-slate-800 bg-slate-950/50 px-5 py-5 flex flex-col gap-4 overflow-hidden";
 
   const listContainerClass =
     variant === "page"

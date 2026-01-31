@@ -1438,25 +1438,25 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
 
             {/* Área de pago */}
             <div className="payment-main-panel flex-1 px-5 py-4 flex flex-col items-stretch">
-              <div className="w-full max-w-none space-y-5">
+              <div className="w-full max-w-none space-y-6">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h2 className="text-xl font-semibold">Pago</h2>
-                    <p className="text-sm text-slate-400">
+                    <h2 className="text-2xl font-semibold">Pago</h2>
+                    <p className="text-base text-slate-400">
                       Ajusta el monto recibido y agrega notas antes de confirmar.
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="rounded-full border border-slate-800 bg-slate-900/70 px-3 py-1.5 text-slate-200">
+                  <div className="flex items-center gap-2 text-base">
+                    <span className="rounded-full border border-slate-800 bg-slate-900/70 px-4 py-2 text-slate-200">
                       {selectedMethod?.name ?? "Método"}
                     </span>
                   </div>
                 </div>
 
-                <div className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-inner text-base">
+                <div className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-inner text-lg">
                   <div className="grid grid-cols-[1fr_auto] items-center gap-2">
                     <span className="text-slate-300">Total</span>
-                    <span className="font-semibold text-slate-100 text-lg">
+                    <span className="font-semibold text-slate-100 text-xl">
                       {formatMoney(totalToPay)}
                     </span>
                   </div>
@@ -1482,7 +1482,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                           }
                         }}
                         className={
-                          "w-56 rounded-xl border px-4 py-3 text-xl bg-slate-900/80 " +
+                          "w-56 rounded-xl border px-4 py-3 text-2xl bg-slate-900/80 " +
                           "border-slate-700 text-slate-50 outline-none shadow-inner " +
                           "focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/40 " +
                           (!requiresManualAmount ? "opacity-40 cursor-not-allowed" : "")
@@ -1492,7 +1492,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   </div>
                   {isSeparatedSale && (
                     <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-                      <div className="flex justify-between text-sm text-slate-400">
+                      <div className="flex justify-between text-base text-slate-400">
                         <span>Método del abono inicial</span>
                         {separatedMethodLabel && (
                           <span className="text-slate-100 font-semibold">
@@ -1500,13 +1500,13 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-slate-500">
+                      <p className="text-base text-slate-500">
                         Selecciona cómo recibe el pago inicial (efectivo, tarjeta,
                         transferencia, etc.). Este método se imprimirá en el ticket.
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {separatedMethodOptions.length === 0 && (
-                          <span className="text-sm text-red-400">
+                          <span className="text-base text-red-400">
                             No hay métodos disponibles para registrar el abono.
                           </span>
                         )}
@@ -1516,7 +1516,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                             type="button"
                             onClick={() => setSeparatedPaymentMethod(option.slug)}
                             className={
-                              "px-4 py-2 rounded-lg border text-sm transition-colors " +
+                              "px-4 py-2 rounded-lg border text-base transition-colors " +
                               (separatedPaymentMethod === option.slug
                                 ? "bg-emerald-500 text-slate-900 border-emerald-400"
                                 : "bg-slate-900/80 border-slate-700 hover:border-emerald-400/60")
@@ -1532,7 +1532,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                     <span className="text-slate-300">{displayChangeLabel}</span>
                     <span
                       className={
-                        "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold " +
+                        "inline-flex items-center gap-2 rounded-full px-4 py-2 text-base font-semibold " +
                         (allowsChange && displayChange < 0
                           ? "bg-red-500/15 text-red-300 border border-red-500/30"
                           : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30")
@@ -1543,13 +1543,13 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 space-y-2">
-                  <div className="flex items-center justify-between text-sm text-slate-400">
-                    <span className="uppercase tracking-wide text-sm">Notas para el ticket</span>
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 space-y-3">
+                  <div className="flex items-center justify-between text-base text-slate-400">
+                    <span className="uppercase tracking-wide text-base">Notas para el ticket</span>
                     <button
                       type="button"
                       onClick={() => setSaleNotes("")}
-                      className="rounded-full border border-slate-700/80 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                      className="rounded-full border border-slate-700/80 bg-slate-950/70 px-4 py-2 text-base font-semibold text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
                     >
                       Limpiar
                     </button>
@@ -1564,7 +1564,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                             prev ? `${prev}\n${preset.text}` : preset.text
                           )
                         }
-                        className="px-4 py-2 rounded-full border border-slate-700/80 bg-slate-950/70 text-sm text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100 transition"
+                        className="px-4 py-2 rounded-full border border-slate-700/80 bg-slate-950/70 text-base text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100 transition"
                       >
                         {preset.label}
                       </button>
@@ -1574,7 +1574,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                     value={saleNotes}
                     onChange={(e) => setSaleNotes(e.target.value)}
                     rows={4}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-base text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-lg text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
                     placeholder="Notas de garantía, instrucciones especiales..."
                   />
                 </div>
@@ -1594,11 +1594,11 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           </div>
 
           {/* Botones inferiores */}
-          <footer className="grid grid-cols-3 gap-5 px-10 py-5 border-t border-slate-800 bg-slate-950/85">
+          <footer className="grid grid-cols-3 items-center gap-5 px-10 py-6 min-h-[9.075rem] border-t border-slate-800 bg-slate-950/85">
             <button
               type="button"
               onClick={handleCancel}
-              className="w-full py-4 rounded-xl bg-red-600 hover:bg-red-700 text-base font-semibold text-slate-50 transition-colors shadow-lg shadow-red-900/30"
+              className="w-full h-[89.2px] rounded-xl bg-red-600 hover:bg-red-700 text-lg font-semibold text-slate-50 transition-colors shadow-lg shadow-red-900/30"
             >
               Cancelar
             </button>
@@ -1607,7 +1607,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             <button
               type="button"
               onClick={() => router.push("/pos/pago/pago-multiple")}
-              className="w-full py-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-base font-semibold text-slate-100 transition-colors border border-slate-600 shadow-inner disabled:opacity-60"
+              className="w-full h-[89.2px] rounded-xl bg-slate-800 hover:bg-slate-700 text-lg font-semibold text-slate-100 transition-colors border border-slate-600 shadow-inner disabled:opacity-60"
               disabled={!cart.length}
             >
               Pagos múltiples
@@ -1616,7 +1616,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             <button
               type="button"
               onClick={handleConfirm}
-              className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-base font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
+              className="w-full h-[89.2px] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-lg font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
               disabled={confirmDisabled}
             >
               Confirmar pago
@@ -1631,20 +1631,20 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       {/* Modal de éxito de venta */}
       {successSale && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm px-4 py-6 overflow-y-auto sm:items-center sm:py-0">
-          <div className="w-full max-w-4xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-10 max-h-[calc(100vh-2rem)] sm:max-h-[90vh] overflow-y-auto">
-            <div className="text-center mb-10">
-              <p className="text-sm font-semibold text-emerald-400 tracking-wide uppercase">
+          <div className="w-full max-w-5xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-12 max-h-[calc(100vh-2rem)] sm:max-h-[92vh] overflow-y-auto">
+            <div className="text-center mb-12">
+              <p className="text-base font-semibold text-emerald-400 tracking-wide uppercase">
                 Venta registrada correctamente
               </p>
-              <h2 className="text-3xl font-bold text-slate-50 mt-1">
+              <h2 className="text-4xl font-bold text-slate-50 mt-2">
                 ¡Venta completada con éxito!
               </h2>
-              <p className="text-slate-400 mt-2 text-sm">
+              <p className="text-slate-400 mt-3 text-base">
                 Selecciona cómo deseas entregar el recibo al cliente.
               </p>
             </div>
 
-            <div className="mx-auto mb-12 w-full max-w-lg bg-slate-800/40 border border-slate-700 rounded-xl p-6 text-sm space-y-2">
+            <div className="mx-auto mb-12 w-full max-w-xl bg-slate-800/40 border border-slate-700 rounded-xl p-7 text-base space-y-2">
               <div className="flex justify-between py-1">
                 <span className="text-slate-400">Documento</span>
                 <span className="font-mono font-semibold text-slate-100">
@@ -1691,39 +1691,39 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                 )}
               <div className="flex justify-between py-1">
                 <span className="text-slate-400">Total pagado</span>
-                <span className="font-semibold text-emerald-400 text-lg">
+                <span className="font-semibold text-emerald-400 text-xl">
                   {successSale.total.toLocaleString("es-CO")}
                 </span>
               </div>
               {successSale.showChange && successSale.changeAmount > 0 && (
-                <div className="flex justify-between py-1 text-amber-300 text-base">
+                <div className="flex justify-between py-1 text-amber-300 text-lg">
                   <span className="font-semibold">Cambio</span>
-                  <span className="font-semibold text-lg">
+                  <span className="font-semibold text-xl">
                     {successSale.changeAmount.toLocaleString("es-CO")}
                   </span>
                 </div>
               )}
               {successSale.notes && (
-                <div className="pt-3 text-left text-slate-300 text-sm">
-                  <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
+                <div className="pt-4 text-left text-slate-300 text-base">
+                  <div className="text-slate-400 text-sm uppercase tracking-wide mb-1">
                     Notas
                   </div>
                   <p className="whitespace-pre-line">{successSale.notes}</p>
                 </div>
               )}
               {successSale.customer && (
-                <div className="pt-3 text-left text-slate-300 text-sm">
-                  <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
+                <div className="pt-4 text-left text-slate-300 text-base">
+                  <div className="text-slate-400 text-sm uppercase tracking-wide mb-1">
                     Cliente
                   </div>
                   <p className="font-semibold">{successSale.customer.name}</p>
                   {successSale.customer.phone && (
-                    <p className="text-xs text-slate-400">
+                    <p className="text-sm text-slate-400">
                       Tel: {successSale.customer.phone}
                     </p>
                   )}
                   {successSale.customer.email && (
-                    <p className="text-xs text-slate-400">
+                    <p className="text-sm text-slate-400">
                       Email: {successSale.customer.email}
                     </p>
                   )}
@@ -1731,13 +1731,13 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-2 gap-6 mb-8">
               <button
                 onClick={() => void handlePrintTicket()}
-                className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+                className="flex flex-col items-center justify-center p-7 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
               >
-                <div className="text-4xl mb-3">🖨️</div>
-                <span className="text-sm font-semibold text-slate-100">
+                <div className="text-5xl mb-3">🖨️</div>
+                <span className="text-base font-semibold text-slate-100">
                   Imprimir ticket
                 </span>
               </button>
@@ -1745,42 +1745,32 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
               <div className="flex flex-col gap-4">
                 <button
                   onClick={handleEmailTicket}
-                  className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+                  className="flex flex-col items-center justify-center p-5 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
                 >
-                  <div className="text-3xl mb-2">✉️</div>
-                  <span className="text-xs font-semibold text-slate-100">
+                  <div className="text-4xl mb-2">✉️</div>
+                  <span className="text-sm font-semibold text-slate-100">
                     Enviar ticket
                   </span>
                 </button>
                 <button
                   onClick={handleEmailInvoice}
-                  className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+                  className="flex flex-col items-center justify-center p-5 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
                 >
-                  <div className="text-3xl mb-2">✉️</div>
-                  <span className="text-xs font-semibold text-slate-100">
+                  <div className="text-4xl mb-2">✉️</div>
+                  <span className="text-sm font-semibold text-slate-100">
                     Enviar factura
                   </span>
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-6 mb-10">
-              <button
-                onClick={() => alert("Guardar PDF (pendiente)")}
-                className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-              >
-                <div className="text-4xl mb-3">📝</div>
-                <span className="text-sm font-semibold text-slate-100">
-                  Guardar como PDF
-                </span>
-              </button>
-            </div>
+            <div className="mb-12" />
 
             <div className="flex justify-end">
               <button
                 onClick={handleSuccessDone}
-                className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 
-                     text-slate-950 font-semibold text-sm shadow-lg transition"
+                className="px-7 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 
+                     text-slate-950 font-semibold text-base shadow-lg transition"
               >
                 Hecho (volver al POS)
               </button>
