@@ -830,8 +830,8 @@ function PosLoginContent() {
             </div>
 
             <div className="text-center">
-              <h1 className="text-xl font-semibold">Inicio de sesión</h1>
-              <p className="mt-1 text-sm text-slate-300">
+              <h1 className="text-2xl font-semibold">Inicio de sesión</h1>
+              <p className="mt-1 text-base text-slate-300">
                 {stationInfo?.label
                   ? `Estación: ${stationInfo.label}`
                   : "Estación no configurada"}
@@ -856,7 +856,7 @@ function PosLoginContent() {
                     ref={pinInputRef}
                     value={pin}
                     onChange={(e) => setPin(e.target.value)}
-                    className="w-full rounded-2xl border border-amber-300/70 bg-slate-950/60 px-4 py-3.5 text-sm text-slate-100 shadow-inner outline-none focus:border-amber-200"
+                    className="w-full rounded-2xl border border-amber-300/70 bg-slate-950/60 px-4 py-4 text-lg font-semibold tracking-[0.25em] text-slate-100 shadow-inner outline-none focus:border-amber-200"
                     placeholder="PIN de acceso"
                     inputMode="numeric"
                     maxLength={8}
