@@ -34,6 +34,8 @@ type KensarBridge = {
     setZoomFactor?: (value: number) => Promise<number>;
     shutdownSystem?: () => Promise<boolean>;
     getDeviceInfo?: () => Promise<{ deviceId?: string; deviceLabel?: string }>;
+    getAppVersion?: () => Promise<string>;
+    onUpdateStatus?: (handler: (payload: { status?: string }) => void) => void;
   };
 };
 
@@ -83,7 +85,7 @@ function PosLoginContent() {
     if (bridge?.kensar?.getAppVersion) {
       bridge.kensar
         .getAppVersion()
-        .then((version) => {
+        .then((version: string) => {
           if (typeof version === "string") {
             setAppVersion(version);
           }
@@ -91,7 +93,7 @@ function PosLoginContent() {
         .catch(() => {});
     }
     if (bridge?.kensar?.onUpdateStatus) {
-      bridge.kensar.onUpdateStatus((payload) => {
+      bridge.kensar.onUpdateStatus((payload: { status?: string }) => {
         if (!payload || typeof payload !== "object") return;
         const status = "status" in payload ? String(payload.status) : null;
         if (!status) return;
