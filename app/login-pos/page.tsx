@@ -545,22 +545,45 @@ function PosLoginContent() {
                   : null;
               bridge?.kensar?.quitApp?.();
             }}
-            className="h-12 w-12 rounded-full border border-white/15 bg-white/10 text-xl text-slate-100 shadow-lg backdrop-blur hover:bg-white/20"
+            className="h-14 w-14 rounded-full border border-white/15 bg-white/10 text-slate-100 shadow-lg backdrop-blur hover:bg-white/20"
             aria-label="Cerrar app"
           >
-            ✕
+            <svg
+              viewBox="0 0 24 24"
+              className="mx-auto h-6 w-6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
           </button>
           <button
             type="button"
             onClick={handleShutdown}
-            className={`h-12 w-12 rounded-full border text-xl shadow-lg backdrop-blur ${
+            className={`h-14 w-14 rounded-full border text-slate-100 shadow-lg backdrop-blur ${
               isWindows
                 ? "border-amber-300/50 bg-amber-400/20 text-amber-100 hover:bg-amber-400/30"
                 : "border-slate-600/40 bg-white/10 text-slate-200 hover:bg-white/20"
             }`}
             aria-label="Apagar equipo"
           >
-            ⏻
+            <svg
+              viewBox="0 0 24 24"
+              className="mx-auto h-6 w-6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 3v9" />
+              <path d="M7.5 5.5a7 7 0 1 0 9 0" />
+            </svg>
           </button>
         </div>
       )}
@@ -736,13 +759,13 @@ function PosLoginContent() {
                 </div>
               </label>
 
-              <div className="grid w-full max-w-[380px] grid-cols-3 gap-3">
+              <div className="grid w-full max-w-[400px] grid-cols-3 gap-4">
                 {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
                   <button
                     key={digit}
                     type="button"
                     onClick={() => handleDigit(digit)}
-                    className="rounded-2xl border border-white/10 bg-white/5 py-3 text-base font-semibold text-slate-100 shadow-[0_8px_24px_rgba(15,23,42,0.35)] transition hover:border-emerald-400/50 hover:bg-white/10"
+                    className="rounded-2xl border border-white/10 bg-white/5 py-4 text-lg font-semibold text-slate-100 shadow-[0_8px_24px_rgba(15,23,42,0.35)] transition hover:border-emerald-400/50 hover:bg-white/10"
                   >
                     {digit}
                   </button>
@@ -750,21 +773,21 @@ function PosLoginContent() {
                 <button
                   type="button"
                   onClick={handleClearPin}
-                  className="rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-slate-300 transition hover:border-rose-400/50 hover:bg-rose-500/10"
+                  className="rounded-2xl border border-white/10 bg-white/5 py-4 text-sm font-semibold text-slate-300 transition hover:border-rose-400/50 hover:bg-rose-500/10"
                 >
                   Limpiar
                 </button>
                 <button
                   type="button"
                   onClick={() => handleDigit("0")}
-                  className="rounded-2xl border border-white/10 bg-white/5 py-3 text-base font-semibold text-slate-100 transition hover:border-emerald-400/50 hover:bg-white/10"
+                  className="rounded-2xl border border-white/10 bg-white/5 py-4 text-lg font-semibold text-slate-100 transition hover:border-emerald-400/50 hover:bg-white/10"
                 >
                   0
                 </button>
                 <button
                   type="button"
                   onClick={handleBackspace}
-                  className="rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-slate-300 transition hover:border-amber-400/50 hover:bg-amber-500/10"
+                  className="rounded-2xl border border-white/10 bg-white/5 py-4 text-sm font-semibold text-slate-300 transition hover:border-amber-400/50 hover:bg-amber-500/10"
                 >
                   Borrar
                 </button>
@@ -788,7 +811,7 @@ function PosLoginContent() {
               <button
                 type="submit"
                 disabled={submitting || !stationInfo}
-                className="w-full max-w-[380px] rounded-2xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-5 py-3 text-sm font-semibold text-slate-900 shadow-[0_0_24px_rgba(16,185,129,0.45)] transition hover:scale-[1.01] disabled:opacity-50"
+                className="w-full max-w-[400px] rounded-2xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-5 py-4 text-base font-semibold text-slate-900 shadow-[0_0_24px_rgba(16,185,129,0.45)] transition hover:scale-[1.01] disabled:opacity-50"
               >
                 {submitting ? "Validando..." : "Entrar al POS"}
               </button>
