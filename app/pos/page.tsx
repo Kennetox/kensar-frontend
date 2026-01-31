@@ -4261,32 +4261,32 @@ const matchesStationLabel = useCallback(
         <div className="min-h-[72px] grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-4 py-3">
           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
             <button
-              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
+              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
               onClick={() => setCartDrawerOpen(true)}
             >
               ☰ Carrito
             </button>
             {/* Botones estilo Aronium arriba de la pantalla */}
             <button
-              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
+              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
               onClick={() => handleOpenDiscountModal()}
             >
               <span className="font-semibold">Descuento</span>
             </button>
             <button
-              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded"
+              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded"
               onClick={handleOpenQuantityModal}
             >
               Cantidad
             </button>
             <button
-              className="px-6 py-3.5 text-base font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md min-w-[128px]"
+              className="px-6 py-[19px] text-base font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md min-w-[128px]"
               onClick={handleDeleteSelected}
             >
               Eliminar
             </button>
             <button
-              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
+              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
               onClick={() => {
                 if (shouldBlockSales) {
                   setClosureReminderOpen(true);
@@ -4298,7 +4298,7 @@ const matchesStationLabel = useCallback(
               Devolución
             </button>
             <button
-              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition"
+              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition"
               onClick={() => {
                 if (shouldBlockSales) {
                   setClosureReminderOpen(true);
@@ -4310,13 +4310,13 @@ const matchesStationLabel = useCallback(
               Abono de separados
             </button>
             <button
-              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
+              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
               onClick={() => router.push("/pos/clientes")}
             >
               Asignar cliente
             </button>
             <button
-              className="px-5 py-3.5 text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition"
+              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition"
               onClick={() => router.push("/pos/cambios")}
             >
               Cambio
