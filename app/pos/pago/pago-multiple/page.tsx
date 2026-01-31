@@ -1405,7 +1405,7 @@ export default function PagoMultiplePage() {
       {/* Cuerpo principal */}
       <div className="flex-1 flex overflow-hidden">
         {/* Columna izquierda: artículos (idéntica a la simple) */}
-        <section className="w-[30rem] border-r border-slate-800 flex flex-col overflow-hidden">
+        <section className="w-[18rem] border-r border-slate-800 flex flex-col overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-800 text-sm font-semibold tracking-wide text-slate-400">
             Artículos
           </div>
@@ -1515,13 +1515,13 @@ export default function PagoMultiplePage() {
         <section className="flex-1 border-r border-slate-800 flex flex-col overflow-hidden">
           <div className="flex-1 flex overflow-hidden">
             {/* Métodos de pago */}
-            <div className="w-60 border-r border-slate-800 p-4 flex flex-col gap-3 bg-slate-950/70 overflow-y-auto">
-              <h2 className="text-xs font-semibold text-slate-300 mb-1 uppercase tracking-wide">
+            <div className="w-[14.25rem] border-r border-slate-800 p-4 flex flex-col gap-3 bg-slate-950/70 overflow-y-auto">
+              <h2 className="text-sm font-semibold text-slate-300 mb-1 uppercase tracking-wide">
                 Métodos de pago
               </h2>
 
               {activePaymentMethods.length === 0 && (
-                <p className="text-[11px] text-slate-500">
+                <p className="text-xs text-slate-500">
                   No hay métodos de pago activos.
                 </p>
               )}
@@ -1532,7 +1532,7 @@ export default function PagoMultiplePage() {
                 const methodColor = m.color?.trim();
 
                 const base =
-                  "w-full text-left px-4 py-3.5 rounded-xl text-sm font-semibold border shadow-inner transition-colors ";
+                  "w-full text-left px-4 py-3.5 rounded-xl text-base font-semibold border shadow-inner transition-colors ";
 
                 let extra =
                   "bg-slate-900/80 hover:bg-slate-800 border-slate-700 text-slate-200";
@@ -1563,17 +1563,17 @@ export default function PagoMultiplePage() {
             </div>
 
             {/* Área de pago */}
-            <div className="flex-1 p-8 flex flex-col items-center overflow-y-auto min-h-0">
-              <div className="w-full max-w-3xl space-y-8">
+            <div className="payment-main-panel flex-1 px-5 py-4 flex flex-col items-stretch overflow-y-auto min-h-0">
+              <div className="w-full max-w-none space-y-5">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold">Pago múltiple</h2>
-                    <p className="text-xs text-slate-500">
+                    <h2 className="text-xl font-semibold">Pago múltiple</h2>
+                    <p className="text-sm text-slate-400">
                       Ajusta cada línea y revisa el total antes de confirmar.
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="rounded-full border border-slate-800 bg-slate-900/70 px-3 py-1 text-slate-300">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="rounded-full border border-slate-800 bg-slate-900/70 px-3 py-1.5 text-slate-200">
                       {currentLine
                         ? getMethodLabel(currentLine.method, paymentCatalog)
                         : "Método"}
@@ -1581,24 +1581,24 @@ export default function PagoMultiplePage() {
                   </div>
                 </div>
 
-                <div className="grid gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-inner text-sm">
+                <div className="grid gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-inner text-base">
                   <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-                    <span className="text-slate-400">Total</span>
-                    <span className="font-semibold text-slate-100">
+                    <span className="text-slate-300">Total</span>
+                    <span className="font-semibold text-slate-100 text-lg">
                       {formatMoney(totalToPay)}
                     </span>
                   </div>
                   <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-                    <span className="text-slate-400">Pagado</span>
-                    <span className="font-semibold text-slate-100">
+                    <span className="text-slate-300">Pagado</span>
+                    <span className="font-semibold text-slate-100 text-lg">
                       {formatMoney(totalPaid)}
                     </span>
                   </div>
                   <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-                    <span className="text-slate-400">{displayLabel}</span>
+                    <span className="text-slate-300">{displayLabel}</span>
                     <span
                       className={
-                        "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold " +
+                        "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold " +
                         (diff < 0
                           ? "bg-red-500/15 text-red-300 border border-red-500/30"
                           : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30")
@@ -1609,8 +1609,8 @@ export default function PagoMultiplePage() {
                   </div>
                 </div>
 
-                <div className="space-y-3 max-w-xl rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
-                  <div className="flex justify-between text-xs text-slate-400">
+                <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+                  <div className="flex justify-between text-sm text-slate-400">
                     <span>Monto de la línea seleccionada</span>
                     {currentLine && (
                       <span className="font-medium text-slate-300">
@@ -1638,7 +1638,7 @@ export default function PagoMultiplePage() {
                       }
                     }}
                     className={
-                      "w-full rounded-xl border px-4 py-3 text-lg bg-slate-900/80 " +
+                      "w-full rounded-xl border px-4 py-3 text-xl bg-slate-900/80 " +
                       "border-slate-700 text-slate-50 outline-none shadow-inner " +
                       "focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 " +
                       (!currentLine ? "opacity-40 cursor-not-allowed" : "")
@@ -1646,10 +1646,10 @@ export default function PagoMultiplePage() {
                   />
                   {currentLine?.method === "separado" && (
                     <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-                      <div className="flex justify-between text-xs text-slate-400">
+                      <div className="flex justify-between text-sm text-slate-400">
                         <span>Método real del abono inicial</span>
                         {currentLine.separatedRealMethod && (
-                          <span className="text-slate-200 font-semibold">
+                          <span className="text-slate-100 font-semibold">
                             {getMethodLabel(
                               currentLine.separatedRealMethod,
                               paymentCatalog
@@ -1657,13 +1657,13 @@ export default function PagoMultiplePage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-sm text-slate-500">
                         Elige el método con el que se recibe el abono inicial. Solo
                         se permiten métodos reales (efectivo, transferencia, etc.).
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {separatedMethodOptions.length === 0 && (
-                          <span className="text-[11px] text-red-400">
+                          <span className="text-sm text-red-400">
                             No hay métodos disponibles para el abono.
                           </span>
                         )}
@@ -1678,7 +1678,7 @@ export default function PagoMultiplePage() {
                               )
                             }
                             className={
-                              "px-3 py-2 rounded-lg border text-xs transition-colors " +
+                              "px-4 py-2 rounded-lg border text-sm transition-colors " +
                               (currentLine.separatedRealMethod === option.slug
                                 ? "bg-emerald-500 text-slate-900 border-emerald-400"
                                 : "bg-slate-900/80 border-slate-700 hover:border-emerald-400/60")
@@ -1693,10 +1693,10 @@ export default function PagoMultiplePage() {
                 </div>
 
               {/* Lista de líneas */}
-              <div className="mt-6 max-w-xl rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
-                <div className="text-xs text-slate-400 mb-2 flex items-center justify-between">
-                  <span className="uppercase tracking-wide text-[11px]">Líneas de pago</span>
-                  <span className="text-[11px] text-slate-500">Toca una línea para editar</span>
+              <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+                <div className="text-sm text-slate-400 mb-2 flex items-center justify-between">
+                  <span className="uppercase tracking-wide text-sm">Líneas de pago</span>
+                  <span className="text-xs text-slate-500">Toca una línea para editar</span>
                 </div>
                 <div className="rounded-xl border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/80">
                 {payments.map((line) => {
@@ -1715,7 +1715,7 @@ export default function PagoMultiplePage() {
                         }
                         }}
                         className={
-                        "w-full flex items-center justify-between px-3 py-2.5 text-xs cursor-pointer transition-colors " +
+                        "w-full flex items-center justify-between px-3 py-2.5 text-sm cursor-pointer transition-colors " +
                         (isSelected ? "bg-slate-800/90 border-l-2 border-emerald-500/60" : "hover:bg-slate-900/80")
                         }
                     >
@@ -1724,7 +1724,7 @@ export default function PagoMultiplePage() {
                             {getMethodLabel(line.method, paymentCatalog)}
                         </span>
                         {line.method === "separado" && (
-                          <span className="text-[11px] text-emerald-300">
+                          <span className="text-xs text-emerald-300">
                             {line.separatedRealMethod
                               ? `Abono con ${getMethodLabel(
                                   line.separatedRealMethod,
@@ -1733,7 +1733,7 @@ export default function PagoMultiplePage() {
                               : "Selecciona un método real"}
                           </span>
                         )}
-                        <span className="text-[11px] text-slate-400">
+                        <span className="text-xs text-slate-400">
                             Monto asignado
                         </span>
                         </div>
@@ -1744,7 +1744,7 @@ export default function PagoMultiplePage() {
                         {payments.length > 1 && (
                             <button
                             type="button"
-                            className="text-[11px] text-slate-400 hover:text-red-400"
+                            className="text-xs text-slate-400 hover:text-red-400"
                             onClick={(e) => handleDeletePaymentLine(line.id, e)}
                             >
                             ✕
@@ -1755,18 +1755,18 @@ export default function PagoMultiplePage() {
                     );
                 })}
                 </div>
-                <p className="mt-3 text-[11px] text-slate-500">
+                <p className="mt-3 text-xs text-slate-500">
                   Agrega métodos con los botones de la izquierda y ajusta los montos con el teclado.
                 </p>
               </div>
 
-              <div className="mt-6 max-w-3xl space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span className="uppercase tracking-wide text-[11px]">Notas para el ticket</span>
+              <div className="mt-6 space-y-2 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+                <div className="flex items-center justify-between text-sm text-slate-400">
+                  <span className="uppercase tracking-wide text-sm">Notas para el ticket</span>
                   <button
                     type="button"
                     onClick={() => setSaleNotes("")}
-                    className="rounded-full border border-slate-700/80 bg-slate-950/70 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                    className="rounded-full border border-slate-700/80 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
                   >
                     Limpiar
                   </button>
@@ -1783,7 +1783,7 @@ export default function PagoMultiplePage() {
                             : preset.text
                         )
                       }
-                      className="px-3 py-1.5 rounded-full border border-slate-700/80 bg-slate-950/70 text-[11px] text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100 transition"
+                      className="px-4 py-2 rounded-full border border-slate-700/80 bg-slate-950/70 text-sm text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100 transition"
                     >
                       {preset.label}
                     </button>
@@ -1792,8 +1792,8 @@ export default function PagoMultiplePage() {
                 <textarea
                   value={saleNotes}
                   onChange={(e) => setSaleNotes(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
+                  rows={4}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-base text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
                   placeholder="Notas de garantía, instrucciones especiales..."
                 />
               </div>
@@ -1841,7 +1841,7 @@ export default function PagoMultiplePage() {
       </div>
 
       {/* Modal de éxito */}
-{successSale && (
+      {successSale && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm px-4 py-6 overflow-y-auto sm:items-center sm:py-0">
           <div className="w-full max-w-4xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-10 max-h-[calc(100vh-2rem)] sm:max-h-[90vh] overflow-y-auto">
             <div className="text-center mb-10">
@@ -1882,7 +1882,124 @@ export default function PagoMultiplePage() {
                     -{successSale.lineDiscountTotal.toLocaleString("es-CO")}
                   </span>
                 </div>
-)}
+              )}
+              {successSale.cartDiscountValueDisplay &&
+                successSale.cartDiscountValueDisplay !== "0" && (
+                  <div className="flex justify-between py-1 text-slate-400">
+                    <span>{successSale.cartDiscountLabel}</span>
+                    <span className="text-slate-100">
+                      {successSale.cartDiscountValueDisplay}
+                    </span>
+                  </div>
+                )}
+              {successSale.surchargeLabel &&
+                successSale.surchargeValueDisplay && (
+                  <div className="flex justify-between py-1 text-amber-300">
+                    <span>{successSale.surchargeLabel}</span>
+                    <span className="text-amber-200">
+                      +{successSale.surchargeValueDisplay}
+                    </span>
+                  </div>
+                )}
+              <div className="flex justify-between py-1">
+                <span className="text-slate-400">Total pagado</span>
+                <span className="font-semibold text-emerald-400 text-lg">
+                  {successSale.total.toLocaleString("es-CO")}
+                </span>
+              </div>
+              {successSale.showChange && successSale.changeAmount > 0 && (
+                <div className="flex justify-between py-1 text-amber-300 text-base">
+                  <span className="font-semibold">Cambio</span>
+                  <span className="font-semibold text-lg">
+                    {successSale.changeAmount.toLocaleString("es-CO")}
+                  </span>
+                </div>
+              )}
+              {successSale.notes && (
+                <div className="pt-3 text-left text-slate-300 text-sm">
+                  <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
+                    Notas
+                  </div>
+                  <p className="whitespace-pre-line">{successSale.notes}</p>
+                </div>
+              )}
+              {successSale.customer && (
+                <div className="pt-3 text-left text-slate-300 text-sm">
+                  <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
+                    Cliente
+                  </div>
+                  <p className="font-semibold">{successSale.customer.name}</p>
+                  {successSale.customer.phone && (
+                    <p className="text-xs text-slate-400">
+                      Tel: {successSale.customer.phone}
+                    </p>
+                  )}
+                  {successSale.customer.email && (
+                    <p className="text-xs text-slate-400">
+                      Email: {successSale.customer.email}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-6 mb-6">
+              <button
+                onClick={() => void handlePrintTicket()}
+                className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+              >
+                <div className="text-4xl mb-3">🖨️</div>
+                <span className="text-sm font-semibold text-slate-100">
+                  Imprimir ticket
+                </span>
+              </button>
+
+              <div className="flex flex-col gap-4">
+                <button
+                  onClick={handleEmailTicket}
+                  className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+                >
+                  <div className="text-3xl mb-2">✉️</div>
+                  <span className="text-xs font-semibold text-slate-100">
+                    Enviar ticket
+                  </span>
+                </button>
+                <button
+                  onClick={handleEmailInvoice}
+                  className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+                >
+                  <div className="text-3xl mb-2">✉️</div>
+                  <span className="text-xs font-semibold text-slate-100">
+                    Enviar factura
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-6 mb-10">
+              <button
+                onClick={() => alert("Guardar PDF (pendiente)")}
+                className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+              >
+                <div className="text-4xl mb-3">📝</div>
+                <span className="text-sm font-semibold text-slate-100">
+                  Guardar como PDF
+                </span>
+              </button>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleSuccessDone}
+                className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 
+                     text-slate-950 font-semibold text-sm shadow-lg transition"
+              >
+                Hecho (volver al POS)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {emailModalOpen && successSale && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4">
@@ -1969,122 +2086,6 @@ export default function PagoMultiplePage() {
                   : emailDocumentType === "invoice"
                   ? "Enviar factura"
                   : "Enviar ticket"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-              {successSale.cartDiscountValueDisplay &&
-                successSale.cartDiscountValueDisplay !== "0" && (
-                  <div className="flex justify-between py-1 text-slate-400">
-                    <span>{successSale.cartDiscountLabel}</span>
-                    <span className="text-slate-100">
-                      {successSale.cartDiscountValueDisplay}
-                    </span>
-                  </div>
-                )}
-              {successSale.surchargeLabel &&
-                successSale.surchargeValueDisplay && (
-                  <div className="flex justify-between py-1 text-amber-300">
-                    <span>{successSale.surchargeLabel}</span>
-                    <span className="text-amber-200">
-                      +{successSale.surchargeValueDisplay}
-                    </span>
-                  </div>
-                )}
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Total pagado</span>
-                <span className="font-semibold text-emerald-400 text-lg">
-                  {successSale.total.toLocaleString("es-CO")}
-                </span>
-              </div>
-              {successSale.showChange && successSale.changeAmount > 0 && (
-                <div className="flex justify-between py-1 text-amber-300 text-base">
-                  <span className="font-semibold">Cambio</span>
-                  <span className="font-semibold text-lg">
-                    {successSale.changeAmount.toLocaleString("es-CO")}
-                  </span>
-                </div>
-              )}
-        {successSale.notes && (
-          <div className="pt-3 text-left text-slate-300 text-sm">
-            <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
-              Notas
-            </div>
-            <p className="whitespace-pre-line">{successSale.notes}</p>
-          </div>
-        )}
-        {successSale.customer && (
-          <div className="pt-3 text-left text-slate-300 text-sm">
-            <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
-              Cliente
-            </div>
-            <p className="font-semibold">{successSale.customer.name}</p>
-            {successSale.customer.phone && (
-              <p className="text-xs text-slate-400">
-                Tel: {successSale.customer.phone}
-              </p>
-            )}
-            {successSale.customer.email && (
-              <p className="text-xs text-slate-400">
-                Email: {successSale.customer.email}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-            <div className="grid grid-cols-2 gap-6 mb-6">
-              <button
-                onClick={handlePrintTicket}
-                className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-              >
-                <div className="text-4xl mb-3">🖨️</div>
-                  <span className="text-sm font-semibold text-slate-100">
-                    Imprimir ticket
-                </span>
-              </button>
-
-        <div className="flex flex-col gap-4">
-          <button
-            onClick={handleEmailTicket}
-            className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-          >
-            <div className="text-3xl mb-2">✉️</div>
-            <span className="text-xs font-semibold text-slate-100">
-              Enviar ticket
-            </span>
-          </button>
-          <button
-            onClick={handleEmailInvoice}
-            className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-          >
-            <div className="text-3xl mb-2">✉️</div>
-            <span className="text-xs font-semibold text-slate-100">
-              Enviar factura
-            </span>
-          </button>
-        </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-6 mb-10">
-              <button
-                onClick={() => alert("Guardar PDF (pendiente)")}
-                className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-              >
-                <div className="text-4xl mb-3">📝</div>
-                <span className="text-sm font-semibold text-slate-100">
-                  Guardar como PDF
-                </span>
-              </button>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                onClick={handleSuccessDone}
-                className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 
-                     text-slate-950 font-semibold text-sm shadow-lg transition"
-              >
-                Hecho (volver al POS)
               </button>
             </div>
           </div>

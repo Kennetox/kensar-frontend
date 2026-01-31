@@ -1288,7 +1288,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       {/* Cuerpo principal */}
       <div className="flex-1 flex overflow-hidden">
         {/* Columna izquierda: artículos */}
-        <section className="w-[30rem] border-r border-slate-800 flex flex-col overflow-hidden">
+        <section className="w-[18rem] border-r border-slate-800 flex flex-col overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-800 text-sm font-semibold tracking-wide text-slate-400">
             Artículos
           </div>
@@ -1400,13 +1400,13 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         <section className="flex-1 border-r border-slate-800 flex flex-col">
           <div className="flex-1 flex">
             {/* Métodos de pago */}
-            <div className="w-60 border-r border-slate-800 p-4 flex flex-col gap-3 bg-slate-950/70">
-              <h2 className="text-xs font-semibold text-slate-300 mb-1 uppercase tracking-wide">
+            <div className="w-[14.25rem] border-r border-slate-800 p-4 flex flex-col gap-3 bg-slate-950/70">
+              <h2 className="text-sm font-semibold text-slate-300 mb-1 uppercase tracking-wide">
                 Tipo de pago
               </h2>
 
               {activePaymentMethods.length === 0 && (
-                <p className="text-[11px] text-slate-500">
+                <p className="text-xs text-slate-500">
                   No hay métodos de pago activos.
                 </p>
               )}
@@ -1423,7 +1423,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                     key={m.id}
                     onClick={() => handleSelectMethod(m.slug)}
                     className={
-                      "w-full text-left px-4 py-3.5 rounded-xl text-sm font-semibold border shadow-inner transition-colors " +
+                      "w-full text-left px-4 py-3.5 rounded-xl text-base font-semibold border shadow-inner transition-colors " +
                       (isSelected
                         ? "bg-emerald-500 text-slate-950 border-emerald-400 shadow-emerald-500/30"
                         : "bg-slate-900/80 hover:bg-slate-800 border-slate-700 text-slate-200")
@@ -1437,31 +1437,31 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             </div>
 
             {/* Área de pago */}
-            <div className="flex-1 p-8 flex flex-col items-center">
-              <div className="w-full max-w-3xl space-y-8">
+            <div className="payment-main-panel flex-1 px-5 py-4 flex flex-col items-stretch">
+              <div className="w-full max-w-none space-y-5">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold">Pago</h2>
-                    <p className="text-xs text-slate-500">
+                    <h2 className="text-xl font-semibold">Pago</h2>
+                    <p className="text-sm text-slate-400">
                       Ajusta el monto recibido y agrega notas antes de confirmar.
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="rounded-full border border-slate-800 bg-slate-900/70 px-3 py-1 text-slate-300">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="rounded-full border border-slate-800 bg-slate-900/70 px-3 py-1.5 text-slate-200">
                       {selectedMethod?.name ?? "Método"}
                     </span>
                   </div>
                 </div>
 
-                <div className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-inner text-sm">
+                <div className="grid gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-inner text-base">
                   <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-                    <span className="text-slate-400">Total</span>
-                    <span className="font-semibold text-slate-100">
+                    <span className="text-slate-300">Total</span>
+                    <span className="font-semibold text-slate-100 text-lg">
                       {formatMoney(totalToPay)}
                     </span>
                   </div>
                   <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                    <span className="text-slate-400">Pagado</span>
+                    <span className="text-slate-300">Pagado</span>
                     <div className="flex items-center gap-3">
                       <input
                         ref={paidInputRef}
@@ -1482,7 +1482,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                           }
                         }}
                         className={
-                          "w-52 rounded-xl border px-4 py-3 text-lg bg-slate-900/80 " +
+                          "w-56 rounded-xl border px-4 py-3 text-xl bg-slate-900/80 " +
                           "border-slate-700 text-slate-50 outline-none shadow-inner " +
                           "focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/40 " +
                           (!requiresManualAmount ? "opacity-40 cursor-not-allowed" : "")
@@ -1492,21 +1492,21 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   </div>
                   {isSeparatedSale && (
                     <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-                      <div className="flex justify-between text-xs text-slate-400">
+                      <div className="flex justify-between text-sm text-slate-400">
                         <span>Método del abono inicial</span>
                         {separatedMethodLabel && (
-                          <span className="text-slate-200 font-semibold">
+                          <span className="text-slate-100 font-semibold">
                             {separatedMethodLabel}
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-sm text-slate-500">
                         Selecciona cómo recibe el pago inicial (efectivo, tarjeta,
                         transferencia, etc.). Este método se imprimirá en el ticket.
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {separatedMethodOptions.length === 0 && (
-                          <span className="text-[11px] text-red-400">
+                          <span className="text-sm text-red-400">
                             No hay métodos disponibles para registrar el abono.
                           </span>
                         )}
@@ -1516,7 +1516,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                             type="button"
                             onClick={() => setSeparatedPaymentMethod(option.slug)}
                             className={
-                              "px-3 py-2 rounded-lg border text-xs transition-colors " +
+                              "px-4 py-2 rounded-lg border text-sm transition-colors " +
                               (separatedPaymentMethod === option.slug
                                 ? "bg-emerald-500 text-slate-900 border-emerald-400"
                                 : "bg-slate-900/80 border-slate-700 hover:border-emerald-400/60")
@@ -1529,10 +1529,10 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                     </div>
                   )}
                   <div className="grid grid-cols-[1fr_auto] items-center gap-2">
-                    <span className="text-slate-400">{displayChangeLabel}</span>
+                    <span className="text-slate-300">{displayChangeLabel}</span>
                     <span
                       className={
-                        "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold " +
+                        "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold " +
                         (allowsChange && displayChange < 0
                           ? "bg-red-500/15 text-red-300 border border-red-500/30"
                           : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30")
@@ -1543,13 +1543,13 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 space-y-3 max-w-3xl">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span className="uppercase tracking-wide text-[11px]">Notas para el ticket</span>
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 space-y-2">
+                  <div className="flex items-center justify-between text-sm text-slate-400">
+                    <span className="uppercase tracking-wide text-sm">Notas para el ticket</span>
                     <button
                       type="button"
                       onClick={() => setSaleNotes("")}
-                      className="rounded-full border border-slate-700/80 bg-slate-950/70 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
+                      className="rounded-full border border-slate-700/80 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100"
                     >
                       Limpiar
                     </button>
@@ -1564,7 +1564,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                             prev ? `${prev}\n${preset.text}` : preset.text
                           )
                         }
-                        className="px-3 py-1.5 rounded-full border border-slate-700/80 bg-slate-950/70 text-[11px] text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100 transition"
+                        className="px-4 py-2 rounded-full border border-slate-700/80 bg-slate-950/70 text-sm text-slate-200 hover:border-emerald-400/70 hover:text-emerald-100 transition"
                       >
                         {preset.label}
                       </button>
@@ -1573,8 +1573,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   <textarea
                     value={saleNotes}
                     onChange={(e) => setSaleNotes(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
+                    rows={4}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-base text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
                     placeholder="Notas de garantía, instrucciones especiales..."
                   />
                 </div>
@@ -1629,176 +1629,165 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       </div>
 
       {/* Modal de éxito de venta */}
-{successSale && (
-  <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm px-4 py-6 overflow-y-auto sm:items-center sm:py-0">
-
-    <div className="w-full max-w-4xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-10 max-h-[calc(100vh-2rem)] sm:max-h-[90vh] overflow-y-auto">
-
-      {/* ENCABEZADO */}
-      <div className="text-center mb-10">
-        <p className="text-sm font-semibold text-emerald-400 tracking-wide uppercase">
-          Venta registrada correctamente
-        </p>
-        <h2 className="text-3xl font-bold text-slate-50 mt-1">
-          ¡Venta completada con éxito!
-        </h2>
-        <p className="text-slate-400 mt-2 text-sm">
-          Selecciona cómo deseas entregar el recibo al cliente.
-        </p>
-      </div>
-
-      {/* INFORMACIÓN DEL DOCUMENTO */}
-      <div className="mx-auto mb-12 w-full max-w-lg bg-slate-800/40 border border-slate-700 rounded-xl p-6 text-sm space-y-2">
-        <div className="flex justify-between py-1">
-          <span className="text-slate-400">Documento</span>
-          <span className="font-mono font-semibold text-slate-100">
-            {successSale.documentNumber}
-          </span>
-        </div>
-        <div className="flex justify-between py-1">
-          <span className="text-slate-400">Ticket</span>
-          <span className="font-mono text-slate-100">
-            #{successSale.saleNumber}
-          </span>
-        </div>
-        <div className="flex justify-between py-1 text-slate-400">
-          <span>Subtotal</span>
-          <span className="text-slate-100">
-            {successSale.subtotal.toLocaleString("es-CO")}
-          </span>
-        </div>
-        {successSale.lineDiscountTotal > 0 && (
-          <div className="flex justify-between py-1 text-emerald-400">
-            <span>Descuento artículos</span>
-            <span>
-              -{successSale.lineDiscountTotal.toLocaleString("es-CO")}
-            </span>
-          </div>
-        )}
-        {successSale.cartDiscountValueDisplay &&
-          successSale.cartDiscountValueDisplay !== "0" && (
-            <div className="flex justify-between py-1 text-slate-400">
-              <span>{successSale.cartDiscountLabel}</span>
-              <span className="text-slate-100">
-                {successSale.cartDiscountValueDisplay}
-              </span>
-            </div>
-          )}
-        {successSale.surchargeLabel && successSale.surchargeValueDisplay && (
-          <div className="flex justify-between py-1 text-amber-300">
-            <span>{successSale.surchargeLabel}</span>
-            <span className="text-amber-200">
-              +{successSale.surchargeValueDisplay}
-            </span>
-          </div>
-        )}
-        <div className="flex justify-between py-1">
-          <span className="text-slate-400">Total pagado</span>
-          <span className="font-semibold text-emerald-400 text-lg">
-            {successSale.total.toLocaleString("es-CO")}
-          </span>
-        </div>
-        {successSale.showChange && successSale.changeAmount > 0 && (
-          <div className="flex justify-between py-1 text-amber-300 text-base">
-            <span className="font-semibold">Cambio</span>
-            <span className="font-semibold text-lg">
-              {successSale.changeAmount.toLocaleString("es-CO")}
-            </span>
-          </div>
-        )}
-        {successSale.notes && (
-          <div className="pt-3 text-left text-slate-300 text-sm">
-            <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
-              Notas
-            </div>
-            <p className="whitespace-pre-line">{successSale.notes}</p>
-          </div>
-        )}
-        {successSale.customer && (
-          <div className="pt-3 text-left text-slate-300 text-sm">
-            <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
-              Cliente
-            </div>
-            <p className="font-semibold">{successSale.customer.name}</p>
-            {successSale.customer.phone && (
-              <p className="text-xs text-slate-400">
-                Tel: {successSale.customer.phone}
+      {successSale && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm px-4 py-6 overflow-y-auto sm:items-center sm:py-0">
+          <div className="w-full max-w-4xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-10 max-h-[calc(100vh-2rem)] sm:max-h-[90vh] overflow-y-auto">
+            <div className="text-center mb-10">
+              <p className="text-sm font-semibold text-emerald-400 tracking-wide uppercase">
+                Venta registrada correctamente
               </p>
-            )}
-            {successSale.customer.email && (
-              <p className="text-xs text-slate-400">
-                Email: {successSale.customer.email}
+              <h2 className="text-3xl font-bold text-slate-50 mt-1">
+                ¡Venta completada con éxito!
+              </h2>
+              <p className="text-slate-400 mt-2 text-sm">
+                Selecciona cómo deseas entregar el recibo al cliente.
               </p>
-            )}
-          </div>
-        )}
-      </div>
+            </div>
 
-      {/* BOTONES GRANDES — FILA 1 */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
+            <div className="mx-auto mb-12 w-full max-w-lg bg-slate-800/40 border border-slate-700 rounded-xl p-6 text-sm space-y-2">
+              <div className="flex justify-between py-1">
+                <span className="text-slate-400">Documento</span>
+                <span className="font-mono font-semibold text-slate-100">
+                  {successSale.documentNumber}
+                </span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-slate-400">Ticket</span>
+                <span className="font-mono text-slate-100">
+                  #{successSale.saleNumber}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 text-slate-400">
+                <span>Subtotal</span>
+                <span className="text-slate-100">
+                  {successSale.subtotal.toLocaleString("es-CO")}
+                </span>
+              </div>
+              {successSale.lineDiscountTotal > 0 && (
+                <div className="flex justify-between py-1 text-emerald-400">
+                  <span>Descuento artículos</span>
+                  <span>
+                    -{successSale.lineDiscountTotal.toLocaleString("es-CO")}
+                  </span>
+                </div>
+              )}
+              {successSale.cartDiscountValueDisplay &&
+                successSale.cartDiscountValueDisplay !== "0" && (
+                  <div className="flex justify-between py-1 text-slate-400">
+                    <span>{successSale.cartDiscountLabel}</span>
+                    <span className="text-slate-100">
+                      {successSale.cartDiscountValueDisplay}
+                    </span>
+                  </div>
+                )}
+              {successSale.surchargeLabel &&
+                successSale.surchargeValueDisplay && (
+                  <div className="flex justify-between py-1 text-amber-300">
+                    <span>{successSale.surchargeLabel}</span>
+                    <span className="text-amber-200">
+                      +{successSale.surchargeValueDisplay}
+                    </span>
+                  </div>
+                )}
+              <div className="flex justify-between py-1">
+                <span className="text-slate-400">Total pagado</span>
+                <span className="font-semibold text-emerald-400 text-lg">
+                  {successSale.total.toLocaleString("es-CO")}
+                </span>
+              </div>
+              {successSale.showChange && successSale.changeAmount > 0 && (
+                <div className="flex justify-between py-1 text-amber-300 text-base">
+                  <span className="font-semibold">Cambio</span>
+                  <span className="font-semibold text-lg">
+                    {successSale.changeAmount.toLocaleString("es-CO")}
+                  </span>
+                </div>
+              )}
+              {successSale.notes && (
+                <div className="pt-3 text-left text-slate-300 text-sm">
+                  <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
+                    Notas
+                  </div>
+                  <p className="whitespace-pre-line">{successSale.notes}</p>
+                </div>
+              )}
+              {successSale.customer && (
+                <div className="pt-3 text-left text-slate-300 text-sm">
+                  <div className="text-slate-400 text-xs uppercase tracking-wide mb-1">
+                    Cliente
+                  </div>
+                  <p className="font-semibold">{successSale.customer.name}</p>
+                  {successSale.customer.phone && (
+                    <p className="text-xs text-slate-400">
+                      Tel: {successSale.customer.phone}
+                    </p>
+                  )}
+                  {successSale.customer.email && (
+                    <p className="text-xs text-slate-400">
+                      Email: {successSale.customer.email}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
 
-        <button
-          onClick={() => void handlePrintTicket()}
-          className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-        >
-          <div className="text-4xl mb-3">🖨️</div>
-          <span className="text-sm font-semibold text-slate-100">
-            Imprimir ticket
-          </span>
-        </button>
+            <div className="grid grid-cols-2 gap-6 mb-6">
+              <button
+                onClick={() => void handlePrintTicket()}
+                className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+              >
+                <div className="text-4xl mb-3">🖨️</div>
+                <span className="text-sm font-semibold text-slate-100">
+                  Imprimir ticket
+                </span>
+              </button>
 
-        <div className="flex flex-col gap-4">
-          <button
-            onClick={handleEmailTicket}
-            className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-          >
-            <div className="text-3xl mb-2">✉️</div>
-            <span className="text-xs font-semibold text-slate-100">
-              Enviar ticket
-            </span>
-          </button>
-          <button
-            onClick={handleEmailInvoice}
-            className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-          >
-            <div className="text-3xl mb-2">✉️</div>
-            <span className="text-xs font-semibold text-slate-100">
-              Enviar factura
-            </span>
-          </button>
-        </div>
+              <div className="flex flex-col gap-4">
+                <button
+                  onClick={handleEmailTicket}
+                  className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+                >
+                  <div className="text-3xl mb-2">✉️</div>
+                  <span className="text-xs font-semibold text-slate-100">
+                    Enviar ticket
+                  </span>
+                </button>
+                <button
+                  onClick={handleEmailInvoice}
+                  className="flex flex-col items-center justify-center p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+                >
+                  <div className="text-3xl mb-2">✉️</div>
+                  <span className="text-xs font-semibold text-slate-100">
+                    Enviar factura
+                  </span>
+                </button>
+              </div>
+            </div>
 
-      </div>
+            <div className="grid grid-cols-3 gap-6 mb-10">
+              <button
+                onClick={() => alert("Guardar PDF (pendiente)")}
+                className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
+              >
+                <div className="text-4xl mb-3">📝</div>
+                <span className="text-sm font-semibold text-slate-100">
+                  Guardar como PDF
+                </span>
+              </button>
+            </div>
 
-      {/* BOTONES GRANDES — FILA 2 */}
-      <div className="grid grid-cols-3 gap-6 mb-10">
-
-        <button
-          onClick={() => alert('Guardar PDF (pendiente)')}
-          className="flex flex-col items-center justify-center p-6 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-        >
-          <div className="text-4xl mb-3">📝</div>
-          <span className="text-sm font-semibold text-slate-100">
-            Guardar como PDF
-          </span>
-        </button>
-
-      </div>
-
-      {/* BOTÓN HECHO */}
-      <div className="flex justify-end">
-        <button
-          onClick={handleSuccessDone}
-          className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 
+            <div className="flex justify-end">
+              <button
+                onClick={handleSuccessDone}
+                className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 
                      text-slate-950 font-semibold text-sm shadow-lg transition"
-        >
-          Hecho (volver al POS)
-        </button>
-      </div>
-
-    </div>
-  </div>
-)}
+              >
+                Hecho (volver al POS)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {emailModalOpen && successSale && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4">
