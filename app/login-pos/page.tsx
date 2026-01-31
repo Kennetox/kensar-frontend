@@ -63,8 +63,15 @@ function PosLoginContent() {
   const adminPinFirstRef = useRef<string | null>(null);
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [stationError, setStationError] = useState(false);
+  const [toast, setToast] = useState<{
+    id: number;
+    message: string;
+    tone: "error" | "info";
+    actionLabel?: string;
+    action?: () => void;
+  } | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const [submitting, setSubmitting] = useState(false);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [timeLabel, setTimeLabel] = useState("");
@@ -75,6 +82,40 @@ function PosLoginContent() {
   const pinInputRef = useRef<HTMLInputElement | null>(null);
   const lastStationIdRef = useRef<string | null>(null);
   const exitMode = searchParams.get("exit") === "kiosk";
+  const showToast = (
+    message: string,
+    options?: {
+      tone?: "error" | "info";
+      duration?: number;
+      actionLabel?: string;
+      action?: () => void;
+    }
+  ) => {
+    if (toastTimerRef.current.hide) {
+      window.clearTimeout(toastTimerRef.current.hide);
+    }
+    if (toastTimerRef.current.remove) {
+      window.clearTimeout(toastTimerRef.current.remove);
+    }
+    const duration = options?.duration ?? 4200;
+    setToast({
+      id: Date.now(),
+      message,
+      tone: options?.tone ?? "error",
+      actionLabel: options?.actionLabel,
+      action: options?.action,
+    });
+    setToastVisible(false);
+    requestAnimationFrame(() => setToastVisible(true));
+    toastTimerRef.current.hide = window.setTimeout(
+      () => setToastVisible(false),
+      duration
+    );
+    toastTimerRef.current.remove = window.setTimeout(
+      () => setToast(null),
+      duration + 260
+    );
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -197,7 +238,7 @@ function PosLoginContent() {
     }
     const reason = window.sessionStorage.getItem(LOGOUT_REASON_KEY);
     if (reason) {
-      setError(reason);
+      showToast(reason, { tone: "info", duration: 5000 });
       window.sessionStorage.removeItem(LOGOUT_REASON_KEY);
     }
 
@@ -253,7 +294,6 @@ function PosLoginContent() {
     const unsubscribe = subscribeToPosStationChanges(() => {
       syncStation();
       setPin("");
-      setError(null);
     });
 
     const focusHandler = () => {
@@ -376,7 +416,6 @@ function PosLoginContent() {
     setStationInfo(null);
     setPin("");
     lastStationIdRef.current = null;
-    setError(null);
   }
 
   const handleShutdown = () => {
@@ -402,15 +441,14 @@ function PosLoginContent() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!stationInfo) {
-      setError("Esta estación no está configurada. Solicita soporte.");
+      showToast("Esta estación no está configurada. Solicita soporte.");
       return;
     }
     if (!pin.trim()) {
-      setError("Debes ingresar tu PIN.");
+      showToast("Debes ingresar tu PIN.");
+      selectAllPinInput();
       return;
     }
-    setError(null);
-    setStationError(false);
     setSubmitting(true);
     try {
       let deviceId = getOrCreatePosDeviceId();
@@ -461,25 +499,27 @@ function PosLoginContent() {
       const lowerDetail = detailText?.toLowerCase() ?? "";
 
       if (status === 409) {
-        setError(
+        showToast(
           detail ??
             "Esta estación ya está vinculada a otro equipo. Solicita al administrador que la libere."
         );
       } else if (status === 400 && lowerDetail.includes("estación")) {
-        setStationError(true);
-        setError(
-          "Estación inválida o inactiva. Usa “Cambiar estación” para reconfigurarla."
-        );
+        showToast("Estación inválida o inactiva.", {
+          actionLabel: "Cambiar estación",
+          action: handleClearStation,
+          duration: 6000,
+        });
       } else if (status === 401) {
-        setError("PIN inválido o usuario inactivo.");
+        showToast("PIN inválido o usuario inactivo.");
+        selectAllPinInput();
       } else if (stationRemoved) {
-        setError(
+        showToast(
           "Esta estación ya no está disponible. Configúrala nuevamente desde el panel."
         );
       } else if (detailText) {
-        setError(detailText);
+        showToast(detailText);
       } else {
-        setError("No pudimos iniciar sesión, revisa tu PIN.");
+        showToast("No pudimos iniciar sesión, revisa tu PIN.");
       }
     } finally {
       setSubmitting(false);
@@ -492,6 +532,15 @@ function PosLoginContent() {
     requestAnimationFrame(() => {
       target.focus();
       target.setSelectionRange?.(target.value.length, target.value.length);
+    });
+  };
+  const selectAllPinInput = () => {
+    const target = pinInputRef.current;
+    if (!target) return;
+    requestAnimationFrame(() => {
+      target.focus();
+      target.select?.();
+      target.setSelectionRange?.(0, target.value.length);
     });
   };
 
@@ -512,6 +561,19 @@ function PosLoginContent() {
     setPin("");
     focusPinInput();
   };
+
+  useEffect(() => {
+    const hideTimer = toastTimerRef.current.hide;
+    const removeTimer = toastTimerRef.current.remove;
+    return () => {
+      if (hideTimer) {
+        window.clearTimeout(hideTimer);
+      }
+      if (removeTimer) {
+        window.clearTimeout(removeTimer);
+      }
+    };
+  }, []);
 
   const adjustAppZoom = (delta: number) => {
     const bridge =
@@ -707,8 +769,42 @@ function PosLoginContent() {
             </div>
           </div>
         )}
+        {toast && (
+          <div className="fixed right-8 top-24 z-40 w-[360px] max-w-[90vw]">
+            <div
+              className={
+                "rounded-2xl border px-4 py-3 shadow-[0_16px_40px_rgba(15,23,42,0.45)] backdrop-blur transition-all duration-300 " +
+                (toast.tone === "info"
+                  ? "border-sky-400/40 bg-slate-900/80 text-slate-100"
+                  : "border-rose-400/40 bg-slate-900/80 text-rose-100") +
+                " " +
+                (toastVisible
+                  ? "translate-x-0 opacity-100"
+                  : "translate-x-4 opacity-0")
+              }
+            >
+              <div className="text-sm font-semibold">
+                {toast.tone === "info" ? "Aviso" : "Error"}
+              </div>
+              <p className="mt-1 text-sm text-slate-100/90">{toast.message}</p>
+              {toast.actionLabel && toast.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.action?.();
+                    setToastVisible(false);
+                    window.setTimeout(() => setToast(null), 200);
+                  }}
+                  className="mt-2 text-sm font-semibold text-emerald-200 hover:text-emerald-100"
+                >
+                  {toast.actionLabel}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <div className="mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center px-6 pb-8 pt-24">
-          <div className="absolute top-16 left-1/2 flex -translate-x-1/2 items-center gap-8">
+          <div className="absolute top-8 right-10 flex items-center gap-8 text-right">
             <Image
               src="/branding/metriklogo.png"
               alt="Logo Metrik"
@@ -717,7 +813,7 @@ function PosLoginContent() {
               className="h-32 w-32"
               priority
             />
-            <div className="text-left">
+            <div className="text-right">
               <p className="text-[44px] font-semibold tracking-tight">METRIK POS</p>
               <p className="mt-2 text-[14px] uppercase tracking-[0.6em] text-slate-400">
                 Estación de caja
@@ -725,17 +821,12 @@ function PosLoginContent() {
             </div>
           </div>
 
-        <div className="relative mt-28 w-full max-w-lg rounded-[30px] bg-gradient-to-br from-white/35 via-white/10 to-white/5 p-[1px] shadow-2xl">
-          <div className="relative rounded-[26px] border border-white/15 bg-white/10 px-6 pb-7 pt-16 backdrop-blur-[16px]">
-            <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-[70%] rounded-[28px] border border-white/25 bg-white/25 p-6 shadow-[0_16px_50px_rgba(0,0,0,0.4)] backdrop-blur">
-              <Image
-                src="/branding/kensar-logo-moderno.jpg"
-                alt="Kensar Electronic"
-                width={136}
-                height={136}
-                className="h-28 w-28 rounded-[20px] bg-white p-2.5 shadow-[0_10px_24px_rgba(0,0,0,0.25)]"
-                priority
-              />
+          <div className="relative mt-16 w-full max-w-xl rounded-[30px] bg-gradient-to-br from-white/35 via-white/10 to-white/5 p-[1px] shadow-2xl">
+          <div className="relative rounded-[26px] border border-white/15 bg-white/10 px-7 pb-7 pt-12 backdrop-blur-[16px]">
+            <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-[165%] text-center">
+              <p className="text-[34px] font-semibold tracking-[0.36em] text-white drop-shadow-[0_8px_22px_rgba(0,0,0,0.6)]">
+                KENSAR ELECTRONIC
+              </p>
             </div>
 
             <div className="text-center">
@@ -755,9 +846,9 @@ function PosLoginContent() {
 
             <form
               onSubmit={handleSubmit}
-              className="mt-5 flex flex-col items-center gap-4"
+              className="mt-4 flex flex-col items-center gap-3"
             >
-              <label className="flex w-full max-w-[380px] flex-col gap-1 text-xs text-slate-300">
+              <label className="flex w-full max-w-[420px] flex-col gap-1 text-xs text-slate-300">
                 PIN de usuario
                 <div className="relative">
                   <input
@@ -765,7 +856,7 @@ function PosLoginContent() {
                     ref={pinInputRef}
                     value={pin}
                     onChange={(e) => setPin(e.target.value)}
-                    className="w-full rounded-2xl border border-amber-300/70 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 shadow-inner outline-none focus:border-amber-200"
+                    className="w-full rounded-2xl border border-amber-300/70 bg-slate-950/60 px-4 py-3.5 text-sm text-slate-100 shadow-inner outline-none focus:border-amber-200"
                     placeholder="PIN de acceso"
                     inputMode="numeric"
                     maxLength={8}
@@ -781,13 +872,13 @@ function PosLoginContent() {
                 </div>
               </label>
 
-              <div className="grid w-full max-w-[400px] grid-cols-3 gap-4">
+              <div className="grid w-full max-w-[480px] grid-cols-3 gap-4">
                 {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
                   <button
                     key={digit}
                     type="button"
                     onClick={() => handleDigit(digit)}
-                    className="rounded-2xl border border-white/10 bg-white/5 py-4 text-lg font-semibold text-slate-100 shadow-[0_8px_24px_rgba(15,23,42,0.35)] transition hover:border-emerald-400/50 hover:bg-white/10"
+                    className="rounded-2xl border border-white/10 bg-white/5 py-4.5 text-2xl font-semibold text-slate-100 shadow-[0_12px_28px_rgba(15,23,42,0.42)] transition hover:border-emerald-400/50 hover:bg-white/10"
                   >
                     {digit}
                   </button>
@@ -795,45 +886,30 @@ function PosLoginContent() {
                 <button
                   type="button"
                   onClick={handleClearPin}
-                  className="rounded-2xl border border-white/10 bg-white/5 py-4 text-sm font-semibold text-slate-300 transition hover:border-rose-400/50 hover:bg-rose-500/10"
+                  className="rounded-2xl border border-white/10 bg-white/5 py-4.5 text-lg font-semibold text-slate-300 transition hover:border-rose-400/50 hover:bg-rose-500/10"
                 >
                   Limpiar
                 </button>
                 <button
                   type="button"
                   onClick={() => handleDigit("0")}
-                  className="rounded-2xl border border-white/10 bg-white/5 py-4 text-lg font-semibold text-slate-100 transition hover:border-emerald-400/50 hover:bg-white/10"
+                  className="rounded-2xl border border-white/10 bg-white/5 py-4.5 text-2xl font-semibold text-slate-100 transition hover:border-emerald-400/50 hover:bg-white/10"
                 >
                   0
                 </button>
                 <button
                   type="button"
                   onClick={handleBackspace}
-                  className="rounded-2xl border border-white/10 bg-white/5 py-4 text-sm font-semibold text-slate-300 transition hover:border-amber-400/50 hover:bg-amber-500/10"
+                  className="rounded-2xl border border-white/10 bg-white/5 py-4.5 text-lg font-semibold text-slate-300 transition hover:border-amber-400/50 hover:bg-amber-500/10"
                 >
                   Borrar
                 </button>
               </div>
 
-              {error && (
-                <div className="w-full max-w-[380px] rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
-                  <p>{error}</p>
-                  {stationError && (
-                    <button
-                      type="button"
-                      onClick={handleClearStation}
-                      className="mt-2 text-[11px] font-semibold text-rose-200 underline-offset-2 hover:underline"
-                    >
-                      Cambiar estación
-                    </button>
-                  )}
-                </div>
-              )}
-
               <button
                 type="submit"
                 disabled={submitting || !stationInfo}
-                className="w-full max-w-[400px] rounded-2xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-5 py-4 text-base font-semibold text-slate-900 shadow-[0_0_24px_rgba(16,185,129,0.45)] transition hover:scale-[1.01] disabled:opacity-50"
+                className="w-full max-w-[480px] rounded-2xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-6 py-5.5 text-lg font-semibold text-slate-900 shadow-[0_0_30px_rgba(16,185,129,0.5)] transition hover:scale-[1.01] disabled:opacity-50"
               >
                 {submitting ? "Validando..." : "Entrar al POS"}
               </button>

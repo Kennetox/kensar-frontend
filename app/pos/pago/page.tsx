@@ -1269,13 +1269,20 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             {resolvedPosName}
           </span>
         </div>
-        <div className="text-right">
-          <div className="text-[11px] uppercase tracking-wide text-slate-500">
-            Venta {saleNumberDisplay}
+        <div className="flex items-center gap-6">
+          <div className="text-right">
+            <div className="text-xs uppercase tracking-wide text-slate-500">
+              Venta {saleNumberDisplay}
+            </div>
+            <div className="text-sm text-slate-400">Pago de venta</div>
           </div>
-          <div className="text-xs text-slate-400">Pago de venta</div>
-          <div className="text-lg font-semibold text-emerald-400">
-            Total: {formatMoney(totalToPay)}
+          <div className="text-right">
+            <div className="text-xs uppercase tracking-wide text-slate-500">
+              Total
+            </div>
+            <div className="text-2xl font-semibold text-emerald-400">
+              {formatMoney(totalToPay)}
+            </div>
           </div>
         </div>
       </header>
