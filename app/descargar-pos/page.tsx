@@ -79,13 +79,12 @@ export default function DescargarPosPage() {
                 PIN por vendedor.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  disabled
-                  className="rounded-2xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-6 py-3 text-base font-semibold text-white shadow-xl opacity-60"
+                <a
+                  href="https://github.com/Kennetox/kensar_pos_desktop/releases/download/v1.0.0/MetrikPOS-Setup-1.0.0.exe"
+                  className="rounded-2xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:brightness-110"
                 >
-                  Descarga para Windows (proximamente)
-                </button>
+                  Descargar para Windows
+                </a>
                 <a
                   href="mailto:soporte@kensar.com?subject=Descarga%20Metrik%20POS"
                   className="rounded-2xl border border-slate-300 px-6 py-3 text-base font-semibold text-slate-700 transition hover:border-slate-500 hover:text-slate-900"
@@ -93,9 +92,9 @@ export default function DescargarPosPage() {
                   Solicitar instalador
                 </a>
               </div>
-              <div className="mt-6 rounded-2xl border border-amber-300/60 bg-amber-100/60 px-4 py-3 text-sm text-amber-900">
-                Estamos preparando el instalador oficial. Mientras tanto,
-                solicita el acceso y te enviaremos el setup de la app.
+              <div className="mt-6 rounded-2xl border border-emerald-300/60 bg-emerald-100/60 px-4 py-3 text-sm text-emerald-900">
+                Descarga el instalador para Windows y comienza la configuración
+                en la estación de caja.
               </div>
             </div>
 
