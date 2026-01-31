@@ -80,7 +80,7 @@ export default function DescargarPosPage() {
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <a
-                  href="https://github.com/Kennetox/kensar_pos_desktop/releases/latest/download/MetrikPOS-Setup-1.0.1.exe"
+                  href="https://github.com/Kennetox/kensar_pos_desktop/releases/latest/download/MetrikPOS-Setup.exe"
                   className="rounded-2xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:brightness-110"
                 >
                   Descargar para Windows
