@@ -13,6 +13,8 @@ import {
   type PosStationAccess,
   setPosStationAccess,
   setStoredPosMode,
+  setPosDeviceId,
+  setPosDeviceLabel,
 } from "@/lib/api/posStations";
 
 type KensarBridge = {
@@ -31,6 +33,7 @@ type KensarBridge = {
     getZoomFactor?: () => Promise<number>;
     setZoomFactor?: (value: number) => Promise<number>;
     shutdownSystem?: () => Promise<boolean>;
+    getDeviceInfo?: () => Promise<{ deviceId?: string; deviceLabel?: string }>;
   };
 };
 
@@ -181,6 +184,11 @@ function PosLoginContent() {
           });
           setStoredPosMode("station");
           syncStation();
+        }
+        if (bridge.kensar.getDeviceInfo) {
+          const device = await bridge.kensar.getDeviceInfo();
+          if (device?.deviceId) setPosDeviceId(device.deviceId);
+          if (device?.deviceLabel) setPosDeviceLabel(device.deviceLabel);
         }
       } catch {
         // ignore hydration failures
@@ -352,12 +360,29 @@ function PosLoginContent() {
     setStationError(false);
     setSubmitting(true);
     try {
+      let deviceId = getOrCreatePosDeviceId();
+      let deviceLabel = getOrCreatePosDeviceLabel();
+      const bridge =
+        typeof window !== "undefined"
+          ? (window as Window & KensarBridge)
+          : null;
+      if (bridge?.kensar?.getDeviceInfo) {
+        const device = await bridge.kensar.getDeviceInfo();
+        if (device?.deviceId) {
+          deviceId = device.deviceId;
+          setPosDeviceId(deviceId);
+        }
+        if (device?.deviceLabel) {
+          deviceLabel = device.deviceLabel;
+          setPosDeviceLabel(deviceLabel);
+        }
+      }
       await login("", pin, {
         stationId: stationInfo.id,
         isPosStation: true,
         posAuthMode: "pin",
-        deviceId: getOrCreatePosDeviceId(),
-        deviceLabel: getOrCreatePosDeviceLabel(),
+        deviceId,
+        deviceLabel,
       });
       setStoredPosMode("station");
       router.replace("/pos");

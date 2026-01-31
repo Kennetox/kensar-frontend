@@ -146,6 +146,14 @@ export function getOrCreatePosDeviceId(): string {
   return next;
 }
 
+export function setPosDeviceId(deviceId: string) {
+  if (typeof window === "undefined") return;
+  const trimmed = deviceId.trim();
+  if (!trimmed) return;
+  window.localStorage.setItem(POS_DEVICE_ID_KEY, trimmed);
+  writeCookie(POS_DEVICE_ID_COOKIE, trimmed);
+}
+
 export function getOrCreatePosDeviceLabel(): string {
   if (typeof window === "undefined") return "Equipo POS";
   const existing = window.localStorage.getItem(POS_DEVICE_LABEL_KEY);
@@ -174,6 +182,14 @@ export function getOrCreatePosDeviceLabel(): string {
   window.localStorage.setItem(POS_DEVICE_LABEL_KEY, label);
   writeCookie(POS_DEVICE_LABEL_COOKIE, label);
   return label;
+}
+
+export function setPosDeviceLabel(label: string) {
+  if (typeof window === "undefined") return;
+  const trimmed = label.trim();
+  if (!trimmed) return;
+  window.localStorage.setItem(POS_DEVICE_LABEL_KEY, trimmed);
+  writeCookie(POS_DEVICE_LABEL_COOKIE, trimmed);
 }
 
 export function getStoredPosMode(): PosAccessMode | null {
