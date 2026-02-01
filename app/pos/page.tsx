@@ -567,6 +567,13 @@ const matchesStationLabel = useCallback(
   const [groupAppearances, setGroupAppearances] = useState<Record<string, GroupAppearance>>({});
   const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [catalogVersion, setCatalogVersion] = useState<string | null>(null);
+  const [catalogUpdateAvailable, setCatalogUpdateAvailable] = useState(false);
+  const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
+  const [catalogNoticeVisible, setCatalogNoticeVisible] = useState(false);
+  const catalogNoticeTimerRef = useRef<{ hide?: number; remove?: number }>({});
+  const catalogVersionRef = useRef<string | null>(null);
+  const catalogUpdateAvailableRef = useRef(false);
   const imageBaseUrl = useMemo(() => getApiBase(), []);
   const apiBase = useMemo(() => getApiBase(), []);
   const [printerModalOpen, setPrinterModalOpen] = useState(false);
@@ -650,6 +657,108 @@ const matchesStationLabel = useCallback(
     const timer = setTimeout(() => setSyncStatus(null), 4000);
     return () => clearTimeout(timer);
   }, [syncStatus]);
+
+  useEffect(() => {
+    catalogVersionRef.current = catalogVersion;
+  }, [catalogVersion]);
+
+  useEffect(() => {
+    catalogUpdateAvailableRef.current = catalogUpdateAvailable;
+  }, [catalogUpdateAvailable]);
+
+  const showCatalogNotice = useCallback((message: string) => {
+    if (catalogNoticeTimerRef.current.hide) {
+      window.clearTimeout(catalogNoticeTimerRef.current.hide);
+    }
+    if (catalogNoticeTimerRef.current.remove) {
+      window.clearTimeout(catalogNoticeTimerRef.current.remove);
+    }
+    setCatalogNotice(message);
+    setCatalogNoticeVisible(false);
+    setCatalogUpdateAvailable(true);
+    requestAnimationFrame(() => setCatalogNoticeVisible(true));
+    catalogNoticeTimerRef.current.hide = window.setTimeout(
+      () => setCatalogNoticeVisible(false),
+      5200
+    );
+    catalogNoticeTimerRef.current.remove = window.setTimeout(
+      () => setCatalogNotice(null),
+      5460
+    );
+  }, []);
+
+  const fetchCatalogVersion = useCallback(
+    async (options?: { silent?: boolean; markSynced?: boolean }) => {
+      if (!authHeaders) return null;
+      try {
+        const res = await fetch(`${apiBase}/products/catalog-version`, {
+          headers: authHeaders ?? undefined,
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error(`Error ${res.status}`);
+        const data = (await res.json()) as {
+          updated_at?: string | null;
+          products_count?: number | null;
+          groups_count?: number | null;
+        };
+        const updatedAtKey = data.updated_at ?? "";
+        const countsKey = `${data.products_count ?? ""}:${data.groups_count ?? ""}`;
+        const nextVersion = updatedAtKey || countsKey ? `${updatedAtKey}|${countsKey}` : null;
+        if (options?.markSynced) {
+          setCatalogVersion(nextVersion);
+          setCatalogUpdateAvailable(false);
+          return nextVersion;
+        }
+        const previousVersion = catalogVersionRef.current;
+        if (previousVersion == null && nextVersion != null) {
+          setCatalogVersion(nextVersion);
+          return nextVersion;
+        }
+        if (previousVersion != null && nextVersion != null && nextVersion !== previousVersion) {
+          if (!catalogUpdateAvailableRef.current) {
+            setCatalogUpdateAvailable(true);
+            showCatalogNotice(
+              "Se detectaron cambios en el catálogo. Haz clic en sincronizar."
+            );
+          }
+        }
+        return nextVersion;
+      } catch (err) {
+        if (!options?.silent) {
+          console.warn("No se pudo verificar el catálogo", err);
+        }
+        return null;
+      }
+    },
+    [
+      apiBase,
+      authHeaders,
+      showCatalogNotice,
+    ]
+  );
+
+  useEffect(() => {
+    if (!authHeaders) return;
+    void fetchCatalogVersion({ silent: true, markSynced: true });
+  }, [authHeaders, fetchCatalogVersion]);
+
+  useEffect(() => {
+    if (!authHeaders) return;
+    void fetchCatalogVersion({ silent: true });
+    const interval = window.setInterval(() => {
+      void fetchCatalogVersion({ silent: true });
+    }, 30 * 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, [authHeaders, fetchCatalogVersion]);
+
+  useEffect(() => {
+    const hideTimer = catalogNoticeTimerRef.current.hide;
+    const removeTimer = catalogNoticeTimerRef.current.remove;
+    return () => {
+      if (hideTimer) window.clearTimeout(hideTimer);
+      if (removeTimer) window.clearTimeout(removeTimer);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3654,6 +3763,8 @@ const matchesStationLabel = useCallback(
         type: "success",
         message: "Catálogo sincronizado.",
       });
+      await fetchCatalogVersion({ silent: true, markSynced: true });
+      setCatalogUpdateAvailable(false);
     } else {
       setSyncStatus({
         type: "error",
@@ -3661,7 +3772,7 @@ const matchesStationLabel = useCallback(
       });
     }
     setSyncingCatalog(false);
-  }, [authHeaders, loadProducts, loadGroupAppearances, syncingCatalog]);
+  }, [authHeaders, loadProducts, loadGroupAppearances, syncingCatalog, fetchCatalogVersion]);
 
   const handleReloadPos = useCallback(() => {
     if (typeof window !== "undefined") {
@@ -4225,6 +4336,31 @@ const matchesStationLabel = useCallback(
   return (
     <main className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
       <div className="relative flex min-h-0 flex-1 w-full flex-col">
+      {catalogNotice && (
+        <div className="fixed right-6 top-24 z-40 w-[360px] max-w-[90vw]">
+          <div
+            className={
+              "rounded-2xl border border-amber-300/40 bg-slate-900/85 px-4 py-3 text-amber-100 shadow-[0_18px_50px_rgba(15,23,42,0.55)] backdrop-blur transition-all duration-700 ease-out " +
+              (catalogNoticeVisible
+                ? "translate-x-0 translate-y-0 opacity-100 scale-100"
+                : "translate-x-3 translate-y-1 opacity-0 scale-[0.99]")
+            }
+          >
+            <div className="text-sm font-semibold tracking-wide uppercase text-amber-200">
+              Catálogo actualizado
+            </div>
+            <p className="mt-1 text-sm text-amber-100/90">{catalogNotice}</p>
+            <div className="mt-2 h-[2px] w-full overflow-hidden rounded-full bg-amber-400/20">
+              <div
+                className={
+                  "h-full bg-amber-300/70 transition-transform duration-[5200ms] ease-linear origin-left " +
+                  (catalogNoticeVisible ? "scale-x-100" : "scale-x-0")
+                }
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {loading && (
         <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col gap-6 px-6 py-8">
           <div className="h-12 rounded-2xl bg-slate-900/70 animate-pulse" />
@@ -4261,32 +4397,109 @@ const matchesStationLabel = useCallback(
         <div className="min-h-[72px] grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-4 py-3">
           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
             <button
-              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1 md:hidden"
+              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap md:hidden"
               onClick={() => setCartDrawerOpen(true)}
             >
-              ☰ Carrito
+              <svg
+                className="h-[26px] w-[26px]"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 3h1.5l1.2 4.5m0 0L7.5 15h9.75l1.5-7.5H5.7Z" />
+                <path d="M7.5 21a1.125 1.125 0 1 1 0-2.25 1.125 1.125 0 0 1 0 2.25Z" />
+                <path d="M17.25 21a1.125 1.125 0 1 1 0-2.25 1.125 1.125 0 0 1 0 2.25Z" />
+              </svg>
+              <span className="leading-tight">Carrito</span>
             </button>
             {/* Botones estilo Aronium arriba de la pantalla */}
             <button
-              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded flex items-center gap-1"
-              onClick={() => handleOpenDiscountModal()}
-            >
-              <span className="font-semibold">Descuento</span>
-            </button>
-            <button
-              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded"
-              onClick={handleOpenQuantityModal}
-            >
-              Cantidad
-            </button>
-            <button
-              className="px-6 py-[19px] text-base font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md min-w-[128px]"
+              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={handleDeleteSelected}
             >
-              Eliminar
+              <svg
+                className="h-[26px] w-[26px] text-white"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M6 7.5h12" />
+                <path d="M9 7.5v-1.5a1.5 1.5 0 0 1 3 0v1.5" />
+                <path d="M7.5 7.5v10.5A1.5 1.5 0 0 0 9 19.5h6A1.5 1.5 0 0 0 16.5 18V7.5" />
+                <path d="M10.5 11.25v5.25" />
+                <path d="M13.5 11.25v5.25" />
+              </svg>
+              <span className="leading-tight">Eliminar</span>
             </button>
             <button
-              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition"
+              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              onClick={handleOpenQuantityModal}
+            >
+              <svg
+                className="h-[26px] w-[26px] text-slate-200"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M5 9h14" />
+                <path d="M5 15h14" />
+                <path d="M9 4 7 20" />
+                <path d="M17 4 15 20" />
+              </svg>
+              <span className="leading-tight">Cantidad</span>
+            </button>
+            <button
+              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              onClick={() => handleOpenDiscountModal()}
+            >
+              <svg
+                className="h-[26px] w-[26px] text-slate-200"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M19.5 4.5 4.5 19.5" />
+                <path d="M8.25 7.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" />
+                <path d="M18.75 16.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" />
+              </svg>
+              <span className="font-semibold leading-tight">Descuento</span>
+            </button>
+            <button
+              className="w-[116px] h-[65px] px-4 py-2 text-[14px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-100 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap tracking-tight"
+            >
+              <svg
+                className="h-[26px] w-[26px] text-slate-100"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 5v14" />
+                <path d="M5 12h14" />
+              </svg>
+              <span className="leading-tight">Nueva venta</span>
+            </button>
+            <button
+              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => {
                 if (shouldBlockSales) {
                   setClosureReminderOpen(true);
@@ -4295,10 +4508,23 @@ const matchesStationLabel = useCallback(
                 router.push("/pos/devoluciones");
               }}
             >
-              Devolución
+              <svg
+                className="h-[26px] w-[26px] text-emerald-300"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9 6 4.5 10.5 9 15" />
+                <path d="M4.5 10.5h10.5a4.5 4.5 0 1 1 0 9H12" />
+              </svg>
+              <span className="leading-tight">Devolución</span>
             </button>
             <button
-              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition"
+              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => {
                 if (shouldBlockSales) {
                   setClosureReminderOpen(true);
@@ -4307,19 +4533,61 @@ const matchesStationLabel = useCallback(
                 router.push("/pos/abonos");
               }}
             >
-              Abono de separados
+              <svg
+                className="h-[26px] w-[26px] text-cyan-200"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="3" y="5" width="18" height="14" rx="2" ry="2" />
+                <path d="M3 9h18" />
+                <path d="M7.5 15h3.75" />
+              </svg>
+              <span className="leading-tight">Abonos</span>
             </button>
             <button
-              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition"
+              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => router.push("/pos/clientes")}
             >
-              Asignar cliente
+              <svg
+                className="h-[26px] w-[26px] text-amber-200"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                <path d="M4.5 20.25a7.5 7.5 0 0 1 15 0" />
+              </svg>
+              <span className="leading-tight">Cliente</span>
             </button>
             <button
-              className="px-5 py-[19px] text-base bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition"
+              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => router.push("/pos/cambios")}
             >
-              Cambio
+              <svg
+                className="h-[26px] w-[26px] text-emerald-200"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M7.5 6 3 10.5 7.5 15" />
+                <path d="M3 10.5h11.25a4.5 4.5 0 1 1 0 9H12" />
+                <path d="M16.5 18 21 13.5 16.5 9" />
+                <path d="M21 13.5H9.75a4.5 4.5 0 1 1 0-9H12" />
+              </svg>
+              <span className="leading-tight">Cambio</span>
             </button>
           </div>
 
@@ -4336,12 +4604,33 @@ const matchesStationLabel = useCallback(
                   type="button"
                   onClick={() => void handleManualSync()}
                   disabled={syncingCatalog}
-                  className="flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                  className={
+                    "relative isolate flex items-center gap-2 rounded-full border border-slate-700 px-4 py-2 font-semibold text-slate-200 transition hover:bg-slate-800 disabled:opacity-50 " +
+                    (catalogUpdateAvailable && !syncingCatalog
+                      ? "border-amber-300/60 ring-1 ring-amber-300/20 shadow-[0_0_14px_rgba(251,191,36,0.45)]"
+                      : "")
+                  }
+                  style={
+                    catalogUpdateAvailable && !syncingCatalog
+                      ? {
+                          boxShadow:
+                            "0 0 0 1px rgba(251,191,36,0.28), 0 0 14px rgba(251,191,36,0.5), 0 0 28px rgba(251,191,36,0.35)",
+                        }
+                      : undefined
+                  }
                 >
+                  {catalogUpdateAvailable && !syncingCatalog && (
+                    <span className="pointer-events-none absolute -inset-2 -z-10 rounded-full bg-amber-300/25 blur-lg animate-pulse" />
+                  )}
                   <span role="img" aria-label="sincronizar">
                     🔄
                   </span>
                   {syncingCatalog ? "Sincronizando…" : "Sincronizar"}
+                  {catalogUpdateAvailable && !syncingCatalog && (
+                    <span className="ml-2 inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5">
+                      <span className="h-2 w-2 rounded-full bg-amber-300 animate-pulse" />
+                    </span>
+                  )}
                 </button>
               </div>
               {syncStatus && (

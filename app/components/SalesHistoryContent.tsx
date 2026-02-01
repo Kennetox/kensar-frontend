@@ -1964,36 +1964,36 @@ export default function SalesHistoryContent({
   };
 
   return (
-    <main className="flex-1 px-6 py-6 text-sm">
-      <div className="w-full max-w-7xl mx-auto space-y-6">
+    <main className="flex-1 px-6 py-6 text-[0.9rem]">
+      <div className="w-full max-w-7xl mx-auto space-y-5">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.push(backPath)}
               className="flex items-center gap-2 text-slate-300 hover:text-white
-                         px-6 py-3 rounded-lg border border-slate-700
-                         hover:bg-slate-800 transition-colors text-lg"
+                         px-5 py-2.5 rounded-lg border border-slate-700
+                         hover:bg-slate-800 transition-colors text-base"
             >
               <span className="text-xl">←</span>
               {resolvedBackLabel}
             </button>
 
             <div>
-              <h1 className="text-3xl md:text-4xl font-semibold text-slate-50">
+              <h1 className="text-2xl md:text-3xl font-semibold text-slate-50">
                 Historial de ventas
               </h1>
-              <p className="text-base text-slate-400">
+              <p className="text-sm text-slate-400">
                 Listado de las ventas registradas desde el POS de Metrik.
               </p>
               {error && (
-                <p className="text-sm text-red-400 mt-1">
+                <p className="text-xs text-red-400 mt-1">
                   Error: {error}
                 </p>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center gap-3 text-xs">
             {returnPath && (
               <button
                 type="button"
@@ -2011,8 +2011,8 @@ export default function SalesHistoryContent({
               type="button"
               onClick={handleRefresh}
               disabled={loading}
-              className="px-6 py-3 rounded-lg border border-emerald-400/70
-                         text-emerald-300 text-base hover:bg-emerald-500/10
+              className="px-5 py-2.5 rounded-lg border border-emerald-400/70
+                         text-emerald-300 text-sm hover:bg-emerald-500/10
                          disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Refrescar
@@ -2022,18 +2022,18 @@ export default function SalesHistoryContent({
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4 text-sm space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-semibold text-slate-200 text-base">
+            <h3 className="font-semibold text-slate-200 text-sm">
               Filtros avanzados
             </h3>
             <button
               type="button"
               onClick={handleClearFilters}
-              className="px-5 py-2.5 rounded-lg border border-slate-700 text-base text-slate-200 hover:bg-slate-800"
+              className="px-4 py-2 rounded-lg border border-slate-700 text-sm text-slate-200 hover:bg-slate-800"
             >
               Limpiar
             </button>
           </div>
-          <div className="flex flex-wrap gap-2 text-base">
+          <div className="flex flex-wrap gap-2 text-sm">
             {quickRangeOptions.map((option) => {
               const isActive = activeQuickRange === option.value;
               return (
@@ -2041,7 +2041,7 @@ export default function SalesHistoryContent({
                   key={option.value}
                   type="button"
                   onClick={() => handleQuickRangeSelect(option.value)}
-                  className={`px-5 py-2.5 rounded-full border transition ${
+                  className={`px-4 py-2 rounded-full border transition ${
                     isActive
                       ? "border-emerald-400 text-emerald-300 bg-emerald-500/10"
                       : "border-slate-700 text-slate-400 hover:text-slate-100 hover:border-slate-500"
@@ -2054,51 +2054,51 @@ export default function SalesHistoryContent({
           </div>
           <div className="grid gap-3 md:grid-cols-6">
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Desde</span>
+              <span className="text-slate-400 text-xs">Desde</span>
               <input
                 type="date"
                 value={filterFrom}
                 onChange={(e) => handleManualFromChange(e.target.value)}
                 onFocus={(e) => e.target.showPicker?.()}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Hasta</span>
+              <span className="text-slate-400 text-xs">Hasta</span>
               <input
                 type="date"
                 value={filterTo}
                 onChange={(e) => handleManualToChange(e.target.value)}
                 onFocus={(e) => e.target.showPicker?.()}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Documento / Venta / Producto</span>
+              <span className="text-slate-400 text-xs">Documento / Venta / Producto</span>
               <input
                 type="text"
                 value={filterTerm}
                 onChange={(e) => setFilterTerm(e.target.value)}
                 placeholder="V-00019, Cabina..."
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Cliente</span>
+              <span className="text-slate-400 text-xs">Cliente</span>
               <input
                 type="text"
                 value={filterClient}
                 onChange={(e) => setFilterClient(e.target.value)}
                 placeholder="Nombre del cliente"
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">POS</span>
+              <span className="text-slate-400 text-xs">POS</span>
               <select
                 value={filterPos}
                 onChange={(e) => setFilterPos(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">Todos</option>
                 {posOptions.map((name) => (
@@ -2109,11 +2109,11 @@ export default function SalesHistoryContent({
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Método de pago</span>
+              <span className="text-slate-400 text-xs">Método de pago</span>
               <select
                 value={filterPayment}
                 onChange={(e) => setFilterPayment(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">Todos</option>
                 {paymentOptions.map((method) => (
@@ -2129,25 +2129,25 @@ export default function SalesHistoryContent({
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-4">
           <div className="flex items-center justify-between mb-2">
             <div>
-              <h2 className="text-base font-semibold text-slate-100">
+              <h2 className="text-sm font-semibold text-slate-100">
                 Ventas registradas
               </h2>
-              <p className="text-sm text-slate-400">
+              <p className="text-xs text-slate-400">
                 Cada venta puede tener varios productos, todos listados aquí.
               </p>
             </div>
-            <div className="text-sm text-slate-400">
+            <div className="text-xs text-slate-400">
               Resultados: {loading ? "..." : filteredSales.length}
             </div>
           </div>
 
           {sales.length === 0 && !loading ? (
-            <p className="text-sm text-slate-500 mt-3">
+            <p className="text-xs text-slate-500 mt-3">
               Aún no hay ventas registradas.
             </p>
           ) : (
             <>
-              <div className="grid grid-cols-[90px_190px_1fr_140px_140px_160px] text-sm text-slate-400 mb-1 px-2">
+              <div className="grid grid-cols-[90px_190px_1fr_140px_140px_160px] text-xs text-slate-400 mb-1 px-2">
                 <span>Nº venta</span>
                 <span>Fecha / hora</span>
                 <span>Detalle</span>
@@ -2157,10 +2157,10 @@ export default function SalesHistoryContent({
               </div>
 
               <div className="mt-1 rounded-xl border border-slate-800/60 overflow-hidden">
-                <div className="max-h-[260px] min-h-[180px] overflow-y-auto">
+                <div className="max-h-[240px] min-h-[160px] overflow-y-auto">
                   {paginatedSales.map((sale, saleIndex) => {
                     const baseGrid =
-                      "grid grid-cols-[90px_190px_1fr_140px_140px_160px] text-sm px-3 py-3 cursor-pointer";
+                      "grid grid-cols-[90px_190px_1fr_140px_140px_160px] text-xs px-3 py-2.5 cursor-pointer";
                     const zebra =
                       saleIndex % 2 === 0
                         ? "bg-slate-950"
