@@ -4397,7 +4397,7 @@ const matchesStationLabel = useCallback(
         <div className="min-h-[72px] grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-4 py-3">
           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
             <button
-              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap md:hidden"
+              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap md:hidden"
               onClick={() => setCartDrawerOpen(true)}
             >
               <svg
@@ -4418,7 +4418,7 @@ const matchesStationLabel = useCallback(
             </button>
             {/* Botones estilo Aronium arriba de la pantalla */}
             <button
-              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={handleDeleteSelected}
             >
               <svg
@@ -4440,7 +4440,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Eliminar</span>
             </button>
             <button
-              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={handleOpenQuantityModal}
             >
               <svg
@@ -4461,7 +4461,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Cantidad</span>
             </button>
             <button
-              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => handleOpenDiscountModal()}
             >
               <svg
@@ -4481,7 +4481,7 @@ const matchesStationLabel = useCallback(
               <span className="font-semibold leading-tight">Descuento</span>
             </button>
             <button
-              className="w-[116px] h-[65px] px-4 py-2 text-[14px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-100 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap tracking-tight"
+              className="w-[110px] h-[65px] px-4 py-2 text-[14px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-100 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap tracking-tight"
             >
               <svg
                 className="h-[26px] w-[26px] text-slate-100"
@@ -4499,7 +4499,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Nueva venta</span>
             </button>
             <button
-              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => {
                 if (shouldBlockSales) {
                   setClosureReminderOpen(true);
@@ -4524,7 +4524,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Devolución</span>
             </button>
             <button
-              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => {
                 if (shouldBlockSales) {
                   setClosureReminderOpen(true);
@@ -4550,7 +4550,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Abonos</span>
             </button>
             <button
-              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => router.push("/pos/clientes")}
             >
               <svg
@@ -4569,7 +4569,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Cliente</span>
             </button>
             <button
-              className="w-[116px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => router.push("/pos/cambios")}
             >
               <svg
