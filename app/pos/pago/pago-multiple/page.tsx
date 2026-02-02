@@ -160,6 +160,9 @@ export default function PagoMultiplePage() {
     setSaleNotes,
     selectedCustomer,
     reservedSaleId,
+    reservedSaleNumber,
+    setReservedSaleId,
+    setReservedSaleNumber,
     setSaleNumber,
   } = usePos();
   const { token, user } = useAuth();
@@ -713,6 +716,8 @@ export default function PagoMultiplePage() {
       });
 
       let assignedSaleNumber = saleNumber;
+      let reservationId = reservedSaleId ?? null;
+      let reservationNumber = reservedSaleNumber ?? null;
       const normalizedPayments = payments.map((p) => ({
         method: getLineEffectiveMethod(p),
         amount: p.amount,
@@ -746,6 +751,61 @@ export default function PagoMultiplePage() {
         station_id?: string;
       };
 
+      if (!token) {
+        throw new Error("Sesión expirada. Inicia sesión nuevamente.");
+      }
+
+      if (!reservationId) {
+        if (!isOnline) {
+          setError("Necesitas conexión para reservar el número de venta.");
+          return;
+        }
+        const reservationRes = await fetch(`${apiBase}/pos/sales/reserve-number`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            pos_name: resolvedPosName,
+            station_id: activeStationId,
+            vendor_name: user?.name ?? null,
+            min_sale_number:
+              typeof saleNumber === "number" && saleNumber > 0
+                ? saleNumber
+                : null,
+          }),
+        });
+        if (!reservationRes.ok) {
+          const data = await reservationRes.json().catch(() => null);
+          const detail =
+            data && data.detail ? data.detail : `Error ${reservationRes.status}`;
+          throw new Error(detail);
+        }
+        const reservation = (await reservationRes.json()) as {
+          reservation_id: number;
+          sale_number: number;
+        };
+        reservationId = reservation.reservation_id;
+        reservationNumber = reservation.sale_number;
+        setReservedSaleId(reservationId);
+        setReservedSaleNumber(reservationNumber);
+        if (
+          typeof reservationNumber === "number" &&
+          reservationNumber !== saleNumber
+        ) {
+          setSaleNumber(reservationNumber);
+        }
+      }
+
+      if (
+        typeof reservationNumber === "number" &&
+        reservationNumber !== assignedSaleNumber
+      ) {
+        assignedSaleNumber = reservationNumber;
+      }
+
       const basePayload: Omit<SaleSubmissionPayload, "sale_number_preassigned"> = {
         payment_method: payments[0]?.method ?? "cash",
         total: totalToPay,
@@ -756,7 +816,7 @@ export default function PagoMultiplePage() {
         notes: saleNotes.trim() ? saleNotes.trim() : undefined,
         pos_name: resolvedPosName,
         vendor_name: user?.name ?? undefined,
-        reservation_id: reservedSaleId ?? undefined,
+        reservation_id: reservationId ?? undefined,
       };
       if (activeStationId) {
         basePayload.station_id = activeStationId;
@@ -778,10 +838,6 @@ export default function PagoMultiplePage() {
         ...basePayload,
         sale_number_preassigned: assignedSaleNumber,
       });
-
-      if (!token) {
-        throw new Error("Sesión expirada. Inicia sesión nuevamente.");
-      }
 
       const apiBase = getApiBase();
       const endpoint = isSeparatedSale ? "/separated-orders" : "/pos/sales";
