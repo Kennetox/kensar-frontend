@@ -83,6 +83,8 @@ type SuccessSaleSummary = {
   };
 };
 
+const RESUME_HELD_SALE_KEY = "kensar_pos_resume_held_sale_v1";
+
 export default function PagoPage() {
   const router = useRouter();
   const { token, user } = useAuth();
@@ -104,6 +106,7 @@ export default function PagoPage() {
     saleNotes,
     setSaleNotes,
     selectedCustomer,
+    reservedSaleId,
     setSaleNumber,
   } = usePos();
 
@@ -144,6 +147,15 @@ export default function PagoPage() {
       .split(/[\n,]/)
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
+
+  const markResumeHeldSale = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(RESUME_HELD_SALE_KEY, "1");
+    } catch (err) {
+      console.warn("No se pudo marcar la venta en espera para reanudar", err);
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -615,6 +627,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         }[];
         payments?: { method: PaymentMethodSlug; amount: number }[];
         sale_number_preassigned: number;
+        reservation_id?: number;
         notes?: string;
         pos_name?: string;
         vendor_name?: string;
@@ -632,6 +645,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         notes: saleNotes.trim() ? saleNotes.trim() : undefined,
         pos_name: resolvedPosName,
         vendor_name: user?.name ?? undefined,
+        reservation_id: reservedSaleId ?? undefined,
       };
       if (activeStationId) {
         basePayload.station_id = activeStationId;
@@ -700,6 +714,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           customMessage ??
             "Guardamos la venta como pendiente. Se enviará cuando vuelva la conexión."
         );
+        markResumeHeldSale();
         router.replace("/pos");
       };
 
@@ -1209,8 +1224,9 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
 
   const handleSuccessDone = useCallback(() => {
     setSuccessSale(null);
+    markResumeHeldSale();
     router.push("/pos");
-  }, [router]);
+  }, [markResumeHeldSale, router]);
   useEffect(() => {
     handleConfirmRef.current = () => handleConfirm();
   });

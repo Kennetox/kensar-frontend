@@ -18,6 +18,8 @@ import {
   usePos,
   POS_DISPLAY_NAME,
   type SurchargeMethod,
+  type SurchargeState,
+  type PosCustomer,
 } from "./poscontext";
 import type { Product, CartItem } from "./poscontext";
 import { getApiBase } from "@/lib/api/base";
@@ -62,9 +64,27 @@ import {
 } from "@/lib/api/posStations";
 
 const PENDING_ALERT_ACK_STORAGE_KEY = "metrik_pos_pending_ack_v1";
+const HELD_SALE_STORAGE_KEY = "kensar_pos_held_sale_v1";
+const RESUME_HELD_SALE_KEY = "kensar_pos_resume_held_sale_v1";
 
 type DiscountScope = "item" | "cart";
 type DiscountMode = "value" | "percent";
+
+type HeldSaleSnapshot = {
+  cart: CartItem[];
+  saleNotes: string;
+  selectedCustomer: PosCustomer | null;
+  cartDiscountValue: number;
+  cartDiscountPercent: number;
+  cartSurcharge: SurchargeState;
+  saleNumber: number;
+  reservedSaleId: number | null;
+  reservedSaleNumber: number | null;
+  selectedCartId: number | null;
+  currentPath: string[];
+  currentPage: number;
+  search: string;
+};
 
 type ClosureFormState = {
   totalAmount: number;
@@ -486,6 +506,11 @@ export default function PosPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [holdSaleToast, setHoldSaleToast] = useState<string | null>(null);
+  const [holdSaleToastPhase, setHoldSaleToastPhase] = useState<"enter" | "exit">("enter");
+  const holdSaleErrorTimerRef = useRef<number | null>(null);
+  const holdSaleToastExitTimerRef = useRef<number | null>(null);
+  const [heldSaleSnapshot, setHeldSaleSnapshot] = useState<HeldSaleSnapshot | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [openedAsNewTab, setOpenedAsNewTab] = useState<boolean>(() => {
@@ -517,6 +542,28 @@ const matchesStationLabel = useCallback(
   const isPosWebName = useCallback((name?: string | null) => {
     if (!name) return false;
     return name.toLowerCase().includes("pos web");
+  }, []);
+
+  const showHoldSaleError = useCallback((message: string) => {
+    setError(message);
+    setHoldSaleToast(message);
+    setHoldSaleToastPhase("enter");
+    if (typeof window === "undefined") return;
+    if (holdSaleErrorTimerRef.current) {
+      window.clearTimeout(holdSaleErrorTimerRef.current);
+    }
+    if (holdSaleToastExitTimerRef.current) {
+      window.clearTimeout(holdSaleToastExitTimerRef.current);
+    }
+    holdSaleErrorTimerRef.current = window.setTimeout(() => {
+      setHoldSaleToastPhase("exit");
+      holdSaleToastExitTimerRef.current = window.setTimeout(() => {
+        setError(null);
+        setHoldSaleToast(null);
+        holdSaleErrorTimerRef.current = null;
+        holdSaleToastExitTimerRef.current = null;
+      }, 220);
+    }, 3200);
   }, []);
 
   const qzGuideSections = useMemo(
@@ -628,6 +675,14 @@ const matchesStationLabel = useCallback(
     setCartSurcharge,
     saleNumber,
     clearSale,
+    saleNotes,
+    setSaleNotes,
+    setSaleNumber,
+    refreshSaleNumber,
+    reservedSaleId,
+    setReservedSaleId,
+    reservedSaleNumber,
+    setReservedSaleNumber,
     selectedCustomer,
     setSelectedCustomer,
   } = usePos();
@@ -1156,6 +1211,7 @@ const matchesStationLabel = useCallback(
   const [discountScope, setDiscountScope] = useState<DiscountScope>("item");
   const [discountMode, setDiscountMode] = useState<DiscountMode>("value");
   const [discountInput, setDiscountInput] = useState<string>("");
+  const discountInputRef = useRef<HTMLInputElement | null>(null);
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [cartPanelWidthPercent, setCartPanelWidthPercent] = useState<number>(CART_PANEL_DEFAULT_PERCENT);
@@ -1565,6 +1621,7 @@ const matchesStationLabel = useCallback(
     setPriceChangeValue(formatted || "");
   }, []);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  const [confirmResumeHeldOpen, setConfirmResumeHeldOpen] = useState(false);
   const [closeModalOpen, setCloseModalOpen] = useState(false);
   const [closureReminderOpen, setClosureReminderOpen] = useState(false);
   const [closureForm, setClosureForm] = useState<ClosureFormState>(
@@ -1710,6 +1767,209 @@ const matchesStationLabel = useCallback(
   } | null>(null);
   const [sendingPendingId, setSendingPendingId] = useState<string | null>(null);
   const [sendingAllPending, setSendingAllPending] = useState(false);
+  const hasSaleContent = useMemo(
+    () =>
+      cart.length > 0 ||
+      saleNotes.trim().length > 0 ||
+      Boolean(selectedCustomer) ||
+      cartDiscountValue > 0 ||
+      cartDiscountPercent > 0 ||
+      cartSurcharge.enabled ||
+      cartSurcharge.amount > 0,
+    [
+      cart.length,
+      cartDiscountValue,
+      cartDiscountPercent,
+      cartSurcharge.amount,
+      cartSurcharge.enabled,
+      saleNotes,
+      selectedCustomer,
+    ]
+  );
+
+  const readHeldSaleSnapshot = useCallback((): HeldSaleSnapshot | null => {
+    if (typeof window === "undefined") return null;
+    const raw = window.sessionStorage.getItem(HELD_SALE_STORAGE_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as HeldSaleSnapshot;
+    } catch (err) {
+      console.warn("No se pudo leer la venta en espera", err);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!discountModalOpen) return;
+    const raf = window.requestAnimationFrame(() => {
+      const input = discountInputRef.current;
+      if (!input) return;
+      input.focus();
+      input.select();
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [discountModalOpen]);
+
+  const writeHeldSaleSnapshot = useCallback((snapshot: HeldSaleSnapshot) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(
+        HELD_SALE_STORAGE_KEY,
+        JSON.stringify(snapshot)
+      );
+      setHeldSaleSnapshot(snapshot);
+    } catch (err) {
+      console.warn("No se pudo guardar la venta en espera", err);
+    }
+  }, []);
+
+  const clearHeldSaleSnapshot = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.removeItem(HELD_SALE_STORAGE_KEY);
+    setHeldSaleSnapshot(null);
+  }, []);
+
+  const reserveSaleNumber = useCallback(async (minSaleNumber?: number) => {
+    if (!token) {
+      throw new Error("Sesión expirada. Inicia sesión nuevamente.");
+    }
+    const res = await fetch(`${apiBase}/pos/sales/reserve-number`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        pos_name: resolvedPosName,
+        station_id: activeStationId,
+        vendor_name: user?.name ?? null,
+        min_sale_number:
+          typeof minSaleNumber === "number" && minSaleNumber > 0
+            ? minSaleNumber
+            : typeof saleNumber === "number" && saleNumber > 0
+            ? saleNumber + 1
+            : null,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      const detail =
+        data && data.detail ? data.detail : `Error ${res.status}`;
+      throw new Error(detail);
+    }
+    return (await res.json()) as {
+      reservation_id: number;
+      sale_number: number;
+      document_number: string;
+      status: string;
+    };
+  }, [activeStationId, apiBase, resolvedPosName, saleNumber, token, user?.name]);
+
+  const cancelSaleReservation = useCallback(
+    async (reservationId: number) => {
+      if (!token) return;
+      try {
+        await fetch(`${apiBase}/pos/sales/reservations/${reservationId}/cancel`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+        });
+      } catch (err) {
+        console.warn("No se pudo cancelar la reserva de venta", err);
+      }
+    },
+    [apiBase, token]
+  );
+
+  const restoreHeldSaleSnapshot = useCallback(
+    (snapshot: HeldSaleSnapshot) => {
+      setCart(snapshot.cart ?? []);
+      setSaleNotes(snapshot.saleNotes ?? "");
+      setSelectedCustomer(snapshot.selectedCustomer ?? null);
+      setCartDiscountValue(snapshot.cartDiscountValue ?? 0);
+      setCartDiscountPercent(snapshot.cartDiscountPercent ?? 0);
+      setCartSurcharge(
+        snapshot.cartSurcharge ?? {
+          method: null,
+          amount: 0,
+          enabled: false,
+          isManual: false,
+        }
+      );
+      if (typeof snapshot.saleNumber === "number") {
+        setSaleNumber(snapshot.saleNumber);
+      }
+      setReservedSaleId(
+        typeof snapshot.reservedSaleId === "number"
+          ? snapshot.reservedSaleId
+          : null
+      );
+      setReservedSaleNumber(
+        typeof snapshot.reservedSaleNumber === "number"
+          ? snapshot.reservedSaleNumber
+          : null
+      );
+      setCurrentPath(Array.isArray(snapshot.currentPath) ? snapshot.currentPath : []);
+      setCurrentPage(
+        typeof snapshot.currentPage === "number" && snapshot.currentPage > 0
+          ? snapshot.currentPage
+          : 1
+      );
+      setSearch(typeof snapshot.search === "string" ? snapshot.search : "");
+      setSelectedCartId((prev) => {
+        if (
+          typeof snapshot.selectedCartId === "number" &&
+          snapshot.cart?.some((item) => item.id === snapshot.selectedCartId)
+        ) {
+          return snapshot.selectedCartId;
+        }
+        return prev && snapshot.cart?.some((item) => item.id === prev)
+          ? prev
+          : null;
+      });
+    },
+    [
+      setCart,
+      setCartDiscountPercent,
+      setCartDiscountValue,
+      setCartSurcharge,
+      setSaleNotes,
+      setSaleNumber,
+      setReservedSaleId,
+      setReservedSaleNumber,
+      setSearch,
+      setSelectedCartId,
+      setSelectedCustomer,
+      setCurrentPage,
+      setCurrentPath,
+    ]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const shouldResume =
+      window.sessionStorage.getItem(RESUME_HELD_SALE_KEY) === "1";
+    if (!shouldResume) return;
+    window.sessionStorage.removeItem(RESUME_HELD_SALE_KEY);
+    const snapshot = readHeldSaleSnapshot();
+    if (!snapshot) return;
+    if (cart.length > 0) return;
+    restoreHeldSaleSnapshot(snapshot);
+    clearHeldSaleSnapshot();
+  }, [
+    cart.length,
+    clearHeldSaleSnapshot,
+    readHeldSaleSnapshot,
+    restoreHeldSaleSnapshot,
+  ]);
+
+  useEffect(() => {
+    setHeldSaleSnapshot(readHeldSaleSnapshot());
+  }, [readHeldSaleSnapshot]);
 
   useEffect(() => {
     if (!token) return;
@@ -4246,21 +4506,212 @@ const matchesStationLabel = useCallback(
     setSearch("");
   }
 
+  async function resetSaleForNew(reservation?: {
+    reservation_id: number;
+    sale_number: number;
+  }) {
+    setCart([]);
+    setCartDiscountPercent(0);
+    setCartDiscountValue(0);
+    setSaleNotes("");
+    setSelectedCustomer(null);
+    setReservedSaleId(null);
+    setReservedSaleNumber(null);
+    setCartSurcharge({
+      method: null,
+      amount: 0,
+      enabled: false,
+      isManual: false,
+    });
+    setSelectedCartId(null);
+    setCurrentPath([]);
+    setCurrentPage(1);
+    setSearch("");
+    if (reservation) {
+      setSaleNumber(reservation.sale_number);
+      setReservedSaleId(reservation.reservation_id);
+      setReservedSaleNumber(reservation.sale_number);
+      return;
+    }
+    const next = await refreshSaleNumber();
+    if (!next) {
+      showHoldSaleError("No se pudo obtener el nuevo número de venta.");
+    }
+  }
+
+  async function handleHoldSaleAndStartNew() {
+    if (shouldBlockSales) {
+      setClosureReminderOpen(true);
+      return;
+    }
+
+    if (heldSaleSnapshot) {
+      showHoldSaleError("Ya hay una venta en espera.");
+      return;
+    }
+    const existingHeldSale = readHeldSaleSnapshot();
+    if (existingHeldSale) {
+      showHoldSaleError("Ya hay una venta en espera.");
+      return;
+    }
+    if (!hasSaleContent) {
+      return;
+    }
+
+    // Asegurar reserva para la venta actual (en espera).
+    let currentReservationId = reservedSaleId;
+    let currentReservationNumber = reservedSaleNumber ?? saleNumber;
+    if (!currentReservationId) {
+      try {
+        const currentReservation = await reserveSaleNumber(saleNumber);
+        currentReservationId = currentReservation.reservation_id;
+        currentReservationNumber = currentReservation.sale_number;
+        setReservedSaleId(currentReservationId);
+        setReservedSaleNumber(currentReservationNumber);
+        if (currentReservationNumber !== saleNumber) {
+          setSaleNumber(currentReservationNumber);
+        }
+      } catch (err) {
+        showHoldSaleError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo reservar el número de la venta actual."
+        );
+        return;
+      }
+    }
+
+    const snapshot: HeldSaleSnapshot = {
+      cart,
+      saleNotes,
+      selectedCustomer,
+      cartDiscountValue,
+      cartDiscountPercent,
+      cartSurcharge,
+      saleNumber: currentReservationNumber,
+      reservedSaleId: currentReservationId,
+      reservedSaleNumber: currentReservationNumber,
+      selectedCartId,
+      currentPath,
+      currentPage,
+      search,
+    };
+    let reservation: Awaited<ReturnType<typeof reserveSaleNumber>> | null = null;
+    try {
+      reservation = await reserveSaleNumber(
+        typeof snapshot.saleNumber === "number" ? snapshot.saleNumber + 1 : undefined
+      );
+    } catch (err) {
+      showHoldSaleError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo reservar el número de venta."
+      );
+      return;
+    }
+    writeHeldSaleSnapshot(snapshot);
+    await resetSaleForNew(reservation);
+  }
+
   function openCancelOrderDialog() {
     if (!cart.length) {
+      const existingHeldSale = heldSaleSnapshot ?? readHeldSaleSnapshot();
+      if (existingHeldSale) {
+        if (reservedSaleId) {
+          void cancelSaleReservation(reservedSaleId);
+          setReservedSaleId(null);
+          setReservedSaleNumber(null);
+        }
+        restoreHeldSaleSnapshot(existingHeldSale);
+        clearHeldSaleSnapshot();
+        return;
+      }
+      if (reservedSaleId) {
+        void cancelSaleReservation(reservedSaleId);
+        setReservedSaleId(null);
+        setReservedSaleNumber(null);
+      }
       handleNewOrder();
       return;
     }
     setConfirmCancelOpen(true);
   }
 
-  function handleConfirmCancelOrder() {
-    handleNewOrder();
+  async function handleConfirmCancelOrder() {
+    const existingHeldSale = heldSaleSnapshot ?? readHeldSaleSnapshot();
+    if (reservedSaleId) {
+      await cancelSaleReservation(reservedSaleId);
+      setReservedSaleId(null);
+      setReservedSaleNumber(null);
+    }
+
+    setCart([]);
+    setCartDiscountPercent(0);
+    setCartDiscountValue(0);
+    setSaleNotes("");
+    setSelectedCustomer(null);
+    setCartSurcharge({
+      method: null,
+      amount: 0,
+      enabled: false,
+      isManual: false,
+    });
+    setSelectedCartId(null);
+    setCurrentPath([]);
+    setCurrentPage(1);
+    setSearch("");
+
+    if (existingHeldSale) {
+      restoreHeldSaleSnapshot(existingHeldSale);
+      clearHeldSaleSnapshot();
+      setConfirmCancelOpen(false);
+      return;
+    }
+
+    try {
+      const nextReservation = await reserveSaleNumber(
+        typeof saleNumber === "number" && saleNumber > 0 ? saleNumber + 1 : undefined
+      );
+      setSaleNumber(nextReservation.sale_number);
+      setReservedSaleId(nextReservation.reservation_id);
+      setReservedSaleNumber(nextReservation.sale_number);
+    } catch (err) {
+      showHoldSaleError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo reservar el nuevo número de venta."
+      );
+    }
+
     setConfirmCancelOpen(false);
   }
 
   function handleCloseCancelDialog() {
     setConfirmCancelOpen(false);
+  }
+
+  function handleOpenResumeHeldDialog() {
+    if (!heldSaleSnapshot) return;
+    setConfirmResumeHeldOpen(true);
+  }
+
+  async function handleConfirmResumeHeldSale() {
+    if (!heldSaleSnapshot) {
+      setConfirmResumeHeldOpen(false);
+      return;
+    }
+    if (reservedSaleId) {
+      await cancelSaleReservation(reservedSaleId);
+      setReservedSaleId(null);
+      setReservedSaleNumber(null);
+    }
+    restoreHeldSaleSnapshot(heldSaleSnapshot);
+    clearHeldSaleSnapshot();
+    setConfirmResumeHeldOpen(false);
+  }
+
+  function handleCloseResumeHeldDialog() {
+    setConfirmResumeHeldOpen(false);
   }
 
 
@@ -4482,6 +4933,7 @@ const matchesStationLabel = useCallback(
             </button>
             <button
               className="w-[110px] h-[65px] px-4 py-2 text-[14px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-100 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap tracking-tight"
+              onClick={handleHoldSaleAndStartNew}
             >
               <svg
                 className="h-[26px] w-[26px] text-slate-100"
@@ -5124,9 +5576,23 @@ const matchesStationLabel = useCallback(
               <span className="text-base font-semibold uppercase tracking-wide">
                 Carrito
               </span>
-              <span className="text-base text-slate-400">
-                Venta No.{saleNumber.toString().padStart(1, "0")}
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-base text-slate-400">
+                  Venta No.{saleNumber.toString().padStart(1, "0")}
+                </span>
+                {heldSaleSnapshot && (
+                  <button
+                    type="button"
+                    onClick={handleOpenResumeHeldDialog}
+                    className="inline-flex items-center gap-2 rounded-full border border-amber-400/60 bg-amber-500/10 px-4 py-1.5 text-sm font-semibold text-amber-200 hover:bg-amber-500/20 transition"
+                    title="Volver a la venta en espera"
+                    aria-label="Volver a la venta en espera"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-amber-300" />
+                    Venta: {heldSaleSnapshot.saleNumber.toString().padStart(1, "0")} en espera
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-3">
@@ -5735,25 +6201,25 @@ const matchesStationLabel = useCallback(
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-20 px-4">
           <form
             onSubmit={handleApplyDiscount}
-            className="bg-slate-900 rounded-3xl border border-slate-700 px-8 py-7 w-full max-w-md text-base space-y-5 shadow-2xl"
+            className="bg-slate-900 rounded-3xl border border-slate-700 px-10 py-9 w-full max-w-2xl text-lg space-y-6 shadow-2xl"
           >
             <div>
-              <h2 className="font-semibold text-lg text-slate-100">
+              <h2 className="font-semibold text-2xl text-slate-100">
                 {discountScope === "item"
                   ? "Aplicar descuento a artículo"
                   : "Aplicar descuento al carrito"}
               </h2>
-              <p className="text-sm text-slate-400 mt-1">
+              <p className="text-base text-slate-400 mt-2">
                 Elige dónde aplicar el descuento y escribe el valor o porcentaje. Pulsa “Aplicar” para confirmar.
               </p>
             </div>
 
             {/* Alcance */}
-            <div className="flex gap-3 text-sm">
+            <div className="flex gap-4 text-base">
               <button
                 type="button"
                 onClick={() => setDiscountScope("item")}
-                className={`flex-1 py-2 rounded-xl border transition ${
+                className={`flex-1 py-3 rounded-2xl border transition ${
                   discountScope === "item"
                     ? "border-emerald-400 bg-emerald-950 text-emerald-100"
                     : "border-slate-700 bg-slate-900 text-slate-200"
@@ -5764,7 +6230,7 @@ const matchesStationLabel = useCallback(
               <button
                 type="button"
                 onClick={() => setDiscountScope("cart")}
-                className={`flex-1 py-2 rounded-xl border transition ${
+                className={`flex-1 py-3 rounded-2xl border transition ${
                   discountScope === "cart"
                     ? "border-emerald-400 bg-emerald-950 text-emerald-100"
                     : "border-slate-700 bg-slate-900 text-slate-200"
@@ -5775,14 +6241,14 @@ const matchesStationLabel = useCallback(
             </div>
 
             {/* Tipo de descuento */}
-            <div className="flex gap-3 text-sm">
+            <div className="flex gap-4 text-base">
               <button
                 type="button"
                 onClick={() => {
                   setDiscountMode("value");
                   setDiscountInput((prev) => formatPriceInputValue(prev));
                 }}
-                className={`flex-1 py-2 rounded-xl border transition ${
+                className={`flex-1 py-3 rounded-2xl border transition ${
                   discountMode === "value"
                     ? "border-emerald-400 bg-emerald-950 text-emerald-100"
                     : "border-slate-700 bg-slate-900 text-slate-200"
@@ -5796,7 +6262,7 @@ const matchesStationLabel = useCallback(
                   setDiscountMode("percent");
                   setDiscountInput((prev) => prev.replace(/\./g, ""));
                 }}
-                className={`flex-1 py-2 rounded-xl border transition ${
+                className={`flex-1 py-3 rounded-2xl border transition ${
                   discountMode === "percent"
                     ? "border-emerald-400 bg-emerald-950 text-emerald-100"
                     : "border-slate-700 bg-slate-900 text-slate-200"
@@ -5808,6 +6274,7 @@ const matchesStationLabel = useCallback(
 
             <input
               autoFocus
+              ref={discountInputRef}
               inputMode={discountMode === "value" ? "numeric" : "decimal"}
               value={discountInput}
               onChange={(e) => handleDiscountInputChange(e.target.value)}
@@ -5816,20 +6283,20 @@ const matchesStationLabel = useCallback(
                   ? "Cantidad a descontar"
                   : "Porcentaje a descontar"
               }
-              className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-4 py-3 outline-none focus:border-emerald-400 text-lg"
+              className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-5 py-4 outline-none focus:border-emerald-400 text-2xl"
             />
 
-            <div className="flex justify-end gap-3 pt-2">
+            <div className="flex justify-end gap-4 pt-3">
               <button
                 type="button"
-                className="px-5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700"
+                className="px-6 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-base"
                 onClick={() => setDiscountModalOpen(false)}
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold"
+                className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold text-base"
               >
                 Aplicar
               </button>
@@ -6301,27 +6768,76 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
 
       {confirmCancelOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4">
-          <div className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 px-6 py-5 space-y-4 shadow-2xl">
+          <div className="w-full max-w-xl rounded-3xl border border-slate-700 bg-slate-900 px-9 py-7 space-y-6 shadow-2xl">
             <div>
-              <h3 className="text-lg font-semibold text-slate-50">
+              <h3 className="text-2xl font-semibold text-slate-50">
                 ¿Anular esta orden?
               </h3>
-              <p className="text-sm text-slate-400 mt-2">
-                Se vaciará el carrito y se solicitará un nuevo número de venta. Esta acción no se puede deshacer.
+              <p className="text-lg text-slate-400 mt-3">
+                Se vaciará el carrito y se reservará un nuevo número de venta. Esta acción no se puede deshacer.
               </p>
             </div>
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-4 pt-4">
               <button
                 type="button"
                 onClick={handleConfirmCancelOrder}
-                className="flex-1 py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-sm font-semibold text-white"
+                className="flex-1 py-3.5 rounded-xl bg-red-600 hover:bg-red-700 text-lg font-semibold text-white"
               >
                 Sí, anular orden
               </button>
               <button
                 type="button"
                 onClick={handleCloseCancelDialog}
-                className="flex-1 py-2.5 rounded-lg border border-slate-600 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+                className="flex-1 py-3.5 rounded-xl border border-slate-600 text-lg font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {holdSaleToast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50">
+          <div
+            className={`rounded-[28px] border border-amber-300/80 bg-slate-900/95 px-10 py-5 text-2xl font-semibold text-amber-200 shadow-2xl backdrop-blur-sm ${
+              holdSaleToastPhase === "enter"
+                ? "animate-[toast-in_220ms_cubic-bezier(0.22,0.61,0.36,1)]"
+                : "animate-[toast-out_200ms_ease-in]"
+            }`}
+            style={{ animationFillMode: "both", willChange: "transform, opacity" }}
+          >
+            <div className="flex items-center gap-4">
+              <span className="h-3 w-3 rounded-full bg-amber-300 animate-pulse" />
+              <span>{holdSaleToast}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmResumeHeldOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-40 px-4">
+          <div className="w-full max-w-xl rounded-3xl border border-slate-700 bg-slate-900 px-9 py-7 space-y-6 shadow-2xl">
+            <div>
+              <h3 className="text-2xl font-semibold text-slate-50">
+                ¿Volver a la venta en espera?
+              </h3>
+              <p className="text-lg text-slate-400 mt-3">
+                Se descartará la venta actual y volverás a la venta en espera.
+              </p>
+            </div>
+            <div className="flex gap-4 pt-4">
+              <button
+                type="button"
+                onClick={handleConfirmResumeHeldSale}
+                className="flex-1 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-lg font-semibold text-slate-900"
+              >
+                Sí, volver
+              </button>
+              <button
+                type="button"
+                onClick={handleCloseResumeHeldDialog}
+                className="flex-1 py-3.5 rounded-xl border border-slate-600 text-lg font-semibold text-slate-200 hover:bg-slate-800"
               >
                 Cancelar
               </button>
@@ -6728,6 +7244,29 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
           Error: {error}
         </div>
       )}
+
+      <style jsx global>{`
+        @keyframes toast-in {
+          0% {
+            opacity: 0;
+            transform: translateY(-10px) scale(0.96);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        @keyframes toast-out {
+          0% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+          100% {
+            opacity: 0;
+            transform: translateY(-8px) scale(0.98);
+          }
+        }
+      `}</style>
 
       </div>
     </main>

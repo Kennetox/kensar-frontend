@@ -91,6 +91,8 @@ type SuccessSaleSummary = {
   };
 };
 
+const RESUME_HELD_SALE_KEY = "kensar_pos_resume_held_sale_v1";
+
 function getMethodLabel(
   slug: PaymentMethodSlug,
   catalog: PaymentMethodRecord[]
@@ -157,6 +159,7 @@ export default function PagoMultiplePage() {
     saleNotes,
     setSaleNotes,
     selectedCustomer,
+    reservedSaleId,
     setSaleNumber,
   } = usePos();
   const { token, user } = useAuth();
@@ -191,6 +194,14 @@ export default function PagoMultiplePage() {
       .split(/[\n,]/)
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
+  const markResumeHeldSale = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(RESUME_HELD_SALE_KEY, "1");
+    } catch (err) {
+      console.warn("No se pudo marcar la venta en espera para reanudar", err);
+    }
+  }, []);
   const handleConfirmRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const confirmDisabled = !cart.length || !payments.length;
   const canSubmitWithEnter = !confirmDisabled && !successSale;
@@ -724,6 +735,7 @@ export default function PagoMultiplePage() {
         }[];
         payments: { method: PaymentMethodSlug; amount: number }[];
         sale_number_preassigned: number;
+        reservation_id?: number;
         notes?: string;
         pos_name?: string;
         vendor_name?: string;
@@ -744,6 +756,7 @@ export default function PagoMultiplePage() {
         notes: saleNotes.trim() ? saleNotes.trim() : undefined,
         pos_name: resolvedPosName,
         vendor_name: user?.name ?? undefined,
+        reservation_id: reservedSaleId ?? undefined,
       };
       if (activeStationId) {
         basePayload.station_id = activeStationId;
@@ -807,6 +820,7 @@ export default function PagoMultiplePage() {
           customMessage ??
             "Guardamos la venta como pendiente. Se enviará cuando vuelva la conexión."
         );
+        markResumeHeldSale();
         router.replace("/pos");
       };
 
@@ -1330,8 +1344,9 @@ export default function PagoMultiplePage() {
 
   const handleSuccessDone = useCallback(() => {
     setSuccessSale(null);
+    markResumeHeldSale();
     router.push("/pos");
-  }, [router]);
+  }, [markResumeHeldSale, router]);
   useEffect(() => {
     handleConfirmRef.current = () => handleConfirm();
   });

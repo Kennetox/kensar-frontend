@@ -74,6 +74,10 @@ type PosContextValue = {
   setSelectedCustomer: React.Dispatch<
     React.SetStateAction<PosCustomer | null>
   >;
+  reservedSaleId: number | null;
+  setReservedSaleId: React.Dispatch<React.SetStateAction<number | null>>;
+  reservedSaleNumber: number | null;
+  setReservedSaleNumber: React.Dispatch<React.SetStateAction<number | null>>;
 
   cartGrossSubtotal: number;
   cartLineDiscountTotal: number;
@@ -118,6 +122,8 @@ type PersistedSession = {
   cartDiscountValue: number;
   cartDiscountPercent: number;
   cartSurcharge: SurchargeState;
+  reservedSaleId?: number | null;
+  reservedSaleNumber?: number | null;
 };
 
 export function PosProvider({ children }: { children: ReactNode }) {
@@ -128,6 +134,8 @@ export function PosProvider({ children }: { children: ReactNode }) {
   const [saleNotes, setSaleNotes] = useState("");
   const [selectedCustomer, setSelectedCustomer] =
     useState<PosCustomer | null>(null);
+  const [reservedSaleId, setReservedSaleId] = useState<number | null>(null);
+  const [reservedSaleNumber, setReservedSaleNumber] = useState<number | null>(null);
   const [cartSurcharge, setCartSurcharge] = useState<SurchargeState>({
     method: null,
     amount: 0,
@@ -178,20 +186,13 @@ export function PosProvider({ children }: { children: ReactNode }) {
   // 1) Al montar el POS: intentar recuperar el número de venta y el estado del carrito
   useEffect(() => {
     if (typeof window === "undefined") return;
-
-    const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (stored) {
-      const parsed = parseInt(stored, 10);
-      if (!Number.isNaN(parsed) && parsed > 0) {
-        setSaleNumber(parsed);
-      }
-    }
+    let hasReservation = false;
 
     try {
       const rawSession = window.localStorage.getItem(SESSION_STORAGE_KEY);
-      if (rawSession) {
-        const parsed: PersistedSession = JSON.parse(rawSession);
-        if (parsed.version === SESSION_STORAGE_VERSION) {
+        if (rawSession) {
+          const parsed: PersistedSession = JSON.parse(rawSession);
+          if (parsed.version === SESSION_STORAGE_VERSION) {
           if (Array.isArray(parsed.cart) && parsed.cart.length > 0) {
             setCart(parsed.cart);
           }
@@ -216,6 +217,21 @@ export function PosProvider({ children }: { children: ReactNode }) {
           ) {
             setCartSurcharge(parsed.cartSurcharge);
           }
+          if (typeof parsed.reservedSaleId === "number") {
+            setReservedSaleId(parsed.reservedSaleId);
+            hasReservation = true;
+          }
+          if (typeof parsed.reservedSaleNumber === "number") {
+            setReservedSaleNumber(parsed.reservedSaleNumber);
+            setSaleNumber(parsed.reservedSaleNumber);
+            hasReservation = true;
+            if (typeof window !== "undefined") {
+              window.localStorage.setItem(
+                LOCAL_STORAGE_KEY,
+                parsed.reservedSaleNumber.toString()
+              );
+            }
+          }
         }
       }
     } catch (err) {
@@ -224,13 +240,27 @@ export function PosProvider({ children }: { children: ReactNode }) {
       sessionHydratedRef.current = true;
     }
 
-    void refreshSaleNumber();
+    if (!hasReservation) {
+      const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          setSaleNumber(parsed);
+        }
+      }
+    }
+
+    if (!hasReservation) {
+      void refreshSaleNumber();
+    }
   }, [refreshSaleNumber]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     function handleStorage(event: StorageEvent) {
       if (event.key !== LOCAL_STORAGE_KEY) return;
+      if (!sessionHydratedRef.current) return;
+      if (reservedSaleId != null || reservedSaleNumber != null) return;
       if (!event.newValue) return;
       const parsed = parseInt(event.newValue, 10);
       if (Number.isNaN(parsed) || parsed <= 0) return;
@@ -238,7 +268,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, []);
+  }, [reservedSaleId, reservedSaleNumber]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -246,6 +276,8 @@ export function PosProvider({ children }: { children: ReactNode }) {
     const channel = new BroadcastChannel(SALE_NUMBER_CHANNEL);
     saleNumberChannelRef.current = channel;
     channel.onmessage = (event) => {
+      if (!sessionHydratedRef.current) return;
+      if (reservedSaleId != null || reservedSaleNumber != null) return;
       const incoming = Number(
         typeof event.data === "object" && event.data
           ? event.data.saleNumber ?? event.data.value
@@ -258,16 +290,26 @@ export function PosProvider({ children }: { children: ReactNode }) {
       channel.close();
       saleNumberChannelRef.current = null;
     };
-  }, []);
+  }, [reservedSaleId, reservedSaleNumber]);
 
   // 2) Guardar siempre que cambie el número de venta
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!sessionHydratedRef.current) return;
+    if (reservedSaleId != null || reservedSaleNumber != null) return;
     window.localStorage.setItem(LOCAL_STORAGE_KEY, saleNumber.toString());
     if (saleNumberChannelRef.current) {
       saleNumberChannelRef.current.postMessage({ saleNumber });
     }
-  }, [saleNumber]);
+  }, [reservedSaleId, reservedSaleNumber, saleNumber]);
+
+  useEffect(() => {
+    if (!sessionHydratedRef.current) return;
+    if (reservedSaleNumber == null) return;
+    if (saleNumber !== reservedSaleNumber) {
+      setSaleNumber(reservedSaleNumber);
+    }
+  }, [reservedSaleNumber, saleNumber]);
 
   // 2b) Persistir el estado del carrito/notas/cliente para recuperar sesiones
   useEffect(() => {
@@ -281,7 +323,9 @@ export function PosProvider({ children }: { children: ReactNode }) {
       cartDiscountValue > 0 ||
       cartDiscountPercent > 0 ||
       cartSurcharge.enabled ||
-      cartSurcharge.amount > 0;
+      cartSurcharge.amount > 0 ||
+      reservedSaleId != null ||
+      reservedSaleNumber != null;
 
     if (!hasContent) {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
@@ -297,6 +341,8 @@ export function PosProvider({ children }: { children: ReactNode }) {
       cartDiscountValue,
       cartDiscountPercent,
       cartSurcharge,
+      reservedSaleId,
+      reservedSaleNumber,
     };
 
     try {
@@ -314,6 +360,8 @@ export function PosProvider({ children }: { children: ReactNode }) {
     cartDiscountValue,
     cartDiscountPercent,
     cartSurcharge,
+    reservedSaleId,
+    reservedSaleNumber,
   ]);
 
   // ---- Cálculos de totales ----
@@ -364,6 +412,8 @@ export function PosProvider({ children }: { children: ReactNode }) {
     setCartDiscountValue(0);
     setSaleNotes("");
     setSelectedCustomer(null);
+    setReservedSaleId(null);
+    setReservedSaleNumber(null);
     setCartSurcharge({
       method: null,
       amount: 0,
@@ -383,6 +433,10 @@ export function PosProvider({ children }: { children: ReactNode }) {
     setSaleNotes,
     selectedCustomer,
     setSelectedCustomer,
+    reservedSaleId,
+    setReservedSaleId,
+    reservedSaleNumber,
+    setReservedSaleNumber,
     cartGrossSubtotal,
     cartLineDiscountTotal,
     cartSubtotal,
