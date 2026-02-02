@@ -839,7 +839,6 @@ export default function PagoMultiplePage() {
         sale_number_preassigned: assignedSaleNumber,
       });
 
-      const apiBase = getApiBase();
       const endpoint = isSeparatedSale ? "/separated-orders" : "/pos/sales";
       const primaryMethodLabel = (() => {
         if (isSeparatedSale) {
