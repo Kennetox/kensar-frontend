@@ -472,7 +472,7 @@ export default function PagoMultiplePage() {
     return due.toISOString();
   }
 
-  // Inicializar con una sola línea en efectivo por defecto
+  // Inicializar con una sola línea en efectivo por defecto (sin monto automático)
   useEffect(() => {
     setPayments((prev) => {
       if (prev.length > 0) return prev;
@@ -480,7 +480,7 @@ export default function PagoMultiplePage() {
       const line: PaymentLine = {
         id: Date.now(),
         method: activePaymentMethods[0].slug,
-        amount: totalToPay,
+        amount: 0,
         separatedRealMethod: null,
       };
       setSelectedPaymentId(line.id);
@@ -542,13 +542,10 @@ export default function PagoMultiplePage() {
         return prev;
       }
 
-      const currentTotalPaid = prev.reduce((sum, p) => sum + p.amount, 0);
-      const remaining = Math.max(0, totalToPay - currentTotalPaid);
-
       const newLine: PaymentLine = {
         id: Date.now(),
         method: m,
-        amount: remaining,
+        amount: 0,
         separatedRealMethod: null,
       };
 
@@ -604,7 +601,7 @@ export default function PagoMultiplePage() {
         const line: PaymentLine = {
           id: Date.now(),
           method: "cash",
-          amount: totalToPay,
+          amount: 0,
           separatedRealMethod: null,
         };
         setSelectedPaymentId(line.id);

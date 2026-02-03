@@ -104,6 +104,16 @@ function formatMoney(value: number): string {
   });
 }
 
+function isCashMethod(method?: string | null): boolean {
+  const normalized = (method ?? "").toLowerCase();
+  return (
+    normalized === "cash" ||
+    normalized === "efectivo" ||
+    normalized.includes("cash") ||
+    normalized.includes("efectivo")
+  );
+}
+
 const PAYMENT_RANGE_LABEL: Record<"day" | "week" | "month", string> = {
   day: "Hoy",
   week: "Esta semana",
@@ -664,12 +674,18 @@ export default function DashboardHomePage() {
           (sum, p) => sum + Math.max(p.amount ?? 0, 0),
           0
         );
+        const paidAmount = sale.paid_amount ?? sumPayments;
+        const changeAmount = Math.max(0, paidAmount - netAmount);
+        let changeRemaining = changeAmount;
+
         sale.payments.forEach((p) => {
-          const paymentAmount = Math.max(p.amount ?? 0, 0);
-          const ratio = sumPayments > 0 ? paymentAmount / sumPayments : 0;
-          const amount =
-            ratio > 0 ? netAmount * ratio : netAmount / sale.payments!.length;
-          addEntry(p.method, amount, sale.id, true);
+          let paymentAmount = Math.max(p.amount ?? 0, 0);
+          if (changeRemaining > 0 && isCashMethod(p.method)) {
+            const applied = Math.min(changeRemaining, paymentAmount);
+            paymentAmount = Math.max(0, paymentAmount - applied);
+            changeRemaining -= applied;
+          }
+          addEntry(p.method, paymentAmount, sale.id, true);
         });
       } else {
         addEntry(sale.payment_method, netAmount, sale.id, true);
