@@ -585,6 +585,15 @@ export default function SalesHistoryContent({
     (method?: string | null) => getPaymentLabel(method, "—"),
     [getPaymentLabel]
   );
+  const isCashMethod = useCallback((method?: string | null) => {
+    const normalized = (method ?? "").toLowerCase();
+    return (
+      normalized === "cash" ||
+      normalized === "efectivo" ||
+      normalized.includes("cash") ||
+      normalized.includes("efectivo")
+    );
+  }, []);
   const activeStationId = useMemo(() => {
     if (!shouldUseQz) return null;
     return posMode === "station" ? stationInfo?.id ?? null : null;
@@ -1156,9 +1165,52 @@ export default function SalesHistoryContent({
       ? `-${formatMoney(detailCartDiscount)}${
           selectedSaleSummary.cartDiscountPercent
             ? ` (${selectedSaleSummary.cartDiscountPercent}%)`
-            : ""
+          : ""
         }`
       : "0";
+  const selectedItemDisplayRows = useMemo(() => {
+    const items = selectedSale?.items ?? [];
+    if (items.length === 0) return [];
+    const breakdowns = items.map((item) => computeLineBreakdown(item));
+    const lineTotalsSum = breakdowns.reduce(
+      (sum, line) => sum + (line.total ?? 0),
+      0
+    );
+    const cartDiscount = detailCartDiscount;
+    let remainingDiscount = cartDiscount;
+    return items.map((item, idx) => {
+      const line = breakdowns[idx];
+      let cartShare = 0;
+      if (cartDiscount > 0 && lineTotalsSum > 0) {
+        if (idx === breakdowns.length - 1) {
+          cartShare = remainingDiscount;
+        } else {
+          cartShare = (cartDiscount * (line.total ?? 0)) / lineTotalsSum;
+          remainingDiscount -= cartShare;
+        }
+      }
+      const lineTotalNet = Math.max(0, (line.total ?? 0) - cartShare);
+      const discountTotal = (line.discount ?? 0) + cartShare;
+      const unitNet = line.quantity > 0 ? lineTotalNet / line.quantity : 0;
+      return { item, line, lineTotalNet, discountTotal, unitNet };
+    });
+  }, [detailCartDiscount, selectedSale?.items]);
+  const adjustedPayments = useMemo(() => {
+    if (!selectedSale?.payments || selectedSale.payments.length === 0) return [];
+    const payments = selectedSale.payments.map((payment) => ({
+      ...payment,
+      displayAmount: payment.amount ?? 0,
+    }));
+    if (saleChangeAmount <= 0) return payments;
+    const cashIndex = payments.findIndex((payment) =>
+      isCashMethod(payment.method)
+    );
+    if (cashIndex === -1) return payments;
+    const cashAmount = payments[cashIndex].displayAmount ?? 0;
+    const changeApplied = Math.min(saleChangeAmount, cashAmount);
+    payments[cashIndex].displayAmount = Math.max(0, cashAmount - changeApplied);
+    return payments;
+  }, [isCashMethod, saleChangeAmount, selectedSale?.payments]);
   const detailSurchargeAmount = Math.max(
     0,
     selectedSale?.surcharge_amount ??
@@ -2020,20 +2072,20 @@ export default function SalesHistoryContent({
           </div>
         </header>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4 text-sm space-y-3">
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-semibold text-slate-200 text-base">
+            <h3 className="font-semibold text-slate-200 text-sm">
               Filtros avanzados
             </h3>
             <button
               type="button"
               onClick={handleClearFilters}
-              className="px-4 py-2 rounded-lg border border-slate-700 text-base text-slate-200 hover:bg-slate-800"
+              className="px-3 py-1.5 rounded-lg border border-slate-700 text-sm text-slate-200 hover:bg-slate-800"
             >
               Limpiar
             </button>
           </div>
-          <div className="flex flex-wrap gap-2 text-base">
+          <div className="flex flex-wrap gap-2 text-sm">
             {quickRangeOptions.map((option) => {
               const isActive = activeQuickRange === option.value;
               return (
@@ -2041,7 +2093,7 @@ export default function SalesHistoryContent({
                   key={option.value}
                   type="button"
                   onClick={() => handleQuickRangeSelect(option.value)}
-                  className={`px-4 py-2 rounded-full border transition ${
+                  className={`px-3 py-1.5 rounded-full border transition ${
                     isActive
                       ? "border-emerald-400 text-emerald-300 bg-emerald-500/10"
                       : "border-slate-700 text-slate-400 hover:text-slate-100 hover:border-slate-500"
@@ -2052,53 +2104,53 @@ export default function SalesHistoryContent({
               );
             })}
           </div>
-          <div className="grid gap-3 md:grid-cols-6">
+          <div className="grid gap-2 md:grid-cols-6">
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Desde</span>
+              <span className="text-slate-400 text-xs">Desde</span>
               <input
                 type="date"
                 value={filterFrom}
                 onChange={(e) => handleManualFromChange(e.target.value)}
                 onFocus={(e) => e.target.showPicker?.()}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Hasta</span>
+              <span className="text-slate-400 text-xs">Hasta</span>
               <input
                 type="date"
                 value={filterTo}
                 onChange={(e) => handleManualToChange(e.target.value)}
                 onFocus={(e) => e.target.showPicker?.()}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Documento / Venta / Producto</span>
+              <span className="text-slate-400 text-xs">Doc. / Venta / Producto</span>
               <input
                 type="text"
                 value={filterTerm}
                 onChange={(e) => setFilterTerm(e.target.value)}
                 placeholder="V-00019, Cabina..."
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Cliente</span>
+              <span className="text-slate-400 text-xs">Cliente</span>
               <input
                 type="text"
                 value={filterClient}
                 onChange={(e) => setFilterClient(e.target.value)}
                 placeholder="Nombre del cliente"
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">POS</span>
+              <span className="text-slate-400 text-xs">POS</span>
               <select
                 value={filterPos}
                 onChange={(e) => setFilterPos(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">Todos</option>
                 {posOptions.map((name) => (
@@ -2109,11 +2161,11 @@ export default function SalesHistoryContent({
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-sm">Método de pago</span>
+              <span className="text-slate-400 text-xs">Método de pago</span>
               <select
                 value={filterPayment}
                 onChange={(e) => setFilterPayment(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">Todos</option>
                 {paymentOptions.map((method) => (
@@ -2596,7 +2648,7 @@ export default function SalesHistoryContent({
                         <div className="text-slate-300">
                           Mixto (pagos múltiples)
                         </div>
-                        {selectedSale.payments!.map((p) => (
+                        {adjustedPayments.map((p) => (
                           <div
                             key={p.id ?? `${p.method}-${p.amount}`}
                             className="flex justify-between"
@@ -2605,7 +2657,10 @@ export default function SalesHistoryContent({
                               {mapPaymentMethod(p.method)}
                             </span>
                             <span className="text-slate-100">
-                              {formatMoney(p.amount)}
+                              {formatMoney(
+                                (p as typeof p & { displayAmount?: number })
+                                  .displayAmount ?? p.amount
+                              )}
                             </span>
                           </div>
                         ))}
@@ -2821,35 +2876,40 @@ export default function SalesHistoryContent({
                     </div>
 
                     <div>
-                      {selectedSale.items.map((item) => {
-                        const breakdown = computeLineBreakdown(item);
-                        const unitDisplay = breakdown.unitGross;
-
+                      {selectedItemDisplayRows.map((row) => {
                         return (
                           <div
-                            key={item.id ?? item.name ?? Math.random()}
+                            key={
+                              row.item.id ??
+                              row.item.name ??
+                              Math.random()
+                            }
                             className="grid grid-cols-[1fr_80px_110px_120px_120px] px-3 py-2 text-lg bg-slate-900/60 border-t border-slate-800/40"
                           >
                             <span className="text-slate-100 truncate">
-                              {item.product_name ?? item.name ?? "Producto"}
+                              {row.item.product_name ??
+                                row.item.name ??
+                                "Producto"}
                             </span>
 
                             <span className="text-right text-slate-200">
-                              {breakdown.quantity}
+                              {row.line.quantity}
                             </span>
 
                             <span className="text-right text-slate-200">
-                              {unitDisplay > 0 ? formatMoney(unitDisplay) : "—"}
+                              {row.unitNet > 0
+                                ? formatMoney(row.unitNet)
+                                : "—"}
                             </span>
 
                             <span className="text-right text-slate-200">
-                              {breakdown.discount > 0
-                                ? `-${formatMoney(breakdown.discount)}`
+                              {row.discountTotal > 0
+                                ? `-${formatMoney(row.discountTotal)}`
                                 : "0"}
                             </span>
 
                             <span className="text-right text-slate-200">
-                              {formatMoney(breakdown.total)}
+                              {formatMoney(row.lineTotalNet)}
                             </span>
                           </div>
                         );
