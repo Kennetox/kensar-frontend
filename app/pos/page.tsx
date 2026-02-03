@@ -630,6 +630,7 @@ const matchesStationLabel = useCallback(
   const [printerScanning, setPrinterScanning] = useState(false);
   const [currentTime, setCurrentTime] = useState("");
   const [currentPeriod, setCurrentPeriod] = useState("");
+  const [currentDateLabel, setCurrentDateLabel] = useState("");
   const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
     printerName: "",
@@ -827,6 +828,8 @@ const matchesStationLabel = useCallback(
       const paddedSeconds = String(second).padStart(2, "0");
       setCurrentTime(`${paddedHours}:${paddedMinutes}:${paddedSeconds}`);
       setCurrentPeriod(ampm);
+      const { day, month, year } = getBogotaDateParts();
+      setCurrentDateLabel(`${day}/${month}/${year}`);
     };
     updateTime();
     const interval = window.setInterval(updateTime, 1000);
@@ -4848,7 +4851,7 @@ const matchesStationLabel = useCallback(
         <div className="min-h-[72px] grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-4 py-3">
           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
             <button
-              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap md:hidden"
+              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap md:hidden"
               onClick={() => setCartDrawerOpen(true)}
             >
               <svg
@@ -4869,7 +4872,7 @@ const matchesStationLabel = useCallback(
             </button>
             {/* Botones estilo Aronium arriba de la pantalla */}
             <button
-              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-rose-600 hover:bg-rose-500 text-white rounded-md text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={handleDeleteSelected}
             >
               <svg
@@ -4891,7 +4894,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Eliminar</span>
             </button>
             <button
-              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={handleOpenQuantityModal}
             >
               <svg
@@ -4912,7 +4915,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Cantidad</span>
             </button>
             <button
-              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => handleOpenDiscountModal()}
             >
               <svg
@@ -4932,7 +4935,7 @@ const matchesStationLabel = useCallback(
               <span className="font-semibold leading-tight">Descuento</span>
             </button>
             <button
-              className="w-[110px] h-[65px] px-4 py-2 text-[14px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-100 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap tracking-tight"
+              className="w-[104px] h-[65px] px-4 py-2 text-[14px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 text-slate-100 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap tracking-tight"
               onClick={handleHoldSaleAndStartNew}
             >
               <svg
@@ -4951,7 +4954,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Nueva venta</span>
             </button>
             <button
-              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => {
                 if (shouldBlockSales) {
                   setClosureReminderOpen(true);
@@ -4976,7 +4979,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Devolución</span>
             </button>
             <button
-              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-cyan-400/70 text-cyan-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => {
                 if (shouldBlockSales) {
                   setClosureReminderOpen(true);
@@ -5002,7 +5005,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Abonos</span>
             </button>
             <button
-              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-amber-400/70 text-amber-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => router.push("/pos/clientes")}
             >
               <svg
@@ -5021,7 +5024,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Cliente</span>
             </button>
             <button
-              className="w-[110px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-200 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => router.push("/pos/cambios")}
             >
               <svg
@@ -5046,12 +5049,6 @@ const matchesStationLabel = useCallback(
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex flex-col items-end gap-1 text-sm">
               <div className="flex items-center gap-2">
-                {currentTime && (
-                  <span className="flex items-center gap-2 text-base text-slate-400 tracking-wide whitespace-nowrap">
-                    <span>{currentTime}</span>
-                    {currentPeriod && <span>{currentPeriod}</span>}
-                  </span>
-                )}
                 <button
                   type="button"
                   onClick={() => void handleManualSync()}
@@ -5409,6 +5406,26 @@ const matchesStationLabel = useCallback(
                             Cerrar pestaña POS
                           </button>
                         </>
+                      )}
+                    </div>
+                    <div className="border-t border-slate-800/60 px-6 py-4">
+                      <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                        Hora actual
+                      </div>
+                      {(currentTime || currentDateLabel) && (
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-base text-slate-200 tracking-wide">
+                          {currentTime && (
+                            <span className="flex items-center gap-2">
+                              <span>{currentTime}</span>
+                              {currentPeriod && <span>{currentPeriod}</span>}
+                            </span>
+                          )}
+                          {currentDateLabel && (
+                            <span className="text-slate-400/80">
+                              {currentDateLabel}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </aside>

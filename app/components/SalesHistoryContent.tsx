@@ -2160,7 +2160,7 @@ export default function SalesHistoryContent({
                 <div className="max-h-[240px] min-h-[160px] overflow-y-auto">
                   {paginatedSales.map((sale, saleIndex) => {
                     const baseGrid =
-                      "grid grid-cols-[90px_190px_1fr_120px_120px_220px] text-base px-3 py-2.5 cursor-pointer";
+                      "grid grid-cols-[90px_190px_1fr_120px_120px_220px] text-[1.05rem] px-3 py-2.5 cursor-pointer";
                     const zebra =
                       saleIndex % 2 === 0
                         ? "bg-slate-950"
