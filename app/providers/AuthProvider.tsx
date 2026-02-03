@@ -60,7 +60,7 @@ type AuthStorageShape = {
 
 export const STORAGE_KEY = "kensar_auth";
 export const LOGOUT_REASON_KEY = "kensar_logout_reason";
-const WEB_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutos
+const WEB_INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000; // 60 minutos
 const SESSION_IDLE_CHECK_MS = 10 * 60 * 1000; // 10 minutos
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);

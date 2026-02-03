@@ -1964,8 +1964,8 @@ export default function SalesHistoryContent({
   };
 
   return (
-    <main className="flex-1 px-6 py-6 text-[0.9rem]">
-      <div className="w-full max-w-7xl mx-auto space-y-5">
+    <main className="flex-1 px-6 pt-5 pb-6 text-[0.9rem]">
+      <div className="w-full max-w-[1400px] mx-auto space-y-3">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center gap-3">
             <button
@@ -1982,18 +1982,18 @@ export default function SalesHistoryContent({
               <h1 className="text-2xl md:text-3xl font-semibold text-slate-50">
                 Historial de ventas
               </h1>
-              <p className="text-sm text-slate-400">
+              <p className="text-base text-slate-400">
                 Listado de las ventas registradas desde el POS de Metrik.
               </p>
               {error && (
-                <p className="text-xs text-red-400 mt-1">
+                <p className="text-sm text-red-400 mt-1">
                   Error: {error}
                 </p>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-xs">
+          <div className="flex items-center gap-3 text-sm">
             {returnPath && (
               <button
                 type="button"
@@ -2012,7 +2012,7 @@ export default function SalesHistoryContent({
               onClick={handleRefresh}
               disabled={loading}
               className="px-5 py-2.5 rounded-lg border border-emerald-400/70
-                         text-emerald-300 text-sm hover:bg-emerald-500/10
+                         text-emerald-300 text-base hover:bg-emerald-500/10
                          disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Refrescar
@@ -2022,18 +2022,18 @@ export default function SalesHistoryContent({
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4 text-sm space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-semibold text-slate-200 text-sm">
+            <h3 className="font-semibold text-slate-200 text-base">
               Filtros avanzados
             </h3>
             <button
               type="button"
               onClick={handleClearFilters}
-              className="px-4 py-2 rounded-lg border border-slate-700 text-sm text-slate-200 hover:bg-slate-800"
+              className="px-4 py-2 rounded-lg border border-slate-700 text-base text-slate-200 hover:bg-slate-800"
             >
               Limpiar
             </button>
           </div>
-          <div className="flex flex-wrap gap-2 text-sm">
+          <div className="flex flex-wrap gap-2 text-base">
             {quickRangeOptions.map((option) => {
               const isActive = activeQuickRange === option.value;
               return (
@@ -2054,51 +2054,51 @@ export default function SalesHistoryContent({
           </div>
           <div className="grid gap-3 md:grid-cols-6">
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-xs">Desde</span>
+              <span className="text-slate-400 text-sm">Desde</span>
               <input
                 type="date"
                 value={filterFrom}
                 onChange={(e) => handleManualFromChange(e.target.value)}
                 onFocus={(e) => e.target.showPicker?.()}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-xs">Hasta</span>
+              <span className="text-slate-400 text-sm">Hasta</span>
               <input
                 type="date"
                 value={filterTo}
                 onChange={(e) => handleManualToChange(e.target.value)}
                 onFocus={(e) => e.target.showPicker?.()}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-xs">Documento / Venta / Producto</span>
+              <span className="text-slate-400 text-sm">Documento / Venta / Producto</span>
               <input
                 type="text"
                 value={filterTerm}
                 onChange={(e) => setFilterTerm(e.target.value)}
                 placeholder="V-00019, Cabina..."
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-xs">Cliente</span>
+              <span className="text-slate-400 text-sm">Cliente</span>
               <input
                 type="text"
                 value={filterClient}
                 onChange={(e) => setFilterClient(e.target.value)}
                 placeholder="Nombre del cliente"
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-xs">POS</span>
+              <span className="text-slate-400 text-sm">POS</span>
               <select
                 value={filterPos}
                 onChange={(e) => setFilterPos(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">Todos</option>
                 {posOptions.map((name) => (
@@ -2109,11 +2109,11 @@ export default function SalesHistoryContent({
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-slate-400 text-xs">Método de pago</span>
+              <span className="text-slate-400 text-sm">Método de pago</span>
               <select
                 value={filterPayment}
                 onChange={(e) => setFilterPayment(e.target.value)}
-                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
+                className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">Todos</option>
                 {paymentOptions.map((method) => (
@@ -2129,25 +2129,25 @@ export default function SalesHistoryContent({
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-4">
           <div className="flex items-center justify-between mb-2">
             <div>
-              <h2 className="text-sm font-semibold text-slate-100">
+              <h2 className="text-base font-semibold text-slate-100">
                 Ventas registradas
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-sm text-slate-400">
                 Cada venta puede tener varios productos, todos listados aquí.
               </p>
             </div>
-            <div className="text-xs text-slate-400">
+            <div className="text-sm text-slate-400">
               Resultados: {loading ? "..." : filteredSales.length}
             </div>
           </div>
 
           {sales.length === 0 && !loading ? (
-            <p className="text-xs text-slate-500 mt-3">
+            <p className="text-sm text-slate-500 mt-3">
               Aún no hay ventas registradas.
             </p>
           ) : (
             <>
-              <div className="grid grid-cols-[90px_190px_1fr_140px_140px_160px] text-xs text-slate-400 mb-1 px-2">
+              <div className="grid grid-cols-[90px_190px_1fr_120px_120px_220px] text-sm text-slate-400 mb-1 px-2">
                 <span>Nº venta</span>
                 <span>Fecha / hora</span>
                 <span>Detalle</span>
@@ -2160,7 +2160,7 @@ export default function SalesHistoryContent({
                 <div className="max-h-[240px] min-h-[160px] overflow-y-auto">
                   {paginatedSales.map((sale, saleIndex) => {
                     const baseGrid =
-                      "grid grid-cols-[90px_190px_1fr_140px_140px_160px] text-xs px-3 py-2.5 cursor-pointer";
+                      "grid grid-cols-[90px_190px_1fr_120px_120px_220px] text-base px-3 py-2.5 cursor-pointer";
                     const zebra =
                       saleIndex % 2 === 0
                         ? "bg-slate-950"
@@ -2233,17 +2233,22 @@ export default function SalesHistoryContent({
                     const netPaid = rowIsSeparated
                       ? separatedPaidFromBalance
                       : saleSummary.paid;
+                    const hasMixedPayments =
+                      (sale.payments?.length ?? 0) > 1;
                     const refundClasses =
                       hasRefund && !isSelected
                         ? "border border-rose-500/40 bg-rose-500/5"
                         : "";
                     return displayItems.map((item, itemIndex) => {
                       const showMain = itemIndex === 0;
-                      const initialMethodLabelForRow = mapPaymentMethod(
-                        sale.initial_payment_method ??
-                          sale.payments?.[0]?.method ??
-                          sale.payment_method
-                      );
+                      const initialMethodLabelForRow =
+                        !rowIsSeparated && hasMixedPayments
+                          ? "Mixto"
+                          : mapPaymentMethod(
+                              sale.initial_payment_method ??
+                                sale.payments?.[0]?.method ??
+                                sale.payment_method
+                            );
                       const abonoPayments =
                         (separatedPaymentsMap[sale.id] ?? []).filter((payment) =>
                           isWithinFilterRange(payment.paid_at)
@@ -2292,17 +2297,17 @@ export default function SalesHistoryContent({
                               " x" +
                               (item.quantity ?? 1)}
                             {showMain && isVoided && (
-                              <span className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full border border-rose-500/50 text-rose-300 bg-rose-500/10">
+                              <span className="text-sm uppercase tracking-wide px-2 py-0.5 rounded-full border border-rose-500/50 text-rose-300 bg-rose-500/10">
                                 Anulada
                               </span>
                             )}
                             {showMain && hasRefund && (
-                              <span className={`text-xs uppercase tracking-wide px-2 py-0.5 rounded-full border ${netTotal <= 0 ? "border-rose-500/50 text-rose-300 bg-rose-500/10" : "border-amber-400/50 text-amber-200 bg-amber-500/10"}`}>
+                              <span className={`text-sm uppercase tracking-wide px-2 py-0.5 rounded-full border ${netTotal <= 0 ? "border-rose-500/50 text-rose-300 bg-rose-500/10" : "border-amber-400/50 text-amber-200 bg-amber-500/10"}`}>
                                 {netTotal <= 0 ? "Devuelta" : "Devolución parcial"}
                               </span>
                             )}
                             {showMain && hasChange && (
-                              <span className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-400/50 text-sky-200 bg-sky-500/10">
+                              <span className="text-sm uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-400/50 text-sky-200 bg-sky-500/10">
                                 Cambio
                               </span>
                             )}
@@ -2311,7 +2316,7 @@ export default function SalesHistoryContent({
                           <div className="text-right font-semibold text-slate-100">
                             {showMain ? formatMoney(netTotal) : ""}
                             {showMain && hasRefund && (
-                              <span className="block text-xs text-rose-300">
+                              <span className="block text-sm text-rose-300">
                                 -{formatMoney(refundAmount)}
                               </span>
                             )}
@@ -2320,7 +2325,7 @@ export default function SalesHistoryContent({
                           <div className="text-right text-slate-200">
                             {showMain ? formatMoney(netPaid) : ""}
                             {showMain && rowIsSeparated && abonoTotal > 0 && (
-                              <span className="block text-xs text-emerald-300">
+                              <span className="block text-sm text-emerald-300">
                                 {abonoRangeLabel}: {formatMoney(abonoTotal)}
                               </span>
                             )}
@@ -2335,17 +2340,17 @@ export default function SalesHistoryContent({
                                     : initialMethodLabelForRow}
                                 </span>
                                 {rowIsSeparated && (
-                                  <span className="text-xs text-slate-500">
+                                  <span className="text-sm text-slate-500">
                                     Inicial: {initialMethodLabelForRow}
                                   </span>
                                 )}
                                 {hasAbonoHighlight && (
-                                  <span className="text-xs uppercase tracking-wide px-2 py-0.5 rounded-full border border-emerald-400/50 text-emerald-200 bg-emerald-500/10">
+                                  <span className="text-sm uppercase tracking-wide px-2 py-0.5 rounded-full border border-emerald-400/50 text-emerald-200 bg-emerald-500/10">
                                     {abonoLabel}
                                   </span>
                                 )}
                                 {sale.customer_name && (
-                                  <span className="text-sm text-slate-400 truncate max-w-[160px]">
+                                  <span className="text-base text-slate-400 truncate max-w-[160px]">
                                     {sale.customer_name}
                                   </span>
                                 )}
@@ -2359,7 +2364,7 @@ export default function SalesHistoryContent({
                 </div>
               </div>
 
-              <div className="mt-2 flex items-center justify-between text-sm text-slate-500">
+              <div className="mt-2 flex items-center justify-between text-base text-slate-500">
                 <span>
                   Página{" "}
                   {filteredSales.length > 0
@@ -2399,7 +2404,7 @@ export default function SalesHistoryContent({
                   onClick={() => setShowSaleDetails((prev) => !prev)}
                   disabled={!selectedSale}
                   aria-expanded={showSaleDetails}
-                  className={`text-sm px-4 py-1.5 rounded-full border transition-colors ${
+                  className={`text-base px-4 py-1.5 rounded-full border transition-colors ${
                     selectedSale
                       ? "border-blue-500 text-blue-100 hover:bg-blue-500/10"
                       : "border-slate-700 text-slate-200"
@@ -2408,7 +2413,7 @@ export default function SalesHistoryContent({
                   {showSaleDetails ? "Mostrar menos" : "Mostrar más"}
                 </button>
               </div>
-              <p className="text-sm text-slate-400">
+              <p className="text-base text-slate-400">
                 Selecciona una venta en la tabla superior (o usa las
                 flechas ↑ / ↓) para ver la información completa.
               </p>
@@ -2419,7 +2424,7 @@ export default function SalesHistoryContent({
                   type="button"
                   onClick={handlePrintTicket}
                   disabled={!canPrintTicket}
-                  className="px-4 py-2.5 rounded-md border border-slate-700 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                  className="px-4 py-2.5 rounded-md border border-slate-700 text-base font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
                 >
                   Imprimir ticket
                 </button>
@@ -2428,7 +2433,7 @@ export default function SalesHistoryContent({
                     type="button"
                     onClick={handlePrintReturnTicket}
                     disabled={returnPrintLoading}
-                    className="px-4 py-2.5 rounded-md border border-slate-700 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                    className="px-4 py-2.5 rounded-md border border-slate-700 text-base font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
                   >
                     {returnPrintLoading ? "Imprimiendo..." : "Imprimir devolución"}
                   </button>
@@ -2438,7 +2443,7 @@ export default function SalesHistoryContent({
                     type="button"
                     onClick={handlePrintChangeTicket}
                     disabled={changePrintLoading}
-                    className="px-4 py-2.5 rounded-md border border-slate-700 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                    className="px-4 py-2.5 rounded-md border border-slate-700 text-base font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
                   >
                     {changePrintLoading ? "Imprimiendo..." : "Imprimir cambio"}
                   </button>
@@ -2447,7 +2452,7 @@ export default function SalesHistoryContent({
                   type="button"
                   onClick={handleEmailTicket}
                   disabled={!canEmailTicket}
-                  className="px-4 py-2.5 rounded-md border border-slate-700 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2.5 rounded-md border border-slate-700 text-base font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {!showEmailForm
                     ? "Enviar por email"
@@ -2458,36 +2463,36 @@ export default function SalesHistoryContent({
               </div>
               {showEmailForm && (
                 <div className="flex flex-col gap-1 w-full sm:w-80">
-                  <label className="flex flex-col text-sm text-slate-400">
+                  <label className="flex flex-col text-base text-slate-400">
                     <span className="mb-1">Enviar ticket a</span>
                     <input
                       type="email"
                       value={emailRecipient}
                       onChange={(e) => setEmailRecipient(e.target.value)}
                       placeholder="cliente@email.com"
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:ring-1 focus:ring-emerald-500"
+                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-100 placeholder:text-slate-500 focus:ring-1 focus:ring-emerald-500"
                       disabled={!selectedSale}
                     />
                   </label>
                   {emailFeedback && (
-                    <p className="text-sm text-emerald-300">
+                    <p className="text-base text-emerald-300">
                       {emailFeedback}
                     </p>
                   )}
                   {emailError && (
-                    <p className="text-sm text-rose-300">
+                    <p className="text-base text-rose-300">
                       {emailError}
                     </p>
                   )}
                 </div>
               )}
               {returnPrintError && (
-                <p className="text-sm text-rose-300">
+                <p className="text-base text-rose-300">
                   {returnPrintError}
                 </p>
               )}
               {changePrintError && (
-                <p className="text-sm text-rose-300">
+                <p className="text-base text-rose-300">
                   {changePrintError}
                 </p>
               )}
@@ -2495,14 +2500,14 @@ export default function SalesHistoryContent({
           </div>
 
           {!selectedSale ? (
-            <div className="h-24 flex items-center justify-center text-sm text-slate-500">
+            <div className="h-24 flex items-center justify-center text-base text-slate-500">
               No hay ninguna venta seleccionada.
             </div>
           ) : (
             <div className="space-y-4">
               {showSaleDetails && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1 text-sm">
+                  <div className="space-y-1 text-base">
                     <div className="flex justify-between">
                       <span className="text-slate-400">Nº venta</span>
                     <span className="font-mono text-slate-100">
@@ -2573,14 +2578,14 @@ export default function SalesHistoryContent({
                       <span className="text-slate-400 block mb-1">
                         Notas
                       </span>
-                      <p className="text-slate-100 text-sm">
+                      <p className="text-slate-100 text-base">
                         {selectedSale.notes}
                       </p>
                     </div>
                   )}
                 </div>
 
-                <div className="space-y-2 text-sm">
+                <div className="space-y-2 text-base">
                   <div>
                     <span className="text-slate-400 block mb-1">
                       Métodos de pago
@@ -2624,7 +2629,7 @@ export default function SalesHistoryContent({
                           </span>
                         </div>
                         {isSeparatedDetail && (
-                          <div className="text-sm text-slate-500">
+                          <div className="text-base text-slate-500">
                             Abono inicial registrado como{" "}
                             {separatedInitialMethodLabel}.
                           </div>
@@ -2638,7 +2643,7 @@ export default function SalesHistoryContent({
                       <span className="text-slate-400 block mb-1">
                         Abonos registrados
                       </span>
-                      <div className="flex justify-between text-sm">
+                      <div className="flex justify-between text-base">
                         <span className="text-slate-300">
                           Saldo pendiente
                         </span>
@@ -2652,20 +2657,20 @@ export default function SalesHistoryContent({
                           {formatMoney(separatedBalance ?? 0)}
                         </span>
                       </div>
-                      <div className="text-sm text-slate-500">
+                      <div className="text-base text-slate-500">
                         Fecha límite: {separatedDueDateLabel}
                       </div>
                       <div className="space-y-2">
                         {separatedPaymentEntries.map((entry) => (
                           <div
                             key={`${entry.label}-${entry.paidAt ?? entry.amount}`}
-                            className="flex items-center justify-between text-sm"
+                            className="flex items-center justify-between text-base"
                           >
                             <div>
                               <div className="text-slate-300 font-semibold">
                                 {entry.label}
                               </div>
-                              <div className="text-sm text-slate-500">
+                              <div className="text-base text-slate-500">
                                 {mapPaymentMethod(entry.method)} ·{" "}
                                 {entry.paidAt
                                   ? formatDateTime(entry.paidAt)
@@ -2691,7 +2696,7 @@ export default function SalesHistoryContent({
                           {selectedSale.refunded_payments.map((p) => (
                             <div
                               key={`${p.method}-${p.amount}`}
-                              className="flex justify-between text-rose-300 text-sm"
+                              className="flex justify-between text-rose-300 text-base"
                             >
                               <span>
                                 {mapPaymentMethod(p.method)}
@@ -2780,7 +2785,7 @@ export default function SalesHistoryContent({
                   </div>
 
                   {hasRefunds && (
-                    <div className="flex justify-between text-sm text-slate-500">
+                    <div className="flex justify-between text-base text-slate-500">
                       <span>Pagado original</span>
                       <span>{formatMoney(originalPaid)}</span>
                     </div>
@@ -2797,17 +2802,17 @@ export default function SalesHistoryContent({
               )}
 
               <div className={showSaleDetails ? "mt-3" : "mt-0"}>
-                <h3 className="text-sm font-semibold text-slate-200 mb-2">
+                <h3 className="text-base font-semibold text-slate-200 mb-2">
                   Productos de la venta
                 </h3>
 
                 {!selectedSale.items || selectedSale.items.length === 0 ? (
-                  <p className="text-sm text-slate-500">
+                  <p className="text-base text-slate-500">
                     No hay productos asociados a esta venta.
                   </p>
                 ) : (
-                  <div className="rounded-xl border border-slate-800/60 overflow-hidden text-sm">
-                    <div className="grid grid-cols-[1fr_80px_110px_120px_120px] bg-slate-950 px-3 py-2 text-sm text-slate-400">
+                  <div className="rounded-xl border border-slate-800/60 overflow-hidden text-lg">
+                    <div className="grid grid-cols-[1fr_80px_110px_120px_120px] bg-slate-950 px-3 py-2 text-lg text-slate-400">
                       <span>Producto</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">P. unitario</span>
@@ -2823,7 +2828,7 @@ export default function SalesHistoryContent({
                         return (
                           <div
                             key={item.id ?? item.name ?? Math.random()}
-                            className="grid grid-cols-[1fr_80px_110px_120px_120px] px-3 py-2 text-sm bg-slate-900/60 border-t border-slate-800/40"
+                            className="grid grid-cols-[1fr_80px_110px_120px_120px] px-3 py-2 text-lg bg-slate-900/60 border-t border-slate-800/40"
                           >
                             <span className="text-slate-100 truncate">
                               {item.product_name ?? item.name ?? "Producto"}
@@ -2856,11 +2861,11 @@ export default function SalesHistoryContent({
 
               {latestSelectedChange?.items_new?.length ? (
                 <div className="mt-4">
-                  <h3 className="text-sm font-semibold text-slate-200 mb-2">
+                  <h3 className="text-base font-semibold text-slate-200 mb-2">
                     Productos del cambio
                   </h3>
-                  <div className="rounded-xl border border-slate-800/60 overflow-hidden text-sm">
-                    <div className="grid grid-cols-[1fr_80px_110px_120px] bg-slate-950 px-3 py-2 text-sm text-slate-400">
+                  <div className="rounded-xl border border-slate-800/60 overflow-hidden text-base">
+                    <div className="grid grid-cols-[1fr_80px_110px_120px] bg-slate-950 px-3 py-2 text-base text-slate-400">
                       <span>Producto</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">P. unitario</span>
@@ -2870,7 +2875,7 @@ export default function SalesHistoryContent({
                       {latestSelectedChange.items_new.map((item) => (
                         <div
                           key={`change-new-${item.id}`}
-                          className="grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-sm bg-slate-900/60 border-t border-slate-800/40"
+                          className="grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base bg-slate-900/60 border-t border-slate-800/40"
                         >
                           <span className="text-slate-100 truncate">
                             {item.product_name}
@@ -2893,11 +2898,11 @@ export default function SalesHistoryContent({
 
               {latestSelectedChange?.items_returned?.length ? (
                 <div className="mt-4">
-                  <h3 className="text-sm font-semibold text-slate-200 mb-2">
+                  <h3 className="text-base font-semibold text-slate-200 mb-2">
                     Productos devueltos en el cambio
                   </h3>
-                  <div className="rounded-xl border border-slate-800/60 overflow-hidden text-sm">
-                    <div className="grid grid-cols-[1fr_80px_110px_120px] bg-slate-950 px-3 py-2 text-sm text-slate-400">
+                  <div className="rounded-xl border border-slate-800/60 overflow-hidden text-base">
+                    <div className="grid grid-cols-[1fr_80px_110px_120px] bg-slate-950 px-3 py-2 text-base text-slate-400">
                       <span>Producto</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">P. unitario</span>
@@ -2907,7 +2912,7 @@ export default function SalesHistoryContent({
                       {latestSelectedChange.items_returned.map((item, index) => (
                         <div
                           key={`change-return-${item.product_name}-${index}`}
-                          className="grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-sm bg-slate-900/60 border-t border-slate-800/40"
+                          className="grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base bg-slate-900/60 border-t border-slate-800/40"
                         >
                           <span className="text-slate-100 truncate">
                             {item.product_name}

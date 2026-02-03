@@ -47,7 +47,7 @@ export default function CustomerPanel({
 }: CustomerPanelProps) {
   const { selectedCustomer, setSelectedCustomer } = usePos();
   const { token } = useAuth();
-  const [mode, setMode] = useState<"none" | "search" | "new">("none");
+  const [mode, setMode] = useState<"list" | "new">("list");
   const [customers, setCustomers] = useState<ApiCustomer[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [form, setForm] = useState<CustomerForm>(EMPTY_FORM);
@@ -129,7 +129,7 @@ export default function CustomerPanel({
   }, [authHeaders, fetchCustomers]);
 
   useEffect(() => {
-    if (mode !== "search") return;
+    if (mode === "new") return;
     const handler = setTimeout(() => {
       void fetchCustomers(search, 0);
     }, 400);
@@ -144,7 +144,7 @@ export default function CustomerPanel({
 
   function handleSelectCustomer(customer: ApiCustomer) {
     setSelectedCustomer(mapCustomer(customer));
-    setMode("none");
+    setMode("list");
     setFeedback(null);
     if (onCustomerSelected) {
       onCustomerSelected(mapCustomer(customer));
@@ -195,7 +195,7 @@ export default function CustomerPanel({
       if (!res.ok) throw new Error(`Error ${res.status}`);
       const saved: ApiCustomer = await res.json();
       setForm(EMPTY_FORM);
-      setMode("none");
+      setMode("list");
       setDuplicateOverride(false);
       setPendingDuplicateMatches([]);
       setEditingCustomer(null);
@@ -262,15 +262,17 @@ export default function CustomerPanel({
     setSelectedCustomer(null);
   }
 
-  function toggleMode(next: "search" | "new") {
+  function toggleMode(next: "new") {
     setFeedback(null);
     setDuplicateOverride(false);
     setPendingDuplicateMatches([]);
-    if (next === "search") {
+    if (next === "new" && mode === "new") {
       setEditingCustomer(null);
       setForm(EMPTY_FORM);
+      setMode("list");
+      return;
     }
-    setMode((prev) => (prev === next ? "none" : next));
+    setMode("new");
   }
 
   const handleEditCustomer = (customer: ApiCustomer) => {
@@ -403,7 +405,7 @@ export default function CustomerPanel({
 
   const listContainerClass =
     variant === "page"
-      ? "flex-1 min-h-[22rem] max-h-[22rem] overflow-y-auto rounded-2xl border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
+      ? "flex-1 min-h-[28rem] overflow-y-auto rounded-2xl border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
       : "flex-1 min-h-[12rem] overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60";
 
   return (
@@ -456,33 +458,20 @@ export default function CustomerPanel({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mt-5">
-            <button
-              type="button"
-              onClick={() => toggleMode("search")}
-              className={`rounded-xl border px-5 py-3.5 text-base font-semibold transition ${
-                mode === "search"
-                  ? "border-sky-400 bg-sky-500/10 text-sky-100 shadow-inner"
-                  : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-              }`}
-            >
-              Cliente existente
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleMode("new")}
-              className={`rounded-xl border px-5 py-3.5 text-base font-semibold transition ${
-                mode === "new"
-                  ? "border-emerald-400 bg-emerald-500/10 text-emerald-100 shadow-inner"
-                  : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-              }`}
-            >
-              Nuevo cliente
-            </button>
-          </div>
-
-          {mode === "search" && (
+          {mode !== "new" && (
             <div className="mt-5 text-sm flex flex-col gap-4 min-h-[14rem] flex-1">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs uppercase tracking-wide text-slate-400">
+                  Clientes existentes
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleMode("new")}
+                  className="rounded-xl border px-5 py-2.5 text-base font-semibold transition border-emerald-400 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
+                >
+                  Nuevo cliente
+                </button>
+              </div>
               <div>
                 <label className="text-xs text-slate-400">Buscar</label>
                 <input
@@ -564,6 +553,18 @@ export default function CustomerPanel({
 
           {mode === "new" && (
             <form onSubmit={handleCreateCustomer} className="mt-5 space-y-4 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs uppercase tracking-wide text-slate-400">
+                  Nuevo cliente
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleMode("new")}
+                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                >
+                  Volver a la lista
+                </button>
+              </div>
               {editingCustomer && (
                 <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-200">
                   Editando: <span className="font-semibold">{editingCustomer.name}</span>
