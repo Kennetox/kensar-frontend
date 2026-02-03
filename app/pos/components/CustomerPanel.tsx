@@ -68,7 +68,7 @@ export default function CustomerPanel({
   );
   const apiBase = getApiBase();
   const lastQueryRef = useRef("");
-  const PAGE_SIZE = 25;
+  const PAGE_SIZE = 7;
 
   const mapCustomer = useCallback((customer: ApiCustomer): PosCustomer => {
     return {
@@ -405,7 +405,7 @@ export default function CustomerPanel({
 
   const listContainerClass =
     variant === "page"
-      ? "flex-1 min-h-[28rem] overflow-y-auto rounded-2xl border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
+      ? "flex-1 min-h-[22rem] max-h-[22rem] overflow-y-auto rounded-2xl border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
       : "flex-1 min-h-[12rem] overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60";
 
   return (
