@@ -149,10 +149,13 @@ export default function ProductsPage() {
   // paginación
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 100;
+  const PRODUCTS_FILTERS_STORAGE_KEY = "metrik_products_filters_v1";
 
   // importar / exportar
   const [importOpen, setImportOpen] = useState(false);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<"filtered" | "all">("all");
+  const [exportFileName, setExportFileName] = useState("productos");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
@@ -172,9 +175,9 @@ export default function ProductsPage() {
   const [productTileColorValue, setProductTileColorValue] =
     useState<string>(DEFAULT_TILE_COLOR);
   const [showAppearanceSettings, setShowAppearanceSettings] = useState(false);
+  const isRestoringFiltersRef = useRef(true);
 
-  // ref para cerrar menú de export
-  const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  // refs
   const imageManagerFileInputRef = useRef<HTMLInputElement | null>(null);
   const productImageInputRef = useRef<HTMLInputElement | null>(null);
   const tableWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -186,34 +189,128 @@ export default function ProductsPage() {
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
   );
+  const exportableColumns = useMemo(
+    () => [
+      { key: "sku", label: "SKU", required: true },
+      { key: "name", label: "Nombre", required: true },
+      { key: "id", label: "ID" },
+      { key: "group_name", label: "Grupo" },
+      { key: "brand", label: "Marca" },
+      { key: "supplier", label: "Proveedor" },
+      { key: "price", label: "Precio" },
+      { key: "cost", label: "Costo" },
+      { key: "barcode", label: "Código barras" },
+      { key: "unit", label: "Unidad" },
+      { key: "preferred_qty", label: "Cant. preferida" },
+      { key: "reorder_point", label: "Punto pedido" },
+      { key: "stock_min", label: "Stock mínimo" },
+      { key: "low_stock_alert", label: "Alerta stock" },
+      { key: "allow_price_change", label: "Cambio $ permitido" },
+      { key: "active", label: "Activo" },
+      { key: "service", label: "Servicio" },
+      { key: "includes_tax", label: "IVA incl." },
+    ],
+    []
+  );
+  const [selectedExportColumns, setSelectedExportColumns] = useState(() => {
+    const initial: Record<string, boolean> = {};
+    exportableColumns.forEach((col) => {
+      initial[col.key] = true;
+    });
+    return initial;
+  });
 
   // cerrar menú de exportar al hacer click fuera
-  useEffect(() => {
-    if (!exportMenuOpen) return;
-
-    function handleClickOutside(e: MouseEvent) {
-      if (
-        exportMenuRef.current &&
-        !exportMenuRef.current.contains(e.target as Node)
-      ) {
-        setExportMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [exportMenuOpen]);
 
   // debounce de búsqueda
   useEffect(() => {
+    if (isRestoringFiltersRef.current) {
+      setSearch(searchInput);
+      return;
+    }
     const id = window.setTimeout(() => {
       setSearch(searchInput);
     }, 200);
     return () => window.clearTimeout(id);
   }, [searchInput]);
 
+  // restaurar filtros mientras la sesión esté activa
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    isRestoringFiltersRef.current = true;
+    try {
+      const raw = window.sessionStorage.getItem(PRODUCTS_FILTERS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as {
+          searchInput?: string;
+          search?: string;
+          showOnlyActive?: boolean;
+          selectedGroupFilter?: string;
+          selectedBrand?: string;
+          selectedSupplier?: string;
+          priceMinInput?: string;
+          priceMaxInput?: string;
+          sortOption?: SortOption;
+          page?: number;
+        };
+        setSearchInput(parsed.searchInput ?? "");
+        setSearch(parsed.search ?? parsed.searchInput ?? "");
+        setShowOnlyActive(Boolean(parsed.showOnlyActive));
+        setSelectedGroupFilter(parsed.selectedGroupFilter ?? "");
+        setSelectedBrand(parsed.selectedBrand ?? "");
+        setSelectedSupplier(parsed.selectedSupplier ?? "");
+        setPriceMinInput(parsed.priceMinInput ?? "");
+        setPriceMaxInput(parsed.priceMaxInput ?? "");
+        setSortOption(parsed.sortOption ?? "recent");
+        setPage(
+          typeof parsed.page === "number" && parsed.page > 0 ? parsed.page : 1
+        );
+      }
+    } catch {
+      // ignore storage errors
+    } finally {
+      window.setTimeout(() => {
+        isRestoringFiltersRef.current = false;
+      }, 0);
+    }
+  }, []);
+
+  // persistir filtros mientras la sesión esté activa
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isRestoringFiltersRef.current) return;
+    const payload = {
+      searchInput,
+      search,
+      showOnlyActive,
+      selectedGroupFilter,
+      selectedBrand,
+      selectedSupplier,
+      priceMinInput,
+      priceMaxInput,
+      sortOption,
+      page,
+    };
+    window.sessionStorage.setItem(
+      PRODUCTS_FILTERS_STORAGE_KEY,
+      JSON.stringify(payload)
+    );
+  }, [
+    searchInput,
+    search,
+    showOnlyActive,
+    selectedGroupFilter,
+    selectedBrand,
+    selectedSupplier,
+    priceMinInput,
+    priceMaxInput,
+    sortOption,
+    page,
+  ]);
+
   // reset de página cuando cambian filtros
   useEffect(() => {
+    if (isRestoringFiltersRef.current) return;
     setPage(1);
   }, [
     search,
@@ -261,6 +358,15 @@ export default function ProductsPage() {
     const parsed = Number.parseFloat(normalized);
     return Number.isNaN(parsed) ? 0 : parsed;
   }
+
+  const optionalExportKeys = useMemo(
+    () => exportableColumns.filter((col) => !col.required).map((col) => col.key),
+    [exportableColumns]
+  );
+  const allOptionalSelected = useMemo(
+    () => optionalExportKeys.every((key) => selectedExportColumns[key]),
+    [optionalExportKeys, selectedExportColumns]
+  );
 
   function handleMoneyChange(
     e: ChangeEvent<HTMLInputElement>,
@@ -1219,28 +1325,50 @@ export default function ProductsPage() {
     }
   }
 
-  // exportar
   async function handleExport(format: "xlsx" | "csv") {
-    setExportMenuOpen(false);
+    setExportDialogOpen(false);
     if (!authHeaders) {
       setError("Debes iniciar sesión para exportar.");
       return;
     }
-    const url =
-      format === "xlsx"
-        ? `${API_BASE}/products/export/xlsx`
-        : `${API_BASE}/products/export/csv`;
     try {
-      const res = await fetch(url, {
-        headers: authHeaders,
+      const selectedKeys = exportableColumns
+        .filter((col) => col.required || selectedExportColumns[col.key])
+        .map((col) => col.key);
+      if (selectedKeys.length === 0) {
+        setError("Selecciona al menos una columna para exportar.");
+        return;
+      }
+
+      const payload = {
+        scope: exportScope,
+        search: exportScope === "filtered" ? search : "",
+        show_only_active:
+          exportScope === "filtered" ? showOnlyActive : false,
+        group: exportScope === "filtered" ? selectedGroupFilter : "",
+        brand: exportScope === "filtered" ? selectedBrand : "",
+        supplier: exportScope === "filtered" ? selectedSupplier : "",
+        price_min: exportScope === "filtered" ? priceMinInput : "",
+        price_max: exportScope === "filtered" ? priceMaxInput : "",
+        columns: selectedKeys,
+        file_name: exportFileName.trim() || "productos",
+      };
+      const res = await fetch(`${API_BASE}/products/export/${format}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
         credentials: "include",
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(`Error ${res.status} al exportar`);
       const blob = await res.blob();
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
+      const safeName = exportFileName.trim() || "productos";
       link.href = downloadUrl;
-      link.download = format === "xlsx" ? "productos.xlsx" : "productos.csv";
+      link.download = `${safeName}.${format}`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1410,6 +1538,44 @@ export default function ProductsPage() {
     priceMinInput.trim() !== "" ||
     priceMaxInput.trim() !== "";
 
+  const buildExportFileName = useCallback(() => {
+    const parts: string[] = ["productos"];
+    if (exportScope === "filtered" && hasActiveFilters) {
+      if (search) parts.push(`q-${search}`);
+      if (showOnlyActive) parts.push("activos");
+      if (selectedGroupFilter) parts.push(`grupo-${selectedGroupFilter}`);
+      if (selectedBrand) parts.push(`marca-${selectedBrand}`);
+      if (selectedSupplier) parts.push(`prov-${selectedSupplier}`);
+      if (priceMinInput || priceMaxInput) {
+        parts.push(
+          `precio-${priceMinInput || "0"}-${priceMaxInput || "max"}`
+        );
+      }
+    }
+    const raw = parts.join("_");
+    return raw
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-_]/g, "")
+      .replace(/-+/g, "-");
+  }, [
+    exportScope,
+    hasActiveFilters,
+    search,
+    showOnlyActive,
+    selectedGroupFilter,
+    selectedBrand,
+    selectedSupplier,
+    priceMinInput,
+    priceMaxInput,
+  ]);
+
+  useEffect(() => {
+    if (!exportDialogOpen) return;
+    setExportScope(hasActiveFilters ? "filtered" : "all");
+    setExportFileName(buildExportFileName());
+  }, [exportDialogOpen, hasActiveFilters, buildExportFileName]);
+
   const clearFilters = () => {
     setSearchInput("");
     setSearch("");
@@ -1498,31 +1664,12 @@ export default function ProductsPage() {
               Importar
             </button>
 
-            <div className="relative" ref={exportMenuRef}>
-              <button
-                onClick={() => setExportMenuOpen((prev) => !prev)}
-                className="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-800 px-3 py-2 text-sm text-slate-100"
-              >
-                Exportar
-                <span className="ml-1 text-xs">▾</span>
-              </button>
-              {exportMenuOpen && (
-                <div className="absolute right-0 mt-1 w-40 rounded-md border border-slate-700 bg-slate-900 text-sm shadow-lg z-10">
-                  <button
-                    onClick={() => handleExport("xlsx")}
-                    className="w-full text-left px-3 py-2 hover:bg-slate-800"
-                  >
-                    Excel (.xlsx)
-                  </button>
-                  <button
-                    onClick={() => handleExport("csv")}
-                    className="w-full text-left px-3 py-2 hover:bg-slate-800"
-                  >
-                    CSV (.csv)
-                  </button>
-                </div>
-              )}
-            </div>
+            <button
+              onClick={() => setExportDialogOpen(true)}
+              className="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-800 px-3 py-2 text-sm text-slate-100"
+            >
+              Exportar
+            </button>
 
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-400">Ordenar por:</span>
@@ -2916,6 +3063,150 @@ export default function ProductsPage() {
                 className="px-4 py-2 text-sm rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:bg-emerald-700 font-semibold text-slate-950"
               >
                 {importing ? "Importando..." : "Importar archivo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {exportDialogOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center px-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-100">
+                  Exportar productos
+                </h3>
+                <p className="text-sm text-slate-400">
+                  Elige qué datos exportar y en qué formato.
+                </p>
+              </div>
+              <button
+                onClick={() => setExportDialogOpen(false)}
+                className="text-slate-400 hover:text-slate-200 text-xl"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-5">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
+                <div className="text-xs uppercase tracking-wide text-slate-500">
+                  Alcance
+                </div>
+                <label className="flex items-center gap-3 text-sm text-slate-200">
+                  <input
+                    type="radio"
+                    name="export-scope"
+                    value="filtered"
+                    checked={exportScope === "filtered"}
+                    onChange={() => setExportScope("filtered")}
+                    className="accent-emerald-400"
+                  />
+                  Exportar resultados filtrados ({filteredProducts.length})
+                </label>
+                <label className="flex items-center gap-3 text-sm text-slate-200">
+                  <input
+                    type="radio"
+                    name="export-scope"
+                    value="all"
+                    checked={exportScope === "all"}
+                    onChange={() => setExportScope("all")}
+                    className="accent-emerald-400"
+                  />
+                  Exportar todo el catálogo ({products.length})
+                </label>
+                {!hasActiveFilters && (
+                  <p className="text-xs text-slate-500">
+                    No hay filtros activos. Exportar filtrados equivale a todo el catálogo.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">
+                    Columnas
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={allOptionalSelected}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setSelectedExportColumns((prev) => {
+                          const next = { ...prev };
+                          optionalExportKeys.forEach((key) => {
+                            next[key] = checked;
+                          });
+                          return next;
+                        });
+                      }}
+                      className="accent-emerald-400"
+                    />
+                    Seleccionar todas
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {exportableColumns.map((col) => (
+                    <label
+                      key={col.key}
+                      className="flex items-center gap-2 text-sm text-slate-200"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedExportColumns[col.key]}
+                        disabled={Boolean(col.required)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setSelectedExportColumns((prev) => ({
+                            ...prev,
+                            [col.key]: checked,
+                          }));
+                        }}
+                        className="accent-emerald-400"
+                      />
+                      {col.label}
+                      {col.required && (
+                        <span className="text-xs text-emerald-300">(obligatoria)</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-2">
+                <div className="text-xs uppercase tracking-wide text-slate-500">
+                  Nombre de archivo
+                </div>
+                <input
+                  value={exportFileName}
+                  onChange={(e) => setExportFileName(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+                  placeholder="productos_filtros"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                onClick={() => setExportDialogOpen(false)}
+                className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleExport("csv")}
+                className="px-4 py-2 text-sm rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800"
+              >
+                Exportar CSV
+              </button>
+              <button
+                onClick={() => handleExport("xlsx")}
+                className="px-4 py-2 text-sm rounded-lg bg-emerald-500 hover:bg-emerald-400 font-semibold text-slate-950"
+              >
+                Exportar Excel
               </button>
             </div>
           </div>
