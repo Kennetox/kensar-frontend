@@ -119,7 +119,12 @@ export default function PagoPage() {
   const [method, setMethod] = useState<PaymentMethodSlug>("cash");
   const [paidValue, setPaidValue] = useState<string>("0");
   const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(
+    null
+  );
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
 
   const [successSale, setSuccessSale] = useState<SuccessSaleSummary | null>(null);
 
@@ -145,6 +150,32 @@ export default function PagoPage() {
     showDrawerButton: true,
   });
   const handleConfirmRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const showToast = useCallback((message: string, duration = 2600) => {
+    if (toastTimerRef.current.hide) {
+      window.clearTimeout(toastTimerRef.current.hide);
+    }
+    if (toastTimerRef.current.remove) {
+      window.clearTimeout(toastTimerRef.current.remove);
+    }
+    setToast({ id: Date.now(), message });
+    setToastVisible(false);
+    requestAnimationFrame(() => setToastVisible(true));
+    toastTimerRef.current.hide = window.setTimeout(
+      () => setToastVisible(false),
+      duration
+    );
+    toastTimerRef.current.remove = window.setTimeout(
+      () => setToast(null),
+      duration + 260
+    );
+  }, []);
+  const setErrorWithToast = useCallback(
+    (message: string) => {
+      setError(message);
+      showToast(message);
+    },
+    [showToast]
+  );
   const parseEmails = (value: string) =>
     value
       .split(/[\n,]/)
@@ -494,6 +525,7 @@ export default function PagoPage() {
     };
   }, [token]);
 
+
   // Enfocar input cuando el método requiere monto manual
   useEffect(() => {
     if (requiresManualAmount && paidInputRef.current) {
@@ -555,23 +587,27 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       setMessage(null);
 
       if (!cart.length) {
-        setError("No hay productos en el carrito.");
+        setErrorWithToast("No hay productos en el carrito.");
         return;
       }
 
       if (isSeparatedSale && !separatedPaymentMethod) {
-        setError("Selecciona el método del abono inicial para este separado.");
+        setErrorWithToast(
+          "Selecciona el método del abono inicial para este separado."
+        );
         return;
       }
 
       // Solo validamos que el efectivo no sea menor al total
       if (!isCreditLike && allowsChange && paidNumber < totalToPay) {
-        setError("El monto pagado en efectivo no puede ser menor al total.");
+        setErrorWithToast(
+          "El monto pagado en efectivo no puede ser menor al total."
+        );
         return;
       }
 
       if (!saleNumber || Number.isNaN(saleNumber)) {
-        setError(
+        setErrorWithToast(
           "No se pudo obtener el consecutivo de venta. Intentando nuevamente…"
         );
         await refreshSaleNumber();
@@ -602,7 +638,9 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
 
       if (!reservationId) {
         if (!isOnline) {
-          setError("Necesitas conexión para reservar el número de venta.");
+          setErrorWithToast(
+            "Necesitas conexión para reservar el número de venta."
+          );
           return;
         }
         const reservationRes = await fetch(`${apiBase}/pos/sales/reserve-number`, {
@@ -765,7 +803,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         clearSale();
         setSuccessSale(null);
         setMessage(null);
-        setError(
+        setErrorWithToast(
           customMessage ??
             "Guardamos la venta como pendiente. Se enviará cuando vuelva la conexión."
         );
@@ -1045,7 +1083,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         err instanceof Error
           ? err.message
           : "Error al registrar la venta.";
-      setError(msg);
+      setErrorWithToast(msg);
       setMessage(null);
     }
   }
@@ -1140,11 +1178,11 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   async function printTicketWithQz(html: string): Promise<boolean> {
     if (printerConfig.mode !== "qz-tray") return false;
     if (!printerConfig.printerName.trim()) {
-      setError("Selecciona la impresora en Configurar impresora.");
+      setErrorWithToast("Selecciona la impresora en Configurar impresora.");
       return false;
     }
     if (!qzClient) {
-      setError("No detectamos QZ Tray. Ábrelo y autoriza este dominio.");
+      setErrorWithToast("No detectamos QZ Tray. Ábrelo y autoriza este dominio.");
       return false;
     }
     try {
@@ -1163,7 +1201,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       return true;
     } catch (err) {
       console.error(err);
-      setError(
+      setErrorWithToast(
         err instanceof Error
           ? `No se pudo imprimir con QZ Tray: ${err.message}`
           : "No se pudo imprimir con QZ Tray."
@@ -1662,12 +1700,6 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   {message}
                 </div>
               )}
-
-              {error && (
-                <div className="mt-3 text-xs text-red-400 bg-red-500/10 border border-red-500/40 rounded-md px-3 py-2">
-                  {error}
-                </div>
-              )}
             </div>
           </div>
 
@@ -1705,6 +1737,22 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         {/* Panel derecho: cliente */}
         <CustomerPanel />
       </div>
+
+      {toast && (
+        <div className="fixed right-8 top-24 z-40 w-[360px] max-w-[90vw]">
+          <div
+            className={
+              "rounded-2xl border border-rose-400/40 bg-slate-900/80 px-4 py-3 text-rose-100 shadow-[0_16px_40px_rgba(15,23,42,0.45)] backdrop-blur transition-all duration-300 " +
+              (toastVisible
+                ? "translate-x-0 opacity-100"
+                : "translate-x-4 opacity-0")
+            }
+          >
+            <div className="text-sm font-semibold">Error</div>
+            <p className="mt-1 text-sm text-slate-100/90">{toast.message}</p>
+          </div>
+        </div>
+      )}
 
       {/* Modal de éxito de venta */}
       {successSale && (
