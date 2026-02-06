@@ -60,6 +60,7 @@ type DashboardSummary = {
   month_avg_ticket: number;
   payment_methods: PaymentMethodSummary[];
   last_7_days: SalesTrendPoint[];
+  trend_days?: SalesTrendPoint[];
 };
 
 type RecentSaleItem = {
@@ -171,6 +172,9 @@ export default function DashboardHomePage() {
     const { year } = getBogotaDateParts();
     return Number(year);
   }, []);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [yearOffset, setYearOffset] = useState(0);
+  const selectedYear = currentYear + yearOffset;
   // Resumen principal
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -261,7 +265,7 @@ export default function DashboardHomePage() {
       setYearTrendError(null);
       const apiBase = getApiBase();
       const res = await fetch(
-        `${apiBase}/dashboard/monthly-sales?year=${currentYear}`,
+        `${apiBase}/dashboard/monthly-sales?year=${selectedYear}`,
         {
           headers: authHeaders,
           credentials: "include",
@@ -288,7 +292,7 @@ export default function DashboardHomePage() {
         (_, index) => {
           const current = map.get(index);
           const month = String(index + 1).padStart(2, "0");
-          const date = buildBogotaDateFromKey(`${currentYear}-${month}-01`);
+          const date = buildBogotaDateFromKey(`${selectedYear}-${month}-01`);
           return {
             date: date.toISOString(),
             total: current?.total ?? 0,
@@ -307,7 +311,7 @@ export default function DashboardHomePage() {
     } finally {
       setYearTrendLoading(false);
     }
-  }, [authHeaders, currentYear]);
+  }, [authHeaders, selectedYear]);
 
   const loadSeparatedOrders = useCallback(async () => {
     if (!token) return;
@@ -358,6 +362,13 @@ export default function DashboardHomePage() {
     const jsDay = todayStart.getUTCDay();
     const diffToMonday = (jsDay + 6) % 7;
     const monday = new Date(todayStart);
+    monday.setUTCDate(todayStart.getUTCDate() - diffToMonday + weekOffset * 7);
+    return monday;
+  }, [todayStart, weekOffset]);
+  const currentWeekStart = useMemo(() => {
+    const jsDay = todayStart.getUTCDay();
+    const diffToMonday = (jsDay + 6) % 7;
+    const monday = new Date(todayStart);
     monday.setUTCDate(todayStart.getUTCDate() - diffToMonday);
     return monday;
   }, [todayStart]);
@@ -369,36 +380,33 @@ export default function DashboardHomePage() {
     (baseTotal: number) => Math.max(0, baseTotal),
     []
   );
-  const weekPoints = useMemo(() => {
-    if (!data) return [];
-
+  const trendDayMap = useMemo(() => {
     const map = new Map<string, { total: number; tickets: number }>();
-
-    if (data.last_7_days && data.last_7_days.length > 0) {
-      data.last_7_days.forEach((p) => {
-        const key = getBogotaDateKey(p.date);
-        if (!key) return;
-        const existing = map.get(key);
-        if (existing) {
-          existing.total += p.total;
-          existing.tickets += p.tickets;
-        } else {
-          map.set(key, { total: p.total, tickets: p.tickets });
-        }
-      });
-    }
-
-    const jsDay = todayStart.getUTCDay();
-    const diffToMonday = (jsDay + 6) % 7;
-    const monday = new Date(todayStart);
-    monday.setUTCDate(todayStart.getUTCDate() - diffToMonday);
-
+    if (!data) return map;
+    const trendDays = data.trend_days?.length
+      ? data.trend_days
+      : data.last_7_days ?? [];
+    trendDays.forEach((p) => {
+      const key = getBogotaDateKey(p.date);
+      if (!key) return;
+      const existing = map.get(key);
+      if (existing) {
+        existing.total += p.total;
+        existing.tickets += p.tickets;
+      } else {
+        map.set(key, { total: p.total, tickets: p.tickets });
+      }
+    });
+    return map;
+  }, [data]);
+  const weekPoints = useMemo(() => {
+    if (!trendDayMap.size) return [];
     const result: SalesTrendPoint[] = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setUTCDate(monday.getUTCDate() + i);
+      const d = new Date(weekStart);
+      d.setUTCDate(weekStart.getUTCDate() + i);
       const key = getBogotaDateKey(d);
-      const fromMap = map.get(key);
+      const fromMap = trendDayMap.get(key);
       const baseTotal = fromMap?.total ?? 0;
       const adjustedTotal = adjustTotalForDate(baseTotal);
       result.push({
@@ -409,7 +417,25 @@ export default function DashboardHomePage() {
     }
 
     return result;
-  }, [data, adjustTotalForDate, todayStart]);
+  }, [adjustTotalForDate, trendDayMap, weekStart]);
+  const currentWeekPoints = useMemo(() => {
+    if (!trendDayMap.size) return [];
+    const result: SalesTrendPoint[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(currentWeekStart);
+      d.setUTCDate(currentWeekStart.getUTCDate() + i);
+      const key = getBogotaDateKey(d);
+      const fromMap = trendDayMap.get(key);
+      const baseTotal = fromMap?.total ?? 0;
+      const adjustedTotal = adjustTotalForDate(baseTotal);
+      result.push({
+        date: d.toISOString(),
+        total: adjustedTotal,
+        tickets: fromMap?.tickets ?? 0,
+      });
+    }
+    return result;
+  }, [adjustTotalForDate, currentWeekStart, trendDayMap]);
 
   const adjustedYearTrend = useMemo(
     () =>
@@ -446,6 +472,10 @@ export default function DashboardHomePage() {
     if (tickets <= 0) return 0;
     return adjustedMonthSales / tickets;
   }, [data, adjustedMonthSales]);
+  const adjustedWeekSales = useMemo(
+    () => currentWeekPoints.reduce((sum, point) => sum + point.total, 0),
+    [currentWeekPoints]
+  );
 
   const chartPoints = trendMode === "week" ? weekPoints : adjustedYearTrend;
 
@@ -486,7 +516,7 @@ export default function DashboardHomePage() {
       ? weekRangeLabel
         ? `Semana ${weekRangeLabel}`
         : null
-      : `Año ${currentYear}`;
+      : `Año ${selectedYear}`;
   const chartLoading = trendMode === "week" ? loading : yearTrendLoading;
   const chartEmptyMessage =
     trendMode === "week"
@@ -782,7 +812,7 @@ export default function DashboardHomePage() {
         </header>
 
         {/* KPIs principales */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Ventas hoy */}
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
@@ -848,6 +878,23 @@ export default function DashboardHomePage() {
             </div>
           </div>
 
+          {/* Ventas semana actual */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
+            <div className="text-xs font-medium text-slate-400">
+              Ventas semana actual (movimientos)
+            </div>
+            {showSummarySkeleton ? (
+              <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
+            ) : (
+              <div className="mt-2 text-2xl font-semibold text-emerald-300">
+                {formatMoney(adjustedWeekSales)}
+              </div>
+            )}
+            <div className="mt-1 text-[11px] text-slate-400">
+              Lunes a domingo.
+            </div>
+          </div>
+
           {/* Ticket promedio mes */}
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
@@ -889,7 +936,7 @@ export default function DashboardHomePage() {
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-1 text-[11px]">
+              <div className="flex items-center gap-2 text-[11px]">
                 {([
                   { id: "week", label: "Semana" },
                   { id: "year", label: "Meses" },
@@ -908,6 +955,108 @@ export default function DashboardHomePage() {
                   </button>
                 ))}
               </div>
+              {trendMode === "week" ? (
+                <div className="flex items-center gap-2 text-[11px]">
+                  <button
+                    type="button"
+                    aria-label="Semana anterior"
+                    onClick={() => setWeekOffset(-1)}
+                    disabled={weekOffset === -1}
+                    className={`h-8 w-8 rounded-full border text-sm transition ${
+                      weekOffset === -1
+                        ? "bg-emerald-500/20 border-emerald-400/60 text-emerald-200"
+                        : "border-slate-700 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <svg
+                      viewBox="0 0 20 20"
+                      className="mx-auto h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        d="M12.5 4.5 7 10l5.5 5.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Semana actual"
+                    onClick={() => setWeekOffset(0)}
+                    disabled={weekOffset === 0}
+                    className={`h-8 w-8 rounded-full border text-sm transition ${
+                      weekOffset === 0
+                        ? "bg-emerald-500/20 border-emerald-400/60 text-emerald-200"
+                        : "border-slate-700 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <svg
+                      viewBox="0 0 20 20"
+                      className="mx-auto h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        d="M7.5 4.5 13 10l-5.5 5.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-[11px]">
+                  <button
+                    type="button"
+                    aria-label="Año anterior"
+                    onClick={() => setYearOffset((prev) => prev - 1)}
+                    className="h-8 w-8 rounded-full border border-slate-700 text-slate-400 text-sm transition hover:text-slate-200"
+                  >
+                    <svg
+                      viewBox="0 0 20 20"
+                      className="mx-auto h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        d="M12.5 4.5 7 10l5.5 5.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Año actual"
+                    onClick={() => setYearOffset(0)}
+                    disabled={yearOffset === 0}
+                    className={`h-8 w-8 rounded-full border text-sm transition ${
+                      yearOffset === 0
+                        ? "bg-emerald-500/20 border-emerald-400/60 text-emerald-200"
+                        : "border-slate-700 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <svg
+                      viewBox="0 0 20 20"
+                      className="mx-auto h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        d="M7.5 4.5 13 10l-5.5 5.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
 
             {chartLoading ? (
