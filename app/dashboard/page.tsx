@@ -105,16 +105,6 @@ function formatMoney(value: number): string {
   });
 }
 
-function isCashMethod(method?: string | null): boolean {
-  const normalized = (method ?? "").toLowerCase();
-  return (
-    normalized === "cash" ||
-    normalized === "efectivo" ||
-    normalized.includes("cash") ||
-    normalized.includes("efectivo")
-  );
-}
-
 const PAYMENT_RANGE_LABEL: Record<"day" | "week" | "month", string> = {
   day: "Hoy",
   week: "Esta semana",
@@ -195,6 +185,13 @@ export default function DashboardHomePage() {
   const [separatedOrders, setSeparatedOrders] = useState<SeparatedOrder[]>([]);
   const [separatedLoading, setSeparatedLoading] = useState(false);
   const [separatedError, setSeparatedError] = useState<string | null>(null);
+  const [paymentMethodEntries, setPaymentMethodEntries] = useState<
+    PaymentMethodSummary[]
+  >([]);
+  const [paymentMethodsLoading, setPaymentMethodsLoading] = useState(false);
+  const [paymentMethodsError, setPaymentMethodsError] = useState<string | null>(
+    null
+  );
 
   /* --------- Loaders reutilizables --------- */
 
@@ -334,6 +331,43 @@ export default function DashboardHomePage() {
       setSeparatedLoading(false);
     }
   }, [token]);
+  const loadPaymentMethods = useCallback(
+    async (range: "day" | "week" | "month", startDate: string | null) => {
+      if (!authHeaders) return;
+      try {
+        setPaymentMethodsLoading(true);
+        setPaymentMethodsError(null);
+        const apiBase = getApiBase();
+        const params = new URLSearchParams({ range });
+        if (startDate) {
+          params.set("start_date", startDate);
+        }
+        const res = await fetch(
+          `${apiBase}/dashboard/payment-methods?${params.toString()}`,
+          {
+            headers: authHeaders,
+            credentials: "include",
+          }
+        );
+        if (!res.ok) {
+          throw new Error(`Error ${res.status}`);
+        }
+        const json = (await res.json()) as { methods: PaymentMethodSummary[] };
+        setPaymentMethodEntries(json.methods ?? []);
+      } catch (err) {
+        console.error(err);
+        setPaymentMethodsError(
+          err instanceof Error
+            ? err.message
+            : "Error al cargar métodos de pago"
+        );
+        setPaymentMethodEntries([]);
+      } finally {
+        setPaymentMethodsLoading(false);
+      }
+    },
+    [authHeaders]
+  );
 
   // Cargar al entrar
   useEffect(() => {
@@ -349,7 +383,6 @@ export default function DashboardHomePage() {
     loadYearlySales,
     loadSeparatedOrders,
   ]);
-
   /* --------- Datos derivados --------- */
 
   // Semana actual (lunes a domingo) con totales por día
@@ -372,6 +405,24 @@ export default function DashboardHomePage() {
     monday.setUTCDate(todayStart.getUTCDate() - diffToMonday);
     return monday;
   }, [todayStart]);
+  useEffect(() => {
+    const monthStart = new Date(todayStart);
+    monthStart.setUTCDate(1);
+    const monthStartKey = getBogotaDateKey(monthStart);
+    const startKey =
+      paymentRange === "day"
+        ? todayDateKey
+        : paymentRange === "week"
+        ? getBogotaDateKey(weekStart)
+        : monthStartKey;
+    void loadPaymentMethods(paymentRange, startKey);
+  }, [
+    loadPaymentMethods,
+    paymentRange,
+    todayDateKey,
+    todayStart,
+    weekStart,
+  ]);
   const adjustTotalForDate = useCallback(
     (baseTotal: number) => Math.max(0, baseTotal),
     []
@@ -581,53 +632,11 @@ export default function DashboardHomePage() {
   }, [recentSales, recentMode, todayDateKey]);
 
   const paymentMethodCalc = useMemo(() => {
-    if (paymentRange === "month") {
-      return {
-        entries: data?.payment_methods ?? [],
-        separated: null as SeparatedOverview | null,
-      };
-    }
-
     const dayStart = buildBogotaDateFromKey(todayDateKey);
     const end = new Date(dayStart);
     end.setUTCDate(dayStart.getUTCDate() + 1);
     end.setUTCMilliseconds(-1);
     const start = paymentRange === "week" ? weekStart : dayStart;
-
-    const map = new Map<
-      string,
-      {
-        method: string;
-        total: number;
-        tickets: number;
-        saleIds: Set<number>;
-      }
-    >();
-
-    const addEntry = (
-      method: string,
-      amount: number,
-      saleId: number,
-      countTicket = true
-    ) => {
-      if (!method || amount <= 0) return;
-      const key = method.toLowerCase();
-      let entry = map.get(key);
-      if (!entry) {
-        entry = {
-          method,
-          total: 0,
-          tickets: 0,
-          saleIds: new Set<number>(),
-        };
-        map.set(key, entry);
-      }
-      entry.total += amount;
-      if (countTicket && !entry.saleIds.has(saleId)) {
-        entry.saleIds.add(saleId);
-        entry.tickets += 1;
-      }
-    };
 
     const isWithinRange = (date: Date) =>
       date.getTime() >= start.getTime() && date.getTime() <= end.getTime();
@@ -647,7 +656,8 @@ export default function DashboardHomePage() {
       if (!sale.is_separated) return;
       const amount = sale.initial_payment_amount ?? 0;
       if (amount <= 0) return;
-      const method = sale.initial_payment_method ?? sale.payment_method ?? "separado";
+      const method =
+        sale.initial_payment_method ?? sale.payment_method ?? "separado";
       initialPaymentMap.set(sale.id, { method, amount });
     });
 
@@ -660,7 +670,6 @@ export default function DashboardHomePage() {
         separatedSummary.pendingTotal += Math.max(order.balance ?? 0, 0);
         const initial = initialPaymentMap.get(order.sale_id);
         if (initial && initial.amount > 0) {
-          addEntry(initial.method, initial.amount, order.sale_id, true);
           separatedSummary.paymentsTotal += initial.amount;
         }
       }
@@ -668,70 +677,17 @@ export default function DashboardHomePage() {
       if (order.payments?.length) {
         order.payments.forEach((payment) => {
           if (payment.status === "voided") return;
-          const paidAt = payment.paid_at
-            ? parseDateInput(payment.paid_at)
-            : null;
-          if (
-            paidAt &&
-            isWithinRange(paidAt) &&
-            (payment.amount ?? 0) > 0
-          ) {
+          const paidAt = payment.paid_at ? parseDateInput(payment.paid_at) : null;
+          if (paidAt && isWithinRange(paidAt) && (payment.amount ?? 0) > 0) {
             const amount = Math.max(payment.amount ?? 0, 0);
-            addEntry(payment.method, amount, order.sale_id, false);
             separatedSummary.paymentsTotal += amount;
           }
         });
       }
     });
 
-    recentSales.forEach((sale) => {
-      if (sale.is_separated) return;
-      if (sale.status === "voided") return;
-      const saleDate = parseDateInput(sale.created_at);
-      if (!saleDate) return;
-      const saleInRange = isWithinRange(saleDate);
-
-      const baseTotal = sale.total ?? 0;
-      const netAmount =
-        sale.refunded_balance != null
-          ? Math.max(0, sale.refunded_balance)
-          : Math.max(0, baseTotal - Math.max(0, sale.refunded_total ?? 0));
-
-      if (!saleInRange || netAmount <= 0) return;
-
-      if (sale.payments && sale.payments.length > 0) {
-        const sumPayments = sale.payments.reduce(
-          (sum, p) => sum + Math.max(p.amount ?? 0, 0),
-          0
-        );
-        const paidAmount = sale.paid_amount ?? sumPayments;
-        const changeAmount = Math.max(0, paidAmount - netAmount);
-        let changeRemaining = changeAmount;
-
-        sale.payments.forEach((p) => {
-          let paymentAmount = Math.max(p.amount ?? 0, 0);
-          if (changeRemaining > 0 && isCashMethod(p.method)) {
-            const applied = Math.min(changeRemaining, paymentAmount);
-            paymentAmount = Math.max(0, paymentAmount - applied);
-            changeRemaining -= applied;
-          }
-          addEntry(p.method, paymentAmount, sale.id, true);
-        });
-      } else {
-        addEntry(sale.payment_method, netAmount, sale.id, true);
-      }
-    });
-
-    const entries = Array.from(map.values())
-      .map((entry) => ({
-        method: entry.method,
-        total: entry.total,
-        tickets: entry.tickets,
-      }))
-      .sort((a, b) => b.total - a.total);
-
     return {
-      entries,
+      entries: paymentMethodEntries,
       separated:
         separatedSummary.tickets > 0 ||
         separatedSummary.paymentsTotal > 0 ||
@@ -740,9 +696,9 @@ export default function DashboardHomePage() {
           : null,
     };
   }, [
+    paymentMethodEntries,
     paymentRange,
     recentSales,
-    data,
     separatedOrders,
     todayDateKey,
     weekStart,
@@ -751,12 +707,10 @@ export default function DashboardHomePage() {
   const paymentMethodData = paymentMethodCalc.entries;
   const separatedOverview = paymentMethodCalc.separated;
 
-  const paymentMethodTotal = useMemo(() => {
-    if (paymentRange === "month") {
-      return adjustedMonthSales;
-    }
-    return paymentMethodData.reduce((sum, entry) => sum + entry.total, 0);
-  }, [paymentRange, adjustedMonthSales, paymentMethodData]);
+  const paymentMethodTotal = useMemo(
+    () => paymentMethodData.reduce((sum, entry) => sum + entry.total, 0),
+    [paymentMethodData]
+  );
 
   /* ================= RENDER ================= */
 
@@ -1190,7 +1144,15 @@ export default function DashboardHomePage() {
               </div>
             </div>
 
-            {!paymentMethodData.length ? (
+            {paymentMethodsLoading ? (
+              <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
+                Cargando métodos de pago...
+              </div>
+            ) : paymentMethodsError ? (
+              <div className="flex-1 flex items-center justify-center text-xs text-rose-300">
+                {paymentMethodsError}
+              </div>
+            ) : !paymentMethodData.length ? (
               <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
                 Aún no hay ventas registradas en este periodo.
               </div>
