@@ -223,6 +223,7 @@ type SummaryCard = {
 
 type DocumentAdjustmentRecord = {
   id: number;
+  doc_id: number;
   adjustment_type: "payment" | "discount" | "note";
   reason?: string | null;
   payload?: Record<string, unknown> | null;
