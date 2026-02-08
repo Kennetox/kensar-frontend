@@ -834,7 +834,6 @@ export default function DocumentsExplorer({
       return;
     }
     setAdjusting(true);
-    setAdjustError(null);
     const apiBase = getApiBase();
     try {
       let totalDelta = 0;
@@ -1406,6 +1405,44 @@ const selectedDetails = selectedDoc?.data;
     });
 
     const apiBase = getApiBase();
+    const saleIds = filteredDocuments
+      .filter((doc) => doc.type === "venta")
+      .map((doc) => doc.recordId);
+    const adjustmentsBySaleId = new Map<number, DocumentAdjustmentRecord[]>();
+    if (saleIds.length) {
+      const resAdjustments = await fetch(
+        `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${saleIds.join(",")}`,
+        {
+          headers: authHeaders,
+          credentials: "include",
+        }
+      );
+      if (resAdjustments.ok) {
+        const adjustments = (await resAdjustments.json()) as DocumentAdjustmentRecord[];
+        adjustments.forEach((adjustment) => {
+          const list = adjustmentsBySaleId.get(adjustment.doc_id) ?? [];
+          list.push(adjustment);
+          adjustmentsBySaleId.set(adjustment.doc_id, list);
+        });
+      }
+    }
+    const adjustedRows = rows.map((row, index) => {
+      const doc = filteredDocuments[index];
+      if (doc.type !== "venta") return row;
+      const adjustments = adjustmentsBySaleId.get(doc.recordId) ?? [];
+      if (!adjustments.length) return row;
+      const delta = adjustments.reduce(
+        (sum, entry) => sum + toNumber(entry.total_delta),
+        0
+      );
+      if (Math.abs(delta) < 0.01) return row;
+      const deltaLabel = `${delta >= 0 ? "+" : "-"}${formatMoney(Math.abs(delta))}`;
+      return {
+        ...row,
+        detail: `${row.detail} (Ajuste ${deltaLabel})`,
+        total: toExportNumber(toNumber(row.total) + delta),
+      };
+    });
     const res = await fetch(`${apiBase}/dashboard/documents/export/xlsx`, {
       method: "POST",
       headers: {
@@ -1413,7 +1450,7 @@ const selectedDetails = selectedDoc?.data;
         ...authHeaders,
       },
       credentials: "include",
-      body: JSON.stringify({ items: rows }),
+      body: JSON.stringify({ items: adjustedRows }),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -2119,14 +2156,13 @@ useEffect(() => {
   };
 
   useEffect(() => {
+    const timers = toastTimerRef.current;
     return () => {
-      const hideTimer = toastTimerRef.current.hide;
-      const removeTimer = toastTimerRef.current.remove;
-      if (hideTimer) {
-        window.clearTimeout(hideTimer);
+      if (timers.hide) {
+        window.clearTimeout(timers.hide);
       }
-      if (removeTimer) {
-        window.clearTimeout(removeTimer);
+      if (timers.remove) {
+        window.clearTimeout(timers.remove);
       }
     };
   }, []);
