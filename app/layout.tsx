@@ -68,11 +68,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body data-theme="dark" className="bg-slate-950 text-slate-100">
-        <Suspense fallback={null}>
-          <ThemePreviewer />
-        </Suspense>
-        <AuthProvider>{children}</AuthProvider>
+      <body data-theme="dark" className="min-h-screen">
+        <AuthProvider>
+          <Suspense fallback={null}>
+            <ThemePreviewer />
+          </Suspense>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import Link from "next/link";
@@ -218,6 +219,19 @@ type SummaryCard = {
   value: string;
   hint?: string;
   highlight?: "positive" | "warning" | "danger";
+};
+
+type DocumentAdjustmentRecord = {
+  id: number;
+  adjustment_type: "payment" | "discount" | "note";
+  reason?: string | null;
+  payload?: Record<string, unknown> | null;
+  total_delta: number;
+  payment_delta: number;
+  is_post_closure?: boolean;
+  original_closure_id?: number | null;
+  created_by_user_name?: string | null;
+  created_at: string;
 };
 
 function formatMoney(value: number | string | undefined | null): string {
@@ -449,7 +463,7 @@ export default function DocumentsExplorer({
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
   );
-  const { getPaymentLabel } = usePaymentMethodLabelResolver();
+  const { getPaymentLabel, catalog } = usePaymentMethodLabelResolver();
   const mapPaymentMethod = useCallback(
     (method?: string | null) => {
       if (!method) return "—";
@@ -489,7 +503,25 @@ export default function DocumentsExplorer({
   const [voidTarget, setVoidTarget] = useState<DocumentRow | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
-  const [voidError, setVoidError] = useState<string | null>(null);
+  const [documentAdjustments, setDocumentAdjustments] = useState<
+    DocumentAdjustmentRecord[]
+  >([]);
+  const [adjustmentsLoading, setAdjustmentsLoading] = useState(false);
+  const [adjustmentsError, setAdjustmentsError] = useState<string | null>(null);
+  const [adjustTarget, setAdjustTarget] = useState<DocumentRow | null>(null);
+  const [adjustType, setAdjustType] = useState<"payment" | "discount" | "note">(
+    "payment"
+  );
+  const [adjustReason, setAdjustReason] = useState("");
+  const [adjustTotalDelta, setAdjustTotalDelta] = useState("");
+  const [adjustPayments, setAdjustPayments] = useState<
+    { id: string; method: string; amount: string }[]
+  >([]);
+  const [adjustNote, setAdjustNote] = useState("");
+  const [adjusting, setAdjusting] = useState(false);
+  const [toast, setToast] = useState<{ id: number; message: string; tone: "info" | "error" } | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
 
   const formatDateInput = (date: Date) =>
     date.toISOString().slice(0, 10);
@@ -615,22 +647,135 @@ export default function DocumentsExplorer({
     }
   }
 
+  const loadAdjustments = useCallback(
+    async (saleId: number) => {
+      if (!authHeaders) return;
+      setAdjustmentsLoading(true);
+      setAdjustmentsError(null);
+      const apiBase = getApiBase();
+      try {
+        const res = await fetch(
+          `${apiBase}/pos/documents/sale/${saleId}/adjustments`,
+          {
+            headers: authHeaders,
+            credentials: "include",
+          }
+        );
+        if (res.status === 401) {
+          logout();
+          throw new Error(
+            "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+          );
+        }
+        if (!res.ok) {
+          throw new Error("No se pudieron cargar los ajustes");
+        }
+        const data: DocumentAdjustmentRecord[] = await res.json();
+        setDocumentAdjustments(data);
+      } catch (err) {
+        console.error(err);
+        setAdjustmentsError(
+          err instanceof Error ? err.message : "Error al cargar ajustes"
+        );
+        setDocumentAdjustments([]);
+      } finally {
+        setAdjustmentsLoading(false);
+      }
+    },
+    [authHeaders, logout]
+  );
+
   function openVoidModal(doc: DocumentRow) {
     setVoidTarget(doc);
     setVoidReason("");
-    setVoidError(null);
   }
 
   function closeVoidModal() {
     setVoidTarget(null);
     setVoidReason("");
-    setVoidError(null);
+  }
+
+  function openAdjustModal(doc: DocumentRow) {
+    setAdjustTarget(doc);
+    setAdjustType("payment");
+    setAdjustReason("");
+    setAdjustTotalDelta("");
+    const basePayments =
+      selectedSalePayments.length > 0
+        ? selectedSalePayments.map((payment) => ({
+            id: crypto.randomUUID(),
+            method: payment.method,
+            amount: String(payment.amount ?? 0),
+          }))
+        : [
+            {
+              id: crypto.randomUUID(),
+              method: catalog[0]?.slug ?? "cash",
+              amount: "0",
+            },
+          ];
+    setAdjustPayments(basePayments);
+    setAdjustNote("");
+  }
+
+  function closeAdjustModal() {
+    setAdjustTarget(null);
+    setAdjustReason("");
+    setAdjustTotalDelta("");
+    setAdjustPayments([]);
+    setAdjustNote("");
+  }
+
+  const showToast = useCallback((message: string, tone: "info" | "error" = "info") => {
+    if (toastTimerRef.current.hide) {
+      window.clearTimeout(toastTimerRef.current.hide);
+    }
+    if (toastTimerRef.current.remove) {
+      window.clearTimeout(toastTimerRef.current.remove);
+    }
+    setToast({ id: Date.now(), message, tone });
+    setToastVisible(false);
+    requestAnimationFrame(() => setToastVisible(true));
+    toastTimerRef.current.hide = window.setTimeout(
+      () => setToastVisible(false),
+      4200
+    );
+    toastTimerRef.current.remove = window.setTimeout(
+      () => setToast(null),
+      4460
+    );
+  }, []);
+
+  function addAdjustPayment() {
+    setAdjustPayments((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        method: catalog[0]?.slug ?? "cash",
+        amount: "0",
+      },
+    ]);
+  }
+
+  function updateAdjustPayment(
+    id: string,
+    field: "method" | "amount",
+    value: string
+  ) {
+    setAdjustPayments((prev) =>
+      prev.map((entry) =>
+        entry.id === id ? { ...entry, [field]: value } : entry
+      )
+    );
+  }
+
+  function removeAdjustPayment(id: string) {
+    setAdjustPayments((prev) => prev.filter((entry) => entry.id !== id));
   }
 
   async function submitVoid() {
     if (!voidTarget || !authHeaders) return;
     setVoiding(true);
-    setVoidError(null);
     const apiBase = getApiBase();
     try {
       if (voidTarget.type === "cierre") {
@@ -670,13 +815,126 @@ export default function DocumentsExplorer({
         throw new Error(message);
       }
       closeVoidModal();
+      showToast("Documento anulado correctamente.", "info");
       await loadDocuments();
     } catch (err) {
-      setVoidError(err instanceof Error ? err.message : "Error al anular");
+      showToast(
+        err instanceof Error ? err.message : "Error al anular",
+        "error"
+      );
     } finally {
       setVoiding(false);
     }
   }
+
+  async function submitAdjustment() {
+    if (!adjustTarget || !authHeaders) return;
+    if (!adjustReason.trim()) {
+      showToast("Debes indicar el motivo del ajuste.", "error");
+      return;
+    }
+    setAdjusting(true);
+    setAdjustError(null);
+    const apiBase = getApiBase();
+    try {
+      let totalDelta = 0;
+      let paymentDelta = 0;
+      const payload: Record<string, unknown> = {};
+      if (adjustType === "payment") {
+        if (adjustPayments.length === 0) {
+          throw new Error("Agrega al menos un pago.");
+        }
+        const payments = adjustPayments
+          .map((entry) => ({
+            method: entry.method,
+            amount: parseMoneyString(entry.amount || "0"),
+          }))
+          .filter((entry) => Number.isFinite(entry.amount));
+        const adjustedTotal = payments.reduce(
+          (sum, entry) => sum + entry.amount,
+          0
+        );
+        paymentDelta = adjustedTotal - selectedSalePaymentsTotal;
+        totalDelta = 0;
+        payload.payments = payments;
+        payload.current_total = selectedSalePaymentsTotal;
+        payload.adjusted_total = adjustedTotal;
+      } else if (adjustType === "discount") {
+        totalDelta = parseMoneyString(adjustTotalDelta || "0");
+        paymentDelta = totalDelta;
+      }
+      if (adjustNote.trim()) {
+        payload.note = adjustNote.trim();
+      }
+      const res = await fetch(
+        `${apiBase}/pos/documents/sale/${adjustTarget.recordId}/adjust`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            adjustment_type: adjustType,
+            reason: adjustReason.trim(),
+            total_delta: totalDelta,
+            payment_delta: paymentDelta,
+            payload,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const message =
+          (data && (data.detail as string)) ||
+          `Error al ajustar (código ${res.status})`;
+        throw new Error(message);
+      }
+      closeAdjustModal();
+      showToast("Ajuste registrado correctamente.", "info");
+      await loadDocuments();
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Error al ajustar",
+        "error"
+      );
+    } finally {
+      setAdjusting(false);
+    }
+  }
+
+  const handleAdjustClick = () => {
+    if (!selectedDoc) {
+      showToast("Selecciona un documento para ajustar.");
+      return;
+    }
+    if (!canAdjustDoc) {
+      showToast(adjustActionTitle ?? "No se puede ajustar este documento.");
+      return;
+    }
+    openAdjustModal(selectedDoc);
+  };
+
+  const handleVoidClick = () => {
+    if (!selectedDoc) {
+      showToast("Selecciona un documento para anular.");
+      return;
+    }
+    if (!canOpenVoidModal) {
+      showToast(voidActionTitle ?? "No se puede anular este documento.");
+      return;
+    }
+    openVoidModal(selectedDoc);
+  };
+
+  const handleToggleDetailClick = () => {
+    if (!canToggleDetail) {
+      showToast("Selecciona un documento para ver el detalle.");
+      return;
+    }
+    setDetailExpanded((prev) => !prev);
+  };
 
   useEffect(() => {
     if (!authHeaders) return;
@@ -1185,14 +1443,30 @@ const selectedDocCanVoid =
   selectedDoc.type !== "abono" &&
   !selectedDocIsVoided &&
   (selectedDoc.type === "venta" || selectedDoc.closureId == null);
-const selectedDocActionLabel =
-  selectedDoc?.type === "venta" && selectedDoc?.closureId ? "Ajustar" : "Anular";
+const voidActionLabel = "Anular";
+const selectedDocCreatedDate = selectedDoc
+  ? formatDateInput(new Date(selectedDoc.createdAt))
+  : null;
+const selectedDocIsToday = selectedDocCreatedDate === today;
+const canAdjustDoc =
+  !!selectedDoc &&
+  isAdmin &&
+  selectedDoc.type === "venta" &&
+  !selectedDocIsVoided &&
+  selectedDocIsToday;
 const selectedSaleDocument =
   selectedDoc?.type === "venta"
     ? (selectedDoc.data as SaleRecord)
     : null;
 const hasSelectedSaleDocument = !!selectedSaleDocument;
 const selectedSaleDocumentId = selectedSaleDocument?.id ?? null;
+useEffect(() => {
+  if (!authHeaders || !selectedSaleDocumentId) {
+    setDocumentAdjustments([]);
+    return;
+  }
+  void loadAdjustments(selectedSaleDocumentId);
+}, [authHeaders, selectedSaleDocumentId, loadAdjustments]);
 const selectedSaleDocumentNumber =
   selectedSaleDocument?.document_number ?? null;
 const selectedSaleDocumentSaleNumber =
@@ -1251,15 +1525,38 @@ const selectedSalePayments = useMemo(() => {
     (sum, entry) => sum + (Number(entry.amount) || 0),
     0
   );
+  const totalAdjustmentsDelta = useMemo(
+    () =>
+      documentAdjustments.reduce(
+        (sum, entry) => sum + toNumber(entry.total_delta),
+        0
+      ),
+    [documentAdjustments]
+  );
+  const baseSaleTotal =
+    selectedSaleTotals?.netTotal ??
+    selectedDoc?.total ??
+    selectedSaleDocument?.total ??
+    0;
+  const adjustedSaleTotal = baseSaleTotal + totalAdjustmentsDelta;
+  const adjustPaymentsTotal = useMemo(
+    () =>
+      adjustPayments.reduce(
+        (sum, entry) => sum + parseMoneyString(entry.amount || "0"),
+        0
+      ),
+    [adjustPayments]
+  );
+  const adjustPaymentsDelta = adjustPaymentsTotal - selectedSalePaymentsTotal;
   const selectedSalePendingAmount = useMemo(() => {
     if (selectedSeparatedOrder) {
       return Math.max(0, selectedSeparatedOrder.balance ?? 0);
     }
-    if (selectedSaleTotals && selectedSaleTotals.netTotal > 0) {
-      return Math.max(0, selectedSaleTotals.netTotal - selectedSalePaymentsTotal);
+    if (adjustedSaleTotal > 0) {
+      return Math.max(0, adjustedSaleTotal - selectedSalePaymentsTotal);
     }
     return 0;
-  }, [selectedSeparatedOrder, selectedSaleTotals, selectedSalePaymentsTotal]);
+  }, [selectedSeparatedOrder, adjustedSaleTotal, selectedSalePaymentsTotal]);
   const selectedDocIsSeparated =
     !!(selectedDoc?.isSeparated ?? selectedSaleDocument?.is_separated);
   const selectedSaleInitialMethod =
@@ -1357,9 +1654,15 @@ useEffect(() => {
   selectedDocIsSeparated,
 ]);
 
-const selectedDocMethodLabel = selectedDocIsSeparated
+  const selectedDocMethodLabel = selectedDocIsSeparated
     ? "SEPARADO"
     : selectedDocInitialMethodLabel;
+  const adjustmentTypeLabel = (type: DocumentAdjustmentRecord["adjustment_type"]) =>
+    type === "payment"
+      ? "Ajuste de pagos"
+      : type === "discount"
+      ? "Ajuste de descuento"
+      : "Nota";
   const selectedReturnRecord =
     selectedDoc?.type === "devolucion"
       ? (selectedDoc.data as ReturnRecord)
@@ -1372,6 +1675,49 @@ const selectedDocMethodLabel = selectedDocIsSeparated
   const documentsGridClass = detailExpanded
     ? "grid gap-4 lg:grid-cols-[minmax(260px,0.9fr)_minmax(360px,1.35fr)]"
     : "grid gap-4 lg:grid-cols-[1.45fr_1fr]";
+  const latestPaymentAdjustment = useMemo(
+    () =>
+      documentAdjustments.find(
+        (entry) => entry.adjustment_type === "payment"
+      ),
+    [documentAdjustments]
+  );
+  const adjustedPayments = useMemo(() => {
+    const payload = latestPaymentAdjustment?.payload;
+    if (!payload || typeof payload !== "object") return null;
+    const raw = (payload as Record<string, unknown>).payments;
+    if (!Array.isArray(raw)) return null;
+    const entries = raw
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const record = entry as Record<string, unknown>;
+        const method = typeof record.method === "string" ? record.method : "";
+        const amountValue =
+          typeof record.amount === "number" || typeof record.amount === "string"
+            ? record.amount
+            : 0;
+        const amount = toNumber(amountValue);
+        if (!method) return null;
+        return { method, amount };
+      })
+      .filter((entry): entry is { method: string; amount: number } => !!entry);
+    return entries.length ? entries : null;
+  }, [latestPaymentAdjustment]);
+  const displaySalePayments = useMemo(
+    () =>
+      adjustedPayments
+        ? adjustedPayments.map((payment, index) => ({
+            key: `adjusted-${payment.method}-${index}`,
+            method: payment.method,
+            amount: payment.amount,
+            adjusted: true,
+          }))
+        : selectedSalePayments.map((payment) => ({
+            ...payment,
+            adjusted: false,
+          })),
+    [adjustedPayments, selectedSalePayments]
+  );
   const saleSummaryCards: SummaryCard[] = useMemo(() => {
     if (!selectedDoc || selectedDoc.type !== "venta") return [];
     const cards: SummaryCard[] = [];
@@ -1384,6 +1730,20 @@ const selectedDocMethodLabel = selectedDocIsSeparated
       cards.push({
         label: "Total venta",
         value: formatMoney(saleNetTotal),
+      });
+    }
+    if (Math.abs(totalAdjustmentsDelta) > 0.01) {
+      cards.push({
+        label: "Ajustes",
+        value: `${totalAdjustmentsDelta >= 0 ? "+" : ""}${formatMoney(
+          Math.abs(totalAdjustmentsDelta)
+        )}`,
+        highlight: totalAdjustmentsDelta < 0 ? "danger" : "warning",
+      });
+      cards.push({
+        label: "Total ajustado",
+        value: formatMoney(saleNetTotal + totalAdjustmentsDelta),
+        highlight: "positive",
       });
     }
     cards.push({
@@ -1455,9 +1815,25 @@ const selectedDocMethodLabel = selectedDocIsSeparated
     selectedSaleCartDiscountValue,
     selectedSaleCartDiscountPercent,
     selectedSaleLines,
+    totalAdjustmentsDelta,
   ]);
 
   const canPrintSelectedTicket = !!selectedSaleDocument;
+  const paymentMethodOptions = useMemo(() => {
+    const options = catalog.map((method) => ({
+      value: method.slug,
+      label: method.name,
+    }));
+    const known = new Set(options.map((option) => option.value.toLowerCase()));
+    const extras = selectedSalePayments
+      .map((payment) => payment.method)
+      .filter((method) => method && !known.has(method.toLowerCase()))
+      .map((method) => ({
+        value: method,
+        label: method,
+      }));
+    return [...options, ...extras];
+  }, [catalog, selectedSalePayments]);
   const buildSelectedSaleDocumentPayload = () => {
     if (!selectedSaleDocument) return null;
 
@@ -1479,6 +1855,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
 
     const totals = computeSaleTotals(selectedSaleDocument);
     const total = totals.netTotal;
+    const adjustedTotal = total + totalAdjustmentsDelta;
     const ticketSurchargeAmount =
       selectedSaleDocument.surcharge_amount ??
       totals.surchargeAmount ??
@@ -1509,7 +1886,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
         ? `-${selectedSaleDocument.cart_discount_percent}%`
         : "0";
 
-    const payments =
+    const basePayments =
       selectedSaleDocument.payments && selectedSaleDocument.payments.length
         ? selectedSaleDocument.payments.map((p) => ({
             label: mapPaymentMethod(p.method),
@@ -1517,21 +1894,27 @@ const selectedDocMethodLabel = selectedDocIsSeparated
           }))
         : [
             {
-              label: mapPaymentMethod(
-                selectedSaleDocument.payment_method
-              ),
+              label: mapPaymentMethod(selectedSaleDocument.payment_method),
               amount:
                 selectedSaleDocument.paid_amount ??
                 totals.paid ??
                 total,
             },
           ];
+    const payments = adjustedPayments
+      ? adjustedPayments.map((payment) => ({
+          label: mapPaymentMethod(payment.method),
+          amount: payment.amount,
+        }))
+      : basePayments;
+    const paymentsTotal = payments.reduce(
+      (sum, payment) => sum + toNumber(payment.amount),
+      0
+    );
 
     const changeAmount = selectedDocIsSeparated
       ? 0
-      : selectedSaleDocument.paid_amount != null
-      ? selectedSaleDocument.paid_amount - total
-      : 0;
+      : paymentsTotal - adjustedTotal;
 
     const separatedTicketInfo =
       selectedDocIsSeparated && selectedSeparatedOrder
@@ -1562,7 +1945,7 @@ const selectedDocMethodLabel = selectedDocIsSeparated
       surchargeAmount: hasTicketSurcharge
         ? ticketSurchargeAmount
         : undefined,
-      total,
+      total: adjustedTotal,
       items: ticketItems,
       payments,
       changeAmount,
@@ -1671,6 +2054,82 @@ const selectedDocMethodLabel = selectedDocIsSeparated
   };
   const selectedClosure =
     selectedDoc?.type === "cierre" ? (selectedDetails as ClosureRecord) : null;
+  const canOpenVoidModal = selectedDocCanShowVoidButton && selectedDocCanVoid;
+  const canPrintSelectedChange = selectedDoc?.type === "cambio";
+  const canPrintSelectedClosure =
+    selectedDoc?.type === "cierre" && !!selectedClosure;
+  const canToggleDetail = !!selectedDoc;
+  const adjustButtonDisabled = !canAdjustDoc;
+  const voidButtonDisabled = !canOpenVoidModal;
+  const printTicketDisabled = !canPrintSelectedTicket;
+  const printChangeDisabled = !canPrintSelectedChange;
+  const printClosureDisabled = !canPrintSelectedClosure;
+  const toggleDetailDisabled = !canToggleDetail;
+  const adjustActionTitle = !selectedDoc
+    ? "Selecciona un documento"
+    : !isAdmin
+    ? "No tienes permisos"
+    : selectedDoc.type !== "venta"
+    ? "Solo disponible para ventas"
+    : selectedDocIsVoided
+    ? "Documento ya anulado"
+    : !selectedDocIsToday
+    ? "Solo se puede ajustar el mismo día"
+    : undefined;
+  const voidActionTitle = !selectedDoc
+    ? "Selecciona un documento"
+    : !isAdmin
+    ? "No tienes permisos"
+    : selectedDoc.type === "cierre" || selectedDoc.type === "abono"
+    ? "No disponible para este documento"
+    : selectedDocIsVoided
+    ? "Documento ya anulado"
+    : !selectedDocCanVoid
+    ? "Solo se puede anular antes del cierre"
+    : undefined;
+  const handlePrintTicketClick = () => {
+    if (printTicketDisabled) {
+      showToast("Solo disponible para ventas.");
+      return;
+    }
+    handlePrintSelectedTicket();
+  };
+  const handlePrintInvoiceClick = () => {
+    if (printTicketDisabled) {
+      showToast("Solo disponible para ventas.");
+      return;
+    }
+    handlePrintSelectedInvoice();
+  };
+  const handlePrintChangeClick = () => {
+    if (printChangeDisabled) {
+      showToast("Solo disponible para cambios.");
+      return;
+    }
+    handlePrintSelectedChange();
+  };
+  const handlePrintClosureClick = () => {
+    if (printClosureDisabled) {
+      showToast("Solo disponible para cierres.");
+      return;
+    }
+    if (selectedClosure) {
+      printClosureTicket(selectedClosure, posSettings);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      const hideTimer = toastTimerRef.current.hide;
+      const removeTimer = toastTimerRef.current.remove;
+      if (hideTimer) {
+        window.clearTimeout(hideTimer);
+      }
+      if (removeTimer) {
+        window.clearTimeout(removeTimer);
+      }
+    };
+  }, []);
   const closureMethodSummaries = useMemo(
     () =>
       selectedClosure
@@ -1889,6 +2348,74 @@ const selectedDocMethodLabel = selectedDocIsSeparated
           ))}
         </div>
       </section>
+
+      <div className="flex flex-wrap items-center gap-3 text-xs">
+        <button
+          type="button"
+          onClick={handleAdjustClick}
+          title={adjustActionTitle}
+          className={`px-4 py-2 rounded-md border border-amber-400/40 text-amber-100 hover:bg-amber-500/10 text-sm ${
+            adjustButtonDisabled ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
+          Ajustar
+        </button>
+        <button
+          type="button"
+          onClick={handleVoidClick}
+          title={voidActionTitle}
+          className={`px-4 py-2 rounded-md border border-rose-500/40 text-rose-200 hover:bg-rose-500/10 text-sm ${
+            voidButtonDisabled ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
+          Anular
+        </button>
+        <button
+          type="button"
+          onClick={handlePrintTicketClick}
+          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+            printTicketDisabled ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
+          Imprimir ticket
+        </button>
+        <button
+          type="button"
+          onClick={handlePrintInvoiceClick}
+          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+            printTicketDisabled ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
+          Imprimir factura
+        </button>
+        <button
+          type="button"
+          onClick={handlePrintChangeClick}
+          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+            printChangeDisabled ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
+          Imprimir cambio
+        </button>
+        <button
+          type="button"
+          onClick={handlePrintClosureClick}
+          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+            printClosureDisabled ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
+          Imprimir cierre
+        </button>
+        <button
+          type="button"
+          onClick={handleToggleDetailClick}
+          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+            toggleDetailDisabled ? "opacity-50 cursor-not-allowed" : ""
+          }`}
+        >
+          {detailExpanded ? "Mostrar menos" : "Mostrar más"}
+        </button>
+      </div>
 
       <div className={documentsGridClass}>
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col min-h-[370px]">
@@ -2121,68 +2648,6 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                     {formatDateTime(selectedDoc.createdAt)}
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {selectedDocCanShowVoidButton && (
-                    <button
-                      type="button"
-                      onClick={() => openVoidModal(selectedDoc)}
-                      disabled={!selectedDocCanVoid}
-                      title={
-                        !selectedDocCanVoid
-                          ? "Solo se puede anular antes del cierre"
-                          : undefined
-                      }
-                      className="px-3 py-1.5 rounded-md border border-rose-500/40 text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
-                    >
-                      {selectedDocActionLabel}
-                    </button>
-                  )}
-                  {selectedDoc.type === "venta" && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={handlePrintSelectedTicket}
-                        disabled={!canPrintSelectedTicket}
-                        className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 disabled:opacity-50"
-                      >
-                        Imprimir ticket
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handlePrintSelectedInvoice}
-                        disabled={!canPrintSelectedTicket}
-                        className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 disabled:opacity-50"
-                      >
-                        Imprimir factura
-                      </button>
-                    </>
-                  )}
-                  {selectedDoc.type === "cambio" && (
-                    <button
-                      type="button"
-                      onClick={handlePrintSelectedChange}
-                      className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800"
-                    >
-                      Imprimir cambio
-                    </button>
-                  )}
-                  {selectedDoc.type === "cierre" && selectedClosure && (
-                    <button
-                      type="button"
-                      onClick={() => printClosureTicket(selectedClosure, posSettings)}
-                      className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800"
-                    >
-                      Imprimir cierre
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setDetailExpanded((prev) => !prev)}
-                    className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800"
-                  >
-                    {detailExpanded ? "Mostrar menos" : "Mostrar más"}
-                  </button>
-                </div>
               </div>
 
               <div className="grid grid-cols-1 gap-2 text-sm">
@@ -2225,7 +2690,14 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                 <div className="flex justify-between gap-3">
                   <span className="text-slate-400">Total</span>
                   <span className="text-right text-slate-100">
-                    {formatMoney(toNumber(selectedDoc.total))}
+                    {selectedDoc.type === "venta" && Math.abs(totalAdjustmentsDelta) > 0.01
+                      ? formatMoney(adjustedSaleTotal)
+                      : formatMoney(toNumber(selectedDoc.total))}
+                    {selectedDoc.type === "venta" && Math.abs(totalAdjustmentsDelta) > 0.01 && (
+                      <span className="block text-[11px] text-slate-500">
+                        Original: {formatMoney(baseSaleTotal)}
+                      </span>
+                    )}
                   </span>
                 </div>
                 {selectedDoc.type === "venta" && selectedSaleSurchargeAmount > 0 && (
@@ -2495,6 +2967,79 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                   </div>
                 )}
 
+              {detailExpanded && selectedDoc.type === "venta" && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-2">
+                    Ajustes registrados
+                  </div>
+                  {!canAdjustDoc && (
+                    <div className="text-[11px] text-slate-500 mb-2">
+                      Los ajustes solo se habilitan el mismo día para ventas activas y con permisos.
+                    </div>
+                  )}
+                  {adjustmentsLoading ? (
+                    <div className="text-xs text-slate-400">
+                      Cargando ajustes…
+                    </div>
+                  ) : adjustmentsError ? (
+                    <div className="text-xs text-rose-300">
+                      {adjustmentsError}
+                    </div>
+                  ) : documentAdjustments.length === 0 ? (
+                    <div className="text-xs text-slate-500">
+                      No hay ajustes para este documento.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {documentAdjustments.map((adjustment) => (
+                        <div
+                          key={adjustment.id}
+                          className="rounded-2xl border border-slate-800/60 bg-slate-950/30 p-3"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <div className="text-sm text-slate-100 font-semibold">
+                                {adjustmentTypeLabel(adjustment.adjustment_type)}
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                {formatDateTime(adjustment.created_at)}
+                                {adjustment.created_by_user_name
+                                  ? ` · ${adjustment.created_by_user_name}`
+                                  : ""}
+                              </div>
+                            </div>
+                            <div className="text-right text-[11px] text-slate-400">
+                              {adjustment.is_post_closure
+                                ? "Post-cierre"
+                                : "Mismo día"}
+                            </div>
+                          </div>
+                          {adjustment.reason && (
+                            <div className="mt-2 text-xs text-slate-200">
+                              {adjustment.reason}
+                            </div>
+                          )}
+                          <div className="mt-2 flex flex-wrap gap-4 text-[11px] text-slate-400">
+                            <div>
+                              Delta total:{" "}
+                              <span className="text-slate-100">
+                                {formatMoney(adjustment.total_delta ?? 0)}
+                              </span>
+                            </div>
+                            <div>
+                              Delta pagos:{" "}
+                              <span className="text-slate-100">
+                                {formatMoney(adjustment.payment_delta ?? 0)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {detailExpanded &&
                 selectedDoc.type === "venta" &&
                 selectedSeparatedOrder && (
@@ -2556,17 +3101,17 @@ const selectedDocMethodLabel = selectedDocIsSeparated
 
               {detailExpanded &&
                 selectedDoc.type === "venta" &&
-                selectedSalePayments.length > 0 && (
+                displaySalePayments.length > 0 && (
                   <div>
                     <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
-                      Pagos registrados
+                      {adjustedPayments ? "Pagos ajustados" : "Pagos registrados"}
                     </div>
                     <div className="rounded-2xl border border-slate-800/60 overflow-hidden">
                       <div className="grid grid-cols-[1fr_110px] bg-slate-950 px-3 py-2 text-[11px] text-slate-400 uppercase tracking-wide">
                         <span>Método</span>
                         <span className="text-right">Monto</span>
                       </div>
-                      {selectedSalePayments.map((payment) => {
+                      {displaySalePayments.map((payment) => {
                         const methodLabel = mapPaymentMethod(payment.method);
                         const isInitialPayment =
                           selectedDocIsSeparated &&
@@ -2581,9 +3126,14 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                           >
                             <div>
                               <span className="text-slate-100">{methodLabel}</span>
-                              {isInitialPayment && (
+                              {isInitialPayment && !payment.adjusted && (
                                 <span className="block text-[10px] text-amber-200">
                                   Abono inicial
+                                </span>
+                              )}
+                              {payment.adjusted && (
+                                <span className="block text-[10px] text-sky-200">
+                                  Ajustado
                                 </span>
                               )}
                             </div>
@@ -2947,11 +3497,32 @@ const selectedDocMethodLabel = selectedDocIsSeparated
           )}
         </section>
       </div>
+      {toast && (
+        <div className="fixed right-6 top-24 z-40 w-[340px] max-w-[90vw]">
+          <div
+            className={
+              "rounded-2xl border px-4 py-3 shadow-[0_16px_40px_rgba(15,23,42,0.45)] backdrop-blur transition-all duration-300 " +
+              (toast.tone === "info"
+                ? "border-sky-400/40 bg-slate-900/80 text-slate-100"
+                : "border-rose-400/40 bg-slate-900/80 text-rose-100") +
+              " " +
+              (toastVisible
+                ? "translate-x-0 opacity-100"
+                : "translate-x-4 opacity-0")
+            }
+          >
+            <div className="text-sm font-semibold">
+              {toast.tone === "info" ? "Aviso" : "Error"}
+            </div>
+            <p className="mt-1 text-sm text-slate-100/90">{toast.message}</p>
+          </div>
+        </div>
+      )}
       {voidTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl">
             <div className="text-sm font-semibold text-slate-100">
-              {selectedDocActionLabel} documento {voidTarget.documentNumber}
+              {voidActionLabel} documento {voidTarget.documentNumber}
             </div>
             <p className="mt-1 text-xs text-slate-400">
               Esta acción genera un ajuste y no elimina el registro.
@@ -2965,9 +3536,6 @@ const selectedDocMethodLabel = selectedDocIsSeparated
               rows={3}
               className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 focus:border-rose-400 outline-none"
             />
-            {voidError && (
-              <div className="mt-2 text-xs text-rose-300">{voidError}</div>
-            )}
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
@@ -2982,7 +3550,168 @@ const selectedDocMethodLabel = selectedDocIsSeparated
                 disabled={voiding}
                 className="px-3 py-1.5 rounded-md border border-rose-500/40 text-rose-100 hover:bg-rose-500/10 text-xs disabled:opacity-50"
               >
-                {voiding ? "Procesando..." : selectedDocActionLabel}
+                {voiding ? "Procesando..." : voidActionLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {adjustTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl">
+            <div className="text-sm font-semibold text-slate-100">
+              Ajustar documento {adjustTarget.documentNumber}
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              Registra un ajuste sin modificar el documento original.
+            </p>
+            <div className="mt-4 grid gap-3 text-xs">
+              <label className="flex flex-col gap-1">
+                <span className="text-slate-300">Tipo de ajuste</span>
+                <select
+                  value={adjustType}
+                  onChange={(e) =>
+                    setAdjustType(e.target.value as "payment" | "discount" | "note")
+                  }
+                  className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                >
+                  <option value="payment">Pagos</option>
+                  <option value="discount">Descuento</option>
+                  <option value="note">Nota</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-slate-300">Motivo</span>
+                <input
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                  placeholder="Describe el motivo del ajuste"
+                />
+              </label>
+              {adjustType === "payment" && (
+                <div className="space-y-3">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Distribucion de pagos
+                  </div>
+                  <div className="space-y-2">
+                    {adjustPayments.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="grid gap-2 sm:grid-cols-[1fr_150px_auto]"
+                      >
+                        <select
+                          value={entry.method}
+                          onChange={(e) =>
+                            updateAdjustPayment(
+                              entry.id,
+                              "method",
+                              e.target.value
+                            )
+                          }
+                          className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                        >
+                          {paymentMethodOptions.map((method) => (
+                            <option key={method.value} value={method.value}>
+                              {method.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          value={entry.amount}
+                          onChange={(e) =>
+                            updateAdjustPayment(
+                              entry.id,
+                              "amount",
+                              e.target.value
+                            )
+                          }
+                          className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                          placeholder="0"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeAdjustPayment(entry.id)}
+                          className="px-3 py-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addAdjustPayment}
+                      className="px-3 py-2 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800"
+                    >
+                      Agregar metodo
+                    </button>
+                  </div>
+                  <div className="grid gap-2 text-[11px] text-slate-400 sm:grid-cols-3">
+                    <div>
+                      Pagos actuales:{" "}
+                      <span className="text-slate-100">
+                        {formatMoney(selectedSalePaymentsTotal)}
+                      </span>
+                    </div>
+                    <div>
+                      Pagos ajustados:{" "}
+                      <span className="text-slate-100">
+                        {formatMoney(adjustPaymentsTotal)}
+                      </span>
+                    </div>
+                    <div>
+                      Delta pagos:{" "}
+                      <span className="text-slate-100">
+                        {formatMoney(adjustPaymentsDelta)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {adjustType === "discount" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-slate-300">Delta total</span>
+                    <input
+                      value={adjustTotalDelta}
+                      onChange={(e) => setAdjustTotalDelta(e.target.value)}
+                      className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                      placeholder="0"
+                    />
+                  </label>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-slate-300">Delta pagos</span>
+                    <div className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100">
+                      {formatMoney(parseMoneyString(adjustTotalDelta || "0"))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <label className="flex flex-col gap-1">
+                <span className="text-slate-300">Nota interna (opcional)</span>
+                <textarea
+                  value={adjustNote}
+                  onChange={(e) => setAdjustNote(e.target.value)}
+                  rows={3}
+                  className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeAdjustModal}
+                className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800 text-xs"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={submitAdjustment}
+                disabled={adjusting}
+                className="px-3 py-1.5 rounded-md border border-amber-500/40 text-amber-100 hover:bg-amber-500/10 text-xs disabled:opacity-50"
+              >
+                {adjusting ? "Procesando..." : "Registrar ajuste"}
               </button>
             </div>
           </div>

@@ -768,7 +768,7 @@ export default function DashboardHomePage() {
         {/* KPIs principales */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Ventas hoy */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
+          <div className="rounded-2xl ui-surface px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Ventas de hoy (movimientos)
             </div>
@@ -792,7 +792,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Tickets hoy */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
+          <div className="rounded-2xl ui-surface px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Tickets de hoy
             </div>
@@ -809,7 +809,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Ventas mes actual */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
+          <div className="rounded-2xl ui-surface px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Ventas mes actual (movimientos)
             </div>
@@ -833,7 +833,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Ventas semana actual */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
+          <div className="rounded-2xl ui-surface px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Ventas semana actual (movimientos)
             </div>
@@ -850,7 +850,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Ticket promedio mes */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-4">
+          <div className="rounded-2xl ui-surface px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Ticket promedio (mes)
             </div>
@@ -868,9 +868,9 @@ export default function DashboardHomePage() {
         </section>
 
         {/* Sección inferior: gráfica + métodos de pago */}
-        <section className="grid gap-4 mt-6 lg:grid-cols-[2fr,1fr] md:grid-cols-2">
+        <section className="grid gap-4 mt-6 lg:grid-cols-2 md:grid-cols-2">
           {/* Gráfico últimos 7 días */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-4 min-h-[260px]">
+          <div className="rounded-2xl ui-surface px-5 py-4 min-h-[300px]">
             <div className="flex items-center justify-between mb-3 gap-3">
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -881,7 +881,7 @@ export default function DashboardHomePage() {
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-400 mt-1 mb-4">
                   {chartSubtitle}
                 </p>
                 {trendMode === "year" && yearTrendError && (
@@ -1023,7 +1023,7 @@ export default function DashboardHomePage() {
                 {chartEmptyMessage}
               </div>
             ) : (
-              <div className="h-48 flex items-end gap-3">
+              <div className="h-48 pt-8 flex items-end gap-3">
                 {chartPoints.map((point) => {
                   const isWeekMode = trendMode === "week";
                   const pointKey = getBogotaDateKey(point.date);
@@ -1045,23 +1045,28 @@ export default function DashboardHomePage() {
                       : 0;
 
                   const heightPercent =
-                    point.total === 0
-                      ? 6
-                      : Math.max(18, rawHeight);
+                    point.total === 0 ? 6 : Math.max(18, rawHeight);
 
                   return (
                     <div
                       key={`${trendMode}-${point.date}`}
                       className="flex-1 flex flex-col items-center justify-end gap-1"
                     >
-                      <div
-                        className={`text-[11px] ${
-                          isCurrentDay
-                            ? "text-emerald-300 font-semibold"
-                            : "text-slate-300"
-                        }`}
-                      >
-                        {formatMoney(point.total)}
+                      <div className="flex flex-col items-center gap-1 mb-2">
+                        {isWeekMode && (
+                          <div className="text-[11px] text-slate-400">
+                            {point.tickets} tickets
+                          </div>
+                        )}
+                        <div
+                          className={`text-[11px] ${
+                            isCurrentDay
+                              ? "text-emerald-300 font-semibold"
+                              : "text-slate-300"
+                          }`}
+                        >
+                          {formatMoney(point.total)}
+                        </div>
                       </div>
 
                       <div
@@ -1086,9 +1091,7 @@ export default function DashboardHomePage() {
                             : "text-slate-400"
                         }`}
                       >
-                        <span className="capitalize">
-                          {primaryLabel}
-                        </span>
+                        <span className="capitalize">{primaryLabel}</span>
                         <span
                           className={`text-[10px] ${
                             isCurrentDay
@@ -1107,7 +1110,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Métodos de pago */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-4 h-[260px] flex flex-col">
+          <div className="rounded-2xl ui-surface px-5 py-4 h-[300px] flex flex-col">
             <div className="flex items-center justify-between gap-3 mb-1">
               <div>
                 <h2 className="text-sm font-semibold text-slate-100">
@@ -1229,7 +1232,7 @@ export default function DashboardHomePage() {
         </section>
 
         {/* Últimas ventas */}
-        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-4">
+        <section className="mt-6 rounded-2xl ui-surface px-5 py-4">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
             <div>
               <div className="flex items-center gap-2">

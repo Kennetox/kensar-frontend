@@ -133,12 +133,24 @@ const defaultForm: SettingsFormState = {
 
 const previewTicketNumber = 42;
 const CONTROL_PENDING_LOOKBACK_DAYS = 30;
+const BG_STORAGE_KEY = "kensar_bg_style";
 const roleOrder: PosUserRecord["role"][] = [
   "Administrador",
   "Supervisor",
   "Vendedor",
   "Auditor",
 ];
+
+type BackgroundStyle = "clean" | "soft" | "pattern";
+
+const isBackgroundStyle = (value: string | null): value is BackgroundStyle =>
+  value === "clean" || value === "soft" || value === "pattern";
+
+const getDefaultBgStyle = (theme: ThemeOption): BackgroundStyle => {
+  if (theme === "light") return "soft";
+  if (theme === "midnight") return "clean";
+  return "pattern";
+};
 
 const formatDateLabel = (value?: string | null) => {
   if (!value) return "";
@@ -505,6 +517,14 @@ function mapToApi(form: SettingsFormState): PosSettingsPayload {
 
 export default function SettingsPage() {
   const [form, setForm] = useState<SettingsFormState>(defaultForm);
+  const [backgroundStyle, setBackgroundStyle] = useState<BackgroundStyle>(() => {
+    if (typeof window === "undefined") {
+      return getDefaultBgStyle(defaultForm.theme);
+    }
+    const stored = window.localStorage.getItem(BG_STORAGE_KEY);
+    if (isBackgroundStyle(stored)) return stored;
+    return getDefaultBgStyle(defaultForm.theme);
+  });
   const [activeTab, setActiveTab] = useState<SettingsTab>("company");
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -1711,15 +1731,54 @@ export default function SettingsPage() {
     };
   }, [stationMessage]);
 
-  const themePreview = useMemo(() => {
-    if (typeof document !== "undefined") {
-      document.body.dataset.theme = form.theme === "light" ? "light" : "dark";
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.body.dataset.theme = form.theme;
     try {
       window.localStorage.setItem("kensar_theme_mode", form.theme);
     } catch {
       /* ignore */
     }
-  }
+  }, [form.theme]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    let stored: string | null = null;
+    try {
+      stored = window.localStorage.getItem(BG_STORAGE_KEY);
+    } catch {
+      stored = null;
+    }
+    if (isBackgroundStyle(stored)) {
+      document.body.dataset.bg = stored;
+      if (stored !== backgroundStyle) {
+        setBackgroundStyle(stored);
+      }
+      return;
+    }
+    const next = getDefaultBgStyle(form.theme);
+    document.body.dataset.bg = next;
+    if (next !== backgroundStyle) {
+      setBackgroundStyle(next);
+    }
+    try {
+      window.localStorage.setItem(BG_STORAGE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }, [form.theme, backgroundStyle]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.body.dataset.bg = backgroundStyle;
+    try {
+      window.localStorage.setItem(BG_STORAGE_KEY, backgroundStyle);
+    } catch {
+      /* ignore */
+    }
+  }, [backgroundStyle]);
+
+  const themePreview = useMemo(() => {
     const base = {
       dark: {
         bg: "bg-slate-900",
@@ -2406,7 +2465,7 @@ export default function SettingsPage() {
   );
 
   const appearanceContent = (
-    <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-5">
+    <article className="rounded-2xl ui-surface p-6 space-y-5">
       <div>
         <h2 className="text-lg font-semibold">Tema y apariencia</h2>
         <p className="text-sm text-slate-400">
@@ -2436,19 +2495,63 @@ export default function SettingsPage() {
           </button>
         ))}
       </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-slate-400">Estilo de fondo</p>
+          <span className="text-[11px] text-slate-500">Preferencia local</span>
+        </div>
+        <div className="flex gap-3 text-xs flex-wrap">
+          {(
+            [
+              {
+                id: "clean",
+                label: "Limpio",
+                description: "Sin patrón ni brillos",
+              },
+              {
+                id: "soft",
+                label: "Suave",
+                description: "Gradiente sutil",
+              },
+              {
+                id: "pattern",
+                label: "Textura",
+                description: "Patrón discreto",
+              },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setBackgroundStyle(opt.id)}
+              className={`flex-1 min-w-[120px] rounded-xl border p-3 text-left ${
+                backgroundStyle === opt.id
+                  ? "border-emerald-400 bg-emerald-500/10"
+                  : "border-slate-700 hover:border-emerald-400/50"
+              }`}
+            >
+              <p className="font-semibold">{opt.label}</p>
+              <p className="text-[11px] text-slate-400">{opt.description}</p>
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Se guarda en este navegador. Otros usuarios pueden elegir su propio
+          estilo.
+        </p>
+      </div>
       <label className="flex flex-col gap-2 text-sm">
         <span className="text-slate-400">Color de acento</span>
         <input
           type="color"
           value={form.colorAccent}
           onChange={(e) => updateForm("colorAccent", e.target.value)}
-          className="h-12 rounded-lg border border-slate-700 bg-slate-950 cursor-pointer"
+          className="h-12 rounded-lg ui-input cursor-pointer"
         />
         <span className="text-xs text-slate-500">
           Este color se usa para botones principales y gráficas.
         </span>
       </label>
-      <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/50 p-4 text-xs space-y-2">
+      <div className="rounded-2xl border border-dashed border-slate-700 p-4 text-xs space-y-2">
         <p className="font-semibold text-slate-200">Vista previa</p>
         <div
           className={`rounded-xl border ${themePreview.border} ${themePreview.bg} p-4 space-y-3`}
