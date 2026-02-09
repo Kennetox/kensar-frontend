@@ -47,6 +47,7 @@ import {
 
 type SaleItem = {
   id?: number;
+  product_sku?: string | null;
   product_name?: string;
   name?: string;
   quantity: number;
@@ -2900,7 +2901,7 @@ export default function SalesHistoryContent({
 
                   <div className="flex justify-between">
                     <span className="text-slate-400">Saldo neto</span>
-                    <span className="text-emerald-300">
+                    <span className="font-bold text-emerald-600">
                       {formatMoney(detailTotal)}
                     </span>
                   </div>
@@ -3148,13 +3149,14 @@ export default function SalesHistoryContent({
                 ) : (
                   <div className="rounded-xl border border-slate-800/60 overflow-hidden text-lg">
                     <div
-                      className={`grid grid-cols-[1fr_80px_110px_120px_120px] px-3 py-2 text-lg ${
+                      className={`grid grid-cols-[1fr_140px_80px_110px_120px_120px] px-3 py-2 text-lg ${
                         isPosTheme
                           ? "bg-slate-950 text-slate-400"
                           : "bg-slate-100 text-slate-700"
                       }`}
                     >
                       <span>Producto</span>
+                      <span className="text-right">Código</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">P. unitario</span>
                       <span className="text-right">Descuento</span>
@@ -3178,12 +3180,16 @@ export default function SalesHistoryContent({
                               row.item.name ??
                               Math.random()
                             }
-                            className={`grid grid-cols-[1fr_80px_110px_120px_120px] px-3 py-2 text-lg ${zebra} border-t border-slate-800/40`}
+                            className={`grid grid-cols-[1fr_140px_80px_110px_120px_120px] px-3 py-2 text-lg ${zebra} border-t border-slate-800/40`}
                           >
                             <span className="text-slate-100 truncate">
                               {row.item.product_name ??
                                 row.item.name ??
                                 "Producto"}
+                            </span>
+
+                            <span className="text-right text-slate-400 font-mono">
+                              {row.item.product_sku ?? "—"}
                             </span>
 
                             <span className="text-right text-slate-200">
@@ -3222,13 +3228,14 @@ export default function SalesHistoryContent({
                   </h3>
                   <div className="rounded-xl border border-slate-800/60 overflow-hidden text-base">
                     <div
-                      className={`grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base ${
+                      className={`grid grid-cols-[1fr_140px_80px_110px_120px] px-3 py-2 text-base ${
                         isPosTheme
                           ? "bg-slate-950 text-slate-400"
                           : "bg-slate-100 text-slate-700"
                       }`}
                     >
                       <span>Producto</span>
+                      <span className="text-right">Código</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">P. unitario</span>
                       <span className="text-right">Total línea</span>
@@ -3246,10 +3253,13 @@ export default function SalesHistoryContent({
                         return (
                           <div
                           key={`change-new-${item.id}`}
-                          className={`grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base ${zebra} border-t border-slate-800/40`}
+                          className={`grid grid-cols-[1fr_140px_80px_110px_120px] px-3 py-2 text-base ${zebra} border-t border-slate-800/40`}
                         >
                           <span className="text-slate-100 truncate">
                             {item.product_name}
+                          </span>
+                          <span className="text-right text-slate-400 font-mono">
+                            {item.product_sku ?? "—"}
                           </span>
                           <span className="text-right text-slate-200">
                             {item.quantity}
@@ -3274,13 +3284,14 @@ export default function SalesHistoryContent({
                   </h3>
                   <div className="rounded-xl border border-slate-800/60 overflow-hidden text-base">
                     <div
-                      className={`grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base ${
+                      className={`grid grid-cols-[1fr_140px_80px_110px_120px] px-3 py-2 text-base ${
                         isPosTheme
                           ? "bg-slate-950 text-slate-400"
                           : "bg-slate-100 text-slate-700"
                       }`}
                     >
                       <span>Producto</span>
+                      <span className="text-right">Código</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">P. unitario</span>
                       <span className="text-right">Total línea</span>
@@ -3298,10 +3309,13 @@ export default function SalesHistoryContent({
                         return (
                           <div
                           key={`change-return-${item.product_name}-${rowIndex}`}
-                          className={`grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base ${zebra} border-t border-slate-800/40`}
+                          className={`grid grid-cols-[1fr_140px_80px_110px_120px] px-3 py-2 text-base ${zebra} border-t border-slate-800/40`}
                         >
                           <span className="text-slate-100 truncate">
                             {item.product_name}
+                          </span>
+                          <span className="text-right text-slate-400 font-mono">
+                            {item.product_sku ?? "—"}
                           </span>
                           <span className="text-right text-slate-200">
                             {item.quantity}
