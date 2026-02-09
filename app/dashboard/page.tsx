@@ -96,6 +96,14 @@ type RecentSalePayment = {
   amount: number;
 };
 
+type DocumentAdjustmentRecord = {
+  id: number;
+  doc_id: number;
+  adjustment_type: "payment" | "discount" | "note";
+  payload?: Record<string, unknown> | null;
+  total_delta: number;
+};
+
 /* =============== HELPERS =============== */
 
 function formatMoney(value: number): string {
@@ -146,6 +154,34 @@ function normalizeMonthIndex(
   return null;
 }
 
+function getAdjustedPaymentsFromAdjustments(
+  adjustments: DocumentAdjustmentRecord[]
+) {
+  const adjustment = adjustments.find(
+    (entry) => entry.adjustment_type === "payment"
+  );
+  if (!adjustment?.payload || typeof adjustment.payload !== "object") {
+    return null;
+  }
+  const paymentsRaw = (adjustment.payload as Record<string, unknown>).payments;
+  if (!Array.isArray(paymentsRaw)) return null;
+  const payments = paymentsRaw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const record = entry as Record<string, unknown>;
+      const method = typeof record.method === "string" ? record.method : "";
+      const amountValue =
+        typeof record.amount === "number" || typeof record.amount === "string"
+          ? record.amount
+          : 0;
+      const amount = Number(amountValue) || 0;
+      if (!method) return null;
+      return { method, amount };
+    })
+    .filter((entry): entry is { method: string; amount: number } => !!entry);
+  return payments.length ? payments : null;
+}
+
 /* =============== COMPONENTE =============== */
 
 export default function DashboardHomePage() {
@@ -174,6 +210,9 @@ export default function DashboardHomePage() {
   const [recentSales, setRecentSales] = useState<RecentSale[]>([]);
   const [recentLoading, setRecentLoading] = useState(false);
   const [recentError, setRecentError] = useState<string | null>(null);
+  const [recentAdjustments, setRecentAdjustments] = useState<
+    Record<number, DocumentAdjustmentRecord[]>
+  >({});
   const [recentMode, setRecentMode] = useState<"recent" | "top">("recent");
   const [paymentRange, setPaymentRange] = useState<"day" | "week" | "month">(
     "day"
@@ -243,6 +282,30 @@ export default function DashboardHomePage() {
 
       const sales: RecentSale[] = await res.json();
       setRecentSales(sales);
+      if (sales.length) {
+        const ids = sales.map((sale) => sale.id);
+        const adjustmentsRes = await fetch(
+          `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${ids.join(",")}`,
+          {
+            headers: authHeaders,
+            credentials: "include",
+          }
+        );
+        if (adjustmentsRes.ok) {
+          const adjustments = (await adjustmentsRes.json()) as DocumentAdjustmentRecord[];
+          const map: Record<number, DocumentAdjustmentRecord[]> = {};
+          adjustments.forEach((adjustment) => {
+            const list = map[adjustment.doc_id] ?? [];
+            list.push(adjustment);
+            map[adjustment.doc_id] = list;
+          });
+          setRecentAdjustments(map);
+        } else {
+          setRecentAdjustments({});
+        }
+      } else {
+        setRecentAdjustments({});
+      }
     } catch (err) {
       console.error(err);
       setRecentError(
@@ -413,7 +476,7 @@ export default function DashboardHomePage() {
       paymentRange === "day"
         ? todayDateKey
         : paymentRange === "week"
-        ? getBogotaDateKey(weekStart)
+        ? getBogotaDateKey(currentWeekStart)
         : monthStartKey;
     void loadPaymentMethods(paymentRange, startKey);
   }, [
@@ -421,7 +484,7 @@ export default function DashboardHomePage() {
     paymentRange,
     todayDateKey,
     todayStart,
-    weekStart,
+    currentWeekStart,
   ]);
   const adjustTotalForDate = useCallback(
     (baseTotal: number) => Math.max(0, baseTotal),
@@ -598,7 +661,21 @@ export default function DashboardHomePage() {
         sale.refunded_balance != null
           ? Math.max(0, sale.refunded_balance)
           : Math.max(0, sale.total - refundAmount);
-      const safeNetTotal = isVoided ? 0 : netTotal;
+      const adjustments = recentAdjustments[sale.id] ?? [];
+      const totalDelta = adjustments.reduce(
+        (sum, entry) => sum + (entry.total_delta ?? 0),
+        0
+      );
+      const safeNetTotal = isVoided ? 0 : Math.max(0, netTotal + totalDelta);
+      const adjustedPayments = getAdjustedPaymentsFromAdjustments(adjustments);
+      const adjustedPaymentsTotal = adjustedPayments
+        ? adjustedPayments.reduce((sum, entry) => sum + (entry.amount ?? 0), 0)
+        : null;
+      const adjustedMethodLabel = adjustedPayments
+        ? adjustedPayments.length > 1
+          ? "Mixto"
+          : getPaymentLabel(adjustedPayments[0].method)
+        : getPaymentLabel(sale.payment_method);
       const dateObj = parseDateInput(sale.created_at) ?? new Date();
       const firstItem =
         sale.items && sale.items.length > 0 ? sale.items[0] : undefined;
@@ -612,6 +689,11 @@ export default function DashboardHomePage() {
         detail,
         refundAmount,
         netTotal: safeNetTotal,
+        methodLabel: adjustedMethodLabel,
+        adjustedPaymentsTotal,
+        hasAdjustment:
+          Math.abs(totalDelta) > 0.01 ||
+          (adjustedPayments?.length ?? 0) > 0,
         dateObj,
         dateKey: getBogotaDateKey(dateObj),
       };
@@ -629,7 +711,7 @@ export default function DashboardHomePage() {
     }
 
     return list.slice(0, 10);
-  }, [recentSales, recentMode, todayDateKey]);
+  }, [recentSales, recentMode, todayDateKey, recentAdjustments, getPaymentLabel]);
 
   const paymentMethodCalc = useMemo(() => {
     const dayStart = buildBogotaDateFromKey(todayDateKey);
@@ -724,7 +806,7 @@ export default function DashboardHomePage() {
               <h1 className="text-2xl md:text-3xl font-semibold text-slate-50">
                 Panel general
               </h1>
-              <span className="text-xs uppercase tracking-wide text-slate-400">
+              <span className="text-sm uppercase tracking-[0.08em] text-slate-200 font-semibold">
                 {todayLabel}
               </span>
             </div>
@@ -752,13 +834,23 @@ export default function DashboardHomePage() {
             <button
               type="button"
               onClick={() => {
+                const monthStart = new Date(todayStart);
+                monthStart.setUTCDate(1);
+                const monthStartKey = getBogotaDateKey(monthStart);
+                const startKey =
+                  paymentRange === "day"
+                    ? todayDateKey
+                    : paymentRange === "week"
+                    ? getBogotaDateKey(currentWeekStart)
+                    : monthStartKey;
                 void loadSummary();
                 void loadRecentSales();
                 void loadYearlySales();
                 void loadSeparatedOrders();
+                void loadPaymentMethods(paymentRange, startKey);
               }}
               disabled={refreshing}
-              className="px-3 py-1.5 rounded-md border border-emerald-400/70 text-emerald-300 text-xs hover:bg-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 rounded-md border border-emerald-500 text-emerald-700 text-xs font-semibold bg-emerald-50 shadow-[0_1px_0_rgba(16,185,129,0.25)] hover:bg-emerald-100 hover:border-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Refrescar
             </button>
@@ -768,14 +860,14 @@ export default function DashboardHomePage() {
         {/* KPIs principales */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Ventas hoy */}
-          <div className="rounded-2xl ui-surface px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Ventas de hoy (movimientos)
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 text-2xl font-semibold text-emerald-400">
+              <div className="mt-2 text-2xl font-semibold text-emerald-600">
                 {formatMoney(adjustedTodaySales)}
               </div>
             )}
@@ -792,7 +884,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Tickets hoy */}
-          <div className="rounded-2xl ui-surface px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Tickets de hoy
             </div>
@@ -809,7 +901,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Ventas mes actual */}
-          <div className="rounded-2xl ui-surface px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Ventas mes actual (movimientos)
             </div>
@@ -833,14 +925,14 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Ventas semana actual */}
-          <div className="rounded-2xl ui-surface px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Ventas semana actual (movimientos)
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 text-2xl font-semibold text-emerald-300">
+              <div className="mt-2 text-2xl font-semibold text-emerald-600">
                 {formatMoney(adjustedWeekSales)}
               </div>
             )}
@@ -850,7 +942,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Ticket promedio mes */}
-          <div className="rounded-2xl ui-surface px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
             <div className="text-xs font-medium text-slate-400">
               Ticket promedio (mes)
             </div>
@@ -870,7 +962,7 @@ export default function DashboardHomePage() {
         {/* Sección inferior: gráfica + métodos de pago */}
         <section className="grid gap-4 mt-6 lg:grid-cols-2 md:grid-cols-2">
           {/* Gráfico últimos 7 días */}
-          <div className="rounded-2xl ui-surface px-5 py-4 min-h-[300px]">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4 min-h-[300px]">
             <div className="flex items-center justify-between mb-3 gap-3">
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -1046,6 +1138,7 @@ export default function DashboardHomePage() {
 
                   const heightPercent =
                     point.total === 0 ? 6 : Math.max(18, rawHeight);
+                  const isZero = point.total === 0;
 
                   return (
                     <div
@@ -1054,15 +1147,15 @@ export default function DashboardHomePage() {
                     >
                       <div className="flex flex-col items-center gap-1 mb-2">
                         {isWeekMode && (
-                          <div className="text-[11px] text-slate-400">
+                          <div className="text-[11px] dashboard-chart-ticket">
                             {point.tickets} tickets
                           </div>
                         )}
                         <div
                           className={`text-[11px] ${
                             isCurrentDay
-                              ? "text-emerald-300 font-semibold"
-                              : "text-slate-300"
+                              ? "dashboard-chart-value-strong"
+                              : "dashboard-chart-value"
                           }`}
                         >
                           {formatMoney(point.total)}
@@ -1070,15 +1163,15 @@ export default function DashboardHomePage() {
                       </div>
 
                       <div
-                        className={`w-6 sm:w-8 h-32 rounded-full overflow-hidden flex items-end ${
-                          isCurrentDay
-                            ? "bg-slate-800/80 ring-2 ring-emerald-400/70 ring-offset-2 ring-offset-slate-900"
-                            : "bg-slate-800"
-                        }`}
+                        className={`w-6 sm:w-8 h-32 rounded-full overflow-hidden flex items-end dashboard-chart-track ${
+                          isZero ? "dashboard-chart-track-empty" : ""
+                        } ${isCurrentDay ? "dashboard-chart-current" : ""}`}
                       >
                         <div
                           className={`w-full rounded-full transition-all ${
-                            isCurrentDay ? "bg-emerald-300" : "bg-emerald-500"
+                            isCurrentDay
+                              ? "dashboard-chart-fill-strong"
+                              : "dashboard-chart-fill"
                           }`}
                           style={{ height: `${heightPercent}%` }}
                         />
@@ -1087,16 +1180,16 @@ export default function DashboardHomePage() {
                       <div
                         className={`text-[11px] mt-1 flex flex-col items-center leading-tight ${
                           isCurrentDay
-                            ? "text-emerald-200 font-medium"
-                            : "text-slate-400"
+                            ? "dashboard-chart-label-strong font-medium"
+                            : "dashboard-chart-label"
                         }`}
                       >
                         <span className="capitalize">{primaryLabel}</span>
                         <span
                           className={`text-[10px] ${
                             isCurrentDay
-                              ? "text-emerald-300/80"
-                              : "text-slate-500"
+                              ? "dashboard-chart-label-strong"
+                              : "dashboard-chart-label"
                           }`}
                         >
                           {secondaryLabel}
@@ -1110,7 +1203,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Métodos de pago */}
-          <div className="rounded-2xl ui-surface px-5 py-4 h-[300px] flex flex-col">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4 h-[300px] flex flex-col">
             <div className="flex items-center justify-between gap-3 mb-1">
               <div>
                 <h2 className="text-sm font-semibold text-slate-100">
@@ -1176,9 +1269,10 @@ export default function DashboardHomePage() {
                       <div className="flex justify-between text-[11px] text-slate-400">
                         <span>{pm.tickets} tickets</span>
                       </div>
-                      <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                      <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden relative">
+                        <div className="absolute inset-0 rounded-full bg-slate-200/60" />
                         <div
-                          className="h-full rounded-full bg-sky-500"
+                          className="relative h-full rounded-full bg-sky-500"
                           style={{
                             width: `${
                               paymentMethodTotal > 0
@@ -1232,7 +1326,7 @@ export default function DashboardHomePage() {
         </section>
 
         {/* Últimas ventas */}
-        <section className="mt-6 rounded-2xl ui-surface px-5 py-4">
+        <section className="mt-6 rounded-2xl ui-surface dashboard-kpi-card px-5 py-4">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
             <div>
               <div className="flex items-center gap-2">
@@ -1273,7 +1367,7 @@ export default function DashboardHomePage() {
 
             <button
               type="button"
-              className="text-emerald-400 hover:text-emerald-300 text-xs"
+              className="px-4 py-2 rounded-full border border-emerald-400/70 text-emerald-600 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-500 shadow-[0_1px_0_rgba(16,185,129,0.2)] transition"
               onClick={() =>
                 router.push(
                   posPreview
@@ -1304,11 +1398,23 @@ export default function DashboardHomePage() {
               {/* Contenedor con altura fija + scroll interno */}
               <div className="rounded-xl border border-slate-800/60 overflow-hidden">
                 <div className="max-h-64 overflow-y-auto">
-                  {recentRows.map(({ sale, detail, refundAmount, netTotal }, rowIndex) => {
+                  {recentRows.map(
+                    (
+                      {
+                        sale,
+                        detail,
+                        refundAmount,
+                        netTotal,
+                        methodLabel,
+                        adjustedPaymentsTotal,
+                        hasAdjustment,
+                      },
+                      rowIndex
+                    ) => {
                     const zebra =
                       rowIndex % 2 === 0
-                        ? "bg-slate-950"
-                        : "bg-slate-900/60";
+                        ? "dashboard-row-zebra"
+                        : "dashboard-row-zebra-alt";
 
                     const baseRow =
                       "grid grid-cols-[80px_160px_1fr_120px_120px] text-xs px-3 py-2 transition-colors gap-2";
@@ -1317,7 +1423,8 @@ export default function DashboardHomePage() {
                       sale.sale_number ?? sale.number ?? sale.id;
                     const isVoided = sale.status === "voided";
                     const hasRefund = refundAmount > 0 && !isVoided;
-                    const paidRaw = sale.paid_amount ?? sale.total;
+                    const paidRaw =
+                      adjustedPaymentsTotal ?? sale.paid_amount ?? sale.total;
                     const paidBase = sale.is_separated
                       ? paidRaw
                       : Math.min(paidRaw, sale.total);
@@ -1328,7 +1435,7 @@ export default function DashboardHomePage() {
                     return (
                       <div
                         key={`${sale.id}-${rowIndex}`}
-                        className={`${baseRow} ${zebra} hover:bg-slate-800/80`}
+                        className={`${baseRow} ${zebra}`}
                       >
                         {/* Nº venta */}
                         <div className="font-mono text-slate-200">
@@ -1351,6 +1458,11 @@ export default function DashboardHomePage() {
                         <div className="flex flex-col">
                           <span className="truncate text-slate-100 flex items-center gap-2">
                             {detail}
+                            {hasAdjustment && (
+                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-400/40 text-sky-200 bg-sky-500/10">
+                                Ajustado
+                              </span>
+                            )}
                             {isVoided && (
                               <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-rose-500/50 text-rose-300 bg-rose-500/10">
                                 Anulada
@@ -1377,9 +1489,7 @@ export default function DashboardHomePage() {
                         {/* Método: SIEMPRE visible */}
                         <div className="text-right text-slate-200">
                           <div>
-                            {sale.is_separated
-                              ? "Separado"
-                              : getPaymentLabel(sale.payment_method)}
+                            {sale.is_separated ? "Separado" : methodLabel}
                           </div>
                           {hasRefund && (
                             <div className="text-[10px] text-rose-300">

@@ -12,11 +12,13 @@ export default function SalesHistoryPage() {
     : "/dashboard/sales";
 
   return (
-    <SalesHistoryContent
-      backPath={backPath}
-      backLabel="Volver"
-      returnPath="/pos/devoluciones"
-      returnBackPath={salesPath}
-    />
+    <div className="dashboard-sales-scale">
+      <SalesHistoryContent
+        backPath={backPath}
+        backLabel="Volver"
+        returnPath="/pos/devoluciones"
+        returnBackPath={salesPath}
+      />
+    </div>
   );
 }

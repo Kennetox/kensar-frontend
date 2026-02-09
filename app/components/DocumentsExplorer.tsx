@@ -281,6 +281,18 @@ function parseMoneyString(raw: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function formatMoneyInput(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const isNegative = trimmed.startsWith("-");
+  const digits = trimmed.replace(/[^\d]/g, "");
+  if (!digits) return isNegative ? "-" : "";
+  const numeric = Number(digits);
+  if (!Number.isFinite(numeric)) return "";
+  const formatted = formatMoney(numeric);
+  return isNegative ? `-${formatted}` : formatted;
+}
+
 function toExportNumber(value: number | string | null | undefined): number {
   if (value == null) return 0;
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -523,6 +535,7 @@ export default function DocumentsExplorer({
   const [toast, setToast] = useState<{ id: number; message: string; tone: "info" | "error" } | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
+  const lastDiscountTargetRef = useRef<number | null>(null);
 
   const formatDateInput = (date: Date) =>
     date.toISOString().slice(0, 10);
@@ -834,6 +847,10 @@ export default function DocumentsExplorer({
       showToast("Debes indicar el motivo del ajuste.", "error");
       return;
     }
+    if (adjustType === "note" && !adjustNote.trim()) {
+      showToast("Debes ingresar la nota del ajuste.", "error");
+      return;
+    }
     setAdjusting(true);
     const apiBase = getApiBase();
     try {
@@ -860,8 +877,33 @@ export default function DocumentsExplorer({
         payload.current_total = selectedSalePaymentsTotal;
         payload.adjusted_total = adjustedTotal;
       } else if (adjustType === "discount") {
-        totalDelta = parseMoneyString(adjustTotalDelta || "0");
-        paymentDelta = totalDelta;
+        if (!adjustTotalDelta.trim()) {
+          throw new Error("Ingresa el total con descuento.");
+        }
+        const targetTotal = parseMoneyString(adjustTotalDelta || "0");
+        totalDelta = targetTotal - baseSaleTotal;
+        if (adjustPayments.length === 0) {
+          throw new Error("Debes ajustar los pagos junto con el descuento.");
+        }
+        const payments = adjustPayments
+          .map((entry) => ({
+            method: entry.method,
+            amount: parseMoneyString(entry.amount || "0"),
+          }))
+          .filter((entry) => Number.isFinite(entry.amount));
+        const adjustedTotal = payments.reduce(
+          (sum, entry) => sum + entry.amount,
+          0
+        );
+        paymentDelta = adjustedTotal - selectedSalePaymentsTotal;
+        if (Math.abs(paymentDelta - totalDelta) > 0.01) {
+          throw new Error(
+            "El descuento debe cuadrar con el ajuste de pagos."
+          );
+        }
+        payload.payments = payments;
+        payload.current_total = baseSaleTotal;
+        payload.adjusted_total = targetTotal;
       }
       if (adjustNote.trim()) {
         payload.note = adjustNote.trim();
@@ -1559,10 +1601,6 @@ const selectedSalePayments = useMemo(() => {
   return [];
 }, [selectedSaleDocument, selectedSaleTotals, selectedDoc?.total]);
 
-  const selectedSalePaymentsTotal = selectedSalePayments.reduce(
-    (sum, entry) => sum + (Number(entry.amount) || 0),
-    0
-  );
   const totalAdjustmentsDelta = useMemo(
     () =>
       documentAdjustments.reduce(
@@ -1571,11 +1609,53 @@ const selectedSalePayments = useMemo(() => {
       ),
     [documentAdjustments]
   );
+  const latestPaymentAdjustment = useMemo(
+    () =>
+      documentAdjustments.find((entry) => {
+        if (!entry.payload || typeof entry.payload !== "object") return false;
+        const payments = (entry.payload as Record<string, unknown>).payments;
+        return Array.isArray(payments) && payments.length > 0;
+      }),
+    [documentAdjustments]
+  );
+  const adjustedPayments = useMemo(() => {
+    const payload = latestPaymentAdjustment?.payload;
+    if (!payload || typeof payload !== "object") return null;
+    const raw = (payload as Record<string, unknown>).payments;
+    if (!Array.isArray(raw)) return null;
+    const entries = raw
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const record = entry as Record<string, unknown>;
+        const method = typeof record.method === "string" ? record.method : "";
+        const amountValue =
+          typeof record.amount === "number" || typeof record.amount === "string"
+            ? record.amount
+            : 0;
+        const amount = toNumber(amountValue);
+        if (!method) return null;
+        return { method, amount };
+      })
+      .filter((entry): entry is { method: string; amount: number } => !!entry);
+    return entries.length ? entries : null;
+  }, [latestPaymentAdjustment]);
+  const selectedSalePaymentsTotal = selectedSalePayments.reduce(
+    (sum, entry) => sum + (Number(entry.amount) || 0),
+    0
+  );
+  const displaySalePaymentsTotal = adjustedPayments
+    ? adjustedPayments.reduce((sum, entry) => sum + toNumber(entry.amount), 0)
+    : selectedSalePaymentsTotal;
   const baseSaleTotal =
     selectedSaleTotals?.netTotal ??
     selectedDoc?.total ??
     selectedSaleDocument?.total ??
     0;
+  const discountTargetTotal = useMemo(
+    () => parseMoneyString(adjustTotalDelta || "0"),
+    [adjustTotalDelta]
+  );
+  const discountAmount = Math.max(0, baseSaleTotal - discountTargetTotal);
   const adjustedSaleTotal = baseSaleTotal + totalAdjustmentsDelta;
   const adjustPaymentsTotal = useMemo(
     () =>
@@ -1586,15 +1666,84 @@ const selectedSalePayments = useMemo(() => {
     [adjustPayments]
   );
   const adjustPaymentsDelta = adjustPaymentsTotal - selectedSalePaymentsTotal;
+
+  useEffect(() => {
+    if (adjustType !== "discount") {
+      lastDiscountTargetRef.current = null;
+      return;
+    }
+    if (!adjustTotalDelta.trim()) {
+      return;
+    }
+    const targetTotal = discountTargetTotal;
+    if (!Number.isFinite(targetTotal)) return;
+    if (lastDiscountTargetRef.current === targetTotal) return;
+    lastDiscountTargetRef.current = targetTotal;
+
+    setAdjustPayments((prev) => {
+      const fallbackMethod = catalog[0]?.slug ?? "cash";
+      if (!prev.length) {
+        return [
+          {
+            id: crypto.randomUUID(),
+            method: fallbackMethod,
+            amount: formatMoney(targetTotal),
+          },
+        ];
+      }
+
+      const parsedAmounts = prev.map((entry) =>
+        parseMoneyString(entry.amount || "0")
+      );
+      const currentTotal = parsedAmounts.reduce((sum, value) => sum + value, 0);
+      if (currentTotal <= 0) {
+        const next = prev.map((entry, index) => ({
+          ...entry,
+          amount: formatMoney(index === 0 ? targetTotal : 0),
+        }));
+        const unchanged = next.every(
+          (entry, index) => entry.amount === prev[index]?.amount
+        );
+        return unchanged ? prev : next;
+      }
+
+      const ratio = targetTotal / currentTotal;
+      let runningTotal = 0;
+      const next = prev.map((entry, index) => {
+        const isLast = index === prev.length - 1;
+        const scaled = isLast
+          ? Math.max(0, targetTotal - runningTotal)
+          : Math.max(0, Math.floor(parsedAmounts[index] * ratio));
+        if (!isLast) {
+          runningTotal += scaled;
+        }
+        return { ...entry, amount: formatMoney(scaled) };
+      });
+
+      const unchanged = next.every(
+        (entry, index) => entry.amount === prev[index]?.amount
+      );
+      return unchanged ? prev : next;
+    });
+  }, [
+    adjustType,
+    adjustTotalDelta,
+    catalog,
+    discountTargetTotal,
+  ]);
   const selectedSalePendingAmount = useMemo(() => {
     if (selectedSeparatedOrder) {
       return Math.max(0, selectedSeparatedOrder.balance ?? 0);
     }
     if (adjustedSaleTotal > 0) {
-      return Math.max(0, adjustedSaleTotal - selectedSalePaymentsTotal);
+      return Math.max(0, adjustedSaleTotal - displaySalePaymentsTotal);
     }
     return 0;
-  }, [selectedSeparatedOrder, adjustedSaleTotal, selectedSalePaymentsTotal]);
+  }, [
+    selectedSeparatedOrder,
+    adjustedSaleTotal,
+    displaySalePaymentsTotal,
+  ]);
   const selectedDocIsSeparated =
     !!(selectedDoc?.isSeparated ?? selectedSaleDocument?.is_separated);
   const selectedSaleInitialMethod =
@@ -1692,9 +1841,38 @@ useEffect(() => {
   selectedDocIsSeparated,
 ]);
 
+  const adjustedMethodLabel = adjustedPayments
+    ? adjustedPayments.length > 1
+      ? "Mixto"
+      : mapPaymentMethod(adjustedPayments[0].method)
+    : selectedDocInitialMethodLabel;
   const selectedDocMethodLabel = selectedDocIsSeparated
     ? "SEPARADO"
-    : selectedDocInitialMethodLabel;
+    : adjustedMethodLabel;
+  const adjustmentNotes = useMemo(() => {
+    if (!documentAdjustments.length) return "";
+    const notes = documentAdjustments
+      .map((adjustment) => {
+        const payloadNote =
+          adjustment.payload && typeof adjustment.payload === "object"
+            ? (adjustment.payload as Record<string, unknown>).note
+            : null;
+        const noteText =
+          typeof payloadNote === "string"
+            ? payloadNote
+            : adjustment.adjustment_type === "note"
+            ? adjustment.reason ?? ""
+            : "";
+        return noteText ? `Ajuste: ${noteText}` : "";
+      })
+      .filter(Boolean);
+    return notes.join("\n");
+  }, [documentAdjustments]);
+  const combinedSaleNotes = useMemo(() => {
+    const base = (selectedDetails as SaleRecord | null)?.notes?.trim();
+    if (base && adjustmentNotes) return `${base}\n${adjustmentNotes}`;
+    return base || adjustmentNotes || "";
+  }, [adjustmentNotes, selectedDetails]);
   const adjustmentTypeLabel = (type: DocumentAdjustmentRecord["adjustment_type"]) =>
     type === "payment"
       ? "Ajuste de pagos"
@@ -1713,34 +1891,6 @@ useEffect(() => {
   const documentsGridClass = detailExpanded
     ? "grid gap-4 lg:grid-cols-[minmax(260px,0.9fr)_minmax(360px,1.35fr)]"
     : "grid gap-4 lg:grid-cols-[1.45fr_1fr]";
-  const latestPaymentAdjustment = useMemo(
-    () =>
-      documentAdjustments.find(
-        (entry) => entry.adjustment_type === "payment"
-      ),
-    [documentAdjustments]
-  );
-  const adjustedPayments = useMemo(() => {
-    const payload = latestPaymentAdjustment?.payload;
-    if (!payload || typeof payload !== "object") return null;
-    const raw = (payload as Record<string, unknown>).payments;
-    if (!Array.isArray(raw)) return null;
-    const entries = raw
-      .map((entry) => {
-        if (!entry || typeof entry !== "object") return null;
-        const record = entry as Record<string, unknown>;
-        const method = typeof record.method === "string" ? record.method : "";
-        const amountValue =
-          typeof record.amount === "number" || typeof record.amount === "string"
-            ? record.amount
-            : 0;
-        const amount = toNumber(amountValue);
-        if (!method) return null;
-        return { method, amount };
-      })
-      .filter((entry): entry is { method: string; amount: number } => !!entry);
-    return entries.length ? entries : null;
-  }, [latestPaymentAdjustment]);
   const displaySalePayments = useMemo(
     () =>
       adjustedPayments
@@ -1786,7 +1936,7 @@ useEffect(() => {
     }
     cards.push({
       label: "Pagado",
-      value: formatMoney(selectedSalePaymentsTotal),
+      value: formatMoney(displaySalePaymentsTotal),
       hint:
         selectedSalePayments.length > 1
           ? "Suma de todos los pagos"
@@ -1845,7 +1995,7 @@ useEffect(() => {
     selectedDoc,
     selectedSaleTotals,
     selectedSaleDocument?.total,
-    selectedSalePaymentsTotal,
+    displaySalePaymentsTotal,
     selectedSalePayments,
     selectedSalePendingAmount,
     selectedSaleSurchargeAmount,
@@ -1987,7 +2137,7 @@ useEffect(() => {
       items: ticketItems,
       payments,
       changeAmount,
-      notes: selectedSaleDocument.notes,
+      notes: combinedSaleNotes || selectedSaleDocument.notes,
       posName: selectedSaleDocument.pos_name ?? undefined,
       vendorName: selectedSaleDocument.vendor_name ?? undefined,
       settings: posSettings,
@@ -2219,7 +2369,7 @@ useEffect(() => {
         )}
       </header>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-4 text-xs">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4 text-xs">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h2 className="text-sm font-semibold text-slate-200">Filtros avanzados</h2>
           <button
@@ -2391,7 +2541,7 @@ useEffect(() => {
           type="button"
           onClick={handleAdjustClick}
           title={adjustActionTitle}
-          className={`px-4 py-2 rounded-md border border-amber-400/40 text-amber-100 hover:bg-amber-500/10 text-sm ${
+          className={`px-4 py-2 rounded-md border border-amber-400 text-amber-800 bg-amber-50 hover:bg-amber-100 text-sm font-semibold shadow-sm ${
             adjustButtonDisabled ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
@@ -2401,7 +2551,7 @@ useEffect(() => {
           type="button"
           onClick={handleVoidClick}
           title={voidActionTitle}
-          className={`px-4 py-2 rounded-md border border-rose-500/40 text-rose-200 hover:bg-rose-500/10 text-sm ${
+          className={`px-4 py-2 rounded-md border border-rose-400 text-rose-800 bg-rose-50 hover:bg-rose-100 text-sm font-semibold shadow-sm ${
             voidButtonDisabled ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
@@ -2410,7 +2560,7 @@ useEffect(() => {
         <button
           type="button"
           onClick={handlePrintTicketClick}
-          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+          className={`px-4 py-2 rounded-md dashboard-button text-sm ${
             printTicketDisabled ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
@@ -2419,7 +2569,7 @@ useEffect(() => {
         <button
           type="button"
           onClick={handlePrintInvoiceClick}
-          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+          className={`px-4 py-2 rounded-md dashboard-button text-sm ${
             printTicketDisabled ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
@@ -2428,7 +2578,7 @@ useEffect(() => {
         <button
           type="button"
           onClick={handlePrintChangeClick}
-          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+          className={`px-4 py-2 rounded-md dashboard-button text-sm ${
             printChangeDisabled ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
@@ -2437,7 +2587,7 @@ useEffect(() => {
         <button
           type="button"
           onClick={handlePrintClosureClick}
-          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+          className={`px-4 py-2 rounded-md dashboard-button text-sm ${
             printClosureDisabled ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
@@ -2446,7 +2596,7 @@ useEffect(() => {
         <button
           type="button"
           onClick={handleToggleDetailClick}
-          className={`px-4 py-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm ${
+          className={`px-4 py-2 rounded-md dashboard-button text-sm ${
             toggleDetailDisabled ? "opacity-50 cursor-not-allowed" : ""
           }`}
         >
@@ -2475,7 +2625,7 @@ useEffect(() => {
                 type="button"
                 onClick={() => void handleExportXlsx()}
                 disabled={loading || filteredDocuments.length === 0}
-                className="px-3 py-1 rounded-md border border-slate-700 text-slate-200 text-[11px] hover:bg-slate-800 disabled:opacity-40"
+                className="px-3 py-1 rounded-md dashboard-button text-[11px] disabled:opacity-40"
               >
                 Exportar Excel
               </button>
@@ -2500,7 +2650,7 @@ useEffect(() => {
                   <col style={{ width: "120px" }} />
                   <col style={{ width: "200px" }} />
                 </colgroup>
-                <thead className="bg-slate-950 text-[11px] text-slate-400">
+                <thead className="bg-[var(--surface-2)] text-[11px] text-slate-700">
                   <tr>
                     <th className="text-left px-3 py-2 font-normal">Documento</th>
                     <th className="text-left px-3 py-2 font-normal">Tipo</th>
@@ -2546,15 +2696,19 @@ useEffect(() => {
                     ))}
                   {!loading && filteredDocuments.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-6 text-center text-[11px] text-slate-500">
-                        No se encontraron documentos con los filtros actuales.
-                      </td>
-                    </tr>
-                  )}
-                  {!loading && filteredDocuments.map((doc) => {
+                        <td colSpan={5} className="px-4 py-6 text-center text-[11px] text-slate-500">
+                          No se encontraron documentos con los filtros actuales.
+                        </td>
+                      </tr>
+                    )}
+                  {!loading && filteredDocuments.map((doc, docIndex) => {
                     const isSelected = selectedDoc?.id === doc.id;
                     const isAnnulation =
                       doc.type === "devolucion" && doc.isAnnulation;
+                    const zebra =
+                      docIndex % 2 === 0
+                        ? "dashboard-row-zebra"
+                        : "dashboard-row-zebra-alt";
                     const typeBadge =
                       doc.type === "venta"
                         ? doc.status === "voided"
@@ -2581,8 +2735,8 @@ useEffect(() => {
                       <tr
                         key={doc.id}
                         onClick={() => setSelectedDoc(doc)}
-                        className={`cursor-pointer border-t border-slate-800/40 transition ${
-                          isSelected ? "bg-slate-800/60" : "hover:bg-slate-800/40"
+                        className={`cursor-pointer border-t dashboard-border transition-colors ${zebra} ${
+                          isSelected ? "dashboard-row-selected" : ""
                         }`}
                       >
                         <td className="px-3 py-2 align-top">
@@ -2595,28 +2749,28 @@ useEffect(() => {
                         </td>
                         <td className="px-3 py-2 align-top">
                           <span
-                            className={`px-2 py-0.5 rounded-full border text-[11px] ${
+                            className={`px-2.5 py-1 rounded-full border text-[11px] font-semibold shadow-sm ${
                               doc.type === "venta"
                                 ? doc.status === "voided"
-                                  ? "border-rose-500/40 text-rose-200"
-                                  : "border-emerald-400/40 text-emerald-200"
+                                  ? "border-rose-400/70 bg-rose-50 text-rose-700"
+                                  : "border-emerald-300/80 bg-emerald-50 text-emerald-700"
                                 : doc.type === "devolucion"
                                 ? isAnnulation
-                                  ? "border-rose-500/40 text-rose-200"
-                                  : "border-rose-400/40 text-rose-300"
+                                  ? "border-rose-400/70 bg-rose-50 text-rose-700"
+                                  : "border-rose-300/70 bg-rose-50 text-rose-700"
                                 : doc.type === "abono"
-                                ? "border-cyan-400/40 text-cyan-200"
-                                : "border-sky-400/40 text-sky-200"
+                                ? "border-cyan-300/80 bg-cyan-50 text-cyan-700"
+                                : "border-sky-300/80 bg-sky-50 text-sky-700"
                             }`}
                           >
                             {typeBadge}
                           </span>
                           {statusLabel && (
                             <span
-                              className={`ml-2 px-2 py-0.5 rounded-full border text-[10px] uppercase ${
+                              className={`ml-2 px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm ${
                                 doc.status === "voided"
-                                  ? "border-rose-500/40 text-rose-200"
-                                  : "border-amber-400/40 text-amber-100"
+                                  ? "border-rose-400/70 bg-rose-50 text-rose-700"
+                                  : "border-amber-300/80 bg-amber-50 text-amber-700"
                               }`}
                             >
                               {statusLabel}
@@ -2923,14 +3077,13 @@ useEffect(() => {
               )}
 
               {selectedDoc.type === "venta" &&
-                typeof (selectedDetails as SaleRecord)?.notes === "string" &&
-                (selectedDetails as SaleRecord)?.notes?.trim() && (
+                combinedSaleNotes && (
                   <div>
                     <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
                       Notas
                     </div>
                     <p className="text-slate-100 text-sm whitespace-pre-line">
-                      {(selectedDetails as SaleRecord).notes}
+                      {combinedSaleNotes}
                     </p>
                   </div>
                 )}
@@ -3535,13 +3688,13 @@ useEffect(() => {
         </section>
       </div>
       {toast && (
-        <div className="fixed right-6 top-24 z-40 w-[340px] max-w-[90vw]">
+        <div className="fixed right-6 top-24 z-[60] w-[340px] max-w-[90vw]">
           <div
             className={
-              "rounded-2xl border px-4 py-3 shadow-[0_16px_40px_rgba(15,23,42,0.45)] backdrop-blur transition-all duration-300 " +
+              "rounded-2xl border px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.35)] transition-all duration-300 " +
               (toast.tone === "info"
-                ? "border-sky-400/40 bg-slate-900/80 text-slate-100"
-                : "border-rose-400/40 bg-slate-900/80 text-rose-100") +
+                ? "border-sky-400 bg-white text-sky-700 shadow-[0_18px_40px_rgba(14,116,144,0.15)] ring-1 ring-sky-200"
+                : "border-rose-400 bg-white text-rose-600 shadow-[0_18px_40px_rgba(225,29,72,0.15)] ring-1 ring-rose-200") +
               " " +
               (toastVisible
                 ? "translate-x-0 opacity-100"
@@ -3551,7 +3704,7 @@ useEffect(() => {
             <div className="text-sm font-semibold">
               {toast.tone === "info" ? "Aviso" : "Error"}
             </div>
-            <p className="mt-1 text-sm text-slate-100/90">{toast.message}</p>
+            <p className="mt-1 text-sm text-slate-700">{toast.message}</p>
           </div>
         </div>
       )}
@@ -3577,7 +3730,7 @@ useEffect(() => {
               <button
                 type="button"
                 onClick={closeVoidModal}
-                className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800 text-xs"
+                className="px-4 py-2 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-sm hover:bg-slate-100 hover:border-slate-400 transition"
               >
                 Cancelar
               </button>
@@ -3585,7 +3738,7 @@ useEffect(() => {
                 type="button"
                 onClick={submitVoid}
                 disabled={voiding}
-                className="px-3 py-1.5 rounded-md border border-rose-500/40 text-rose-100 hover:bg-rose-500/10 text-xs disabled:opacity-50"
+                className="px-4 py-2 rounded-md border border-rose-500 bg-rose-500 text-white text-xs font-semibold shadow-sm hover:bg-rose-600 hover:border-rose-600 transition disabled:opacity-50"
               >
                 {voiding ? "Procesando..." : voidActionLabel}
               </button>
@@ -3595,14 +3748,14 @@ useEffect(() => {
       )}
       {adjustTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl">
-            <div className="text-sm font-semibold text-slate-100">
+          <div className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-xl">
+            <div className="text-lg font-semibold text-slate-100">
               Ajustar documento {adjustTarget.documentNumber}
             </div>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-sm text-slate-400">
               Registra un ajuste sin modificar el documento original.
             </p>
-            <div className="mt-4 grid gap-3 text-xs">
+            <div className="mt-5 grid gap-4 text-sm">
               <label className="flex flex-col gap-1">
                 <span className="text-slate-300">Tipo de ajuste</span>
                 <select
@@ -3610,7 +3763,7 @@ useEffect(() => {
                   onChange={(e) =>
                     setAdjustType(e.target.value as "payment" | "discount" | "note")
                   }
-                  className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                  className="h-12 rounded-lg border border-slate-700 bg-slate-950 px-4 text-slate-100 text-base"
                 >
                   <option value="payment">Pagos</option>
                   <option value="discount">Descuento</option>
@@ -3622,20 +3775,45 @@ useEffect(() => {
                 <input
                   value={adjustReason}
                   onChange={(e) => setAdjustReason(e.target.value)}
-                  className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
                   placeholder="Describe el motivo del ajuste"
                 />
               </label>
-              {adjustType === "payment" && (
+              {adjustType === "discount" && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-slate-300">Total con descuento</span>
+                    <input
+                      value={adjustTotalDelta}
+                      onChange={(e) =>
+                        setAdjustTotalDelta(formatMoneyInput(e.target.value))
+                      }
+                      inputMode="numeric"
+                      className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
+                      placeholder="0"
+                    />
+                    <span className="text-xs text-slate-500">
+                      Total actual: {formatMoney(baseSaleTotal)}
+                    </span>
+                  </label>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-slate-300">Total descontado</span>
+                    <div className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100">
+                      {formatMoney(discountAmount)}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {adjustType !== "note" && (
                 <div className="space-y-3">
-                  <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                  <div className="text-xs uppercase tracking-wide text-slate-500">
                     Distribucion de pagos
                   </div>
                   <div className="space-y-2">
                     {adjustPayments.map((entry) => (
                       <div
                         key={entry.id}
-                        className="grid gap-2 sm:grid-cols-[1fr_150px_auto]"
+                        className="grid gap-3 sm:grid-cols-[1fr_180px_auto]"
                       >
                         <select
                           value={entry.method}
@@ -3646,7 +3824,7 @@ useEffect(() => {
                               e.target.value
                             )
                           }
-                          className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                          className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
                         >
                           {paymentMethodOptions.map((method) => (
                             <option key={method.value} value={method.value}>
@@ -3660,16 +3838,17 @@ useEffect(() => {
                             updateAdjustPayment(
                               entry.id,
                               "amount",
-                              e.target.value
+                              formatMoneyInput(e.target.value)
                             )
                           }
-                          className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                          inputMode="numeric"
+                          className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
                           placeholder="0"
                         />
                         <button
                           type="button"
                           onClick={() => removeAdjustPayment(entry.id)}
-                          className="px-3 py-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800"
+                          className="px-4 py-2.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800"
                         >
                           Quitar
                         </button>
@@ -3678,12 +3857,12 @@ useEffect(() => {
                     <button
                       type="button"
                       onClick={addAdjustPayment}
-                      className="px-3 py-2 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800"
+                      className="px-4 py-2.5 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800"
                     >
                       Agregar metodo
                     </button>
                   </div>
-                  <div className="grid gap-2 text-[11px] text-slate-400 sm:grid-cols-3">
+                  <div className="grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
                     <div>
                       Pagos actuales:{" "}
                       <span className="text-slate-100">
@@ -3705,40 +3884,21 @@ useEffect(() => {
                   </div>
                 </div>
               )}
-              {adjustType === "discount" && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-slate-300">Delta total</span>
-                    <input
-                      value={adjustTotalDelta}
-                      onChange={(e) => setAdjustTotalDelta(e.target.value)}
-                      className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-                      placeholder="0"
-                    />
-                  </label>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-slate-300">Delta pagos</span>
-                    <div className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100">
-                      {formatMoney(parseMoneyString(adjustTotalDelta || "0"))}
-                    </div>
-                  </div>
-                </div>
-              )}
               <label className="flex flex-col gap-1">
                 <span className="text-slate-300">Nota interna (opcional)</span>
                 <textarea
                   value={adjustNote}
                   onChange={(e) => setAdjustNote(e.target.value)}
                   rows={3}
-                  className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                  className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
                 />
               </label>
             </div>
-            <div className="mt-4 flex justify-end gap-2">
+            <div className="mt-5 flex justify-end gap-3">
               <button
                 type="button"
                 onClick={closeAdjustModal}
-                className="px-3 py-1.5 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800 text-xs"
+                className="px-4 py-2.5 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800 text-sm"
               >
                 Cancelar
               </button>
@@ -3746,7 +3906,7 @@ useEffect(() => {
                 type="button"
                 onClick={submitAdjustment}
                 disabled={adjusting}
-                className="px-3 py-1.5 rounded-md border border-amber-500/40 text-amber-100 hover:bg-amber-500/10 text-xs disabled:opacity-50"
+                className="px-4 py-2.5 rounded-lg border border-amber-500/40 text-amber-100 hover:bg-amber-500/10 text-sm disabled:opacity-50"
               >
                 {adjusting ? "Procesando..." : "Registrar ajuste"}
               </button>

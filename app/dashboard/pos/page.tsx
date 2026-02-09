@@ -18,16 +18,16 @@ export default function PosDashboardPage() {
 
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-6">
-      <div className="max-w-4xl w-full rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950/80 via-slate-900/80 to-slate-900/60 shadow-[0_20px_60px_rgba(3,7,18,0.45)] p-6 sm:p-10">
+      <div className="max-w-4xl w-full rounded-3xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-emerald-50/40 shadow-[0_18px_50px_rgba(15,23,42,0.12)] p-6 sm:p-10">
         <div className="flex flex-col gap-3 mb-6">
-          <div className="inline-flex items-center gap-2 self-start rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
+          <div className="inline-flex items-center gap-2 self-start rounded-full border border-emerald-400 bg-emerald-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-700 shadow-sm">
             POS Web disponible
           </div>
           <div>
-            <h1 className="text-2xl md:text-3xl font-semibold text-white">
+            <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">
               POS · Metrik
             </h1>
-            <p className="mt-3 text-sm md:text-base text-slate-200/80 leading-relaxed">
+            <p className="mt-3 text-sm md:text-base text-slate-600 leading-relaxed">
               Estás a un paso de abrir el <strong>POS Web</strong>, pensado para operar
               desde cualquier navegador con internet. Ideal para tablets, laptops o
               puntos de venta móviles que no usan PIN de estación. Todo se sincroniza
@@ -37,33 +37,33 @@ export default function PosDashboardPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-3 mb-8">
-          <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
-            <h2 className="text-sm font-semibold text-white mb-2">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900 mb-2">
               Ventajas del POS Web
             </h2>
-            <ul className="text-xs md:text-sm text-slate-300 space-y-1.5 list-disc list-inside">
+            <ul className="text-xs md:text-sm text-slate-600 space-y-1.5 list-disc list-inside">
               <li>Disponible en cualquier dispositivo con navegador moderno.</li>
               <li>Sin instalación: comparte el link y listo.</li>
               <li>Accesos seguros por usuario y permisos.</li>
             </ul>
           </div>
 
-          <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
-            <h2 className="text-sm font-semibold text-white mb-2">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900 mb-2">
               ¿Qué verás adentro?
             </h2>
-            <ul className="text-xs md:text-sm text-slate-300 space-y-1.5 list-disc list-inside">
+            <ul className="text-xs md:text-sm text-slate-600 space-y-1.5 list-disc list-inside">
               <li>Grillas por grupos, subgrupos y productos.</li>
               <li>Carrito con totales, descuentos y consecutivo de venta.</li>
               <li>Pantalla de pago con todos tus métodos activos.</li>
             </ul>
           </div>
 
-          <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
-            <h2 className="text-sm font-semibold text-white mb-2">
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-900 mb-2">
               Antes de abrirlo
             </h2>
-            <ul className="text-xs md:text-sm text-slate-300 space-y-1.5 list-disc list-inside">
+            <ul className="text-xs md:text-sm text-slate-600 space-y-1.5 list-disc list-inside">
               <li>Activa la vista a pantalla completa (F11) para mayor comodidad.</li>
               <li>Conecta tu lector de códigos o usa la búsqueda rápida.</li>
               <li>Si necesitas un equipo fijo con PIN, configura una Estación POS.</li>
@@ -72,8 +72,8 @@ export default function PosDashboardPage() {
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-          <div className="flex-1 space-y-1 text-slate-300 text-xs sm:text-sm">
-            <p className="font-semibold text-slate-100">
+          <div className="flex-1 space-y-1 text-slate-600 text-xs sm:text-sm">
+            <p className="font-semibold text-slate-800">
               ¿Cómo quieres abrirlo?
             </p>
             <p>
@@ -83,14 +83,14 @@ export default function PosDashboardPage() {
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
             <Link
               href={{ pathname: "/pos", query: { mode: "web" } }}
-              className="inline-flex justify-center items-center px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold text-sm md:text-base transition-colors w-full sm:w-auto text-center shadow-lg shadow-emerald-500/20"
+              className="inline-flex justify-center items-center px-6 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-sm md:text-base transition-colors w-full sm:w-auto text-center shadow-lg shadow-emerald-500/20"
             >
               Abrir en esta pestaña
             </Link>
             <button
               type="button"
               onClick={handleOpenNewTab}
-              className="inline-flex justify-center items-center px-5 py-3 rounded-2xl border border-slate-700 text-slate-100 hover:bg-slate-800 text-sm transition-colors w-full sm:w-auto text-center"
+              className="inline-flex justify-center items-center px-5 py-3 rounded-2xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-sm transition-colors w-full sm:w-auto text-center"
             >
               Abrir en nueva pestaña
             </button>

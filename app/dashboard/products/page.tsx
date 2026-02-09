@@ -116,6 +116,9 @@ export default function ProductsPage() {
   const [groups, setGroups] = useState<ProductGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [successToastVisible, setSuccessToastVisible] = useState(false);
+  const successToastTimerRef = useRef<number | null>(null);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groupsError, setGroupsError] = useState<string | null>(null);
 
@@ -1183,6 +1186,7 @@ export default function ProductsPage() {
       setProducts((prev) => [...prev, created]);
 
       handleCloseCreateModal();
+      setSuccessMessage("Producto creado correctamente.");
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
       else setError("Error desconocido al guardar");
@@ -1279,6 +1283,7 @@ export default function ProductsPage() {
       );
 
       handleCloseEditModal();
+      setSuccessMessage("Producto actualizado correctamente.");
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
       else setError("Error desconocido al actualizar");
@@ -1286,6 +1291,27 @@ export default function ProductsPage() {
       setSavingEdit(false);
     }
   }
+
+  useEffect(() => {
+    if (!successMessage) {
+      setSuccessToastVisible(false);
+      return;
+    }
+    if (successToastTimerRef.current) {
+      window.clearTimeout(successToastTimerRef.current);
+    }
+    setSuccessToastVisible(false);
+    requestAnimationFrame(() => setSuccessToastVisible(true));
+    successToastTimerRef.current = window.setTimeout(() => {
+      setSuccessToastVisible(false);
+      window.setTimeout(() => setSuccessMessage(null), 220);
+    }, 3200);
+    return () => {
+      if (successToastTimerRef.current) {
+        window.clearTimeout(successToastTimerRef.current);
+      }
+    };
+  }, [successMessage]);
 
   // eliminar producto
   async function handleDelete(
@@ -1809,25 +1835,25 @@ export default function ProductsPage() {
         )}
 
         {!loading && !error && (
-          <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 shadow-lg">
+          <div className="overflow-hidden rounded-xl ui-surface dashboard-kpi-card shadow-lg">
             <div
               ref={topScrollRef}
               onScroll={syncMainScroll}
-              className="overflow-x-auto scrollbar-thin border-b border-slate-800"
+              className="overflow-x-auto scrollbar-thin border-b dashboard-border"
             >
               <div
                 style={{ width: tableScrollWidth || "100%" }}
                 className="h-3"
               />
             </div>
-            <div className="flex items-center justify-between px-4 py-3 text-xs text-slate-400 border-b border-slate-800">
+            <div className="flex items-center justify-between px-4 py-3 text-xs ui-text-muted border-b dashboard-border">
               <div>
                 Página{" "}
-                <span className="font-semibold text-slate-100">
+                <span className="font-semibold ui-text">
                   {currentPage}
                 </span>{" "}
                 de{" "}
-                <span className="font-semibold text-slate-100">
+                <span className="font-semibold ui-text">
                   {totalPages}
                 </span>
               </div>
@@ -1835,28 +1861,28 @@ export default function ProductsPage() {
                 <button
                   disabled={currentPage <= 1}
                   onClick={() => setPage(1)}
-                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                  className="px-2 py-1 rounded-md dashboard-button text-xs disabled:opacity-40"
                 >
                   ⇤ Primera
                 </button>
                 <button
                   disabled={currentPage <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                  className="px-2 py-1 rounded-md dashboard-button text-xs disabled:opacity-40"
                 >
                   ← Anterior
                 </button>
                 <button
                   disabled={currentPage >= totalPages}
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                  className="px-2 py-1 rounded-md dashboard-button text-xs disabled:opacity-40"
                 >
                   Siguiente →
                 </button>
                 <button
                   disabled={currentPage >= totalPages}
                   onClick={() => setPage(totalPages)}
-                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                  className="px-2 py-1 rounded-md dashboard-button text-xs disabled:opacity-40"
                 >
                   Última ⇥
                 </button>
@@ -1868,7 +1894,7 @@ export default function ProductsPage() {
               className="overflow-x-auto"
             >
               <table ref={tableRef} className="min-w-full text-sm">
-                <thead className="bg-slate-900/90 border-b border-slate-800">
+                <thead className="dashboard-table-head">
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold">ID</th>
                     <th className="px-4 py-3 text-left font-semibold">SKU</th>
@@ -1926,11 +1952,13 @@ export default function ProductsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                {paginatedProducts.map((p) => (
+                {paginatedProducts.map((p, rowIndex) => (
                   <tr
                     key={p.id}
                     onDoubleClick={() => openEdit(p)}
-                    className="border-b border-slate-800/70 hover:bg-slate-800/60 transition cursor-pointer"
+                    className={`border-b dashboard-border transition cursor-pointer ${
+                      rowIndex % 2 === 0 ? "dashboard-row" : "dashboard-row-alt"
+                    }`}
                   >
 
                     <td className="px-4 py-3">{p.id}</td>
@@ -2001,7 +2029,7 @@ export default function ProductsPage() {
                   <tr>
                     <td
                       colSpan={17}
-                      className="px-4 py-6 text-center text-slate-400"
+                      className="px-4 py-6 text-center text-slate-500"
                     >
                       No hay productos que coincidan con la búsqueda.
                     </td>
@@ -2011,14 +2039,14 @@ export default function ProductsPage() {
               </table>
             </div>
 
-            <div className="flex items-center justify-between px-4 py-3 text-xs text-slate-400">
+            <div className="flex items-center justify-between px-4 py-3 text-xs dashboard-table-footer ui-text-muted">
               <div>
                 Página{" "}
-                <span className="font-semibold text-slate-100">
+                <span className="font-semibold ui-text">
                   {currentPage}
                 </span>{" "}
                 de{" "}
-                <span className="font-semibold text-slate-100">
+                <span className="font-semibold ui-text">
                   {totalPages}
                 </span>
               </div>
@@ -2026,28 +2054,28 @@ export default function ProductsPage() {
                 <button
                   disabled={currentPage <= 1}
                   onClick={() => setPage(1)}
-                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                  className="px-2 py-1 rounded-md dashboard-button text-xs disabled:opacity-40"
                 >
                   ⇤ Primera
                 </button>
                 <button
                   disabled={currentPage <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                  className="px-2 py-1 rounded-md dashboard-button text-xs disabled:opacity-40"
                 >
                   ← Anterior
                 </button>
                 <button
                   disabled={currentPage >= totalPages}
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                  className="px-2 py-1 rounded-md dashboard-button text-xs disabled:opacity-40"
                 >
                   Siguiente →
                 </button>
                 <button
                   disabled={currentPage >= totalPages}
                   onClick={() => setPage(totalPages)}
-                  className="px-2 py-1 rounded-md border border-slate-600 disabled:opacity-40 hover:bg-slate-800"
+                  className="px-2 py-1 rounded-md dashboard-button text-xs disabled:opacity-40"
                 >
                   Última ⇥
                 </button>
@@ -3209,6 +3237,25 @@ export default function ProductsPage() {
                 Exportar Excel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {successMessage && (
+        <div className="fixed right-6 top-24 z-[60] w-[340px] max-w-[90vw]">
+          <div
+            className={
+              "rounded-2xl border border-emerald-400 bg-white px-4 py-3 text-emerald-900 shadow-[0_16px_40px_rgba(16,185,129,0.2)] transition-all duration-300 " +
+              (successToastVisible
+                ? "translate-x-0 opacity-100"
+                : "translate-x-4 opacity-0")
+            }
+          >
+            <div className="text-sm font-semibold text-emerald-800">
+              Éxito
+            </div>
+            <p className="mt-1 text-sm text-emerald-800/90">
+              {successMessage}
+            </p>
           </div>
         </div>
       )}

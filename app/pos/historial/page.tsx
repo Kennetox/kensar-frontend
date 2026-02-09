@@ -29,6 +29,7 @@ export default function PosSalesHistoryPage() {
         returnPath={resolvedReturnPath}
         returnBackPath={resolvedOriginPath}
         autoReturnOnSelect={autoReturnOnSelect}
+        variant="pos"
       />
     </div>
   );

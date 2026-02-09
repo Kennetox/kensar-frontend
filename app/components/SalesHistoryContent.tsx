@@ -63,6 +63,16 @@ type Payment = {
   amount: number;
 };
 
+type DocumentAdjustmentRecord = {
+  id: number;
+  doc_id: number;
+  adjustment_type: "payment" | "discount" | "note";
+  reason?: string | null;
+  payload?: Record<string, unknown> | null;
+  total_delta: number;
+  created_at: string;
+};
+
 type RefundPayment = {
   method: string;
   amount: number;
@@ -224,6 +234,49 @@ function formatDateInputValue(date: Date): string {
 
 function formatShortDate(value: string): string {
   return formatBogotaDate(value, { day: "2-digit", month: "short" }) || "";
+}
+
+function getAdjustedPaymentsFromAdjustments(
+  adjustments: DocumentAdjustmentRecord[]
+) {
+  const withPayments = adjustments
+    .filter((entry) => entry.payload && typeof entry.payload === "object")
+    .map((entry) => {
+      const payload = entry.payload as Record<string, unknown>;
+      const paymentsRaw = payload.payments;
+      return Array.isArray(paymentsRaw)
+        ? { entry, paymentsRaw }
+        : null;
+    })
+    .filter(
+      (
+        candidate
+      ): candidate is { entry: DocumentAdjustmentRecord; paymentsRaw: unknown[] } =>
+        !!candidate
+    );
+  if (!withPayments.length) return null;
+  const latest = withPayments.reduce((current, next) => {
+    const currentTime = new Date(current.entry.created_at).getTime();
+    const nextTime = new Date(next.entry.created_at).getTime();
+    if (!Number.isNaN(nextTime) && nextTime > currentTime) return next;
+    return current;
+  });
+  const paymentsRaw = latest.paymentsRaw;
+  const payments = paymentsRaw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const record = entry as Record<string, unknown>;
+      const method = typeof record.method === "string" ? record.method : "";
+      const amountValue =
+        typeof record.amount === "number" || typeof record.amount === "string"
+          ? record.amount
+          : 0;
+      const amount = Number(amountValue) || 0;
+      if (!method) return null;
+      return { method, amount };
+    })
+    .filter((entry): entry is { method: string; amount: number } => !!entry);
+  return payments.length ? payments : null;
 }
 
 type QuickRange = "today" | "yesterday" | "thisWeek" | "thisMonth";
@@ -485,6 +538,7 @@ type SalesHistoryContentProps = {
   returnPath?: string;
   returnBackPath?: string;
   autoReturnOnSelect?: boolean;
+  variant?: "dashboard" | "pos";
 };
 
 export default function SalesHistoryContent({
@@ -493,10 +547,12 @@ export default function SalesHistoryContent({
   returnPath,
   returnBackPath,
   autoReturnOnSelect = false,
+  variant = "dashboard",
 }: SalesHistoryContentProps) {
   const router = useRouter();
   const apiBase = useMemo(() => getApiBase(), []);
   const shouldUseQz = backPath === "/pos";
+  const isPosTheme = variant === "pos";
   const resolvedBackLabel =
     backLabel ?? (backPath === "/pos" ? "Volver al POS" : "Volver");
 
@@ -526,6 +582,9 @@ export default function SalesHistoryContent({
   };
   const [separatedPaymentsMap, setSeparatedPaymentsMap] =
     useState<Record<number, SeparatedPaymentInfo[]>>({});
+  const [salesAdjustments, setSalesAdjustments] = useState<
+    Record<number, DocumentAdjustmentRecord[]>
+  >({});
   const [emailSending, setEmailSending] = useState(false);
   const [emailFeedback, setEmailFeedback] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -877,6 +936,30 @@ export default function SalesHistoryContent({
       });
       setSeparatedPaymentsMap({});
       setSales(ordered);
+      if (ordered.length > 0) {
+        const ids = ordered.map((sale) => sale.id);
+        const adjustmentsRes = await fetch(
+          `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${ids.join(",")}`,
+          {
+            headers: authHeaders,
+            credentials: "include",
+          }
+        );
+        if (adjustmentsRes.ok) {
+          const adjustments = (await adjustmentsRes.json()) as DocumentAdjustmentRecord[];
+          const map: Record<number, DocumentAdjustmentRecord[]> = {};
+          adjustments.forEach((adjustment) => {
+            const list = map[adjustment.doc_id] ?? [];
+            list.push(adjustment);
+            map[adjustment.doc_id] = list;
+          });
+          setSalesAdjustments(map);
+        } else {
+          setSalesAdjustments({});
+        }
+      } else {
+        setSalesAdjustments({});
+      }
 
       if (!selectedSale && ordered.length > 0) {
         setSelectedSale(ordered[0]);
@@ -964,11 +1047,18 @@ export default function SalesHistoryContent({
       }
 
       if (payment) {
-        const saleMethod = (sale.payment_method ?? "").toLowerCase();
-        const multiMatch =
-          (sale.payments ?? []).some(
-            (p) => (p.method ?? "").toLowerCase() === payment
-          ) || false;
+        const adjustments = salesAdjustments[sale.id] ?? [];
+        const adjustedPayments = getAdjustedPaymentsFromAdjustments(adjustments);
+        const saleMethod = adjustedPayments?.length
+          ? (adjustedPayments[0].method ?? "").toLowerCase()
+          : (sale.payment_method ?? "").toLowerCase();
+        const multiMatch = adjustedPayments?.length
+          ? adjustedPayments.some(
+              (p) => (p.method ?? "").toLowerCase() === payment
+            )
+          : (sale.payments ?? []).some(
+              (p) => (p.method ?? "").toLowerCase() === payment
+            ) || false;
         const separatedMatch =
           payment === "separado" && !!sale.is_separated;
         if (saleMethod !== payment && !multiMatch && !separatedMatch) {
@@ -992,6 +1082,7 @@ export default function SalesHistoryContent({
     filterPayment,
     filterPos,
     separatedPaymentsMap,
+    salesAdjustments,
     isWithinFilterRange,
   ]);
 
@@ -1121,6 +1212,66 @@ export default function SalesHistoryContent({
     };
   }, [selectedSale, selectedSaleSeparatedTotal]);
 
+  const selectedAdjustments = useMemo(
+    () => (selectedSale ? salesAdjustments[selectedSale.id] ?? [] : []),
+    [selectedSale, salesAdjustments]
+  );
+  const totalAdjustmentsDelta = useMemo(
+    () =>
+      selectedAdjustments.reduce(
+        (sum, adjustment) => sum + (adjustment.total_delta ?? 0),
+        0
+      ),
+    [selectedAdjustments]
+  );
+  const discountAdjustmentsTotal = useMemo(
+    () =>
+      selectedAdjustments.reduce((sum, adjustment) => {
+        if (adjustment.adjustment_type !== "discount") return sum;
+        return sum + (adjustment.total_delta ?? 0);
+      }, 0),
+    [selectedAdjustments]
+  );
+  const discountAdjustmentAmount = Math.max(0, -discountAdjustmentsTotal);
+  const adjustedPaymentsFromAdjustments = useMemo(
+    () => getAdjustedPaymentsFromAdjustments(selectedAdjustments),
+    [selectedAdjustments]
+  );
+  const adjustmentNotes = useMemo(() => {
+    if (!selectedAdjustments.length) return "";
+    const notes = selectedAdjustments
+      .map((adjustment) => {
+        const payloadNote =
+          adjustment.payload && typeof adjustment.payload === "object"
+            ? (adjustment.payload as Record<string, unknown>).note
+            : null;
+        const noteText =
+          typeof payloadNote === "string"
+            ? payloadNote
+            : adjustment.adjustment_type === "note"
+            ? adjustment.reason ?? ""
+            : "";
+        return noteText ? `Ajuste: ${noteText}` : "";
+      })
+      .filter(Boolean);
+    return notes.join("\n");
+  }, [selectedAdjustments]);
+  const combinedSaleNotes = useMemo(() => {
+    const base = selectedSale?.notes?.trim();
+    if (base && adjustmentNotes) return `${base}\n${adjustmentNotes}`;
+    return base || adjustmentNotes || "";
+  }, [adjustmentNotes, selectedSale]);
+  const adjustedPaymentsTotal = useMemo(
+    () =>
+      adjustedPaymentsFromAdjustments
+        ? adjustedPaymentsFromAdjustments.reduce(
+            (sum, entry) => sum + (entry.amount ?? 0),
+            0
+          )
+        : null,
+    [adjustedPaymentsFromAdjustments]
+  );
+
   const selectedSaleSummary = computeSaleSummary(normalizedSelectedSale);
   const detailSubtotal = selectedSaleSummary.subtotal;
   const detailLineDiscount = selectedSaleSummary.lineDiscount;
@@ -1131,16 +1282,19 @@ export default function SalesHistoryContent({
     selectedSaleSeparatedTotal >
       (selectedSale.total ?? 0) + 0.5
       ? 0
-      : selectedSaleSummary.cartDiscount;
+      : selectedSaleSummary.cartDiscount + discountAdjustmentAmount;
   const detailTotalDiscount =
     detailLineDiscount + detailCartDiscount;
   const originalTotal = selectedSaleSummary.originalTotal ?? 0;
   const detailTotal =
-    selectedSaleSeparatedTotal ?? selectedSaleSummary.total;
+    (selectedSaleSeparatedTotal ?? selectedSaleSummary.total) +
+    totalAdjustmentsDelta;
   const refundAmount = selectedSaleSummary.refundAmount ?? 0;
   const originalPaid = selectedSaleSummary.originalPaid ?? detailTotal;
   const rawPaidAmount =
-    selectedSale?.paid_amount ?? selectedSaleSummary.paid;
+    adjustedPaymentsTotal ??
+    selectedSale?.paid_amount ??
+    selectedSaleSummary.paid;
   const selectedSeparatedPaidTotal = selectedSale?.is_separated
     ? getSeparatedOrderPaidTotal(selectedSeparatedOrder)
     : null;
@@ -1162,11 +1316,13 @@ export default function SalesHistoryContent({
     : Math.max(0, rawPaidAmount - saleChangeAmount);
   const detailCartDiscountLabel =
     detailCartDiscount > 0
-      ? `-${formatMoney(detailCartDiscount)}${
-          selectedSaleSummary.cartDiscountPercent
-            ? ` (${selectedSaleSummary.cartDiscountPercent}%)`
-          : ""
-        }`
+      ? discountAdjustmentAmount > 0
+        ? `-${formatMoney(detailCartDiscount)}`
+        : `-${formatMoney(detailCartDiscount)}${
+            selectedSaleSummary.cartDiscountPercent
+              ? ` (${selectedSaleSummary.cartDiscountPercent}%)`
+              : ""
+          }`
       : "0";
   const selectedItemDisplayRows = useMemo(() => {
     const items = selectedSale?.items ?? [];
@@ -1196,8 +1352,15 @@ export default function SalesHistoryContent({
     });
   }, [detailCartDiscount, selectedSale?.items]);
   const adjustedPayments = useMemo(() => {
-    if (!selectedSale?.payments || selectedSale.payments.length === 0) return [];
-    const payments = selectedSale.payments.map((payment) => ({
+    const basePayments = adjustedPaymentsFromAdjustments
+      ? adjustedPaymentsFromAdjustments.map((payment, index) => ({
+          id: `adjusted-${index}`,
+          method: payment.method,
+          amount: payment.amount,
+        }))
+      : selectedSale?.payments ?? [];
+    if (!basePayments.length) return [];
+    const payments = basePayments.map((payment) => ({
       ...payment,
       displayAmount: payment.amount ?? 0,
     }));
@@ -1210,7 +1373,12 @@ export default function SalesHistoryContent({
     const changeApplied = Math.min(saleChangeAmount, cashAmount);
     payments[cashIndex].displayAmount = Math.max(0, cashAmount - changeApplied);
     return payments;
-  }, [isCashMethod, saleChangeAmount, selectedSale?.payments]);
+  }, [
+    adjustedPaymentsFromAdjustments,
+    isCashMethod,
+    saleChangeAmount,
+    selectedSale?.payments,
+  ]);
   const detailSurchargeAmount = Math.max(
     0,
     selectedSale?.surcharge_amount ??
@@ -1265,16 +1433,21 @@ export default function SalesHistoryContent({
   }, [selectedSeparatedOrder]);
   const hasRefunds = refundAmount > 0;
 
-  const hasMultiplePayments =
-    selectedSale?.payments && selectedSale.payments.length > 1;
+  const hasMultiplePayments = adjustedPayments.length > 1;
   const isSeparatedDetail = !!selectedSale?.is_separated;
-  const singleMethodBaseLabel = selectedSale
-    ? mapPaymentMethod(selectedSale.payment_method)
-    : "—";
+  const singleMethodBaseLabel =
+    adjustedPayments.length === 1
+      ? mapPaymentMethod(adjustedPayments[0].method)
+      : selectedSale
+      ? mapPaymentMethod(selectedSale.payment_method)
+      : "—";
   const singleMethodAmount = selectedSale?.is_separated
     ? selectedSale?.initial_payment_amount ??
       selectedSeparatedOrder?.initial_payment ??
       0
+    : adjustedPayments.length === 1
+    ? (adjustedPayments[0] as typeof adjustedPayments[number] & { displayAmount?: number })
+        .displayAmount ?? adjustedPayments[0].amount
     : Math.min(detailPaid ?? 0, detailTotal);
   const separatedInitialMethodLabel = mapPaymentMethod(
     selectedSale?.initial_payment_method ??
@@ -1344,13 +1517,29 @@ export default function SalesHistoryContent({
     const breakdown = (selectedSale.items ?? []).map((item) =>
       computeLineBreakdown(item)
     );
+    const lineTotalsSum = breakdown.reduce(
+      (sum, line) => sum + (line?.total ?? 0),
+      0
+    );
+    const cartDiscountValue =
+      selectedSaleSummary.cartDiscount + discountAdjustmentAmount;
+    let remainingCartDiscount = cartDiscountValue;
     const ticketItems = (selectedSale.items ?? []).map((item, index) => {
       const data = breakdown[index];
+      let cartShare = 0;
+      if (cartDiscountValue > 0 && lineTotalsSum > 0) {
+        if (index === breakdown.length - 1) {
+          cartShare = remainingCartDiscount;
+        } else {
+          cartShare = (cartDiscountValue * (data?.total ?? 0)) / lineTotalsSum;
+          remainingCartDiscount -= cartShare;
+        }
+      }
       return {
         name: item.product_name ?? item.name ?? "Producto",
         quantity: data?.quantity ?? item.quantity ?? 1,
         unitPrice: data?.unitGross ?? item.unit_price ?? 0,
-        total: data?.total ?? item.total ?? 0,
+        total: Math.max(0, (data?.total ?? item.total ?? 0) - cartShare),
       };
     });
 
@@ -1367,16 +1556,21 @@ export default function SalesHistoryContent({
       sumSaleItemsTotal(selectedSale.items),
       selectedSeparatedOrder
     );
-    const total =
+    const baseTotal =
       ticketSeparatedTotal ??
       (selectedSaleSummary.total > 0
         ? selectedSaleSummary.total
         : selectedSale.total ?? subtotal);
+    const total = baseTotal + totalAdjustmentsDelta;
 
-    const cartDiscountValue = selectedSaleSummary.cartDiscount;
     const cartDiscountLabel =
       cartDiscountValue > 0
-        ? "Descuento carrito (valor)"
+        ? discountAdjustmentAmount > 0 &&
+          selectedSaleSummary.cartDiscount > 0
+          ? "Descuento carrito + ajuste"
+          : discountAdjustmentAmount > 0
+          ? "Descuento ajuste"
+          : "Descuento carrito"
         : selectedSaleSummary.cartDiscountPercent > 0
         ? "Descuento carrito (%)"
         : "Descuento carrito";
@@ -1387,7 +1581,7 @@ export default function SalesHistoryContent({
         ? `-${selectedSaleSummary.cartDiscountPercent}%`
         : "0";
 
-    const payments =
+    const basePayments =
       selectedSale.payments && selectedSale.payments.length
         ? selectedSale.payments.map((p) => ({
             label: mapPaymentMethod(p.method),
@@ -1403,13 +1597,18 @@ export default function SalesHistoryContent({
                 total,
             },
           ];
+    const payments = adjustedPaymentsFromAdjustments
+      ? adjustedPaymentsFromAdjustments.map((p) => ({
+          label: mapPaymentMethod(p.method),
+          amount: p.amount,
+        }))
+      : basePayments;
+    const paymentsTotal = payments.reduce(
+      (sum, entry) => sum + (entry.amount ?? 0),
+      0
+    );
 
-    const changeAmount =
-      selectedSale.is_separated
-        ? 0
-        : selectedSale.paid_amount != null
-        ? selectedSale.paid_amount - total
-        : 0;
+    const changeAmount = selectedSale.is_separated ? 0 : paymentsTotal - total;
     const ticketSurchargeAmount =
       selectedSale.surcharge_amount ??
       selectedSaleSummary.surcharge ??
@@ -1443,7 +1642,7 @@ export default function SalesHistoryContent({
       items: ticketItems,
       payments,
       changeAmount,
-      notes: selectedSale.notes,
+      notes: combinedSaleNotes || selectedSale.notes,
       posName: selectedSale.pos_name ?? undefined,
       vendorName: selectedSale.vendor_name ?? undefined,
       settings: posSettings,
@@ -1512,6 +1711,8 @@ export default function SalesHistoryContent({
     printerConfig.mode,
     printerConfig.printerName,
     printerConfig.width,
+    adjustedPaymentsFromAdjustments,
+    combinedSaleNotes,
     selectedSale,
     selectedSaleSummary,
     selectedSeparatedOrder,
@@ -1519,6 +1720,8 @@ export default function SalesHistoryContent({
     posSettings,
     mapPaymentMethod,
     shouldUseQz,
+    totalAdjustmentsDelta,
+    discountAdjustmentAmount,
   ]);
 
   const getLatestReturn = (returns?: SaleReturnSummary[]) => {
@@ -2022,9 +2225,11 @@ export default function SalesHistoryContent({
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.push(backPath)}
-              className="flex items-center gap-2 text-slate-300 hover:text-white
-                         px-5 py-2.5 rounded-lg border border-slate-700
-                         hover:bg-slate-800 transition-colors text-base"
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg border transition-colors text-base ${
+                isPosTheme
+                  ? "text-slate-300 border-slate-700 hover:text-white hover:bg-slate-800"
+                  : "text-slate-700 border-slate-300 bg-white shadow-sm hover:bg-slate-50"
+              }`}
             >
               <span className="text-xl">←</span>
               {resolvedBackLabel}
@@ -2051,7 +2256,11 @@ export default function SalesHistoryContent({
                 type="button"
                 onClick={handleReturn}
                 disabled={!canTriggerReturn}
-                className="px-4 py-2 rounded-md border border-sky-400/60 text-sky-200 hover:bg-sky-500/10 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                className={`px-4 py-2 rounded-md border disabled:opacity-50 disabled:cursor-not-allowed transition ${
+                  isPosTheme
+                    ? "border-sky-400/60 text-sky-200 hover:bg-sky-500/10"
+                    : "border-sky-400 text-sky-700 bg-sky-50 shadow-sm hover:bg-sky-100"
+                }`}
               >
                 Devolución
               </button>
@@ -2063,9 +2272,11 @@ export default function SalesHistoryContent({
               type="button"
               onClick={handleRefresh}
               disabled={loading}
-              className="px-5 py-2.5 rounded-lg border border-emerald-400/70
-                         text-emerald-300 text-base hover:bg-emerald-500/10
-                         disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`px-5 py-2.5 rounded-lg border text-base disabled:opacity-50 disabled:cursor-not-allowed ${
+                isPosTheme
+                  ? "border-emerald-400/70 text-emerald-300 hover:bg-emerald-500/10"
+                  : "border-emerald-500 text-emerald-700 font-semibold bg-emerald-50 shadow-[0_1px_0_rgba(16,185,129,0.25)] hover:bg-emerald-100"
+              }`}
             >
               Refrescar
             </button>
@@ -2080,7 +2291,11 @@ export default function SalesHistoryContent({
             <button
               type="button"
               onClick={handleClearFilters}
-              className="px-3 py-1.5 rounded-lg border border-slate-700 text-sm text-slate-200 hover:bg-slate-800"
+              className={`px-3 py-1.5 rounded-lg border text-sm ${
+                isPosTheme
+                  ? "border-slate-700 text-slate-200 hover:bg-slate-800"
+                  : "border-slate-300 text-slate-700 bg-white shadow-sm hover:bg-slate-50"
+              }`}
             >
               Limpiar
             </button>
@@ -2095,8 +2310,12 @@ export default function SalesHistoryContent({
                   onClick={() => handleQuickRangeSelect(option.value)}
                   className={`px-3 py-1.5 rounded-full border transition ${
                     isActive
-                      ? "border-emerald-400 text-emerald-300 bg-emerald-500/10"
-                      : "border-slate-700 text-slate-400 hover:text-slate-100 hover:border-slate-500"
+                      ? isPosTheme
+                        ? "border-emerald-400 text-emerald-300 bg-emerald-500/10"
+                        : "border-emerald-500 text-emerald-700 bg-emerald-50"
+                      : isPosTheme
+                      ? "border-slate-700 text-slate-400 hover:text-slate-100 hover:border-slate-500"
+                      : "border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-400 hover:bg-slate-50"
                   }`}
                 >
                   {option.label}
@@ -2211,12 +2430,17 @@ export default function SalesHistoryContent({
               <div className="mt-1 rounded-xl border border-slate-800/60 overflow-hidden">
                 <div className="max-h-[240px] min-h-[160px] overflow-y-auto">
                   {paginatedSales.map((sale, saleIndex) => {
-                    const baseGrid =
-                      "grid grid-cols-[90px_190px_1fr_120px_120px_220px] text-[1.05rem] px-3 py-2.5 cursor-pointer";
+                    const baseGrid = isPosTheme
+                      ? "grid grid-cols-[90px_190px_1fr_120px_120px_220px] text-[1.05rem] px-3 py-2.5 cursor-pointer hover:bg-slate-800/70"
+                      : "grid grid-cols-[90px_190px_1fr_120px_120px_220px] text-[1.05rem] px-3 py-2.5 cursor-pointer hover:bg-[var(--row-hover)]";
                     const zebra =
                       saleIndex % 2 === 0
-                        ? "bg-slate-950"
-                        : "bg-slate-900/60";
+                        ? isPosTheme
+                          ? "bg-slate-900/60"
+                          : "bg-[var(--surface)]"
+                        : isPosTheme
+                        ? "bg-slate-900/40"
+                        : "bg-[var(--surface-2)]";
 
                     const isSelected = selectedSale?.id === sale.id;
                     const selectedClasses = isSelected
@@ -2272,8 +2496,22 @@ export default function SalesHistoryContent({
                     const hasRefund = refundAmount > 0 && !isVoided;
                     const hasChange = !!latestChange;
                     const rowIsSeparated = !!sale.is_separated;
+                    const saleAdjustments = salesAdjustments[sale.id] ?? [];
+                    const adjustmentsDelta = saleAdjustments.reduce(
+                      (sum, adjustment) => sum + (adjustment.total_delta ?? 0),
+                      0
+                    );
+                    const adjustedPaymentsForRow =
+                      getAdjustedPaymentsFromAdjustments(saleAdjustments);
+                    const hasAdjustment =
+                      Math.abs(adjustmentsDelta) > 0.01 ||
+                      (adjustedPaymentsForRow?.length ?? 0) > 0 ||
+                      saleAdjustments.some(
+                        (adjustment) => adjustment.adjustment_type === "note"
+                      );
                     const netTotal =
-                      rowSeparatedTotal ?? saleSummary.total;
+                      (rowSeparatedTotal ?? saleSummary.total) +
+                      adjustmentsDelta;
                     const rowBalance = Math.max(sale.balance ?? 0, 0);
                     const separatedPaidFromBalance =
                       rowSeparatedTotal != null
@@ -2282,11 +2520,17 @@ export default function SalesHistoryContent({
                             (rowSeparatedTotal ?? 0) - rowBalance
                           )
                         : saleSummary.paid;
+                    const adjustedRowPaidTotal = adjustedPaymentsForRow
+                      ? adjustedPaymentsForRow.reduce(
+                          (sum, entry) => sum + (entry.amount ?? 0),
+                          0
+                        )
+                      : null;
                     const netPaid = rowIsSeparated
                       ? separatedPaidFromBalance
-                      : saleSummary.paid;
+                      : adjustedRowPaidTotal ?? saleSummary.paid;
                     const hasMixedPayments =
-                      (sale.payments?.length ?? 0) > 1;
+                      (adjustedPaymentsForRow?.length ?? sale.payments?.length ?? 0) > 1;
                     const refundClasses =
                       hasRefund && !isSelected
                         ? "border border-rose-500/40 bg-rose-500/5"
@@ -2296,6 +2540,8 @@ export default function SalesHistoryContent({
                       const initialMethodLabelForRow =
                         !rowIsSeparated && hasMixedPayments
                           ? "Mixto"
+                          : adjustedPaymentsForRow?.length === 1
+                          ? mapPaymentMethod(adjustedPaymentsForRow[0].method)
                           : mapPaymentMethod(
                               sale.initial_payment_method ??
                                 sale.payments?.[0]?.method ??
@@ -2319,7 +2565,7 @@ export default function SalesHistoryContent({
                       return (
                         <div
                           key={`${sale.id}-${itemIndex}`}
-                          className={`${baseGrid} ${zebra} ${selectedClasses} ${refundClasses} hover:bg-slate-800/80 transition-colors`}
+                          className={`${baseGrid} ${zebra} ${selectedClasses} ${refundClasses} transition-colors`}
                           ref={(el) => {
                             if (showMain && el) {
                               saleRowRefs.current.set(sale.id, el);
@@ -2348,6 +2594,11 @@ export default function SalesHistoryContent({
                             {(item.product_name ?? item.name ?? "Producto") +
                               " x" +
                               (item.quantity ?? 1)}
+                            {showMain && hasAdjustment && (
+                              <span className="text-sm uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-400/50 text-sky-200 bg-sky-500/10">
+                                Ajustado
+                              </span>
+                            )}
                             {showMain && isVoided && (
                               <span className="text-sm uppercase tracking-wide px-2 py-0.5 rounded-full border border-rose-500/50 text-rose-300 bg-rose-500/10">
                                 Anulada
@@ -2425,14 +2676,22 @@ export default function SalesHistoryContent({
                 </span>
                 <div className="flex gap-2">
                   <button
-                    className="px-4 py-2 rounded-md bg-slate-900 border border-slate-700 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800"
+                    className={`px-4 py-2 rounded-md border disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isPosTheme
+                        ? "bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
+                        : "bg-white border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50"
+                    }`}
                     onClick={handlePreviousPage}
                     disabled={currentPage === 1}
                   >
                     Anterior
                   </button>
                   <button
-                    className="px-4 py-2 rounded-md bg-slate-900 border border-slate-700 text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800"
+                    className={`px-4 py-2 rounded-md border disabled:opacity-40 disabled:cursor-not-allowed ${
+                      isPosTheme
+                        ? "bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
+                        : "bg-white border-slate-300 text-slate-700 shadow-sm hover:bg-slate-50"
+                    }`}
                     onClick={handleNextPage}
                     disabled={currentPage >= totalPages}
                   >
@@ -2458,8 +2717,12 @@ export default function SalesHistoryContent({
                   aria-expanded={showSaleDetails}
                   className={`text-base px-4 py-1.5 rounded-full border transition-colors ${
                     selectedSale
-                      ? "border-blue-500 text-blue-100 hover:bg-blue-500/10"
-                      : "border-slate-700 text-slate-200"
+                      ? isPosTheme
+                        ? "border-blue-500 text-blue-100 hover:bg-blue-500/10"
+                        : "border-blue-500 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                      : isPosTheme
+                      ? "border-slate-700 text-slate-200"
+                      : "border-slate-300 text-slate-600 bg-white"
                   } disabled:opacity-40`}
                 >
                   {showSaleDetails ? "Mostrar menos" : "Mostrar más"}
@@ -2476,7 +2739,11 @@ export default function SalesHistoryContent({
                   type="button"
                   onClick={handlePrintTicket}
                   disabled={!canPrintTicket}
-                  className="px-4 py-2.5 rounded-md border border-slate-700 text-base font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                  className={`px-4 py-2.5 rounded-md border text-base font-semibold disabled:opacity-50 ${
+                    isPosTheme
+                      ? "border-slate-700 text-slate-100 hover:bg-slate-800"
+                      : "border-slate-300 text-slate-700 bg-white shadow-sm hover:bg-slate-50"
+                  }`}
                 >
                   Imprimir ticket
                 </button>
@@ -2485,7 +2752,11 @@ export default function SalesHistoryContent({
                     type="button"
                     onClick={handlePrintReturnTicket}
                     disabled={returnPrintLoading}
-                    className="px-4 py-2.5 rounded-md border border-slate-700 text-base font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                    className={`px-4 py-2.5 rounded-md border text-base font-semibold disabled:opacity-50 ${
+                      isPosTheme
+                        ? "border-slate-700 text-slate-100 hover:bg-slate-800"
+                        : "border-slate-300 text-slate-700 bg-white shadow-sm hover:bg-slate-50"
+                    }`}
                   >
                     {returnPrintLoading ? "Imprimiendo..." : "Imprimir devolución"}
                   </button>
@@ -2495,7 +2766,11 @@ export default function SalesHistoryContent({
                     type="button"
                     onClick={handlePrintChangeTicket}
                     disabled={changePrintLoading}
-                    className="px-4 py-2.5 rounded-md border border-slate-700 text-base font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50"
+                    className={`px-4 py-2.5 rounded-md border text-base font-semibold disabled:opacity-50 ${
+                      isPosTheme
+                        ? "border-slate-700 text-slate-100 hover:bg-slate-800"
+                        : "border-slate-300 text-slate-700 bg-white shadow-sm hover:bg-slate-50"
+                    }`}
                   >
                     {changePrintLoading ? "Imprimiendo..." : "Imprimir cambio"}
                   </button>
@@ -2504,7 +2779,11 @@ export default function SalesHistoryContent({
                   type="button"
                   onClick={handleEmailTicket}
                   disabled={!canEmailTicket}
-                  className="px-4 py-2.5 rounded-md border border-slate-700 text-base font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={`px-4 py-2.5 rounded-md border text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isPosTheme
+                      ? "border-slate-700 text-slate-100 hover:bg-slate-800"
+                      : "border-slate-300 text-slate-700 bg-white shadow-sm hover:bg-slate-50"
+                  }`}
                 >
                   {!showEmailForm
                     ? "Enviar por email"
@@ -2625,13 +2904,13 @@ export default function SalesHistoryContent({
                     </span>
                   </div>
 
-                  {selectedSale.notes && (
+                  {combinedSaleNotes && (
                     <div className="mt-2">
                       <span className="text-slate-400 block mb-1">
                         Notas
                       </span>
                       <p className="text-slate-100 text-base">
-                        {selectedSale.notes}
+                        {combinedSaleNotes}
                       </p>
                     </div>
                   )}
@@ -2867,7 +3146,13 @@ export default function SalesHistoryContent({
                   </p>
                 ) : (
                   <div className="rounded-xl border border-slate-800/60 overflow-hidden text-lg">
-                    <div className="grid grid-cols-[1fr_80px_110px_120px_120px] bg-slate-950 px-3 py-2 text-lg text-slate-400">
+                    <div
+                      className={`grid grid-cols-[1fr_80px_110px_120px_120px] px-3 py-2 text-lg ${
+                        isPosTheme
+                          ? "bg-slate-950 text-slate-400"
+                          : "bg-slate-100 text-slate-700"
+                      }`}
+                    >
                       <span>Producto</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">P. unitario</span>
@@ -2876,7 +3161,15 @@ export default function SalesHistoryContent({
                     </div>
 
                     <div>
-                      {selectedItemDisplayRows.map((row) => {
+                      {selectedItemDisplayRows.map((row, rowIndex) => {
+                        const zebra =
+                          rowIndex % 2 === 0
+                            ? isPosTheme
+                              ? "bg-slate-900/60"
+                              : "bg-white"
+                            : isPosTheme
+                            ? "bg-slate-900/40"
+                            : "bg-slate-50";
                         return (
                           <div
                             key={
@@ -2884,7 +3177,7 @@ export default function SalesHistoryContent({
                               row.item.name ??
                               Math.random()
                             }
-                            className="grid grid-cols-[1fr_80px_110px_120px_120px] px-3 py-2 text-lg bg-slate-900/60 border-t border-slate-800/40"
+                            className={`grid grid-cols-[1fr_80px_110px_120px_120px] px-3 py-2 text-lg ${zebra} border-t border-slate-800/40`}
                           >
                             <span className="text-slate-100 truncate">
                               {row.item.product_name ??
@@ -2925,17 +3218,32 @@ export default function SalesHistoryContent({
                     Productos del cambio
                   </h3>
                   <div className="rounded-xl border border-slate-800/60 overflow-hidden text-base">
-                    <div className="grid grid-cols-[1fr_80px_110px_120px] bg-slate-950 px-3 py-2 text-base text-slate-400">
+                    <div
+                      className={`grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base ${
+                        isPosTheme
+                          ? "bg-slate-950 text-slate-400"
+                          : "bg-slate-100 text-slate-700"
+                      }`}
+                    >
                       <span>Producto</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">P. unitario</span>
                       <span className="text-right">Total línea</span>
                     </div>
                     <div>
-                      {latestSelectedChange.items_new.map((item) => (
-                        <div
+                      {latestSelectedChange.items_new.map((item, rowIndex) => {
+                        const zebra =
+                          rowIndex % 2 === 0
+                            ? isPosTheme
+                              ? "bg-slate-900/60"
+                              : "bg-white"
+                            : isPosTheme
+                            ? "bg-slate-900/40"
+                            : "bg-slate-50";
+                        return (
+                          <div
                           key={`change-new-${item.id}`}
-                          className="grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base bg-slate-900/60 border-t border-slate-800/40"
+                          className={`grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base ${zebra} border-t border-slate-800/40`}
                         >
                           <span className="text-slate-100 truncate">
                             {item.product_name}
@@ -2950,7 +3258,7 @@ export default function SalesHistoryContent({
                             {formatMoney(item.total)}
                           </span>
                         </div>
-                      ))}
+                      )})}
                     </div>
                   </div>
                 </div>
@@ -2962,17 +3270,32 @@ export default function SalesHistoryContent({
                     Productos devueltos en el cambio
                   </h3>
                   <div className="rounded-xl border border-slate-800/60 overflow-hidden text-base">
-                    <div className="grid grid-cols-[1fr_80px_110px_120px] bg-slate-950 px-3 py-2 text-base text-slate-400">
+                    <div
+                      className={`grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base ${
+                        isPosTheme
+                          ? "bg-slate-950 text-slate-400"
+                          : "bg-slate-100 text-slate-700"
+                      }`}
+                    >
                       <span>Producto</span>
                       <span className="text-right">Cant.</span>
                       <span className="text-right">P. unitario</span>
                       <span className="text-right">Total línea</span>
                     </div>
                     <div>
-                      {latestSelectedChange.items_returned.map((item, index) => (
-                        <div
-                          key={`change-return-${item.product_name}-${index}`}
-                          className="grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base bg-slate-900/60 border-t border-slate-800/40"
+                      {latestSelectedChange.items_returned.map((item, rowIndex) => {
+                        const zebra =
+                          rowIndex % 2 === 0
+                            ? isPosTheme
+                              ? "bg-slate-900/60"
+                              : "bg-white"
+                            : isPosTheme
+                            ? "bg-slate-900/40"
+                            : "bg-slate-50";
+                        return (
+                          <div
+                          key={`change-return-${item.product_name}-${rowIndex}`}
+                          className={`grid grid-cols-[1fr_80px_110px_120px] px-3 py-2 text-base ${zebra} border-t border-slate-800/40`}
                         >
                           <span className="text-slate-100 truncate">
                             {item.product_name}
@@ -2987,7 +3310,7 @@ export default function SalesHistoryContent({
                             {formatMoney(item.total_credit)}
                           </span>
                         </div>
-                      ))}
+                      )})}
                     </div>
                   </div>
                 </div>

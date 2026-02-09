@@ -530,6 +530,8 @@ export default function SettingsPage() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [saveToastVisible, setSaveToastVisible] = useState(false);
+  const saveToastTimerRef = useRef<number | null>(null);
 
   const [users, setUsers] = useState<PosUserRecord[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -1963,6 +1965,27 @@ export default function SettingsPage() {
       setSavingSettings(false);
     }
   }
+
+  useEffect(() => {
+    if (!saveMessage) {
+      setSaveToastVisible(false);
+      return;
+    }
+    if (saveToastTimerRef.current) {
+      window.clearTimeout(saveToastTimerRef.current);
+    }
+    setSaveToastVisible(false);
+    requestAnimationFrame(() => setSaveToastVisible(true));
+    saveToastTimerRef.current = window.setTimeout(() => {
+      setSaveToastVisible(false);
+      window.setTimeout(() => setSaveMessage(null), 220);
+    }, 3600);
+    return () => {
+      if (saveToastTimerRef.current) {
+        window.clearTimeout(saveToastTimerRef.current);
+      }
+    };
+  }, [saveMessage]);
 
   async function handleSendSmtpTest() {
     if (!token) return;
@@ -4040,7 +4063,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <main className="flex-1 px-6 py-6 text-slate-50">
+    <main className="flex-1 px-6 py-6">
       <div className="w-full max-w-7xl mx-auto space-y-8">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
@@ -4075,11 +4098,6 @@ export default function SettingsPage() {
               Guardando cambios…
             </div>
           )}
-          {saveMessage && (
-            <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-200">
-              {saveMessage}
-            </div>
-          )}
         </div>
         <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3 flex flex-col gap-3">
           <div className="flex flex-wrap gap-2">
@@ -4101,6 +4119,26 @@ export default function SettingsPage() {
         </div>
 
         <div className="space-y-6">{tabContentMap[activeTab]}</div>
+
+        {saveMessage && (
+          <div className="fixed right-6 top-24 z-[60] w-[340px] max-w-[90vw]">
+            <div
+              className={
+                "rounded-2xl border border-emerald-500 bg-emerald-50 px-4 py-3 text-emerald-900 shadow-[0_18px_45px_rgba(16,185,129,0.25)] transition-all duration-300 " +
+                (saveToastVisible
+                  ? "translate-x-0 opacity-100"
+                  : "translate-x-4 opacity-0")
+              }
+            >
+              <div className="text-sm font-semibold text-emerald-800">
+                Éxito
+              </div>
+              <p className="mt-1 text-sm text-emerald-900/90">
+                {saveMessage}
+              </p>
+            </div>
+          </div>
+        )}
 
         {userModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur">
