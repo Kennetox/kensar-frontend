@@ -28,6 +28,11 @@ import {
   type SeparatedOrder,
   type SeparatedOrderPayment,
 } from "@/lib/api/separatedOrders";
+import {
+  buildBogotaDateFromKey,
+  formatBogotaDate,
+  getBogotaDateKey,
+} from "@/lib/time/bogota";
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
 
@@ -307,18 +312,19 @@ function toNumber(value: number | string | null | undefined): number {
   return parseMoneyString(value);
 }
 
- function formatDateTime(value: string | undefined): string {
+function formatDateTime(value: string | undefined): string {
   if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString("es-CO", {
-    year: "2-digit",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
- }
+  return (
+    formatBogotaDate(value, {
+      year: "2-digit",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    }) || value
+  );
+}
 
 function computeSaleTotals(sale: SaleRecord) {
   if (sale.status === "voided") {
@@ -487,7 +493,7 @@ export default function DocumentsExplorer({
     },
     [getPaymentLabel]
   );
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getBogotaDateKey();
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [changes, setChanges] = useState<ChangeRecord[]>([]);
@@ -537,36 +543,38 @@ export default function DocumentsExplorer({
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const lastDiscountTargetRef = useRef<number | null>(null);
 
-  const formatDateInput = (date: Date) =>
-    date.toISOString().slice(0, 10);
+  const formatDateInput = (date: Date) => getBogotaDateKey(date);
 
   const applyQuickRange = (range: string) => {
-    const now = new Date();
-    let start = new Date(now);
-    let end = new Date(now);
+    const todayKey = getBogotaDateKey();
+    const nowBogota = buildBogotaDateFromKey(todayKey);
+    let start = new Date(nowBogota);
+    let end = new Date(nowBogota);
 
     switch (range) {
       case "today":
         break;
       case "yesterday":
-        start.setDate(now.getDate() - 1);
+        start.setUTCDate(start.getUTCDate() - 1);
         end = new Date(start);
         break;
       case "last7":
-        start.setDate(now.getDate() - 6);
+        start.setUTCDate(start.getUTCDate() - 6);
         break;
       case "week":
         {
-          const day = now.getDay();
+          const day = start.getUTCDay();
           const diffToMonday = (day + 6) % 7;
-          start.setDate(now.getDate() - diffToMonday);
+          start.setUTCDate(start.getUTCDate() - diffToMonday);
         }
         break;
       case "month":
-        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        start = new Date(
+          Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1, 5, 0, 0)
+        );
         break;
       case "year":
-        start = new Date(now.getFullYear(), 0, 1);
+        start = new Date(Date.UTC(start.getUTCFullYear(), 0, 1, 5, 0, 0));
         break;
       default:
         break;
@@ -1316,16 +1324,14 @@ export default function DocumentsExplorer({
   }, [documents, mapPaymentMethod]);
 
   const filteredDocuments = useMemo(() => {
-    const fromDate = filterFrom ? new Date(filterFrom) : null;
-    if (fromDate) fromDate.setHours(0, 0, 0, 0);
-    const toDate = filterTo ? new Date(filterTo) : null;
-    if (toDate) toDate.setHours(23, 59, 59, 999);
+    const fromKey = filterFrom || null;
+    const toKey = filterTo || null;
     const term = filterTerm.trim().toLowerCase();
 
     return documents.filter((doc) => {
-      const dateObj = new Date(doc.createdAt);
-      if (fromDate && dateObj < fromDate) return false;
-      if (toDate && dateObj > toDate) return false;
+      const docKey = getBogotaDateKey(doc.createdAt);
+      if (fromKey && docKey < fromKey) return false;
+      if (toKey && docKey > toKey) return false;
       if (filterType !== "all" && doc.type !== filterType) return false;
       const docIsSeparated = !!doc.isSeparated;
       const paymentLabel = docIsSeparated
@@ -1502,7 +1508,7 @@ const selectedDetails = selectedDoc?.data;
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getBogotaDateKey();
     link.href = url;
     link.download = `documentos_${today}.xlsx`;
     document.body.appendChild(link);
