@@ -92,6 +92,9 @@ export default function ProfilePage() {
   const [status, setStatus] = useState<{ type: "success" | "error"; message: string } | null>(
     null
   );
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastTimerRef = useRef<number | null>(null);
   const [activeTab, setActiveTab] = useState<"profile" | "documents">("profile");
   const [documents, setDocuments] = useState<UserDocumentRecord[]>([]);
   const [docModalOpen, setDocModalOpen] = useState(false);
@@ -137,6 +140,28 @@ export default function ProfilePage() {
     if (!cropSourceUrl) return;
     return () => URL.revokeObjectURL(cropSourceUrl);
   }, [cropSourceUrl]);
+
+  useEffect(() => {
+    if (!status || status.type !== "success") {
+      setToastVisible(false);
+      return;
+    }
+    setToastMessage(status.message);
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    setToastVisible(false);
+    requestAnimationFrame(() => setToastVisible(true));
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastVisible(false);
+      window.setTimeout(() => setToastMessage(null), 220);
+    }, 3200);
+    return () => {
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, [status]);
 
   const clampOffset = (next: { x: number; y: number }) => {
     if (!cropSize) return next;
@@ -569,12 +594,10 @@ export default function ProfilePage() {
             </label>
           </div>
 
-          {status && (
+          {status?.type === "error" && (
             <div
               className={`text-sm rounded-xl px-4 py-3 border ${
-                status.type === "success"
-                  ? "border-emerald-500/50 text-emerald-200 bg-emerald-500/10"
-                  : "border-rose-500/50 text-rose-200 bg-rose-500/10"
+                "border-rose-500/50 text-rose-200 bg-rose-500/10"
               }`}
             >
               {status.message}
@@ -873,6 +896,26 @@ export default function ProfilePage() {
                 Eliminar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {toastMessage && (
+        <div className="fixed right-6 top-24 z-[60] w-[340px] max-w-[90vw]">
+          <div
+            className={
+              "rounded-2xl border border-emerald-400 bg-white px-4 py-3 text-emerald-900 shadow-[0_16px_40px_rgba(16,185,129,0.2)] transition-all duration-300 " +
+              (toastVisible
+                ? "translate-x-0 opacity-100"
+                : "translate-x-4 opacity-0")
+            }
+          >
+            <div className="text-sm font-semibold text-emerald-800">
+              Éxito
+            </div>
+            <p className="mt-1 text-sm text-emerald-800/90">
+              {toastMessage}
+            </p>
           </div>
         </div>
       )}

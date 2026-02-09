@@ -1348,7 +1348,8 @@ export default function SalesHistoryContent({
       const lineTotalNet = Math.max(0, (line.total ?? 0) - cartShare);
       const discountTotal = (line.discount ?? 0) + cartShare;
       const unitNet = line.quantity > 0 ? lineTotalNet / line.quantity : 0;
-      return { item, line, lineTotalNet, discountTotal, unitNet };
+      const unitOriginal = line.unitGross ?? 0;
+      return { item, line, lineTotalNet, discountTotal, unitNet, unitOriginal };
     });
   }, [detailCartDiscount, selectedSale?.items]);
   const adjustedPayments = useMemo(() => {
@@ -2444,7 +2445,7 @@ export default function SalesHistoryContent({
 
                     const isSelected = selectedSale?.id === sale.id;
                     const selectedClasses = isSelected
-                      ? "bg-white/8 border-y border-emerald-300/60 border-l-4 border-emerald-300 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.35)]"
+                      ? "bg-emerald-50 border-y border-emerald-300/70 border-l-[6px] border-emerald-500 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.25)]"
                       : "";
 
                     const items: SaleItem[] =
@@ -3190,7 +3191,9 @@ export default function SalesHistoryContent({
                             </span>
 
                             <span className="text-right text-slate-200">
-                              {row.unitNet > 0
+                              {row.unitOriginal > 0
+                                ? formatMoney(row.unitOriginal)
+                                : row.unitNet > 0
                                 ? formatMoney(row.unitNet)
                                 : "—"}
                             </span>

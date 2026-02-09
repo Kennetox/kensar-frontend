@@ -359,8 +359,21 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     return isPathAllowed(pathname, user?.role, roleModules);
   }, [pathname, user?.role, posPreview, roleModules]);
 
-  const currentSectionLabel = useMemo(() => {
-    if (posPreview) return "Inicio";
+  const currentBreadcrumbs = useMemo(() => {
+    if (posPreview) return ["Inicio"];
+    const breadcrumbOverrides: Array<{
+      prefix: string;
+      crumbs: string[];
+    }> = [
+      { prefix: "/dashboard/sales", crumbs: ["Inicio", "Historial de ventas"] },
+      { prefix: "/dashboard/customers", crumbs: ["Documentos", "Gestionar clientes"] },
+      { prefix: "/dashboard/profile", crumbs: ["Perfil"] },
+    ];
+    const override = breadcrumbOverrides.find(
+      (entry) =>
+        pathname === entry.prefix || pathname.startsWith(`${entry.prefix}/`)
+    );
+    if (override) return override.crumbs;
     let match: { href: string; label: string } | null = null;
     for (const item of navItems) {
       if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
@@ -369,7 +382,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         }
       }
     }
-    return match?.label ?? "Inicio";
+    return [match?.label ?? "Inicio"];
   }, [pathname, posPreview]);
 
   useEffect(() => {
@@ -615,7 +628,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             <span className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
               <span className="text-white">Panel Metrik {posPreview && "· Vista rápida"}</span>
               <span className="text-white font-normal">›</span>
-              <span className="text-white font-normal">{currentSectionLabel}</span>
+              <span className="dashboard-breadcrumb-pill">
+                {currentBreadcrumbs.map((crumb, index) => (
+                  <span key={`${crumb}-${index}`}>
+                    {crumb}
+                    {index < currentBreadcrumbs.length - 1 && " › "}
+                  </span>
+                ))}
+              </span>
             </span>
           </div>
           <div className="flex items-center gap-4 text-xs ui-text-muted">
@@ -651,7 +671,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                         unoptimized
                       />
                     ) : (
-                      <span className="font-semibold">{initials || "US"}</span>
+                      <span className="dashboard-initials-chip font-semibold">
+                        {initials || "US"}
+                      </span>
                     )}
                   </div>
                   <div className="text-right leading-tight">
