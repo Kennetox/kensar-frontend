@@ -58,8 +58,8 @@
   --row-hover: #cfe2f9;
 
   /* Scrollbar */
-  --scrollbar-thumb: rgba(100, 116, 139, 0.55);
-  --scrollbar-thumb-hover: rgba(100, 116, 139, 0.75);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.35);
+  --scrollbar-thumb-hover: rgba(100, 116, 139, 0.55);
   --scrollbar-track: transparent;
 }
 
@@ -84,8 +84,8 @@ body {
 
 [class*="overflow-y-auto"]::-webkit-scrollbar,
 [class*="overflow-auto"]::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 [class*="overflow-y-auto"]::-webkit-scrollbar-track,
@@ -520,8 +520,8 @@ body::after {
 [body] {}
 
 body::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 body::-webkit-scrollbar-track {
