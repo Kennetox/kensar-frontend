@@ -686,7 +686,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                   </div>
                 </button>
                 {profileMenuOpen && (
-                  <div className="absolute right-0 mt-0 pt-2 w-48">
+                  <div className="absolute right-0 mt-0 pt-2 w-48 z-50">
                     <div className="rounded-xl border ui-border dashboard-card-alt shadow-lg overflow-hidden">
                     <button
                       type="button"
