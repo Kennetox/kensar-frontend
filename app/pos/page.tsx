@@ -6964,6 +6964,9 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
             >
               <span className="translate-y-[-1px]">×</span>
             </button>
+            <div className="absolute right-20 top-6 text-[11px] uppercase tracking-[0.24em] text-amber-200/70">
+              Presiona la X para cerrar
+            </div>
             <div className="flex items-start gap-4">
               <div className="mt-2 h-3 w-3 rounded-full bg-amber-300 animate-pulse" />
               <div>
