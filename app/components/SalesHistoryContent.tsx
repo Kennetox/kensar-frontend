@@ -2612,7 +2612,7 @@ export default function SalesHistoryContent({
                               </span>
                             )}
                             {showMain && hasChange && (
-                              <span className="text-sm uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-400/50 text-sky-200 bg-sky-500/10">
+                              <span className="text-sm uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-sky-400 text-sky-50 bg-sky-500/40 shadow-[0_0_0_1px_rgba(56,189,248,0.2)]">
                                 Cambio
                               </span>
                             )}

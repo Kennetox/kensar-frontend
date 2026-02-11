@@ -24,6 +24,7 @@ type ReportPreset = {
 };
 
 type ReportSaleItem = {
+  product_id?: number;
   product_name?: string;
   name?: string;
   product_sku?: string | null;
@@ -32,6 +33,30 @@ type ReportSaleItem = {
   quantity: number;
   unit_price?: number;
   line_discount_value?: number;
+};
+
+type ReportChangeReturnItem = {
+  product_id: number;
+  product_name?: string | null;
+  product_sku?: string | null;
+  quantity: number;
+  unit_price_net?: number | null;
+};
+
+type ReportChangeNewItem = {
+  product_id: number;
+  product_name?: string | null;
+  product_sku?: string | null;
+  quantity: number;
+  unit_price: number;
+};
+
+type ReportChange = {
+  sale_id: number;
+  status: string;
+  voided_at?: string | null;
+  items_returned: ReportChangeReturnItem[];
+  items_new: ReportChangeNewItem[];
 };
 
 type ReportSale = {
@@ -127,10 +152,9 @@ const PAGE_HEIGHT_MM = 260;
 const MM_TO_PX = 96 / 25.4;
 
 const getDefaultDates = () => {
-  const { year, month } = getBogotaDateParts();
   const todayKey = getBogotaDateKey();
   return {
-    fromDate: `${year}-${month}-01`,
+    fromDate: todayKey,
     toDate: todayKey,
   };
 };
@@ -1084,7 +1108,8 @@ function buildDocumentHtml(
 function buildReportResult(
   reportId: string,
   sales: ReportSale[],
-  labelResolver?: PaymentLabelResolver
+  labelResolver?: PaymentLabelResolver,
+  changesData: ReportChange[] = []
 ): ReportResult | null {
   const resolvePaymentLabel =
     labelResolver ?? ((method: string) => method.toUpperCase());
@@ -1706,8 +1731,21 @@ const dateTimeFormatter = (iso: string) =>
       let units = 0;
       let subtotal = 0;
       const uniqueProducts = new Set<string>();
+      const changeMap = new Map<number, ReportChange[]>();
+      if (changesData.length > 0) {
+        changesData.forEach((change) => {
+          if (change.status !== "confirmed" || change.voided_at) return;
+          const list = changeMap.get(change.sale_id) ?? [];
+          list.push(change);
+          changeMap.set(change.sale_id, list);
+        });
+      }
       sales.forEach((sale) => {
-        sale.items?.forEach((item) => {
+        const adjustedItems = applyChangesToSaleItems(
+          sale,
+          changeMap.get(sale.id)
+        );
+        adjustedItems.forEach((item) => {
           const productName =
             item.product_name ?? item.name ?? "Producto sin nombre";
           uniqueProducts.add(productName);
@@ -1773,6 +1811,7 @@ type ReportDocumentViewerProps = {
   preset: ReportPreset;
   filterMeta: FilterMeta;
   salesData: ReportSale[];
+  changesData: ReportChange[];
   companyInfo: CompanyInfo;
   settingsError?: string | null;
   onClose?: () => void;
@@ -1782,10 +1821,104 @@ type ReportDocumentViewerProps = {
 const dateFormatter = (iso: string) =>
   formatBogotaDate(iso, { dateStyle: "short" }) || "--";
 
+const buildItemKey = (item: {
+  product_id?: number | null;
+  product_name?: string | null;
+  product_sku?: string | null;
+}) => {
+  if (item.product_id != null) return `id:${item.product_id}`;
+  const name = item.product_name ?? "";
+  const sku = item.product_sku ?? "";
+  return `name:${name}|sku:${sku}`;
+};
+
+const applyChangesToSaleItems = (
+  sale: ReportSale,
+  changes: ReportChange[] | undefined
+): ReportSaleItem[] => {
+  const sourceItems = sale.items ?? [];
+  if (!sourceItems.length || !changes || changes.length === 0) {
+    return sourceItems;
+  }
+
+  const itemsMap = new Map<string, ReportSaleItem>();
+  sourceItems.forEach((item) => {
+    const key = buildItemKey(item);
+    const quantity = Number(item.quantity ?? 0);
+    if (quantity <= 0) return;
+    itemsMap.set(key, { ...item });
+  });
+
+  changes.forEach((change) => {
+    if (change.status !== "confirmed" || change.voided_at) return;
+    change.items_returned?.forEach((item) => {
+      const key = buildItemKey(item);
+      const existing = itemsMap.get(key);
+      const quantity = Number(item.quantity ?? 0);
+      if (existing) {
+        const nextQty = Number(existing.quantity ?? 0) - quantity;
+        if (nextQty > 0) {
+          existing.quantity = nextQty;
+          itemsMap.set(key, existing);
+        } else {
+          itemsMap.delete(key);
+        }
+        return;
+      }
+      const fallbackKey = buildItemKey({
+        product_name: item.product_name ?? undefined,
+        product_sku: item.product_sku ?? undefined,
+      });
+      const fallback = itemsMap.get(fallbackKey);
+      if (fallback) {
+        const nextQty = Number(fallback.quantity ?? 0) - quantity;
+        if (nextQty > 0) {
+          fallback.quantity = nextQty;
+          itemsMap.set(fallbackKey, fallback);
+        } else {
+          itemsMap.delete(fallbackKey);
+        }
+      }
+    });
+
+    change.items_new?.forEach((item) => {
+      const key = buildItemKey(item);
+      const existing = itemsMap.get(key);
+      const quantity = Number(item.quantity ?? 0);
+      if (existing) {
+        existing.quantity = Number(existing.quantity ?? 0) + quantity;
+        if (existing.unit_price == null) {
+          existing.unit_price = item.unit_price;
+        }
+        if (!existing.product_name) {
+          existing.product_name = item.product_name ?? undefined;
+        }
+        if (!existing.product_sku) {
+          existing.product_sku = item.product_sku ?? undefined;
+        }
+        itemsMap.set(key, existing);
+        return;
+      }
+      itemsMap.set(key, {
+        product_id: item.product_id,
+        product_name: item.product_name ?? undefined,
+        product_sku: item.product_sku ?? undefined,
+        quantity,
+        unit_price: item.unit_price,
+      });
+    });
+  });
+
+  return Array.from(itemsMap.values()).filter(
+    (item) => Number(item.quantity ?? 0) > 0
+  );
+};
+
 function ReportDocumentViewer({
   preset,
   filterMeta,
   salesData,
+  changesData,
   companyInfo,
   settingsError,
   onClose,
@@ -1803,9 +1936,10 @@ function ReportDocumentViewer({
       buildReportResult(
         preset.id,
         filteredSales,
-        resolveMethodLabel
+        resolveMethodLabel,
+        changesData
       ),
-    [preset.id, filteredSales, resolveMethodLabel]
+    [preset.id, filteredSales, resolveMethodLabel, changesData]
   );
   const documentData = useMemo(() => {
     const tableRows = result?.table?.rows ?? [];
@@ -2015,7 +2149,7 @@ export default function ReportsPage() {
   );
 
   const defaultDates = useMemo(getDefaultDates, []);
-  const [range, setRange] = useState<QuickRange>("month");
+  const [range, setRange] = useState<QuickRange>("today");
   const [fromDate, setFromDate] = useState<string>(defaultDates.fromDate);
   const [toDate, setToDate] = useState<string>(defaultDates.toDate);
   const [posFilter, setPosFilter] = useState<string>("todos");
@@ -2053,6 +2187,7 @@ export default function ReportsPage() {
   });
 
   const [salesData, setSalesData] = useState<ReportSale[]>([]);
+  const [changesData, setChangesData] = useState<ReportChange[]>([]);
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
   const [favoriteReportIds, setFavoriteReportIds] = useState<string[]>(() => {
@@ -2247,18 +2382,31 @@ export default function ReportsPage() {
       setSalesLoading(true);
       setSalesError(null);
       const apiBase = getApiBase();
-      const res = await fetch(
-        `${apiBase}/pos/sales?skip=0&limit=${REPORT_LIMIT}`,
-        {
+      const [salesResult, changesResult] = await Promise.allSettled([
+        fetch(`${apiBase}/pos/sales?skip=0&limit=${REPORT_LIMIT}`, {
           headers: authHeaders,
           credentials: "include",
-        }
-      );
-      if (!res.ok) {
-        throw new Error(`Error ${res.status}`);
+        }),
+        fetch(`${apiBase}/pos/changes?skip=0&limit=${REPORT_LIMIT}`, {
+          headers: authHeaders,
+          credentials: "include",
+        }),
+      ]);
+      if (salesResult.status !== "fulfilled") {
+        throw salesResult.reason;
       }
-      const data: ReportSale[] = await res.json();
+      const salesRes = salesResult.value;
+      if (!salesRes.ok) {
+        throw new Error(`Error ${salesRes.status}`);
+      }
+      const data: ReportSale[] = await salesRes.json();
       setSalesData(data);
+      if (changesResult.status === "fulfilled" && changesResult.value.ok) {
+        const changes: ReportChange[] = await changesResult.value.json();
+        setChangesData(changes);
+      } else {
+        setChangesData([]);
+      }
     } catch (err) {
       console.error(err);
       setSalesError(
@@ -2324,6 +2472,22 @@ export default function ReportsPage() {
     setActiveTabId(instanceId);
   }, [currentPreset, filterMeta]);
 
+  const handleOpenPreset = useCallback(
+    (preset: ReportPreset) => {
+      const instanceId = `${preset.id}-${Date.now()}`;
+      const newTab: OpenReportTab = {
+        id: instanceId,
+        presetId: preset.id,
+        filterMeta: { ...filterMeta },
+        createdAt: new Date().toISOString(),
+      };
+      setSelectedPresetId(preset.id);
+      setOpenReports((prev) => [...prev, newTab]);
+      setActiveTabId(instanceId);
+    },
+    [filterMeta]
+  );
+
   const handleCloseReportTab = useCallback((id: string) => {
     setOpenReports((prev) => prev.filter((tab) => tab.id !== id));
     setActiveTabId((current) => {
@@ -2365,6 +2529,7 @@ export default function ReportsPage() {
             isActive ? "bg-emerald-500/10" : "hover:bg-slate-900"
           }`}
           onClick={() => handleSelectPreset(preset.id)}
+          onDoubleClick={() => handleOpenPreset(preset)}
         >
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-slate-100">{preset.title}</p>
@@ -2395,7 +2560,13 @@ export default function ReportsPage() {
         </li>
       );
     },
-    [selectedPresetId, favoriteReportIds, handleSelectPreset, toggleFavorite]
+    [
+      selectedPresetId,
+      favoriteReportIds,
+      handleSelectPreset,
+      toggleFavorite,
+      handleOpenPreset,
+    ]
   );
 
   const activeReportTab =
@@ -2493,6 +2664,7 @@ export default function ReportsPage() {
             }
             filterMeta={activeReportTab.filterMeta}
             salesData={salesData}
+            changesData={changesData}
             companyInfo={companyInfo}
             settingsError={settingsError}
             onClose={() => handleCloseReportTab(activeReportTab.id)}

@@ -198,6 +198,7 @@ export default function CambiosPage() {
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const productScanInputRef = useRef<HTMLInputElement | null>(null);
 
   const [quantities, setQuantities] = useState<Record<number, string>>({});
   const [notes, setNotes] = useState("");
@@ -216,6 +217,9 @@ export default function CambiosPage() {
   const [changeSuccess, setChangeSuccess] = useState<SaleChangeDetail | null>(
     null
   );
+  const [toast, setToast] = useState<{ id: number; message: string; tone: "info" | "error" } | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
 
   const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(
     null
@@ -458,14 +462,18 @@ export default function CambiosPage() {
   const extraPayment = Math.max(0, netDifference);
   const refundDue = Math.max(0, -netDifference);
 
+  const parseAmountInput = useCallback((value: string) => {
+    const normalized = value.replace(/[^\d]/g, "");
+    return Number(normalized) || 0;
+  }, []);
+
   const totalPayments = useMemo(
     () =>
       payments.reduce(
-        (sum, payment) =>
-          sum + (Number(payment.amount.replace(/[^\d.]/g, "")) || 0),
+        (sum, payment) => sum + parseAmountInput(payment.amount),
         0
       ),
-    [payments]
+    [payments, parseAmountInput]
   );
 
   const formatAmountInput = useCallback((value: string) => {
@@ -621,6 +629,12 @@ export default function CambiosPage() {
         }
         applyLoadedSale(saleFromList);
         await handleLoadSale(saleFromList.id.toString(), saleFromList);
+        if (typeof window !== "undefined") {
+          window.requestAnimationFrame(() => {
+            productScanInputRef.current?.focus();
+            productScanInputRef.current?.select();
+          });
+        }
       } catch (err) {
         console.error(err);
         setScanError(
@@ -645,6 +659,14 @@ export default function CambiosPage() {
       scanInputRef.current.select();
     }
   }, [scanLoading]);
+
+  useEffect(() => {
+    const timers = toastTimerRef.current;
+    return () => {
+      if (timers.hide) window.clearTimeout(timers.hide);
+      if (timers.remove) window.clearTimeout(timers.remove);
+    };
+  }, []);
 
   const handleQuantityChange = (itemId: number, value: string) => {
     setQuantities((prev) => ({ ...prev, [itemId]: value }));
@@ -739,22 +761,44 @@ export default function CambiosPage() {
     totalNew > 0 &&
     (extraPayment <= 0 || Math.abs(totalPayments - extraPayment) < 0.01);
 
+  const showToast = useCallback((message: string, tone: "info" | "error" = "info") => {
+    const timers = toastTimerRef.current;
+    if (timers.hide) window.clearTimeout(timers.hide);
+    if (timers.remove) window.clearTimeout(timers.remove);
+    const toastId = Date.now();
+    setToast({ id: toastId, message, tone });
+    setToastVisible(false);
+    requestAnimationFrame(() => setToastVisible(true));
+    timers.hide = window.setTimeout(() => setToastVisible(false), 4200);
+    timers.remove = window.setTimeout(() => {
+      setToast((current) => (current?.id === toastId ? null : current));
+    }, 4460);
+  }, []);
+
   const handleSubmitChange = useCallback(async () => {
-    if (!sale) return;
-    if (!token) {
-      setSubmitError("Sesion expirada, inicia sesion nuevamente.");
+    if (!sale) {
+      setSubmitError("Escanea el ticket para continuar.");
+      showToast("Escanea el ticket para continuar.", "error");
       return;
     }
-    if (totalCredit <= 0) {
-      setSubmitError("Selecciona al menos un producto devuelto.");
+    if (!token) {
+      setSubmitError("Sesion expirada, inicia sesion nuevamente.");
+      showToast("Sesion expirada, inicia sesion nuevamente.", "error");
       return;
     }
     if (totalNew <= 0) {
-      setSubmitError("Agrega al menos un producto nuevo.");
+      setSubmitError("Agrega el producto nuevo del cambio.");
+      showToast("Agrega el producto nuevo del cambio.", "error");
+      return;
+    }
+    if (totalCredit <= 0) {
+      setSubmitError("Selecciona el producto a devolver.");
+      showToast("Selecciona el producto a devolver.", "error");
       return;
     }
     if (extraPayment > 0 && Math.abs(totalPayments - extraPayment) > 0.01) {
       setSubmitError("El excedente debe coincidir con la suma de pagos.");
+      showToast("El excedente debe coincidir con la suma de pagos.", "error");
       return;
     }
     setSubmitError(null);
@@ -786,7 +830,7 @@ export default function CambiosPage() {
         extraPayment > 0
           ? payments.map((payment) => ({
               method: payment.method,
-              amount: Number(payment.amount.replace(/[^\d.]/g, "")) || 0,
+              amount: parseAmountInput(payment.amount),
             }))
           : [];
 
@@ -817,9 +861,10 @@ export default function CambiosPage() {
       setChangeSuccess(data);
     } catch (err) {
       console.error(err);
-      setSubmitError(
-        err instanceof Error ? err.message : "No se pudo registrar el cambio."
-      );
+      const message =
+        err instanceof Error ? err.message : "No se pudo registrar el cambio.";
+      setSubmitError(message);
+      showToast(message, "error");
     } finally {
       setSubmitting(false);
     }
@@ -837,6 +882,8 @@ export default function CambiosPage() {
     totalCredit,
     totalNew,
     totalPayments,
+    showToast,
+    parseAmountInput,
   ]);
 
   const handlePrintChangeTicket = useCallback(async () => {
@@ -1267,7 +1314,7 @@ export default function CambiosPage() {
                             currentQty === 1
                               ? "border-emerald-400 bg-emerald-500/20 text-emerald-100"
                               : "border-slate-700 bg-slate-950 text-slate-200"
-                          } disabled:opacity-50`}
+                          } disabled:opacity-50 ${currentQty === 0 && available > 0 ? "pos-glow" : ""}`}
                         >
                           {currentQty === 1 ? "✓ Devolver" : "Devolver"}
                         </button>
@@ -1278,7 +1325,9 @@ export default function CambiosPage() {
                             onClick={() =>
                               handleQuantityChange(id, prevQty.toString())
                             }
-                            className="h-full text-2xl font-semibold hover:bg-slate-800"
+                            className={`h-full text-2xl font-semibold hover:bg-slate-800 ${
+                              currentQty === 0 ? "pos-glow" : ""
+                            }`}
                           >
                             −
                           </button>
@@ -1290,7 +1339,9 @@ export default function CambiosPage() {
                             onClick={() =>
                               handleQuantityChange(id, nextQty.toString())
                             }
-                            className="h-full text-2xl font-semibold hover:bg-slate-800"
+                            className={`h-full text-2xl font-semibold hover:bg-slate-800 ${
+                              currentQty === 0 ? "pos-glow" : ""
+                            }`}
                           >
                             +
                           </button>
@@ -1327,6 +1378,7 @@ export default function CambiosPage() {
                   onChange={(e) => setProductScan(e.target.value)}
                   placeholder="Escanea codigo o escribe nombre"
                   className="flex-1 h-12 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  ref={productScanInputRef}
                 />
                 <button
                   type="submit"
@@ -1356,33 +1408,33 @@ export default function CambiosPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="h-10 grid grid-cols-[40px_1fr_40px] items-center rounded-xl border border-slate-700 bg-slate-950 text-slate-100">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleNewItemQuantityChange(
-                                entry.product.id,
-                                Math.max(0, entry.quantity - 1).toString()
-                              )
-                            }
-                            className="h-full text-xl font-semibold hover:bg-slate-800"
-                          >
-                            −
-                          </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleNewItemQuantityChange(
+                              entry.product.id,
+                              Math.max(0, entry.quantity - 1).toString()
+                            )
+                          }
+                          className="h-full text-xl font-semibold hover:bg-slate-800"
+                        >
+                          −
+                        </button>
                           <div className="text-center text-sm font-semibold">
                             {entry.quantity}
                           </div>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleNewItemQuantityChange(
-                                entry.product.id,
-                                (entry.quantity + 1).toString()
-                              )
-                            }
-                            className="h-full text-xl font-semibold hover:bg-slate-800"
-                          >
-                            +
-                          </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleNewItemQuantityChange(
+                              entry.product.id,
+                              (entry.quantity + 1).toString()
+                            )
+                          }
+                          className="h-full text-xl font-semibold hover:bg-slate-800"
+                        >
+                          +
+                        </button>
                         </div>
                         <button
                           type="button"
@@ -1525,8 +1577,10 @@ export default function CambiosPage() {
               <button
                 type="button"
                 onClick={() => void handleSubmitChange()}
-                disabled={!canSubmit || submitting}
-                className="h-12 w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={submitting}
+                className={`h-12 w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold ${
+                  !canSubmit ? "opacity-70" : ""
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {submitting ? "Registrando..." : "Confirmar cambio"}
               </button>
@@ -1537,22 +1591,26 @@ export default function CambiosPage() {
 
       {changeSuccess && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-30 px-4">
-          <div className="bg-slate-900 rounded-3xl border border-slate-700 px-8 py-7 w-full max-w-xl space-y-4 shadow-2xl text-center">
-            <div className="text-emerald-300 text-sm uppercase tracking-[0.3em]">
+          <div className="bg-slate-900 rounded-3xl border border-slate-700 px-10 py-9 w-full max-w-xl space-y-5 shadow-2xl text-center">
+            <div className="text-emerald-300 text-base uppercase tracking-[0.3em]">
               Cambio registrado
             </div>
-            <h2 className="text-2xl font-semibold text-white">
+            <h2 className="text-3xl font-semibold text-white">
               {changeSuccess.document_number ??
                 `CB-${changeSuccess.id.toString().padStart(6, "0")}`}
             </h2>
-            <div className="grid gap-2 text-sm text-slate-200">
+            <div className="grid gap-2 text-base text-slate-200">
               <div className="flex justify-between">
                 <span className="text-slate-400">Credito</span>
-                <span>{formatMoney(changeSuccess.total_credit)}</span>
+                <span className="text-slate-100 font-semibold">
+                  {formatMoney(changeSuccess.total_credit)}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Total nuevo</span>
-                <span>{formatMoney(changeSuccess.total_new)}</span>
+                <span className="text-slate-100 font-semibold">
+                  {formatMoney(changeSuccess.total_new)}
+                </span>
               </div>
               {changeSuccess.extra_payment > 0 && (
                 <div className="flex justify-between">
@@ -1575,7 +1633,7 @@ export default function CambiosPage() {
               <button
                 type="button"
                 onClick={() => void handlePrintChangeTicket()}
-                className="flex-1 h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold"
+                className="flex-1 h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-base font-semibold"
               >
                 Imprimir ticket de cambio
               </button>
@@ -1585,7 +1643,7 @@ export default function CambiosPage() {
                   setChangeSuccess(null);
                   clearSelection();
                 }}
-                className="flex-1 h-12 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-800"
+                className="flex-1 h-12 rounded-xl border border-slate-700 text-slate-200 text-base font-semibold hover:bg-slate-800"
               >
                 Nuevo cambio
               </button>
@@ -1596,10 +1654,32 @@ export default function CambiosPage() {
                 setChangeSuccess(null);
                 router.push("/pos");
               }}
-              className="w-full h-11 rounded-xl text-slate-300 hover:bg-slate-800"
+              className="w-full h-11 rounded-full border border-emerald-400/50 text-emerald-100 text-sm font-semibold hover:bg-emerald-400/10 hover:border-emerald-300"
             >
               Volver al POS
             </button>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed right-6 top-24 z-[60] w-[340px] max-w-[90vw]">
+          <div
+            className={
+              "rounded-2xl border px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.35)] transition-all duration-300 " +
+              (toast.tone === "info"
+                ? "border-sky-400 bg-white text-sky-700 shadow-[0_18px_40px_rgba(14,116,144,0.15)] ring-1 ring-sky-200"
+                : "border-rose-400 bg-white text-rose-600 shadow-[0_18px_40px_rgba(225,29,72,0.15)] ring-1 ring-rose-200") +
+              " " +
+              (toastVisible
+                ? "translate-x-0 opacity-100"
+                : "translate-x-4 opacity-0")
+            }
+          >
+            <div className="text-sm font-semibold">
+              {toast.tone === "info" ? "Aviso" : "Error"}
+            </div>
+            <p className="mt-1 text-sm text-slate-700">{toast.message}</p>
           </div>
         </div>
       )}

@@ -65,8 +65,10 @@ type DashboardSummary = {
 
 type RecentSaleItem = {
   id: number;
+  product_id?: number;
   product_name?: string;
   name?: string;
+  product_sku?: string | null;
   quantity: number;
 };
 
@@ -104,6 +106,28 @@ type DocumentAdjustmentRecord = {
   total_delta: number;
 };
 
+type RecentChangeReturnItem = {
+  product_id: number;
+  product_name?: string | null;
+  product_sku?: string | null;
+  quantity: number;
+};
+
+type RecentChangeNewItem = {
+  product_id: number;
+  product_name?: string | null;
+  product_sku?: string | null;
+  quantity: number;
+};
+
+type RecentChange = {
+  sale_id: number;
+  status: string;
+  voided_at?: string | null;
+  items_returned: RecentChangeReturnItem[];
+  items_new: RecentChangeNewItem[];
+};
+
 /* =============== HELPERS =============== */
 
 function formatMoney(value: number): string {
@@ -112,6 +136,96 @@ function formatMoney(value: number): string {
     maximumFractionDigits: 0,
   });
 }
+
+const buildSaleItemKey = (item: {
+  product_id?: number | null;
+  product_name?: string | null;
+  product_sku?: string | null;
+}) => {
+  if (item.product_id != null) return `id:${item.product_id}`;
+  const name = item.product_name ?? "";
+  const sku = item.product_sku ?? "";
+  return `name:${name}|sku:${sku}`;
+};
+
+const applyChangesToSaleItems = (
+  sale: RecentSale,
+  changes: RecentChange[] | undefined
+): RecentSaleItem[] => {
+  const sourceItems = sale.items ?? [];
+  if (!sourceItems.length || !changes || changes.length === 0) {
+    return sourceItems;
+  }
+
+  const itemsMap = new Map<string, RecentSaleItem>();
+  sourceItems.forEach((item) => {
+    const key = buildSaleItemKey(item);
+    const quantity = Number(item.quantity ?? 0);
+    if (quantity <= 0) return;
+    itemsMap.set(key, { ...item });
+  });
+
+  changes.forEach((change) => {
+    if (change.status !== "confirmed" || change.voided_at) return;
+    change.items_returned?.forEach((item) => {
+      const key = buildSaleItemKey(item);
+      const existing = itemsMap.get(key);
+      const quantity = Number(item.quantity ?? 0);
+      if (existing) {
+        const nextQty = Number(existing.quantity ?? 0) - quantity;
+        if (nextQty > 0) {
+          existing.quantity = nextQty;
+          itemsMap.set(key, existing);
+        } else {
+          itemsMap.delete(key);
+        }
+        return;
+      }
+      const fallbackKey = buildSaleItemKey({
+        product_name: item.product_name ?? undefined,
+        product_sku: item.product_sku ?? undefined,
+      });
+      const fallback = itemsMap.get(fallbackKey);
+      if (fallback) {
+        const nextQty = Number(fallback.quantity ?? 0) - quantity;
+        if (nextQty > 0) {
+          fallback.quantity = nextQty;
+          itemsMap.set(fallbackKey, fallback);
+        } else {
+          itemsMap.delete(fallbackKey);
+        }
+      }
+    });
+
+    change.items_new?.forEach((item) => {
+      const key = buildSaleItemKey(item);
+      const existing = itemsMap.get(key);
+      const quantity = Number(item.quantity ?? 0);
+      if (existing) {
+        existing.quantity = Number(existing.quantity ?? 0) + quantity;
+        if (!existing.product_name) {
+          existing.product_name = item.product_name ?? undefined;
+        }
+        if (!existing.product_sku) {
+          existing.product_sku = item.product_sku ?? undefined;
+        }
+        itemsMap.set(key, existing);
+        return;
+      }
+      itemsMap.set(key, {
+        id: item.product_id,
+        product_id: item.product_id,
+        product_name: item.product_name ?? undefined,
+        product_sku: item.product_sku ?? undefined,
+        quantity,
+      });
+    });
+  });
+
+  return Array.from(itemsMap.values()).filter(
+    (item) => Number(item.quantity ?? 0) > 0
+  );
+};
 
 const PAYMENT_RANGE_LABEL: Record<"day" | "week" | "month", string> = {
   day: "Hoy",
@@ -213,6 +327,9 @@ export default function DashboardHomePage() {
   const [recentAdjustments, setRecentAdjustments] = useState<
     Record<number, DocumentAdjustmentRecord[]>
   >({});
+  const [recentChanges, setRecentChanges] = useState<
+    Record<number, RecentChange[]>
+  >({});
   const [recentMode, setRecentMode] = useState<"recent" | "top">("recent");
   const [paymentRange, setPaymentRange] = useState<"day" | "week" | "month">(
     "day"
@@ -268,20 +385,43 @@ export default function DashboardHomePage() {
       setRecentError(null);
 
       const apiBase = getApiBase();
-      const res = await fetch(
-        `${apiBase}/pos/sales?skip=0&limit=50`,
-        {
+      const [salesResult, changesResult] = await Promise.allSettled([
+        fetch(`${apiBase}/pos/sales?skip=0&limit=50`, {
           headers: authHeaders,
           credentials: "include",
-        }
-      );
-
+        }),
+        fetch(`${apiBase}/pos/changes?skip=0&limit=200`, {
+          headers: authHeaders,
+          credentials: "include",
+        }),
+      ]);
+      if (salesResult.status !== "fulfilled") {
+        throw salesResult.reason;
+      }
+      const res = salesResult.value;
       if (!res.ok) {
         throw new Error(`Error ${res.status}`);
       }
-
       const sales: RecentSale[] = await res.json();
       setRecentSales(sales);
+      if (changesResult.status === "fulfilled" && changesResult.value.ok) {
+        const changes: RecentChange[] = await changesResult.value.json();
+        if (sales.length) {
+          const ids = new Set(sales.map((sale) => sale.id));
+          const map: Record<number, RecentChange[]> = {};
+          changes.forEach((change) => {
+            if (!ids.has(change.sale_id)) return;
+            const list = map[change.sale_id] ?? [];
+            list.push(change);
+            map[change.sale_id] = list;
+          });
+          setRecentChanges(map);
+        } else {
+          setRecentChanges({});
+        }
+      } else {
+        setRecentChanges({});
+      }
       if (sales.length) {
         const ids = sales.map((sale) => sale.id);
         const adjustmentsRes = await fetch(
@@ -677,12 +817,18 @@ export default function DashboardHomePage() {
           : getPaymentLabel(adjustedPayments[0].method)
         : getPaymentLabel(sale.payment_method);
       const dateObj = parseDateInput(sale.created_at) ?? new Date();
+      const saleChanges = recentChanges[sale.id];
+      const adjustedItems = applyChangesToSaleItems(sale, saleChanges);
+      const hasChange =
+        saleChanges?.some(
+          (change) => change.status === "confirmed" && !change.voided_at
+        ) ?? false;
       const firstItem =
-        sale.items && sale.items.length > 0 ? sale.items[0] : undefined;
+        adjustedItems.length > 0 ? adjustedItems[0] : undefined;
       const detail = firstItem
         ? `${firstItem.product_name ?? firstItem.name ?? "Producto"} x${
             firstItem.quantity ?? 1
-          }`
+          }${adjustedItems.length > 1 ? ` +${adjustedItems.length - 1}` : ""}`
         : "—";
       return {
         sale,
@@ -691,6 +837,7 @@ export default function DashboardHomePage() {
         netTotal: safeNetTotal,
         methodLabel: adjustedMethodLabel,
         adjustedPaymentsTotal,
+        hasChange,
         hasAdjustment:
           Math.abs(totalDelta) > 0.01 ||
           (adjustedPayments?.length ?? 0) > 0,
@@ -711,7 +858,14 @@ export default function DashboardHomePage() {
     }
 
     return list.slice(0, 10);
-  }, [recentSales, recentMode, todayDateKey, recentAdjustments, getPaymentLabel]);
+  }, [
+    recentSales,
+    recentMode,
+    todayDateKey,
+    recentAdjustments,
+    recentChanges,
+    getPaymentLabel,
+  ]);
 
   const paymentMethodCalc = useMemo(() => {
     const dayStart = buildBogotaDateFromKey(todayDateKey);
@@ -1407,6 +1561,7 @@ export default function DashboardHomePage() {
                         netTotal,
                         methodLabel,
                         adjustedPaymentsTotal,
+                        hasChange,
                         hasAdjustment,
                       },
                       rowIndex
@@ -1461,6 +1616,11 @@ export default function DashboardHomePage() {
                             {hasAdjustment && (
                               <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-400/40 text-sky-200 bg-sky-500/10">
                                 Ajustado
+                              </span>
+                            )}
+                            {hasChange && (
+                              <span className="text-[10px] uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-sky-400 text-sky-50 bg-sky-500/40 shadow-[0_0_0_1px_rgba(56,189,248,0.2)]">
+                                Cambio
                               </span>
                             )}
                             {isVoided && (
