@@ -4722,7 +4722,7 @@ export default function SettingsPage() {
         )}
 
         {stationNoticeModalOpen && stationNoticeTarget && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35">
             <form
               onSubmit={handleSubmitStationNotice}
               className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4"
@@ -4740,7 +4740,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={closeStationNoticeModal}
-                  className="text-slate-400 hover:text-slate-100 text-xl leading-none"
+                  className="h-10 w-10 rounded-full border border-slate-700 text-slate-200 hover:text-slate-100 hover:bg-slate-800 text-2xl leading-none"
                   aria-label="Cerrar"
                 >
                   ×
@@ -4752,9 +4752,13 @@ export default function SettingsPage() {
                   rows={4}
                   value={stationNoticeMessage}
                   onChange={(e) => setStationNoticeMessage(e.target.value)}
+                  maxLength={500}
                   className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
                   placeholder="Ej: Revisar caja antes de cambio de turno."
                 />
+                <span className="text-[11px] text-slate-500">
+                  {stationNoticeMessage.length}/500 caracteres
+                </span>
               </label>
               {stationNoticeError && (
                 <p className="text-xs text-red-400">{stationNoticeError}</p>

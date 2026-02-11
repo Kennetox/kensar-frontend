@@ -6941,7 +6941,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
             <button
               type="button"
               onClick={handleDismissStationNotice}
-              className="absolute right-4 top-4 text-amber-200/80 hover:text-amber-100 text-2xl leading-none"
+              className="absolute right-4 top-4 h-12 w-12 rounded-full border border-amber-300/50 text-amber-100 hover:text-amber-50 hover:bg-amber-400/10 text-3xl leading-none flex items-center justify-center"
               aria-label="Cerrar aviso"
             >
               ×
@@ -6954,6 +6954,15 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-amber-50">
                   {stationNotice.message}
+                </p>
+                <p className="mt-2 text-xs uppercase tracking-[0.2em] text-amber-200/70">
+                  {formatBogotaDate(stationNotice.created_at, {
+                    year: "numeric",
+                    month: "short",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </p>
               </div>
             </div>
