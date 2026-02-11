@@ -6983,14 +6983,17 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
               <div className="mt-2 h-3 w-3 rounded-full bg-amber-300 animate-pulse" />
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-amber-300/80">
-                  {stationNotice.created_by_user_name
-                    ? `Aviso de control de caja - ${stationNotice.created_by_user_name}`
-                    : "Aviso de control de caja"}
+                  Aviso de control de caja
                 </p>
+                {stationNotice.created_by_user_name && (
+                  <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-amber-200/60">
+                    {stationNotice.created_by_user_name}
+                  </p>
+                )}
                 <p className="mt-2 text-2xl font-semibold text-amber-50 pr-16 break-words">
                   {stationNotice.message}
                 </p>
-                <p className="mt-2 text-xs uppercase tracking-[0.2em] text-amber-200/70">
+                <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-amber-200/55">
                   {formatBogotaDate(stationNotice.created_at, {
                     year: "numeric",
                     month: "short",
