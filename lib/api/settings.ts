@@ -98,6 +98,13 @@ export type PosStationResponse = {
   pin_plain?: string | null;
 };
 
+export type PosStationNotice = {
+  id: number;
+  station_id: string;
+  message: string;
+  created_at: string;
+};
+
 export type SmtpTestEmailPayload = {
   recipients: string[];
   smtp_host?: string | null;
@@ -563,6 +570,22 @@ export async function updatePosStation(
     `/pos/stations/${stationId}`,
     {
       method: "PUT",
+      body: JSON.stringify(payload),
+    },
+    undefined,
+    token
+  );
+}
+
+export async function sendPosStationNotice(
+  stationId: string,
+  payload: { message: string },
+  token?: string | null
+): Promise<PosStationNotice> {
+  return request<PosStationNotice>(
+    `/pos/stations/${stationId}/notice`,
+    {
+      method: "POST",
       body: JSON.stringify(payload),
     },
     undefined,

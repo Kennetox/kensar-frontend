@@ -106,6 +106,13 @@ type UserContribution = {
   total: number;
 };
 
+type PosStationNotice = {
+  id: number;
+  station_id: string;
+  message: string;
+  created_at: string;
+};
+
 type PosClosureResult = {
   id: number;
   consecutive?: string | null;
@@ -510,6 +517,8 @@ export default function PosPage() {
   const [holdSaleToastPhase, setHoldSaleToastPhase] = useState<"enter" | "exit">("enter");
   const holdSaleErrorTimerRef = useRef<number | null>(null);
   const holdSaleToastExitTimerRef = useRef<number | null>(null);
+  const [stationNotice, setStationNotice] = useState<PosStationNotice | null>(null);
+  const lastStationNoticeIdRef = useRef<number | null>(null);
   const [heldSaleSnapshot, setHeldSaleSnapshot] = useState<HeldSaleSnapshot | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
@@ -623,6 +632,46 @@ const matchesStationLabel = useCallback(
   const catalogUpdateAvailableRef = useRef(false);
   const imageBaseUrl = useMemo(() => getApiBase(), []);
   const apiBase = useMemo(() => getApiBase(), []);
+  const playStationNoticeSound = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const AudioContextRef =
+        window.AudioContext ||
+        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextRef) return;
+      const ctx = new AudioContextRef();
+      const now = ctx.currentTime;
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0.0001, now);
+      master.gain.exponentialRampToValueAtTime(0.25, now + 0.03);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+      master.connect(ctx.destination);
+
+      const ring = (freq: number, offset: number, duration: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const start = now + offset;
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.5, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+        osc.connect(gain);
+        gain.connect(master);
+        osc.start(start);
+        osc.stop(start + duration);
+      };
+
+      ring(880, 0, 0.9);
+      ring(1320, 0.02, 0.8);
+      ring(1760, 0.04, 0.6);
+      window.setTimeout(() => {
+        ctx.close();
+      }, 1500);
+    } catch (err) {
+      console.warn("No se pudo reproducir el sonido del aviso", err);
+    }
+  }, []);
   const [printerModalOpen, setPrinterModalOpen] = useState(false);
   const [qzGuideOpen, setQzGuideOpen] = useState(false);
   const [availablePrinters, setAvailablePrinters] = useState<string[]>([]);
@@ -652,6 +701,24 @@ const matchesStationLabel = useCallback(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
   );
+  const handleDismissStationNotice = useCallback(async () => {
+    if (!token || !stationNotice || !activeStationId) return;
+    try {
+      await fetch(
+        `${apiBase}/pos/stations/${activeStationId}/notice/${stationNotice.id}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+    } catch (err) {
+      console.error("No se pudo descartar el aviso", err);
+    } finally {
+      setStationNotice(null);
+    }
+  }, [token, stationNotice, activeStationId, apiBase]);
   const printerWidthOptions = useMemo(
     () => [
       { value: "80mm", label: "80 mm" },
@@ -911,6 +978,57 @@ const matchesStationLabel = useCallback(
       cancelled = true;
     };
   }, [token, apiBase, activeStationId, isStationMode, savePrinterConfig]);
+
+  useEffect(() => {
+    if (!token) {
+      setStationNotice(null);
+      lastStationNoticeIdRef.current = null;
+      return;
+    }
+    if (!isStationMode || !activeStationId) {
+      setStationNotice(null);
+      lastStationNoticeIdRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    const fetchNotice = async () => {
+      try {
+        const res = await fetch(
+          `${apiBase}/pos/stations/${activeStationId}/notice`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        if (!res.ok) {
+          if (res.status === 404) {
+            setStationNotice(null);
+          }
+          return;
+        }
+        const data = (await res.json()) as PosStationNotice | null;
+        if (cancelled) return;
+        if (!data) {
+          setStationNotice(null);
+          return;
+        }
+        setStationNotice(data);
+        if (data.id && lastStationNoticeIdRef.current !== data.id) {
+          lastStationNoticeIdRef.current = data.id;
+          playStationNoticeSound();
+        }
+      } catch (err) {
+        console.warn("No se pudo consultar el aviso de estación", err);
+      }
+    };
+    void fetchNotice();
+    const interval = window.setInterval(fetchNotice, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [token, isStationMode, activeStationId, apiBase, playStationNoticeSound]);
 
   const persistPrinterConfig = useCallback(
     async (next: PosStationPrinterConfig) => {
@@ -6809,6 +6927,35 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
               >
                 Cancelar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {stationNotice && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 w-[min(720px,94vw)]">
+          <div
+            className="relative rounded-[26px] border border-amber-300/60 bg-slate-950/95 px-8 py-6 shadow-2xl backdrop-blur-sm animate-[toast-in_220ms_cubic-bezier(0.22,0.61,0.36,1)]"
+            style={{ animationFillMode: "both", willChange: "transform, opacity" }}
+          >
+            <button
+              type="button"
+              onClick={handleDismissStationNotice}
+              className="absolute right-4 top-4 text-amber-200/80 hover:text-amber-100 text-2xl leading-none"
+              aria-label="Cerrar aviso"
+            >
+              ×
+            </button>
+            <div className="flex items-start gap-4">
+              <div className="mt-2 h-3 w-3 rounded-full bg-amber-300 animate-pulse" />
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-amber-300/80">
+                  Aviso de control de caja
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-amber-50">
+                  {stationNotice.message}
+                </p>
+              </div>
             </div>
           </div>
         </div>

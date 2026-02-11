@@ -36,6 +36,7 @@ import {
   unbindPosStation,
   PosStationRecord,
   PosStationResponse,
+  sendPosStationNotice,
   sendSmtpTestEmail,
 } from "@/lib/api/settings";
 import {
@@ -654,6 +655,11 @@ export default function SettingsPage() {
   const [stationMessage, setStationMessage] = useState<string | null>(null);
   const [stationFormError, setStationFormError] = useState<string | null>(null);
   const [updatingStationId, setUpdatingStationId] = useState<string | null>(null);
+  const [stationNoticeModalOpen, setStationNoticeModalOpen] = useState(false);
+  const [stationNoticeTarget, setStationNoticeTarget] = useState<PosStationRecord | null>(null);
+  const [stationNoticeMessage, setStationNoticeMessage] = useState("");
+  const [stationNoticeError, setStationNoticeError] = useState<string | null>(null);
+  const [stationNoticeSending, setStationNoticeSending] = useState(false);
   const [controlRows, setControlRows] = useState<StationControlRow[]>([]);
   const [controlLoading, setControlLoading] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -1281,6 +1287,45 @@ export default function SettingsPage() {
     if (stationSaving) return;
     setStationModalOpen(false);
     setEditingStation(null);
+  }
+
+  function openStationNoticeModal(station: PosStationRecord) {
+    setStationNoticeTarget(station);
+    setStationNoticeMessage("");
+    setStationNoticeError(null);
+    setStationNoticeModalOpen(true);
+  }
+
+  function closeStationNoticeModal() {
+    if (stationNoticeSending) return;
+    setStationNoticeModalOpen(false);
+    setStationNoticeTarget(null);
+  }
+
+  async function handleSubmitStationNotice(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!token || !stationNoticeTarget) return;
+    const message = stationNoticeMessage.trim();
+    if (!message) {
+      setStationNoticeError("Escribe el aviso que quieres enviar.");
+      return;
+    }
+    try {
+      setStationNoticeSending(true);
+      setStationNoticeError(null);
+      await sendPosStationNotice(stationNoticeTarget.id, { message }, token);
+      setStationMessage("Aviso enviado a la estación.");
+      setStationNoticeModalOpen(false);
+      setStationNoticeTarget(null);
+      setStationNoticeMessage("");
+    } catch (err) {
+      console.error(err);
+      setStationNoticeError(
+        err instanceof Error ? err.message : "No pudimos enviar el aviso."
+      );
+    } finally {
+      setStationNoticeSending(false);
+    }
   }
 
   async function handleSubmitStation(e: FormEvent<HTMLFormElement>) {
@@ -2329,7 +2374,7 @@ export default function SettingsPage() {
   }
 
   const companyContent = (
-    <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4">
+    <article className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-2)] p-6 space-y-4 shadow-[var(--shadow-panel)]">
       {settingsLoading && (
         <p className="text-xs text-slate-500">Cargando configuración…</p>
       )}
@@ -2392,7 +2437,7 @@ export default function SettingsPage() {
         </label>
       </div>
       <div className="grid md:grid-cols-2 gap-4 pt-4 text-sm">
-        <div className="rounded-xl border border-slate-800/60 p-4 bg-slate-950/40 flex flex-col gap-4">
+        <div className="rounded-xl border border-[var(--border)] p-4 bg-[var(--surface)] shadow-[var(--shadow-card)] flex flex-col gap-4">
           <div>
             <h3 className="font-semibold text-slate-200">Logo y branding</h3>
             <p className="text-xs text-slate-400">
@@ -2401,7 +2446,7 @@ export default function SettingsPage() {
           </div>
           <div className="flex flex-col gap-3">
             <div className="flex flex-col sm:flex-row gap-4">
-              <div className="w-20 h-20 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center overflow-hidden">
+              <div className="w-20 h-20 rounded-lg bg-[var(--surface-2)] border border-[var(--border)] flex items-center justify-center overflow-hidden">
                 {resolvedLogoPreviewUrl ? (
                   <img
                     src={resolvedLogoPreviewUrl}
@@ -2467,7 +2512,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-800/60 p-4 bg-slate-950/40 flex flex-col gap-3">
+        <div className="rounded-xl border border-[var(--border)] p-4 bg-[var(--surface)] shadow-[var(--shadow-card)] flex flex-col gap-3">
           <div>
             <h3 className="font-semibold text-slate-200">
               Mensaje de ticket
@@ -2961,6 +3006,15 @@ export default function SettingsPage() {
                             <span className="text-slate-600">|</span>
                           </>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => openStationNoticeModal(station)}
+                          disabled={isUpdating || !station.is_active}
+                          className="text-slate-300 hover:text-amber-300 disabled:opacity-40"
+                        >
+                          Enviar aviso
+                        </button>
+                        <span className="text-slate-600">|</span>
                         <button
                           type="button"
                           onClick={() => openEditStationModal(station)}
@@ -4063,7 +4117,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <main className="flex-1 px-6 py-6">
+    <main className="flex-1 px-6 py-6 settings-page">
       <div className="w-full max-w-7xl mx-auto space-y-8">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
@@ -4099,16 +4153,16 @@ export default function SettingsPage() {
             </div>
           )}
         </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3 flex flex-col gap-3">
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-3 flex flex-col gap-3 settings-tabs">
           <div className="flex flex-wrap gap-2">
             {SETTINGS_TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2 rounded-xl border text-xs text-left transition ${
+                className={`px-4 py-2 rounded-xl border text-xs text-left transition settings-tab ${
                   activeTab === tab.id
-                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
-                    : "border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-400/50"
+                    ? "is-active"
+                    : "is-idle"
                 }`}
               >
                 <p className="font-semibold">{tab.label}</p>
@@ -4661,6 +4715,65 @@ export default function SettingsPage() {
                     : editingStation
                       ? "Guardar cambios"
                       : "Crear estación"}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {stationNoticeModalOpen && stationNoticeTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur">
+            <form
+              onSubmit={handleSubmitStationNotice}
+              className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-100">
+                    Enviar aviso a {stationNoticeTarget.label}
+                  </h3>
+                  <p className="text-sm text-slate-400">
+                    El aviso aparecerá como alerta fija dentro del POS hasta que lo
+                    retiren desde la estación.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeStationNoticeModal}
+                  className="text-slate-400 hover:text-slate-100 text-xl leading-none"
+                  aria-label="Cerrar"
+                >
+                  ×
+                </button>
+              </div>
+              <label className="flex flex-col gap-2 text-sm">
+                <span className="text-slate-400">Mensaje del aviso</span>
+                <textarea
+                  rows={4}
+                  value={stationNoticeMessage}
+                  onChange={(e) => setStationNoticeMessage(e.target.value)}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                  placeholder="Ej: Revisar caja antes de cambio de turno."
+                />
+              </label>
+              {stationNoticeError && (
+                <p className="text-xs text-red-400">{stationNoticeError}</p>
+              )}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeStationNoticeModal}
+                  className="px-4 py-2 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800"
+                  disabled={stationNoticeSending}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={stationNoticeSending}
+                  className="px-4 py-2 rounded-md bg-amber-400 text-slate-900 font-semibold hover:bg-amber-300 disabled:opacity-50"
+                >
+                  {stationNoticeSending ? "Enviando…" : "Enviar aviso"}
                 </button>
               </div>
             </form>
