@@ -103,6 +103,7 @@ export type PosStationNotice = {
   station_id: string;
   message: string;
   created_at: string;
+  created_by_user_name?: string | null;
 };
 
 export type SmtpTestEmailPayload = {

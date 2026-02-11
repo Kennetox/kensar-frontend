@@ -111,6 +111,7 @@ type PosStationNotice = {
   station_id: string;
   message: string;
   created_at: string;
+  created_by_user_name?: string | null;
 };
 
 type PosClosureResult = {
@@ -520,6 +521,7 @@ export default function PosPage() {
   const [stationNotice, setStationNotice] = useState<PosStationNotice | null>(null);
   const lastStationNoticeIdRef = useRef<number | null>(null);
   const stationNoticeTimerRef = useRef<number | null>(null);
+  const stationNoticeActiveIdRef = useRef<number | null>(null);
   const [heldSaleSnapshot, setHeldSaleSnapshot] = useState<HeldSaleSnapshot | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
@@ -722,11 +724,21 @@ const matchesStationLabel = useCallback(
   }, [token, stationNotice, activeStationId, apiBase]);
 
   useEffect(() => {
+    if (!stationNotice) {
+      if (stationNoticeTimerRef.current) {
+        window.clearTimeout(stationNoticeTimerRef.current);
+        stationNoticeTimerRef.current = null;
+      }
+      stationNoticeActiveIdRef.current = null;
+      return;
+    }
+    if (stationNoticeActiveIdRef.current === stationNotice.id) {
+      return;
+    }
+    stationNoticeActiveIdRef.current = stationNotice.id;
     if (stationNoticeTimerRef.current) {
       window.clearTimeout(stationNoticeTimerRef.current);
-      stationNoticeTimerRef.current = null;
     }
-    if (!stationNotice) return;
     stationNoticeTimerRef.current = window.setTimeout(() => {
       void handleDismissStationNotice();
     }, 60_000);
@@ -6971,7 +6983,9 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
               <div className="mt-2 h-3 w-3 rounded-full bg-amber-300 animate-pulse" />
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-amber-300/80">
-                  Aviso de control de caja
+                  {stationNotice.created_by_user_name
+                    ? `Aviso de control de caja - ${stationNotice.created_by_user_name}`
+                    : "Aviso de control de caja"}
                 </p>
                 <p className="mt-2 text-2xl font-semibold text-amber-50 pr-16 break-words">
                   {stationNotice.message}
