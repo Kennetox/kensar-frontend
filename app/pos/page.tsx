@@ -519,6 +519,7 @@ export default function PosPage() {
   const holdSaleToastExitTimerRef = useRef<number | null>(null);
   const [stationNotice, setStationNotice] = useState<PosStationNotice | null>(null);
   const lastStationNoticeIdRef = useRef<number | null>(null);
+  const stationNoticeTimerRef = useRef<number | null>(null);
   const [heldSaleSnapshot, setHeldSaleSnapshot] = useState<HeldSaleSnapshot | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
@@ -719,6 +720,23 @@ const matchesStationLabel = useCallback(
       setStationNotice(null);
     }
   }, [token, stationNotice, activeStationId, apiBase]);
+
+  useEffect(() => {
+    if (stationNoticeTimerRef.current) {
+      window.clearTimeout(stationNoticeTimerRef.current);
+      stationNoticeTimerRef.current = null;
+    }
+    if (!stationNotice) return;
+    stationNoticeTimerRef.current = window.setTimeout(() => {
+      void handleDismissStationNotice();
+    }, 60_000);
+    return () => {
+      if (stationNoticeTimerRef.current) {
+        window.clearTimeout(stationNoticeTimerRef.current);
+        stationNoticeTimerRef.current = null;
+      }
+    };
+  }, [stationNotice, handleDismissStationNotice]);
   const printerWidthOptions = useMemo(
     () => [
       { value: "80mm", label: "80 mm" },
@@ -6944,7 +6962,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
               className="absolute right-4 top-4 h-12 w-12 rounded-full border border-amber-300/50 text-amber-100 hover:text-amber-50 hover:bg-amber-400/10 text-3xl leading-none flex items-center justify-center"
               aria-label="Cerrar aviso"
             >
-              ×
+              <span className="translate-y-[-1px]">×</span>
             </button>
             <div className="flex items-start gap-4">
               <div className="mt-2 h-3 w-3 rounded-full bg-amber-300 animate-pulse" />
@@ -6952,7 +6970,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                 <p className="text-xs uppercase tracking-[0.2em] text-amber-300/80">
                   Aviso de control de caja
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-amber-50">
+                <p className="mt-2 text-2xl font-semibold text-amber-50 pr-16 break-words">
                   {stationNotice.message}
                 </p>
                 <p className="mt-2 text-xs uppercase tracking-[0.2em] text-amber-200/70">
