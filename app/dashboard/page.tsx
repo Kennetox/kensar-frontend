@@ -78,6 +78,7 @@ type RecentSale = {
   number?: number;
   created_at: string;
   status?: string;
+  adjustment_reference?: string | null;
   total: number;
   payment_method: string;
   items?: RecentSaleItem[];
@@ -849,7 +850,10 @@ export default function DashboardHomePage() {
         hasChange,
         hasAdjustment:
           Math.abs(totalDelta) > 0.01 ||
-          (adjustedPayments?.length ?? 0) > 0,
+          (adjustedPayments?.length ?? 0) > 0 ||
+          adjustments.some((entry) => entry.adjustment_type === "note") ||
+          sale.status === "adjusted" ||
+          Boolean(sale.adjustment_reference),
         dateObj,
         dateKey: getBogotaDateKey(dateObj),
       };
@@ -1623,7 +1627,7 @@ export default function DashboardHomePage() {
                           <span className="truncate text-slate-100 flex items-center gap-2">
                             {detail}
                             {hasAdjustment && (
-                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-400/40 text-sky-200 bg-sky-500/10">
+                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-700 text-white bg-sky-600 shadow-[0_0_0_1px_rgba(3,105,161,0.28)] font-semibold">
                                 Ajustado
                               </span>
                             )}

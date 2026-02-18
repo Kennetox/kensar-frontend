@@ -2597,7 +2597,7 @@ export default function SalesHistoryContent({
                               " x" +
                               (item.quantity ?? 1)}
                             {showMain && hasAdjustment && (
-                              <span className="text-sm uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-400/50 text-sky-200 bg-sky-500/10">
+                              <span className="text-sm uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-700 text-white bg-sky-600 shadow-[0_0_0_1px_rgba(3,105,161,0.28)] font-semibold">
                                 Ajustado
                               </span>
                             )}

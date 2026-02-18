@@ -32,6 +32,7 @@ import {
   buildBogotaDateFromKey,
   formatBogotaDate,
   getBogotaDateKey,
+  parseDateInput,
 } from "@/lib/time/bogota";
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
@@ -354,6 +355,34 @@ function computeSaleTotals(sale: SaleRecord) {
   };
 }
 
+function getAdjustedPaymentsFromAdjustments(
+  adjustments: DocumentAdjustmentRecord[]
+) {
+  const adjustment = adjustments.find(
+    (entry) => entry.adjustment_type === "payment"
+  );
+  if (!adjustment?.payload || typeof adjustment.payload !== "object") {
+    return null;
+  }
+  const paymentsRaw = (adjustment.payload as Record<string, unknown>).payments;
+  if (!Array.isArray(paymentsRaw)) return null;
+  const payments = paymentsRaw
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const record = entry as Record<string, unknown>;
+      const method = typeof record.method === "string" ? record.method : "";
+      const amountValue =
+        typeof record.amount === "number" || typeof record.amount === "string"
+          ? record.amount
+          : 0;
+      const amount = Number(amountValue) || 0;
+      if (!method) return null;
+      return { method, amount };
+    })
+    .filter((entry): entry is { method: string; amount: number } => !!entry);
+  return payments.length ? payments : null;
+}
+
 type SaleLineBreakdown = {
   key: string;
   name: string;
@@ -525,6 +554,9 @@ export default function DocumentsExplorer({
   const [documentAdjustments, setDocumentAdjustments] = useState<
     DocumentAdjustmentRecord[]
   >([]);
+  const [saleAdjustmentsById, setSaleAdjustmentsById] = useState<
+    Record<number, DocumentAdjustmentRecord[]>
+  >({});
   const [adjustmentsLoading, setAdjustmentsLoading] = useState(false);
   const [adjustmentsError, setAdjustmentsError] = useState<string | null>(null);
   const [adjustTarget, setAdjustTarget] = useState<DocumentRow | null>(null);
@@ -633,11 +665,33 @@ export default function DocumentsExplorer({
       const changesData: ChangeRecord[] = await changesRes.json();
       const closuresData: ClosureRecord[] = await closuresRes.json();
       const separatedOrdersData = separatedOrdersRes as SeparatedOrder[];
+      const adjustmentsBySaleId: Record<number, DocumentAdjustmentRecord[]> = {};
+      if (salesData.length > 0) {
+        const saleIds = salesData.map((sale) => sale.id);
+        const adjustmentsRes = await fetch(
+          `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${saleIds.join(",")}`,
+          {
+            headers: authHeaders,
+            credentials: "include",
+          }
+        );
+        handleUnauthorized(adjustmentsRes);
+        if (adjustmentsRes.ok) {
+          const adjustmentsData =
+            (await adjustmentsRes.json()) as DocumentAdjustmentRecord[];
+          adjustmentsData.forEach((entry) => {
+            const current = adjustmentsBySaleId[entry.doc_id] ?? [];
+            current.push(entry);
+            adjustmentsBySaleId[entry.doc_id] = current;
+          });
+        }
+      }
       setSales(salesData);
       setReturns(returnsData);
       setChanges(changesData);
       setClosures(closuresData);
       setSeparatedOrders(separatedOrdersData);
+      setSaleAdjustmentsById(adjustmentsBySaleId);
       const docsList = mappedDocuments(
         salesData,
         returnsData,
@@ -1273,7 +1327,9 @@ export default function DocumentsExplorer({
       ...abonoDocs,
       ...closureDocs,
     ].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      (a, b) =>
+        (parseDateInput(b.createdAt)?.getTime() ?? 0) -
+        (parseDateInput(a.createdAt)?.getTime() ?? 0)
     );
   }
 
@@ -1305,7 +1361,17 @@ export default function DocumentsExplorer({
       if (doc.isSeparated) {
         paymentSet.add("Separado");
       } else {
-        const methodLabel = mapPaymentMethod(doc.paymentMethod);
+        const adjustments =
+          doc.type === "venta" ? saleAdjustmentsById[doc.recordId] ?? [] : [];
+        const adjustedPayments =
+          doc.type === "venta"
+            ? getAdjustedPaymentsFromAdjustments(adjustments)
+            : null;
+        const methodLabel = adjustedPayments
+          ? adjustedPayments.length > 1
+            ? "Mixto"
+            : mapPaymentMethod(adjustedPayments[0].method)
+          : mapPaymentMethod(doc.paymentMethod);
         if (methodLabel && methodLabel !== "—") {
           paymentSet.add(methodLabel);
         }
@@ -1321,7 +1387,7 @@ export default function DocumentsExplorer({
       customers: sortOptions(customerSet),
       payments: sortOptions(paymentSet),
     };
-  }, [documents, mapPaymentMethod]);
+  }, [documents, mapPaymentMethod, saleAdjustmentsById]);
 
   const filteredDocuments = useMemo(() => {
     const fromKey = filterFrom || null;
@@ -1334,9 +1400,20 @@ export default function DocumentsExplorer({
       if (toKey && docKey > toKey) return false;
       if (filterType !== "all" && doc.type !== filterType) return false;
       const docIsSeparated = !!doc.isSeparated;
+      const adjustments =
+        doc.type === "venta" ? saleAdjustmentsById[doc.recordId] ?? [] : [];
+      const adjustedPayments =
+        doc.type === "venta"
+          ? getAdjustedPaymentsFromAdjustments(adjustments)
+          : null;
+      const methodLabel = adjustedPayments
+        ? adjustedPayments.length > 1
+          ? "Mixto"
+          : mapPaymentMethod(adjustedPayments[0].method)
+        : mapPaymentMethod(doc.paymentMethod);
       const paymentLabel = docIsSeparated
         ? "separado"
-        : mapPaymentMethod(doc.paymentMethod).toLowerCase();
+        : methodLabel.toLowerCase();
       if (
         term &&
         !doc.documentNumber.toLowerCase().includes(term) &&
@@ -1388,6 +1465,7 @@ export default function DocumentsExplorer({
     filterPos,
     filterVendor,
     mapPaymentMethod,
+    saleAdjustmentsById,
   ]);
 
 useEffect(() => {
@@ -1531,7 +1609,7 @@ const selectedDocCanVoid =
   (selectedDoc.type === "venta" || selectedDoc.closureId == null);
 const voidActionLabel = "Anular";
 const selectedDocCreatedDate = selectedDoc
-  ? formatDateInput(new Date(selectedDoc.createdAt))
+  ? getBogotaDateKey(selectedDoc.createdAt)
   : null;
 const selectedDocIsToday = selectedDocCreatedDate === today;
 const canAdjustDoc =
@@ -2731,11 +2809,35 @@ useEffect(() => {
                         : "Cierre";
                     const statusLabel = getStatusLabel(doc.status);
                     const docIsSeparated = !!doc.isSeparated;
+                    const saleAdjustments =
+                      doc.type === "venta"
+                        ? saleAdjustmentsById[doc.recordId] ?? []
+                        : [];
+                    const adjustedPaymentsForDoc =
+                      doc.type === "venta"
+                        ? getAdjustedPaymentsFromAdjustments(saleAdjustments)
+                        : null;
+                    const adjustmentDelta = saleAdjustments.reduce(
+                      (sum, entry) => sum + toNumber(entry.total_delta),
+                      0
+                    );
+                    const hasAdjustment =
+                      doc.type === "venta" &&
+                      (Math.abs(adjustmentDelta) > 0.01 ||
+                        (adjustedPaymentsForDoc?.length ?? 0) > 0 ||
+                        saleAdjustments.some(
+                          (entry) => entry.adjustment_type === "note"
+                        ) ||
+                        doc.status === "adjusted");
                     const docInitialMethodLabel = mapPaymentMethod(
                       doc.initialPaymentMethod ?? doc.paymentMethod
                     );
                     const docMethodLabel = docIsSeparated
                       ? "SEPARADO"
+                      : adjustedPaymentsForDoc
+                      ? adjustedPaymentsForDoc.length > 1
+                        ? "MIXTO"
+                        : mapPaymentMethod(adjustedPaymentsForDoc[0].method)
                       : docInitialMethodLabel;
                     return (
                       <tr
@@ -2784,7 +2886,14 @@ useEffect(() => {
                           )}
                         </td>
                         <td className="px-3 py-2 text-sm align-top">
-                          <span className="block truncate">{doc.detail}</span>
+                          <span className="block truncate flex items-center gap-2">
+                            <span className="truncate">{doc.detail}</span>
+                            {hasAdjustment && (
+                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-700 text-white bg-sky-600 shadow-[0_0_0_1px_rgba(3,105,161,0.28)] font-semibold">
+                                Ajustado
+                              </span>
+                            )}
+                          </span>
                         </td>
                         <td className="px-3 py-2 text-right font-semibold text-slate-100 tabular-nums align-top">
                           {toNumber(doc.total) === 0

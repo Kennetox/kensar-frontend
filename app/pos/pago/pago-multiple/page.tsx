@@ -2008,150 +2008,150 @@ export default function PagoMultiplePage() {
 
       {/* Modal de éxito */}
       {successSale && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm px-4 py-6 overflow-y-auto sm:items-center sm:py-0">
-          <div className="w-full max-w-5xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl p-12 max-h-[calc(100vh-2rem)] sm:max-h-[92vh] overflow-y-auto">
-            <div className="text-center mb-12">
-              <p className="text-base font-semibold text-emerald-400 tracking-wide uppercase">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-3 py-3 sm:px-4 sm:py-4">
+          <div className="w-full max-w-5xl bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-h-[96vh] flex flex-col overflow-hidden">
+            <div className="shrink-0 text-center px-6 pt-7 pb-5 sm:px-10 sm:pt-9 sm:pb-7 border-b border-slate-800">
+              <p className="text-sm sm:text-base font-semibold text-emerald-400 tracking-wide uppercase">
                 Venta registrada correctamente
               </p>
-              <h2 className="text-4xl font-bold text-slate-50 mt-2">
+              <h2 className="text-3xl sm:text-4xl font-bold text-slate-50 mt-2">
                 ¡Venta completada con éxito!
               </h2>
-              <p className="text-slate-400 mt-3 text-base">
+              <p className="text-slate-400 mt-2 text-sm sm:text-base">
                 Selecciona cómo deseas entregar el recibo al cliente.
               </p>
             </div>
 
-            <div className="mx-auto mb-12 w-full max-w-xl bg-slate-800/40 border border-slate-700 rounded-xl p-7 text-base space-y-2">
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Documento</span>
-                <span className="font-mono font-semibold text-slate-100">
-                  {successSale.documentNumber}
-                </span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Ticket</span>
-                <span className="font-mono text-slate-100">
-                  #{successSale.saleNumber}
-                </span>
-              </div>
-              <div className="flex justify-between py-1 text-slate-400">
-                <span>Subtotal</span>
-                <span className="text-slate-100">
-                  {successSale.subtotal.toLocaleString("es-CO")}
-                </span>
-              </div>
-              {successSale.lineDiscountTotal > 0 && (
-                <div className="flex justify-between py-1 text-emerald-400">
-                  <span>Descuento artículos</span>
-                  <span>
-                    -{successSale.lineDiscountTotal.toLocaleString("es-CO")}
+            <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+              <div className="mx-auto w-full max-w-2xl bg-slate-800/40 border border-slate-700 rounded-xl p-4 sm:p-6 text-sm sm:text-base space-y-2">
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Documento</span>
+                  <span className="font-mono font-semibold text-slate-100">
+                    {successSale.documentNumber}
                   </span>
                 </div>
-              )}
-              {successSale.cartDiscountValueDisplay &&
-                successSale.cartDiscountValueDisplay !== "0" && (
-                  <div className="flex justify-between py-1 text-slate-400">
-                    <span>{successSale.cartDiscountLabel}</span>
-                    <span className="text-slate-100">
-                      {successSale.cartDiscountValueDisplay}
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Ticket</span>
+                  <span className="font-mono text-slate-100">
+                    #{successSale.saleNumber}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 text-slate-400">
+                  <span>Subtotal</span>
+                  <span className="text-slate-100">
+                    {successSale.subtotal.toLocaleString("es-CO")}
+                  </span>
+                </div>
+                {successSale.lineDiscountTotal > 0 && (
+                  <div className="flex justify-between py-1 text-emerald-400">
+                    <span>Descuento artículos</span>
+                    <span>
+                      -{successSale.lineDiscountTotal.toLocaleString("es-CO")}
                     </span>
                   </div>
                 )}
-              {successSale.surchargeLabel &&
-                successSale.surchargeValueDisplay && (
-                  <div className="flex justify-between py-1 text-amber-300">
-                    <span>{successSale.surchargeLabel}</span>
-                    <span className="text-amber-200">
-                      +{successSale.surchargeValueDisplay}
+                {successSale.cartDiscountValueDisplay &&
+                  successSale.cartDiscountValueDisplay !== "0" && (
+                    <div className="flex justify-between py-1 text-slate-400">
+                      <span>{successSale.cartDiscountLabel}</span>
+                      <span className="text-slate-100">
+                        {successSale.cartDiscountValueDisplay}
+                      </span>
+                    </div>
+                  )}
+                {successSale.surchargeLabel &&
+                  successSale.surchargeValueDisplay && (
+                    <div className="flex justify-between py-1 text-amber-300">
+                      <span>{successSale.surchargeLabel}</span>
+                      <span className="text-amber-200">
+                        +{successSale.surchargeValueDisplay}
+                      </span>
+                    </div>
+                  )}
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Total pagado</span>
+                  <span className="font-semibold text-emerald-400 text-xl">
+                    {successSale.total.toLocaleString("es-CO")}
+                  </span>
+                </div>
+                {successSale.showChange && successSale.changeAmount > 0 && (
+                  <div className="flex justify-between py-1 text-amber-300 text-lg">
+                    <span className="font-semibold">Cambio</span>
+                    <span className="font-semibold text-xl">
+                      {successSale.changeAmount.toLocaleString("es-CO")}
                     </span>
                   </div>
                 )}
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Total pagado</span>
-                <span className="font-semibold text-emerald-400 text-xl">
-                  {successSale.total.toLocaleString("es-CO")}
-                </span>
-              </div>
-              {successSale.showChange && successSale.changeAmount > 0 && (
-                <div className="flex justify-between py-1 text-amber-300 text-lg">
-                  <span className="font-semibold">Cambio</span>
-                  <span className="font-semibold text-xl">
-                    {successSale.changeAmount.toLocaleString("es-CO")}
-                  </span>
-                </div>
-              )}
-              {successSale.notes && (
-                <div className="pt-4 text-left text-slate-300 text-base">
-                  <div className="text-slate-400 text-sm uppercase tracking-wide mb-1">
-                    Notas
+                {successSale.notes && (
+                  <div className="pt-3 text-left text-slate-300">
+                    <div className="text-slate-400 text-xs sm:text-sm uppercase tracking-wide mb-1">
+                      Notas
+                    </div>
+                    <p className="whitespace-pre-line">{successSale.notes}</p>
                   </div>
-                  <p className="whitespace-pre-line">{successSale.notes}</p>
-                </div>
-              )}
-              {successSale.customer && (
-                <div className="pt-4 text-left text-slate-300 text-base">
-                  <div className="text-slate-400 text-sm uppercase tracking-wide mb-1">
-                    Cliente
+                )}
+                {successSale.customer && (
+                  <div className="pt-3 text-left text-slate-300">
+                    <div className="text-slate-400 text-xs sm:text-sm uppercase tracking-wide mb-1">
+                      Cliente
+                    </div>
+                    <p className="font-semibold">{successSale.customer.name}</p>
+                    {successSale.customer.phone && (
+                      <p className="text-sm text-slate-400">
+                        Tel: {successSale.customer.phone}
+                      </p>
+                    )}
+                    {successSale.customer.email && (
+                      <p className="text-sm text-slate-400">
+                        Email: {successSale.customer.email}
+                      </p>
+                    )}
                   </div>
-                  <p className="font-semibold">{successSale.customer.name}</p>
-                  {successSale.customer.phone && (
-                    <p className="text-sm text-slate-400">
-                      Tel: {successSale.customer.phone}
-                    </p>
-                  )}
-                  {successSale.customer.email && (
-                    <p className="text-sm text-slate-400">
-                      Email: {successSale.customer.email}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-6 mb-8">
-              <button
-                onClick={() => void handlePrintTicket()}
-                className="flex flex-col items-center justify-center p-7 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-              >
-                <div className="text-5xl mb-3">🖨️</div>
-                <span className="text-base font-semibold text-slate-100">
-                  Imprimir ticket
-                </span>
-              </button>
-
-              <div className="flex flex-col gap-4">
-                <button
-                  onClick={handleEmailTicket}
-                  className="flex flex-col items-center justify-center p-5 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-                >
-                  <div className="text-4xl mb-2">✉️</div>
-                  <span className="text-sm font-semibold text-slate-100">
-                    Enviar ticket
-                  </span>
-                </button>
-                <button
-                  onClick={handleEmailInvoice}
-                  className="flex flex-col items-center justify-center p-5 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600"
-                >
-                  <div className="text-4xl mb-2">✉️</div>
-                  <span className="text-sm font-semibold text-slate-100">
-                    Enviar factura
-                  </span>
-                </button>
+                )}
               </div>
             </div>
 
-            <div className="mb-12" />
+            <div className="shrink-0 border-t border-slate-800 px-4 py-3 sm:px-8 sm:py-4 bg-slate-900/95 space-y-3">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                <button
+                  onClick={() => void handlePrintTicket()}
+                  className="flex flex-col items-center justify-center p-4 sm:p-5 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600 min-h-[84px] sm:min-h-[96px]"
+                >
+                  <div className="text-3xl sm:text-4xl mb-1 sm:mb-2">🖨️</div>
+                  <span className="text-sm sm:text-base font-semibold text-slate-100">
+                    Imprimir ticket
+                  </span>
+                </button>
 
-            <div className="flex justify-end">
-              <button
-                onClick={handleSuccessDone}
-                className="px-7 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 
-                     text-slate-950 font-semibold text-base shadow-lg transition"
-              >
-                Hecho (volver al POS)
-              </button>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={handleEmailTicket}
+                    className="flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600 min-h-[64px] sm:min-h-[72px]"
+                  >
+                    <div className="text-2xl sm:text-3xl mb-1">✉️</div>
+                    <span className="text-sm font-semibold text-slate-100">
+                      Enviar ticket
+                    </span>
+                  </button>
+                  <button
+                    onClick={handleEmailInvoice}
+                    className="flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-slate-600 min-h-[64px] sm:min-h-[72px]"
+                  >
+                    <div className="text-2xl sm:text-3xl mb-1">✉️</div>
+                    <span className="text-sm font-semibold text-slate-100">
+                      Enviar factura
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={handleSuccessDone}
+                  className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm sm:text-base shadow-lg transition"
+                >
+                  Hecho (volver al POS)
+                </button>
+              </div>
             </div>
           </div>
         </div>
