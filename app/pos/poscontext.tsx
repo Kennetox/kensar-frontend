@@ -47,13 +47,14 @@ export type Product = {
 };
 
 export type CartItem = {
-  id: number; // product id
+  id: number;
   product: Product;
   quantity: number;
   unitPrice: number;
   lineDiscountValue: number;
   lineDiscountIsPercent: boolean;
   lineDiscountPercent: number;
+  freeSaleReason?: string | null;
 };
 
 export type PosCustomer = {

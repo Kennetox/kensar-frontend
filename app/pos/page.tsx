@@ -49,6 +49,19 @@ import {
   getBogotaDateParts,
 } from "@/lib/time/bogota";
 import {
+  REPORT_PRESETS,
+  buildDocumentHtml,
+  buildReportResult,
+  type CompanyInfo,
+  type FilterMeta,
+  type ReportChange,
+  type ReportSale,
+} from "@/app/dashboard/reports/page";
+import {
+  REQUIRE_FREE_SALE_REASON,
+  SHOW_FREE_SALE_TRACEABILITY_REPORT,
+} from "@/lib/config/featureFlags";
+import {
   getPosStationAccess,
   type PosStationAccess,
   formatPosDisplayName,
@@ -216,6 +229,12 @@ type ClosureChangeRecord = {
   extra_payment?: number | null;
   refund_due?: number | null;
   payments?: ClosureChangePayment[];
+};
+
+type ClosureEmailHtmlAttachment = {
+  filename: string;
+  title: string;
+  document_html: string;
 };
 
 type TotalsByMethod = {
@@ -452,6 +471,8 @@ const GRID_ZOOM_MIN = 0.8;
 const GRID_ZOOM_MAX = 1.25;
 const GRID_ZOOM_STEP = 0.05;
 const GRID_ZOOM_DEFAULT = 1;
+const FREE_SALE_REASON_MIN_LENGTH = 3;
+const FREE_SALE_NAME_MATCH = "venta libre";
 
 const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   switch (method) {
@@ -631,6 +652,8 @@ const matchesStationLabel = useCallback(
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
   const [catalogNoticeVisible, setCatalogNoticeVisible] = useState(false);
   const catalogNoticeTimerRef = useRef<{ hide?: number; remove?: number }>({});
+  const [searchMissToastVisible, setSearchMissToastVisible] = useState(false);
+  const searchMissToastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const catalogVersionRef = useRef<string | null>(null);
   const catalogUpdateAvailableRef = useRef(false);
   const imageBaseUrl = useMemo(() => getApiBase(), []);
@@ -840,6 +863,25 @@ const matchesStationLabel = useCallback(
     );
   }, []);
 
+  const showSearchMissToast = useCallback(() => {
+    if (searchMissToastTimerRef.current.hide) {
+      window.clearTimeout(searchMissToastTimerRef.current.hide);
+    }
+    if (searchMissToastTimerRef.current.remove) {
+      window.clearTimeout(searchMissToastTimerRef.current.remove);
+    }
+    setSearchMissToastVisible(false);
+    requestAnimationFrame(() => setSearchMissToastVisible(true));
+    searchMissToastTimerRef.current.hide = window.setTimeout(
+      () => setSearchMissToastVisible(false),
+      2600
+    );
+    searchMissToastTimerRef.current.remove = window.setTimeout(
+      () => setSearchMissToastVisible(false),
+      2860
+    );
+  }, []);
+
   const fetchCatalogVersion = useCallback(
     async (options?: { silent?: boolean; markSynced?: boolean }) => {
       if (!authHeaders) return null;
@@ -907,6 +949,15 @@ const matchesStationLabel = useCallback(
   useEffect(() => {
     const hideTimer = catalogNoticeTimerRef.current.hide;
     const removeTimer = catalogNoticeTimerRef.current.remove;
+    return () => {
+      if (hideTimer) window.clearTimeout(hideTimer);
+      if (removeTimer) window.clearTimeout(removeTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const hideTimer = searchMissToastTimerRef.current.hide;
+    const removeTimer = searchMissToastTimerRef.current.remove;
     return () => {
       if (hideTimer) window.clearTimeout(hideTimer);
       if (removeTimer) window.clearTimeout(removeTimer);
@@ -1649,6 +1700,12 @@ const matchesStationLabel = useCallback(
   const [priceChangeProduct, setPriceChangeProduct] = useState<Product | null>(
     null
   );
+  const [freeSaleReasonModalProduct, setFreeSaleReasonModalProduct] =
+    useState<Product | null>(null);
+  const [freeSaleReasonValue, setFreeSaleReasonValue] = useState("");
+  const [pendingFreeSaleReason, setPendingFreeSaleReason] = useState<
+    string | null
+  >(null);
 
   const baseTotalForSurcharge = cartTotalBeforeSurcharge;
 
@@ -1810,7 +1867,21 @@ const matchesStationLabel = useCallback(
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(null);
 
-  const canProceedToPayment = cart.length > 0;
+  const isFreeSaleProduct = useCallback((product: Product): boolean => {
+    const normalizedName = normalizeMethodKey(product.name);
+    if (
+      normalizedName === FREE_SALE_NAME_MATCH ||
+      normalizedName.includes(FREE_SALE_NAME_MATCH)
+    ) {
+      return true;
+    }
+    const normalizedSku = slugifyMethodKey(product.sku);
+    return normalizedSku.includes("venta-libre");
+  }, []);
+  const missingFreeSaleReason = REQUIRE_FREE_SALE_REASON && cart.some(
+    (item) => isFreeSaleProduct(item.product) && !item.freeSaleReason?.trim()
+  );
+  const canProceedToPayment = cart.length > 0 && !missingFreeSaleReason;
   const sellerDisplayName = user?.name || user?.email || null;
   const sellerName = sellerDisplayName
     ? `Vendedor: ${sellerDisplayName}`
@@ -3204,7 +3275,12 @@ const matchesStationLabel = useCallback(
   };
 
   const handleProceedToPayment = () => {
-    if (!canProceedToPayment) return;
+    if (!canProceedToPayment) {
+      if (REQUIRE_FREE_SALE_REASON && missingFreeSaleReason) {
+        setError("Debes registrar el motivo de venta libre antes de continuar.");
+      }
+      return;
+    }
     if (shouldBlockSales) {
       setClosureReminderOpen(true);
       return;
@@ -3803,6 +3879,108 @@ const matchesStationLabel = useCallback(
       if (options?.message?.trim()) {
         body.message = options.message.trim();
       }
+      try {
+        const [salesRes, changesRes] = await Promise.all([
+          fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+          }),
+          fetch(`${apiBase}/pos/changes?skip=0&limit=500`, {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+          }),
+        ]);
+        if (salesRes.ok) {
+          const rawSales = (await salesRes.json()) as Array<
+            ReportSale & { closure_id?: number | null }
+          >;
+          const closureSales = rawSales.filter(
+            (sale) => Number(sale.closure_id ?? 0) === Number(closure.id)
+          );
+          if (closureSales.length > 0) {
+            let closureChanges: ReportChange[] = [];
+            if (changesRes.ok) {
+              const rawChanges = (await changesRes.json()) as Array<
+                ReportChange & { closure_id?: number | null }
+              >;
+              closureChanges = rawChanges.filter(
+                (change) => Number(change.closure_id ?? 0) === Number(closure.id)
+              );
+            }
+            const closureReferenceDate =
+              closure.closed_at ?? closure.opened_at ?? new Date().toISOString();
+            const filterMeta: FilterMeta = {
+              fromDate: getBogotaDateKey(
+                closure.opened_at ?? closureReferenceDate
+              ),
+              toDate: getBogotaDateKey(closure.closed_at ?? closureReferenceDate),
+              posFilter: closure.pos_name?.trim() || "todos",
+              methodFilter: "todos",
+              sellerFilter: "",
+            };
+            const rawLogo =
+              posSettings?.logoUrl ??
+              posSettings?.logo_url ??
+              posSettings?.ticket_logo_url ??
+              "";
+            const companyInfo: CompanyInfo = {
+              name: posSettings?.company_name?.trim() || "Kensar Electronic",
+              address: posSettings?.address?.trim() || "Cra 24 #30-75",
+              email: posSettings?.contact_email?.trim() || "kensarelec@gmail.com",
+              phone: posSettings?.contact_phone?.trim() || "3185657508",
+              logoUrl: rawLogo.trim() || "",
+            };
+            const closureLabel = closure.consecutive ?? `CL-${closure.id}`;
+            const reportPresetIds = [
+              "products-sold",
+              "hourly-sales",
+              ...(SHOW_FREE_SALE_TRACEABILITY_REPORT
+                ? (["free-sales-traceability"] as const)
+                : ([] as const)),
+            ];
+            const attachments: ClosureEmailHtmlAttachment[] = reportPresetIds
+              .map((presetId) => {
+                const preset = REPORT_PRESETS.find((item) => item.id === presetId);
+                if (!preset) return null;
+                const result = buildReportResult(
+                  preset.id,
+                  closureSales,
+                  undefined,
+                  closureChanges
+                );
+                if (!result) return null;
+                const safeName = preset.title
+                  .toLowerCase()
+                  .replace(/\s+/g, "_")
+                  .replace(/[^\w-]/g, "");
+                return {
+                  filename: `${safeName}_${closureLabel}.pdf`,
+                  title: `${preset.title} ${closureLabel}`,
+                  document_html: buildDocumentHtml(
+                    preset,
+                    result,
+                    companyInfo,
+                    filterMeta
+                  ),
+                };
+              })
+              .filter((attachment): attachment is ClosureEmailHtmlAttachment =>
+                Boolean(attachment)
+              );
+            if (attachments.length > 0) {
+              body.extra_html_attachments = attachments;
+            }
+          }
+        }
+      } catch (error) {
+        console.error("No se pudieron construir adjuntos avanzados del cierre", error);
+      }
       const res = await fetch(`${apiBase}/pos/closures/${closure.id}/email`, {
         method: "POST",
         headers: {
@@ -3820,14 +3998,24 @@ const matchesStationLabel = useCallback(
         );
       }
     },
-    [token]
+    [posSettings, token]
   );
 
   const handleOpenClosureEmailModal = useCallback(() => {
     if (!closureResult) return;
-    const subjectBase = closureResult.consecutive
-      ? `Reporte Z ${closureResult.consecutive}`
-      : `Reporte Z CL-${closureResult.id.toString().padStart(5, "0")}`;
+    const closureDateLabel = closureResult.closed_at
+      ? formatBogotaDate(closureResult.closed_at, {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        })
+      : null;
+    const reportLabel =
+      closureResult.consecutive ??
+      `CL-${closureResult.id.toString().padStart(5, "0")}`;
+    const subjectBase = closureDateLabel
+      ? `Cierre del dia ${closureDateLabel} - ${reportLabel}`
+      : `Cierre del dia - ${reportLabel}`;
     setClosureEmailRecipients(
       (posSettings?.closure_email_recipients ?? []).join("\n")
     );
@@ -3851,9 +4039,7 @@ const matchesStationLabel = useCallback(
     try {
       await sendClosureEmail(closureResult, {
         recipients,
-        subject:
-          closureEmailSubject.trim() ||
-          `Reporte Z ${closureResult.consecutive ?? closureResult.id}`,
+        subject: closureEmailSubject.trim() || undefined,
         message: closureEmailMessage.trim() || undefined,
       });
       setClosureEmailFeedback("Reporte enviado correctamente.");
@@ -4036,8 +4222,14 @@ const matchesStationLabel = useCallback(
 
       if (isTypingTarget) return;
 
-      // 2) Si hay un modal abierto (cantidad o descuento), ignorar también
-      if (quantityModalOpen || discountModalOpen) return;
+      // 2) Si hay un modal abierto, ignorar también
+      if (
+        quantityModalOpen ||
+        discountModalOpen ||
+        Boolean(priceChangeProduct) ||
+        Boolean(freeSaleReasonModalProduct)
+      )
+        return;
 
       // 3) Tecla Delete: borrar la línea seleccionada
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -4057,7 +4249,14 @@ const matchesStationLabel = useCallback(
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedCartId, quantityModalOpen, discountModalOpen, setCart]);
+  }, [
+    selectedCartId,
+    quantityModalOpen,
+    discountModalOpen,
+    priceChangeProduct,
+    freeSaleReasonModalProduct,
+    setCart,
+  ]);
 
 
 
@@ -4112,12 +4311,21 @@ const matchesStationLabel = useCallback(
     );
 
     if (!product) {
-      // Si quieres, podríamos mostrar algún mensaje en el futuro
+      showSearchMissToast();
+      setSearch("");
+      return;
+    }
+
+    if (REQUIRE_FREE_SALE_REASON && isFreeSaleProduct(product)) {
+      setFreeSaleReasonModalProduct(product);
+      setFreeSaleReasonValue("");
+      setSearch("");
       return;
     }
 
     // Si es servicio o permite cambio de precio -> abrir modal de precio
     if (product.allow_price_change || product.service) {
+      setPendingFreeSaleReason(null);
       setPriceChangeProduct(product);
       const initialValue =
         product.price && product.price > 0
@@ -4445,8 +4653,15 @@ const matchesStationLabel = useCallback(
 
     // Producto
     const product = tile.product;
+    if (REQUIRE_FREE_SALE_REASON && isFreeSaleProduct(product)) {
+      setFreeSaleReasonModalProduct(product);
+      setFreeSaleReasonValue("");
+      return;
+    }
+
     // Servicios o productos con cambio de precio
     if (product.allow_price_change || product.service) {
+      setPendingFreeSaleReason(null);
       setPriceChangeProduct(product);
       const initialValue =
         product.price && product.price > 0
@@ -4463,16 +4678,23 @@ const matchesStationLabel = useCallback(
     }
   }
 
-  function addProductToCart(product: Product, unitPrice: number) {
+  function addProductToCart(
+    product: Product,
+    unitPrice: number,
+    options?: { freeSaleReason?: string }
+  ) {
   if (shouldBlockSales) {
     setClosureReminderOpen(true);
     return;
   }
   setCart((prev: CartItem[]) => {
+    const reason = options?.freeSaleReason?.trim() ?? "";
+    const shouldCreateIndependentLine =
+      REQUIRE_FREE_SALE_REASON && isFreeSaleProduct(product) && reason.length > 0;
     const existingIndex = prev.findIndex(
       (item: CartItem) => item.id === product.id
     );
-    if (existingIndex >= 0) {
+    if (existingIndex >= 0 && !shouldCreateIndependentLine) {
       const updated = [...prev];
       const current = updated[existingIndex];
       updated[existingIndex] = {
@@ -4485,13 +4707,16 @@ const matchesStationLabel = useCallback(
     return [
       ...prev,
       {
-        id: product.id,
+        id: shouldCreateIndependentLine
+          ? Date.now() + Math.floor(Math.random() * 1000)
+          : product.id,
         product,
         quantity: 1,
         unitPrice,
         lineDiscountValue: 0,
         lineDiscountIsPercent: false,
         lineDiscountPercent: 0,
+        freeSaleReason: reason || undefined,
       },
     ];
   });
@@ -4875,11 +5100,42 @@ const matchesStationLabel = useCallback(
     const val = parseFloat(raw);
     if (!isFinite(val) || val < 0) {
       setPriceChangeProduct(null);
+      setPendingFreeSaleReason(null);
       return;
     }
 
-    addProductToCart(priceChangeProduct, val);
+    addProductToCart(priceChangeProduct, val, {
+      freeSaleReason: pendingFreeSaleReason ?? undefined,
+    });
     setPriceChangeProduct(null);
+    setPendingFreeSaleReason(null);
+  }
+
+  function handleSubmitFreeSaleReason(e: FormEvent) {
+    e.preventDefault();
+    const reason = freeSaleReasonValue.trim();
+    if (reason.length < FREE_SALE_REASON_MIN_LENGTH) {
+      setError("Ingresa el motivo de venta libre.");
+      return;
+    }
+    const selectedProduct = freeSaleReasonModalProduct;
+    if (!selectedProduct) return;
+    setFreeSaleReasonModalProduct(null);
+    setFreeSaleReasonValue("");
+    setError(null);
+    if (selectedProduct.allow_price_change || selectedProduct.service) {
+      setPendingFreeSaleReason(reason);
+      setPriceChangeProduct(selectedProduct);
+      const initialValue =
+        selectedProduct.price && selectedProduct.price > 0
+          ? selectedProduct.price.toString()
+          : "0";
+      setPriceChangeValue(formatPriceInputValue(initialValue) || "0");
+      return;
+    }
+    addProductToCart(selectedProduct, selectedProduct.price, {
+      freeSaleReason: reason,
+    });
   }
 
   function handleSavePrinterModal() {
@@ -4963,6 +5219,21 @@ const matchesStationLabel = useCallback(
           </div>
         </div>
       )}
+      <div className="fixed left-1/2 top-24 z-40 -translate-x-1/2 pointer-events-none">
+        <div
+          className={
+            "rounded-2xl border border-amber-300/50 bg-slate-900/95 px-5 py-3 text-amber-100 shadow-[0_14px_38px_rgba(15,23,42,0.45)] backdrop-blur transition-all duration-200 " +
+            (searchMissToastVisible
+              ? "translate-y-0 opacity-100"
+              : "-translate-y-1 opacity-0")
+          }
+        >
+          <p className="text-[11px] uppercase tracking-wide text-amber-200/90">
+            Aviso
+          </p>
+          <p className="text-sm font-semibold">No se han encontrado productos.</p>
+        </div>
+      </div>
       {loading && (
         <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-sm flex flex-col gap-6 px-6 py-8">
           <div className="h-12 rounded-2xl bg-slate-900/70 animate-pulse" />
@@ -5827,6 +6098,11 @@ const matchesStationLabel = useCallback(
                         <div className="text-sm text-slate-400">
                           {item.quantity} x {formatMoney(item.unitPrice)}
                         </div>
+                        {REQUIRE_FREE_SALE_REASON && item.freeSaleReason?.trim() && (
+                          <div className="mt-1 text-xs text-amber-200 whitespace-pre-line">
+                            Motivo: {item.freeSaleReason}
+                          </div>
+                        )}
                       </div>
 
                       <div className="text-right">
@@ -7382,6 +7658,73 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
         </div>
       )}
 
+      {/* Motivo obligatorio para venta libre */}
+      {REQUIRE_FREE_SALE_REASON && freeSaleReasonModalProduct && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 px-4">
+          <form
+            onSubmit={handleSubmitFreeSaleReason}
+            className="w-full max-w-3xl rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950/90 px-10 py-8 text-base shadow-[0_25px_60px_rgba(15,23,42,0.6)] space-y-5"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.4em] text-amber-300">
+                  Venta libre
+                </p>
+                <h2 className="text-xl font-semibold text-slate-50">
+                  Motivo obligatorio
+                </h2>
+                <p className="text-[12px] text-slate-400 mt-1">
+                  Registra por qué usas {freeSaleReasonModalProduct.name} en esta venta.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFreeSaleReasonModalProduct(null);
+                  setFreeSaleReasonValue("");
+                }}
+                className="text-slate-400 hover:text-slate-100 text-2xl leading-none"
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+            <label className="flex flex-col gap-2">
+              <span className="text-xs text-slate-400">Motivo</span>
+              <textarea
+                autoFocus
+                value={freeSaleReasonValue}
+                onChange={(e) => setFreeSaleReasonValue(e.target.value)}
+                rows={7}
+                className="w-full rounded-2xl bg-slate-950 border border-slate-700/80 px-4 py-3 text-base text-slate-50 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/30"
+                placeholder="Ej: producto aún no creado en catálogo, solicitud especial del cliente..."
+              />
+            </label>
+            <div className="rounded-2xl border border-slate-800/60 bg-slate-900/60 px-4 py-3 text-xs text-slate-400">
+              Debe tener al menos {FREE_SALE_REASON_MIN_LENGTH} caracteres para continuar.
+            </div>
+            <div className="flex justify-end gap-3 pt-2 text-sm">
+              <button
+                type="button"
+                className="px-4 py-2 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-800/70"
+                onClick={() => {
+                  setFreeSaleReasonModalProduct(null);
+                  setFreeSaleReasonValue("");
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-xl bg-amber-400 text-slate-900 font-semibold hover:bg-amber-300"
+              >
+                Continuar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Cambio de precio (servicios / productos con asterisco) */}
       {priceChangeProduct && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 px-4">
@@ -7403,7 +7746,10 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
               </div>
               <button
                 type="button"
-                onClick={() => setPriceChangeProduct(null)}
+                onClick={() => {
+                  setPriceChangeProduct(null);
+                  setPendingFreeSaleReason(null);
+                }}
                 className="text-slate-400 hover:text-slate-100 text-2xl leading-none"
                 aria-label="Cerrar"
               >
@@ -7429,7 +7775,10 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
               <button
                 type="button"
                 className="px-4 py-2 rounded-xl border border-slate-700 text-slate-200 hover:bg-slate-800/70"
-                onClick={() => setPriceChangeProduct(null)}
+                onClick={() => {
+                  setPriceChangeProduct(null);
+                  setPendingFreeSaleReason(null);
+                }}
               >
                 Cancelar
               </button>

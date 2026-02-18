@@ -24,6 +24,7 @@ import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import type { SeparatedOrder } from "@/lib/api/separatedOrders";
 import { useOnlineStatus } from "@/app/hooks/useOnlineStatus";
 import { addPendingSale } from "@/lib/pos/pendingSales";
+import { REQUIRE_FREE_SALE_REASON } from "@/lib/config/featureFlags";
 import {
   getPosStationAccess,
   formatPosDisplayName,
@@ -92,6 +93,29 @@ type SuccessSaleSummary = {
 };
 
 const RESUME_HELD_SALE_KEY = "kensar_pos_resume_held_sale_v1";
+const FREE_SALE_REASON_NOTE_LABEL = "Motivo venta libre";
+
+function buildCombinedSaleNotes(
+  freeSaleReasons: string[],
+  extraSaleNotes: string
+): string {
+  const extra = extraSaleNotes.trim();
+  const blocks: string[] = [];
+  if (REQUIRE_FREE_SALE_REASON && freeSaleReasons.length > 0) {
+    const lines = freeSaleReasons.map((reason, index) => `${index + 1}. ${reason}`);
+    blocks.push(`${FREE_SALE_REASON_NOTE_LABEL}:\n${lines.join("\n")}`);
+  }
+  if (extra) {
+    blocks.push(extra);
+  }
+  return blocks.join("\n\n");
+}
+
+function getFreeSaleReasonsFromCart(cart: CartItem[]): string[] {
+  return cart
+    .map((item) => item.freeSaleReason?.trim() ?? "")
+    .filter((reason) => reason.length > 0);
+}
 
 function getMethodLabel(
   slug: PaymentMethodSlug,
@@ -168,6 +192,14 @@ export default function PagoMultiplePage() {
   const { token, user } = useAuth();
   const isOnline = useOnlineStatus();
   const totalToPay = cartTotal;
+  const freeSaleReasons = useMemo(
+    () => (REQUIRE_FREE_SALE_REASON ? getFreeSaleReasonsFromCart(cart) : []),
+    [cart]
+  );
+  const combinedSaleNotes = useMemo(
+    () => buildCombinedSaleNotes(freeSaleReasons, saleNotes),
+    [freeSaleReasons, saleNotes]
+  );
 
   const [payments, setPayments] = useState<PaymentLine[]>([]);
   const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(
@@ -846,7 +878,7 @@ export default function PagoMultiplePage() {
         change_amount,
         items: saleItemsPayload,
         payments: normalizedPayments,
-        notes: saleNotes.trim() ? saleNotes.trim() : undefined,
+        notes: combinedSaleNotes || undefined,
         pos_name: resolvedPosName,
         vendor_name: user?.name ?? undefined,
         reservation_id: reservationId ?? undefined,
@@ -1169,7 +1201,7 @@ export default function PagoMultiplePage() {
             : cartDiscountPercent > 0
             ? `-${cartDiscountPercent}%`
             : "0",
-        notes: serverNotes ?? (saleNotes.trim() ? saleNotes.trim() : undefined),
+        notes: serverNotes ?? (combinedSaleNotes || undefined),
         items: saleItemsForTicket,
         payments: paymentSummary,
         changeAmount: changeAmountValue,
@@ -1873,8 +1905,20 @@ export default function PagoMultiplePage() {
               </div>
 
               <div className="mt-6 space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+                {REQUIRE_FREE_SALE_REASON && freeSaleReasons.length > 0 && (
+                  <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+                    <div className="text-xs uppercase tracking-wide text-amber-200">
+                      {FREE_SALE_REASON_NOTE_LABEL} (solo lectura)
+                    </div>
+                    <ul className="space-y-1 text-base text-amber-100">
+                      {freeSaleReasons.map((reason, index) => (
+                        <li key={`${index}-${reason}`}>{index + 1}. {reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <div className="flex items-center justify-between text-base text-slate-400">
-                  <span className="uppercase tracking-wide text-base">Notas para el ticket</span>
+                  <span className="uppercase tracking-wide text-base">Notas adicionales</span>
                   <button
                     type="button"
                     onClick={() => setSaleNotes("")}

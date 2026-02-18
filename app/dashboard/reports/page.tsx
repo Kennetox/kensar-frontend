@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import { fetchPosSettings, PosSettingsPayload } from "@/lib/api/settings";
+import { SHOW_FREE_SALE_TRACEABILITY_REPORT } from "@/lib/config/featureFlags";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
 import {
   buildBogotaDateFromKey,
@@ -15,7 +16,7 @@ import {
 
 type QuickRange = "today" | "yesterday" | "week" | "month" | "year";
 
-type ReportPreset = {
+export type ReportPreset = {
   id: string;
   title: string;
   description: string;
@@ -51,7 +52,7 @@ type ReportChangeNewItem = {
   unit_price: number;
 };
 
-type ReportChange = {
+export type ReportChange = {
   sale_id: number;
   status: string;
   voided_at?: string | null;
@@ -59,7 +60,7 @@ type ReportChange = {
   items_new: ReportChangeNewItem[];
 };
 
-type ReportSale = {
+export type ReportSale = {
   id: number;
   sale_number?: number;
   document_number?: string;
@@ -73,6 +74,7 @@ type ReportSale = {
   customer_name?: string | null;
   customer_phone?: string | null;
   customer_email?: string | null;
+  notes?: string | null;
   cart_discount_value?: number | null;
   cart_discount_percent?: number | null;
   items?: ReportSaleItem[];
@@ -91,14 +93,14 @@ type ReportTable = {
   emptyMessage?: string;
 };
 
-type ReportResult = {
+export type ReportResult = {
   summary: ReportSummaryItem[];
   table?: ReportTable;
   note?: string;
   surchargeTotal?: number;
 };
 
-type CompanyInfo = {
+export type CompanyInfo = {
   name: string;
   address: string;
   email: string;
@@ -106,7 +108,7 @@ type CompanyInfo = {
   logoUrl?: string | null;
 };
 
-type FilterMeta = {
+export type FilterMeta = {
   fromDate: string;
   toDate: string;
   posFilter: string;
@@ -146,9 +148,16 @@ const isValidOpenReportTab = (value: unknown): value is OpenReportTab => {
 };
 
 const REPORT_LIMIT = 500;
-const TABLE_ROWS_PER_PAGE = 12;
-const PAGE_WIDTH_MM = 205;
-const PAGE_HEIGHT_MM = 260;
+const TABLE_ROWS_PER_PAGE = 18;
+const PAPER_WIDTH_MM = 210; // A4
+const PAPER_HEIGHT_MM = 297; // A4
+const PAGE_MARGIN_MM = 2.5;
+// Compensa diferencias entre preview y motor de impresion del navegador.
+const PAGE_CONTENT_SLACK_MM = 4;
+const PAGE_WIDTH_MM =
+  PAPER_WIDTH_MM - PAGE_MARGIN_MM * 2 - PAGE_CONTENT_SLACK_MM;
+const PAGE_HEIGHT_MM =
+  PAPER_HEIGHT_MM - PAGE_MARGIN_MM * 2 - PAGE_CONTENT_SLACK_MM;
 const MM_TO_PX = 96 / 25.4;
 
 const getDefaultDates = () => {
@@ -157,6 +166,37 @@ const getDefaultDates = () => {
     fromDate: todayKey,
     toDate: todayKey,
   };
+};
+
+const getMonthRangeFromKey = (referenceDateKey: string) => {
+  const [yearRaw, monthRaw] = referenceDateKey.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const todayKey = getBogotaDateKey();
+  const { year: currentYear, month: currentMonth } = getBogotaDateParts();
+
+  if (
+    Number.isNaN(year) ||
+    Number.isNaN(month) ||
+    month < 1 ||
+    month > 12 ||
+    !yearRaw ||
+    !monthRaw
+  ) {
+    return { fromDate: todayKey, toDate: todayKey };
+  }
+
+  const monthText = String(month).padStart(2, "0");
+  const fromDate = `${yearRaw}-${monthText}-01`;
+
+  if (yearRaw === currentYear && monthText === currentMonth) {
+    return { fromDate, toDate: todayKey };
+  }
+
+  const monthEnd = new Date(Date.UTC(year, month, 0, 5, 0, 0));
+  const { day: lastDay } = getBogotaDateParts(monthEnd);
+  const toDate = `${yearRaw}-${monthText}-${lastDay}`;
+  return { fromDate, toDate };
 };
 const FAVORITES_STORAGE_KEY = "kensar_report_favorites";
 const HOURLY_CHART_BAR_MAX_HEIGHT = 260; // px for chart bars height
@@ -175,7 +215,7 @@ const ACTIVE_REPORT_TAB_STORAGE_KEY = "kensar_report_active_tab";
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
 
-type PaymentLabelResolver = (method: string) => string;
+export type PaymentLabelResolver = (method: string) => string;
 
 
 const getReportDocumentTitle = (preset: ReportPreset, meta: FilterMeta) =>
@@ -190,13 +230,45 @@ type ColumnPresentation = {
   width?: number;
 };
 
-const getColumnPresentation = (column: string): ColumnPresentation => {
+const getColumnPresentation = (
+  reportId: string,
+  column: string
+): ColumnPresentation => {
   const normalized = column.toLowerCase().trim();
   const presentation: ColumnPresentation = {
     align: "left",
     noWrap: false,
     isDateValue: false,
   };
+
+  if (reportId === "free-sales-traceability") {
+    if (normalized === "motivo") {
+      presentation.width = 320;
+      presentation.maxWidth = 320;
+      presentation.clampLines = 4;
+      return presentation;
+    }
+    if (normalized === "fecha") {
+      presentation.width = 155;
+      presentation.maxWidth = 155;
+      presentation.noWrap = true;
+      presentation.isDateValue = true;
+      return presentation;
+    }
+    if (normalized === "precio") {
+      presentation.width = 95;
+      presentation.maxWidth = 95;
+      presentation.align = "right";
+      presentation.noWrap = true;
+      return presentation;
+    }
+    if (normalized === "ticket") {
+      presentation.width = 110;
+      presentation.maxWidth = 110;
+      presentation.noWrap = true;
+      return presentation;
+    }
+  }
 
   if (
     normalized.includes("código") ||
@@ -255,6 +327,47 @@ const formatMoney = (value: number | undefined | null) => {
 const normalizeText = (value: string | null | undefined) =>
   value?.toLowerCase().trim() ?? "";
 
+const normalizeComparableText = (value: string | null | undefined) =>
+  value
+    ? value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim()
+    : "";
+
+const FREE_SALE_NAME_FRAGMENT = "venta libre";
+
+const isFreeSaleItem = (item: ReportSaleItem) => {
+  const productName = normalizeComparableText(item.product_name ?? item.name);
+  const sku = normalizeComparableText(item.product_sku);
+  return (
+    productName.includes(FREE_SALE_NAME_FRAGMENT) ||
+    sku.includes("venta-libre") ||
+    sku.includes(FREE_SALE_NAME_FRAGMENT)
+  );
+};
+
+const extractFreeSaleReasonsFromNotes = (notes?: string | null): string[] => {
+  const source = notes?.trim();
+  if (!source) return [];
+  const labelMatch = source.match(/motivo venta libre/i);
+  if (!labelMatch || labelMatch.index == null) return [];
+  const tail = source
+    .slice(labelMatch.index + labelMatch[0].length)
+    .replace(/^[\s:\-\n\r]+/, "");
+  const firstBlock = tail.split(/\r?\n\r?\n/)[0] ?? "";
+  const lines = firstBlock
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (!lines.length) return [];
+  const numbered = lines
+    .map((line) => line.replace(/^\d+\.\s*/, "").trim())
+    .filter((line) => line.length > 0);
+  return numbered;
+};
+
 const chunkArray = <T,>(items: T[], size: number): T[][] => {
   if (size <= 0) return [items.length ? items : []];
   const chunks: T[][] = [];
@@ -274,9 +387,14 @@ const buildRowChunks = (
     return chunkArray(rows, defaultSize);
   }
   if (presetId === "products-sold") {
-    const firstPageSize = 17;
-    const remainingSize = 19;
-    const lastPageMax = 17;
+    // Reparto por capacidad real: primera pagina (con resumen),
+    // paginas intermedias mas densas y ultima con reserva para nota/componentes.
+    const firstPageSize = 30;
+    const middlePageSize = 35;
+    const lastPageSize = 28;
+    // Reservamos espacio visual para nota + componentes en ultima pagina,
+    // pero priorizamos llenar la penultima al maximo posible.
+    const minLastPageRows = 8;
     const chunks: string[][][] = [];
     let startIndex = 0;
     if (rows.length) {
@@ -286,14 +404,50 @@ const buildRowChunks = (
       }
       startIndex = firstChunk.length;
     }
-    while (startIndex < rows.length) {
-      const remainingCount = rows.length - startIndex;
-      const size =
-        remainingCount <= lastPageMax ? lastPageMax : remainingSize;
-      chunks.push(rows.slice(startIndex, startIndex + size));
-      startIndex += size;
+
+    const remainingRows = rows.slice(startIndex);
+    if (remainingRows.length <= middlePageSize) {
+      if (remainingRows.length) chunks.push(remainingRows);
+      return chunks.length ? chunks : ([[]] as string[][][]);
     }
-    return chunks.length ? chunks : ([[]] as string[][][]);
+
+    let cursor = 0;
+    while (remainingRows.length - cursor > middlePageSize + lastPageSize) {
+      chunks.push(remainingRows.slice(cursor, cursor + middlePageSize));
+      cursor += middlePageSize;
+    }
+
+    const finalBlock = remainingRows.slice(cursor);
+    if (finalBlock.length <= middlePageSize) {
+      chunks.push(finalBlock);
+      return chunks;
+    }
+    if (finalBlock.length <= middlePageSize + minLastPageRows) {
+      // Si el bloque final es apenas un poco mayor al limite intermedio,
+      // evitamos crear una ultima pagina casi vacia.
+      chunks.push(finalBlock);
+      return chunks;
+    }
+
+    // Reparto "penultima llena": dejamos en la ultima solo lo necesario.
+    // Ejemplo 41 filas => 29 + 12 (en vez de 23 + 18).
+    let firstPageSizeAdjusted = Math.min(
+      middlePageSize,
+      Math.max(1, finalBlock.length - minLastPageRows)
+    );
+    let secondPageSize = finalBlock.length - firstPageSizeAdjusted;
+    if (secondPageSize > lastPageSize) {
+      secondPageSize = lastPageSize;
+      firstPageSizeAdjusted = finalBlock.length - secondPageSize;
+    }
+
+    chunks.push(finalBlock.slice(0, firstPageSizeAdjusted));
+    chunks.push(finalBlock.slice(firstPageSizeAdjusted));
+
+    if (!chunks.length) {
+      return [[]] as string[][][];
+    }
+    return chunks;
   }
   return chunkArray(rows, defaultSize);
 };
@@ -348,6 +502,42 @@ const parseMoney = (value: string | undefined) => {
     .replace(",", ".");
   const parsed = parseFloat(cleaned);
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const applyCartDiscountToItems = (
+  sale: ReportSale,
+  items: ReportSaleItem[]
+): ReportSaleItem[] => {
+  const cartDiscount = Math.max(0, Number(sale.cart_discount_value ?? 0));
+  if (cartDiscount <= 0 || items.length === 0) return items;
+
+  const totals = items.map((item) => {
+    const quantity = Math.max(0, Number(item.quantity ?? 0));
+    const unitPrice = Math.max(0, Number(item.unit_price ?? 0));
+    return { quantity, lineTotal: unitPrice * quantity };
+  });
+  const subtotal = totals.reduce((sum, entry) => sum + entry.lineTotal, 0);
+  if (subtotal <= 0) return items;
+
+  let remainingDiscount = Math.min(cartDiscount, subtotal);
+  return items.map((item, index) => {
+    const { quantity, lineTotal } = totals[index];
+    if (quantity <= 0 || lineTotal <= 0) {
+      return item;
+    }
+    const rawShare =
+      index === items.length - 1
+        ? remainingDiscount
+        : (lineTotal / subtotal) * cartDiscount;
+    const discountShare = Math.max(0, Math.min(rawShare, remainingDiscount));
+    remainingDiscount -= discountShare;
+    const netLineTotal = Math.max(0, lineTotal - discountShare);
+    const unitPriceNet = netLineTotal / quantity;
+    return {
+      ...item,
+      unit_price: unitPriceNet,
+    };
+  });
 };
 
 const buildHourlyChartData = (rows: string[][]): HourlyChartPoint[] =>
@@ -441,12 +631,35 @@ const getChartConfig = (
           "Comparativa horizontal del aporte de cada método de pago.",
       };
     }
+    case "category-sales": {
+      const items = tableRows
+        .map((row) => ({
+          label: row[0] ?? "",
+          total: parseMoney(row[1]),
+          percent: row[4] ?? undefined,
+        }))
+        .filter((entry) => entry.label && entry.total > 0)
+        .slice(0, 12);
+      if (!items.length) return null;
+      const maxValue = items.reduce(
+        (max, entry) => Math.max(max, entry.total),
+        0
+      );
+      return {
+        type: "payment-bars",
+        items,
+        maxValue,
+        title: "Participación por categoría",
+        description:
+          "Comparativa horizontal del aporte de cada categoría a las ventas del periodo.",
+      };
+    }
     default:
       return null;
   }
 };
 
-const REPORT_PRESETS: ReportPreset[] = [
+export const REPORT_PRESETS: ReportPreset[] = [
   {
     id: "daily-sales",
     title: "Ventas del día",
@@ -615,6 +828,18 @@ const REPORT_PRESETS: ReportPreset[] = [
     scope: "Productos",
     highlights: ["Ticket / POS", "Precio aplicado", "Cantidad"],
   },
+  ...(SHOW_FREE_SALE_TRACEABILITY_REPORT
+    ? [
+        {
+          id: "free-sales-traceability",
+          title: "Trazabilidad venta libre",
+          description:
+            "Listado de ventas libres con fecha, motivo registrado, precio y número de ticket.",
+          scope: "Productos",
+          highlights: ["Motivo", "Precio", "Ticket"],
+        } satisfies ReportPreset,
+      ]
+    : []),
   {
     id: "products-returns",
     title: "Devoluciones por producto",
@@ -688,11 +913,11 @@ function filterSalesByMeta(
   });
 }
 
-type DocumentHtmlOptions = {
+export type DocumentHtmlOptions = {
   pageIndex?: number | null;
 };
 
-function buildDocumentHtml(
+export function buildDocumentHtml(
   preset: ReportPreset,
   result: ReportResult,
   info: CompanyInfo,
@@ -709,7 +934,7 @@ function buildDocumentHtml(
   })();
   const chartConfig = getChartConfig(preset.id, tableRows);
   const columnLayouts = tableColumns.map((column) =>
-    getColumnPresentation(column)
+    getColumnPresentation(preset.id, column)
   );
   const documentTitle = getReportDocumentTitle(preset, meta);
   const emptyMessage =
@@ -735,6 +960,9 @@ function buildDocumentHtml(
   const noteHtml = result.note ? `<div class="note">${result.note}</div>` : "";
   const pageWidth = `${PAGE_WIDTH_MM}mm`;
   const pageHeight = `${PAGE_HEIGHT_MM}mm`;
+  const paperWidth = `${PAPER_WIDTH_MM}mm`;
+  const paperHeight = `${PAPER_HEIGHT_MM}mm`;
+  const pageMargin = `${PAGE_MARGIN_MM}mm`;
   const targetPageIndex =
     typeof options?.pageIndex === "number" ? options.pageIndex : null;
   const tablePagesHtml = rowChunks
@@ -1028,51 +1256,84 @@ function buildDocumentHtml(
         <meta charset="utf-8" />
         <title>${documentTitle}</title>
         <style>
-          @page { size: ${pageWidth} ${pageHeight}; margin: 0; }
-          @page chart-landscape { size: ${pageHeight} ${pageWidth}; margin: 0; }
+          @page { size: ${paperWidth} ${paperHeight}; margin: ${pageMargin}; }
+          @page chart-landscape { size: ${paperHeight} ${paperWidth}; margin: ${pageMargin}; }
           * { box-sizing: border-box; font-family: "Inter", Arial, sans-serif; }
           body { background: #f4f6f9; color: #0f172a; margin: 0; padding: 24px 0; }
-          @media print { body { padding: 0; background: #fff; } }
-          .report-wrapper { width: ${pageWidth}; min-height: ${pageHeight}; margin: 0 auto 12mm; background: #fff; border: 1px solid #d3d7df; page-break-after: always; display:flex;flex-direction:column; }
-          .report-wrapper:last-child { page-break-after: auto; }
-          .chart-wrapper { width: ${pageWidth}; min-height: ${pageHeight}; }
-          .chart-wrapper.landscape { width: ${pageHeight}; min-height: ${pageWidth}; page: chart-landscape; }
-          .chart-body { flex:1; display:flex; flex-direction:column; padding: 20px 24px 24px; }
+          @media print {
+            body { padding: 0; background: #fff; }
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            .report-wrapper {
+              margin: 0 auto !important;
+              border: 0 !important;
+              /* En impresion priorizamos estabilidad: evita desbordes y paginas fantasma. */
+              min-height: calc(${pageHeight} - 2mm) !important;
+              height: auto !important;
+              display: block !important;
+              position: relative !important;
+              padding-bottom: 28px !important;
+              page-break-after: always !important;
+              break-after: page !important;
+            }
+            .page-body { display: block !important; flex: 0 0 auto !important; }
+            .table-block {
+              display: block !important;
+              flex: 0 0 auto !important;
+              overflow: visible !important;
+            }
+            .footer {
+              margin-top: 0 !important;
+              position: absolute !important;
+              left: 0 !important;
+              right: 0 !important;
+              bottom: 0 !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid-page !important;
+            }
+          }
+          .report-wrapper { width: ${pageWidth}; min-height: ${pageHeight}; margin: 0 auto 12mm; background: #fff; border: 1px solid #d3d7df; page-break-after: always; break-after: page; display:flex; flex-direction:column; }
+          .report-wrapper:last-of-type { page-break-after: auto; break-after: auto; }
+          .chart-wrapper { width: ${pageWidth}; }
+          .chart-wrapper.landscape { width: ${pageHeight}; page: chart-landscape; }
+          .chart-body { flex:1; display:flex; flex-direction:column; padding: 16px 20px 18px; }
           .page-body { flex:1; display:flex; flex-direction:column; }
-          header { padding: 20px 24px 18px; border-bottom: 1px solid #e3e6ef; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 6px; }
-          header .left { display: flex; gap: 12px; align-items: center; }
-          header .title { font-size: 18px; font-weight: 600; }
-          .logo { height: 48px; width: auto; object-fit: contain; }
+          header { padding: 12px 18px 10px; border-bottom: 1px solid #e3e6ef; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 3px; }
+          header .left { display: flex; gap: 10px; align-items: center; }
+          header .title { font-size: 15px; font-weight: 600; line-height: 1.1; }
+          .logo { height: 36px; width: auto; object-fit: contain; }
           header .right { text-align:right;font-size:11px;color:#475569; }
-          .meta { padding: 14px 24px; background: #f8fafc; border-bottom: 1px solid #e3e6ef; display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 12px; font-size: 11px; }
+          .meta { padding: 8px 18px; background: #f8fafc; border-bottom: 1px solid #e3e6ef; display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 6px; font-size: 9.5px; line-height: 1.15; }
           .meta span { font-weight: 600; color: #0f172a; }
-          .summary { padding: 12px 24px; display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 10px; }
-          .card { border: 1px solid #e3e6ef; border-radius: 12px; padding: 10px 12px; background: #fff; break-inside: avoid; min-height: 78px; display:flex; flex-direction:column; justify-content:center; }
-          .card .label { font-size: 10px; text-transform: uppercase; color: #475569; margin-bottom: 4px; }
-          .card .value { font-size: 18px; font-weight: 600; }
-          .table-block { flex:1; padding: 0 24px 16px; display:flex; flex-direction:column; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; }
-          th, td { border: 1px solid #d7dbe5; padding: 8px 10px; vertical-align: top; }
-          th { background: #f8fafc; font-size: 11px; text-transform: uppercase; color: #475569; }
+          .summary { padding: 6px 18px; display: grid; grid-template-columns: repeat(auto-fit,minmax(138px,1fr)); gap: 5px; }
+          .card { border: 1px solid #e3e6ef; border-radius: 10px; padding: 5px 8px; background: #fff; break-inside: avoid; min-height: 42px; display:flex; flex-direction:column; justify-content:center; }
+          .card .label { font-size: 8.5px; text-transform: uppercase; color: #475569; margin-bottom: 1px; }
+          .card .value { font-size: 13px; font-weight: 600; line-height: 1.05; }
+          .table-block { flex: 1 1 auto; min-height: 0; padding: 0 18px 10px; display:flex; flex-direction:column; overflow:hidden; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+          th, td { border: 1px solid #d7dbe5; padding: 5px 8px; vertical-align: middle; line-height: 1.2; }
+          th { background: #f8fafc; font-size: 10px; text-transform: uppercase; color: #475569; }
           tr:nth-child(even) { background: #fdfdfd; }
           tr { break-inside: avoid; }
-          .note { margin: 16px 24px 8px; font-size: 11px; color: #475569; }
-          .footer { border-top: 1px solid #e3e6ef; padding: 10px 24px; font-size: 10px; display: flex; justify-content: space-between; color: #64748b; margin-top:auto; }
-          .components { font-size: 11px; margin: 4px 24px 12px; color: #475569; }
-          .empty { padding: 16px; text-align: center; color: #94a3b8; font-size: 12px; }
+          .note { margin: 10px 20px 4px; font-size: 10px; color: #475569; }
+          .footer { border-top: 1px solid #e3e6ef; padding: 8px 20px; font-size: 9px; display: flex; justify-content: space-between; color: #64748b; margin-top: auto; }
+          .components { font-size: 10px; margin: 2px 20px 8px; color: #475569; }
+          .empty { padding: 10px; text-align: center; color: #94a3b8; font-size: 11px; }
           .align-left { text-align: left; }
           .align-right { text-align: right; }
           .align-center { text-align: center; }
           .nowrap { white-space: nowrap; }
           .numeric { font-variant-numeric: tabular-nums; }
           .date-cell { font-size: 11px; }
-          .chart-meta { padding: 12px 0 6px; display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 12px; font-size: 11px; border-bottom: 1px solid #e3e6ef; margin-bottom: 10px; }
+          .chart-meta { padding: 8px 0 4px; display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 8px; font-size: 10px; border-bottom: 1px solid #e3e6ef; margin-bottom: 8px; }
           .chart-meta span { font-weight: 600; color: #0f172a; }
           .chart-title { font-size: 16px; font-weight: 600; margin: 12px 0 4px; }
           .chart-description { font-size: 11px; color: #475569; margin-bottom: 12px; }
           .chart-area { flex:1; border:1px solid #d7dbe5; border-radius: 18px; background:#f8fafc; padding: 20px 16px 12px; display:flex; align-items:flex-end; gap: 8px; }
           .chart-bar { flex:1; min-width: 28px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; text-align:center; font-size: 10px; color:#475569; }
-          .chart-bar .bar { width: 26px; background: linear-gradient(180deg,#34d399,#059669); border-radius: 10px 10px 0 0; }
+          .chart-bar .bar { width: 26px; background: #059669; border: 1px solid #047857; border-radius: 0; }
           .chart-value { font-size: 11px; font-weight: 600; margin-bottom: 4px; color:#0f172a; display:inline-block; transform:rotate(-32deg); transform-origin:left bottom; }
           .chart-label { font-size: 10px; font-weight: 600; margin-top: 6px; color:#0f172a; }
           .chart-subtext { font-size: 9px; color:#94a3b8; margin-top: 1px; }
@@ -1091,7 +1352,7 @@ function buildDocumentHtml(
           .payment-bar-track { background:#e2e8f0; border-radius:999px; height:14px; overflow:hidden; }
           .payment-bar-fill { background:linear-gradient(90deg,#34d399,#059669); height:100%; border-radius:999px; }
           .payment-value { font-weight:600; text-align:right; font-size:12px; }
-          .surcharge-line { margin: 4px 24px; font-size: 11px; color: #0f172a; }
+          .surcharge-line { margin: 2px 20px; font-size: 10px; color: #0f172a; }
           .surcharge-line strong { font-size: 12px; margin-left: 4px; }
           .cell-text { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; }
           .cell-text.clamp-1 { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; min-height: auto; }
@@ -1105,7 +1366,7 @@ function buildDocumentHtml(
     </html>`;
 }
 
-function buildReportResult(
+export function buildReportResult(
   reportId: string,
   sales: ReportSale[],
   labelResolver?: PaymentLabelResolver,
@@ -1162,8 +1423,14 @@ function buildReportResult(
     return map;
   };
 
-const dayFormatter = (iso: string) =>
-  formatBogotaDate(iso, { day: "2-digit", month: "short" }) || "--";
+const dayFormatter = (iso: string) => {
+  const keyMatch = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (keyMatch) {
+    const date = buildBogotaDateFromKey(iso);
+    return formatBogotaDate(date, { day: "2-digit", month: "short" }) || "--";
+  }
+  return formatBogotaDate(iso, { day: "2-digit", month: "short" }) || "--";
+};
 
 const dateTimeFormatter = (iso: string) =>
   formatBogotaDate(iso, { dateStyle: "short", timeStyle: "short" }) || "--";
@@ -1220,6 +1487,89 @@ const dateTimeFormatter = (iso: string) =>
         table: {
           columns: ["Día", "Ventas", "Tickets", "Ticket promedio"],
           rows,
+        },
+        surchargeTotal: totalSurcharge,
+      };
+    }
+    case "category-sales": {
+      const categoryMap = new Map<
+        string,
+        { total: number; units: number; tickets: Set<number> }
+      >();
+      const changeMap = new Map<number, ReportChange[]>();
+      if (changesData.length > 0) {
+        changesData.forEach((change) => {
+          if (change.status !== "confirmed" || change.voided_at) return;
+          const list = changeMap.get(change.sale_id) ?? [];
+          list.push(change);
+          changeMap.set(change.sale_id, list);
+        });
+      }
+
+      sales.forEach((sale) => {
+        const adjustedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
+        const pricedItems = applyCartDiscountToItems(sale, adjustedItems);
+        pricedItems.forEach((item) => {
+          const category =
+            item.product_group?.trim() ||
+            item.product_category?.trim() ||
+            "Sin categoría";
+          const quantity = Math.max(0, Number(item.quantity ?? 0));
+          const unitPrice = Math.max(0, Number(item.unit_price ?? 0));
+          const lineTotal = unitPrice * quantity;
+          if (!categoryMap.has(category)) {
+            categoryMap.set(category, { total: 0, units: 0, tickets: new Set() });
+          }
+          const entry = categoryMap.get(category)!;
+          entry.total += lineTotal;
+          entry.units += quantity;
+          entry.tickets.add(sale.id);
+        });
+      });
+
+      const categoryRows = Array.from(categoryMap.entries()).sort(
+        (a, b) => b[1].total - a[1].total
+      );
+      const categorizedTotal = categoryRows.reduce(
+        (sum, [, entry]) => sum + entry.total,
+        0
+      );
+      const totalUnits = categoryRows.reduce(
+        (sum, [, entry]) => sum + entry.units,
+        0
+      );
+      const rows = categoryRows.map(([category, entry]) => {
+        const ticketsCount = entry.tickets.size;
+        return [
+          category,
+          formatMoney(entry.total),
+          entry.units.toString(),
+          ticketsCount.toString(),
+          categorizedTotal > 0
+            ? `${((entry.total / categorizedTotal) * 100).toFixed(1)}%`
+            : "0%",
+          formatMoney(ticketsCount > 0 ? entry.total / ticketsCount : 0),
+        ];
+      });
+
+      return {
+        summary: [
+          { label: "Categorías activas", value: categoryRows.length.toString() },
+          { label: "Unidades", value: totalUnits.toString() },
+          { label: "Ventas categorizadas", value: formatMoney(categorizedTotal) },
+        ],
+        table: {
+          columns: [
+            "Categoría",
+            "Ventas",
+            "Unidades",
+            "Tickets",
+            "Participación",
+            "Ticket promedio",
+          ],
+          rows,
+          emptyMessage:
+            "No hay productos categorizados para el rango seleccionado.",
         },
         surchargeTotal: totalSurcharge,
       };
@@ -1741,11 +2091,9 @@ const dateTimeFormatter = (iso: string) =>
         });
       }
       sales.forEach((sale) => {
-        const adjustedItems = applyChangesToSaleItems(
-          sale,
-          changeMap.get(sale.id)
-        );
-        adjustedItems.forEach((item) => {
+        const adjustedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
+        const pricedItems = applyCartDiscountToItems(sale, adjustedItems);
+        pricedItems.forEach((item) => {
           const productName =
             item.product_name ?? item.name ?? "Producto sin nombre";
           uniqueProducts.add(productName);
@@ -1787,6 +2135,54 @@ const dateTimeFormatter = (iso: string) =>
         },
         note:
           "Incluye cada artículo vendido con el ticket al que pertenece. Utiliza la exportación para obtener el detalle completo.",
+        surchargeTotal: totalSurcharge,
+      };
+    }
+    case "free-sales-traceability": {
+      const rows: Array<Array<string>> = [];
+      let freeSaleCount = 0;
+      let freeSaleValue = 0;
+
+      sales.forEach((sale) => {
+        const reasons = extractFreeSaleReasonsFromNotes(sale.notes);
+        const freeItems = (sale.items ?? []).filter((item) => isFreeSaleItem(item));
+        if (!freeItems.length) return;
+        freeItems.forEach((item, index) => {
+          const quantity = Math.max(0, Number(item.quantity ?? 0));
+          const unitPrice = Math.max(0, Number(item.unit_price ?? 0));
+          const lineTotal = unitPrice * quantity;
+          freeSaleCount += 1;
+          freeSaleValue += lineTotal;
+          rows.push([
+            dateTimeFormatter(sale.created_at),
+            reasons[index] ?? reasons[0] ?? "Sin motivo registrado",
+            formatMoney(unitPrice),
+            sale.document_number
+              ? sale.document_number
+              : sale.sale_number
+              ? `#${sale.sale_number.toString().padStart(4, "0")}`
+              : "—",
+          ]);
+        });
+      });
+
+      return {
+        summary: [
+          { label: "Ventas libres", value: freeSaleCount.toString() },
+          { label: "Valor total", value: formatMoney(freeSaleValue) },
+          {
+            label: "Motivos registrados",
+            value: rows.filter((row) => row[1] !== "Sin motivo registrado").length.toString(),
+          },
+        ],
+        table: {
+          columns: ["Fecha", "Motivo", "Precio", "Ticket"],
+          rows,
+          emptyMessage:
+            "No se registraron ventas libres en este periodo.",
+        },
+        note:
+          "Este informe muestra cada línea de venta libre y el motivo capturado al momento de la venta.",
         surchargeTotal: totalSurcharge,
       };
     }
@@ -2448,6 +2844,14 @@ export default function ReportsPage() {
   }, [token]);
 
   const handleSelectPreset = useCallback((presetId: string) => {
+    if (presetId === "month-daily") {
+      const { fromDate: monthStart, toDate: monthEnd } = getMonthRangeFromKey(
+        getBogotaDateKey()
+      );
+      setRange("month");
+      setFromDate(monthStart);
+      setToDate(monthEnd);
+    }
     setSelectedPresetId(presetId);
     setActiveTabId("selector");
   }, []);
@@ -2474,11 +2878,22 @@ export default function ReportsPage() {
 
   const handleOpenPreset = useCallback(
     (preset: ReportPreset) => {
+      const tabFilterMeta = { ...filterMeta };
+      if (preset.id === "month-daily") {
+        const { fromDate: monthStart, toDate: monthEnd } = getMonthRangeFromKey(
+          getBogotaDateKey()
+        );
+        tabFilterMeta.fromDate = monthStart;
+        tabFilterMeta.toDate = monthEnd;
+        setRange("month");
+        setFromDate(monthStart);
+        setToDate(monthEnd);
+      }
       const instanceId = `${preset.id}-${Date.now()}`;
       const newTab: OpenReportTab = {
         id: instanceId,
         presetId: preset.id,
-        filterMeta: { ...filterMeta },
+        filterMeta: tabFilterMeta,
         createdAt: new Date().toISOString(),
       };
       setSelectedPresetId(preset.id);
@@ -2486,6 +2901,36 @@ export default function ReportsPage() {
       setActiveTabId(instanceId);
     },
     [filterMeta]
+  );
+
+  const handleFromDateChange = useCallback(
+    (value: string) => {
+      if (selectedPresetId === "month-daily") {
+        const { fromDate: monthStart, toDate: monthEnd } =
+          getMonthRangeFromKey(value);
+        setRange("month");
+        setFromDate(monthStart);
+        setToDate(monthEnd);
+        return;
+      }
+      setFromDate(value);
+    },
+    [selectedPresetId]
+  );
+
+  const handleToDateChange = useCallback(
+    (value: string) => {
+      if (selectedPresetId === "month-daily") {
+        const { fromDate: monthStart, toDate: monthEnd } =
+          getMonthRangeFromKey(value);
+        setRange("month");
+        setFromDate(monthStart);
+        setToDate(monthEnd);
+        return;
+      }
+      setToDate(value);
+    },
+    [selectedPresetId]
   );
 
   const handleCloseReportTab = useCallback((id: string) => {
@@ -2573,6 +3018,13 @@ export default function ReportsPage() {
     activeTabId === "selector"
       ? null
       : openReports.find((tab) => tab.id === activeTabId) ?? null;
+  const activeReportPreset = useMemo(
+    () =>
+      activeReportTab
+        ? REPORT_PRESETS.find((p) => p.id === activeReportTab.presetId) ?? null
+        : null,
+    [activeReportTab]
+  );
 
   return (
     <main className="flex-1 px-6 py-6 text-slate-50">
@@ -2586,7 +3038,7 @@ export default function ReportsPage() {
             <h1 className="text-3xl font-bold">Reportes e informes</h1>
             <p className="text-sm text-slate-400 max-w-2xl mt-1">
               Selecciona un informe, ajusta los filtros y genera documentos
-              listos para imprimir, exportar o compartir, al estilo Aronium.
+              listos para imprimir, exportar o compartir.
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -2657,11 +3109,9 @@ export default function ReportsPage() {
         </div>
 
         {/* Contenido según pestaña activa */}
-        {activeReportTab && (
+        {activeReportTab && activeReportPreset && (
           <ReportDocumentViewer
-            preset={
-              REPORT_PRESETS.find((p) => p.id === activeReportTab.presetId)!
-            }
+            preset={activeReportPreset}
             filterMeta={activeReportTab.filterMeta}
             salesData={salesData}
             changesData={changesData}
@@ -2672,7 +3122,7 @@ export default function ReportsPage() {
           />
         )}
 
-        {!activeReportTab && (
+        {(!activeReportTab || !activeReportPreset) && (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.5fr)]">
             {/* Columna izquierda: lista de reportes */}
             <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6 space-y-4">
@@ -2751,7 +3201,7 @@ export default function ReportsPage() {
                         <input
                           type="date"
                           value={fromDate}
-                          onChange={(e) => setFromDate(e.target.value)}
+                          onChange={(e) => handleFromDateChange(e.target.value)}
                           onFocus={(e) => e.target.showPicker?.()}
                           className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
                         />
@@ -2763,7 +3213,7 @@ export default function ReportsPage() {
                         <input
                           type="date"
                           value={toDate}
-                          onChange={(e) => setToDate(e.target.value)}
+                          onChange={(e) => handleToDateChange(e.target.value)}
                           onFocus={(e) => e.target.showPicker?.()}
                           className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
                         />
