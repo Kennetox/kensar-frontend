@@ -314,6 +314,7 @@ export default function DashboardHomePage() {
   }, []);
   const [weekOffset, setWeekOffset] = useState(0);
   const [yearOffset, setYearOffset] = useState(0);
+  const [dashboardNow, setDashboardNow] = useState<Date>(() => new Date());
   const selectedYear = currentYear + yearOffset;
   // Resumen principal
   const [data, setData] = useState<DashboardSummary | null>(null);
@@ -777,16 +778,24 @@ export default function DashboardHomePage() {
       ? "Aún no hay suficientes datos de ventas."
       : "Aún no hay ventas registradas para este año.";
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setDashboardNow(new Date());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const todayLabel = useMemo(() => {
-    return formatBogotaDate(new Date(), {
+    return formatBogotaDate(dashboardNow, {
       weekday: "long",
       day: "2-digit",
       month: "short",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      second: "2-digit",
     });
-  }, []);
+  }, [dashboardNow]);
 
   // Filas “planas” para la tabla de últimas ventas
   const recentRows = useMemo(() => {

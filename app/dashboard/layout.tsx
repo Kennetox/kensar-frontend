@@ -182,6 +182,37 @@ const navItems: Array<{
     ),
   },
   {
+    href: "/dashboard/labels-pilot",
+    label: "Etiquetado (beta)",
+    moduleId: "labels",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M4 6.5h10l6 5.5-6 5.5H4v-11z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M14 6.5v11"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <circle
+          cx="8"
+          cy="12"
+          r="1.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/dashboard/reports",
     label: "Reportes",
     moduleId: "reports",

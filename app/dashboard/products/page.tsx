@@ -135,6 +135,9 @@ export default function ProductsPage() {
   const [editForm, setEditForm] = useState<ProductForm>(emptyForm);
   const [savingEdit, setSavingEdit] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleteOptionsOpen, setDeleteOptionsOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+  const [deleteCloseOnSuccess, setDeleteCloseOnSuccess] = useState(false);
   const [editSkuLocked, setEditSkuLocked] = useState(true);
   const [editBarcodeLocked, setEditBarcodeLocked] = useState(true);
 
@@ -362,6 +365,14 @@ export default function ProductsPage() {
     return Number.isNaN(parsed) ? 0 : parsed;
   }
 
+  function confirmUngroupedProduct(groupName: string): boolean {
+    if (groupName.trim()) return true;
+    if (typeof window === "undefined") return true;
+    return window.confirm(
+      "Este producto no tiene grupo asignado. ¿Deseas guardarlo así?"
+    );
+  }
+
   const optionalExportKeys = useMemo(
     () => exportableColumns.filter((col) => !col.required).map((col) => col.key),
     [exportableColumns]
@@ -442,11 +453,40 @@ export default function ProductsPage() {
     setProductTileColorValue(DEFAULT_TILE_COLOR);
     setShowAppearanceSettings(false);
     setConfirmDeleteOpen(false);
+    setDeleteOptionsOpen(false);
+    setDeleteTargetId(null);
+    setDeleteCloseOnSuccess(false);
     setEditSkuLocked(true);
     setEditBarcodeLocked(true);
     if (productImageInputRef.current) {
       productImageInputRef.current.value = "";
     }
+  }
+
+  function openDeleteOptions(
+    id: number,
+    options?: { closeOnSuccess?: boolean; isActive?: boolean },
+  ) {
+    setDeleteTargetId(id);
+    setDeleteCloseOnSuccess(Boolean(options?.closeOnSuccess));
+    const productIsActive =
+      typeof options?.isActive === "boolean"
+        ? options.isActive
+        : products.find((p) => p.id === id)?.active ?? true;
+    if (productIsActive) {
+      setConfirmDeleteOpen(false);
+      setDeleteOptionsOpen(true);
+    } else {
+      setDeleteOptionsOpen(false);
+      setConfirmDeleteOpen(true);
+    }
+  }
+
+  function closeDeleteDialogs() {
+    setDeleteOptionsOpen(false);
+    setConfirmDeleteOpen(false);
+    setDeleteTargetId(null);
+    setDeleteCloseOnSuccess(false);
   }
 
   const productGroupPaths = useMemo(() => {
@@ -1138,6 +1178,9 @@ export default function ProductsPage() {
   // crear producto
   async function handleSubmitCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!confirmUngroupedProduct(createForm.group_name)) {
+      return;
+    }
     try {
       setSavingCreate(true);
       setError(null);
@@ -1227,6 +1270,9 @@ export default function ProductsPage() {
   async function handleSubmitEdit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (editId == null) return;
+    if (!confirmUngroupedProduct(editForm.group_name)) {
+      return;
+    }
 
     try {
       setSavingEdit(true);
@@ -1316,14 +1362,8 @@ export default function ProductsPage() {
   // eliminar producto
   async function handleDelete(
     id: number,
-    options?: { skipPrompt?: boolean; closeOnSuccess?: boolean },
+    options?: { closeOnSuccess?: boolean },
   ) {
-    if (!options?.skipPrompt) {
-      const confirmDelete = window.confirm(
-        "¿Seguro que quieres eliminar este producto?",
-      );
-      if (!confirmDelete) return;
-    }
     try {
       setError(null);
       if (!authHeaders) throw new Error("Sesión expirada.");
@@ -1344,10 +1384,55 @@ export default function ProductsPage() {
       setProducts((prev) => prev.filter((p) => p.id !== id));
       if (options?.closeOnSuccess) {
         handleCloseEditModal();
+      } else {
+        closeDeleteDialogs();
       }
+      setSuccessMessage("Producto eliminado correctamente.");
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
       else setError("Error desconocido al eliminar");
+    }
+  }
+
+  async function handleDeactivateProduct(
+    id: number,
+    options?: { closeOnSuccess?: boolean },
+  ) {
+    try {
+      setError(null);
+      if (!authHeaders) throw new Error("Sesión expirada.");
+      const res = await fetch(`${API_BASE}/products/${id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        credentials: "include",
+        body: JSON.stringify({ active: false }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg =
+          (data && (data.detail as string)) ||
+          `Error al desactivar (código ${res.status})`;
+        throw new Error(msg);
+      }
+
+      const updated: Product = await res.json();
+      setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+      if (editId === updated.id) {
+        setEditForm((prev) => ({ ...prev, active: updated.active }));
+      }
+      if (options?.closeOnSuccess) {
+        handleCloseEditModal();
+      } else {
+        closeDeleteDialogs();
+      }
+      setSuccessMessage("Producto desactivado correctamente.");
+    } catch (err: unknown) {
+      if (err instanceof Error) setError(err.message);
+      else setError("Error desconocido al desactivar");
     }
   }
 
@@ -2016,7 +2101,9 @@ export default function ProductsPage() {
                         Editar
                       </button>
                       <button
-                        onClick={() => void handleDelete(p.id)}
+                        onClick={() =>
+                          openDeleteOptions(p.id, { isActive: p.active })
+                        }
                         className="inline-flex items-center rounded-md border border-red-400 px-2 py-1 text-xs font-semibold text-red-300 hover:bg-red-500/10"
                       >
                         Eliminar
@@ -2085,24 +2172,74 @@ export default function ProductsPage() {
         )}
       </section>
 
-      {/* Modal confirmación eliminar (edición) */}
-      {confirmDeleteOpen && editId != null && (
+      {/* Modal preferir desactivar antes de eliminar */}
+      {deleteOptionsOpen && deleteTargetId != null && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70">
-          <div className="w-full max-w-sm rounded-xl bg-slate-900 border border-slate-700 p-5 shadow-2xl space-y-4">
-            <div className="text-sm text-slate-200">
-              ¿Eliminar el producto #{editId}? Esta acción no se puede deshacer.
+          <div className="w-full max-w-md rounded-xl bg-slate-900 border border-slate-700 p-5 shadow-2xl space-y-4">
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-slate-100">
+                ¿Qué quieres hacer con el producto #{deleteTargetId}?
+              </p>
+              <p className="text-xs text-slate-400">
+                Recomendado: desactivar para conservar historial y evitar ventas nuevas.
+              </p>
             </div>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setConfirmDeleteOpen(false)}
+                onClick={closeDeleteDialogs}
                 className="px-3 py-2 text-xs rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800"
               >
                 Cancelar
               </button>
               <button
                 type="button"
-                onClick={() => void handleDelete(editId, { skipPrompt: true, closeOnSuccess: true })}
+                onClick={() =>
+                  void handleDeactivateProduct(deleteTargetId, {
+                    closeOnSuccess: deleteCloseOnSuccess,
+                  })
+                }
+                className="px-3 py-2 text-xs rounded-md border border-emerald-400 text-emerald-200 hover:bg-emerald-500/10"
+              >
+                Desactivar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteOptionsOpen(false);
+                  setConfirmDeleteOpen(true);
+                }}
+                className="px-3 py-2 text-xs rounded-md bg-red-500 text-white font-semibold hover:bg-red-400"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal confirmación eliminar */}
+      {confirmDeleteOpen && deleteTargetId != null && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70">
+          <div className="w-full max-w-sm rounded-xl bg-slate-900 border border-slate-700 p-5 shadow-2xl space-y-4">
+            <div className="text-sm text-slate-200">
+              ¿Eliminar el producto #{deleteTargetId}? Esta acción no se puede deshacer.
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDeleteDialogs}
+                className="px-3 py-2 text-xs rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void handleDelete(deleteTargetId, {
+                    closeOnSuccess: deleteCloseOnSuccess,
+                  })
+                }
                 className="px-3 py-2 text-xs rounded-md bg-red-500 text-white font-semibold hover:bg-red-400"
               >
                 Eliminar
@@ -2796,7 +2933,14 @@ export default function ProductsPage() {
               <div className="md:col-span-2 flex justify-between items-center mt-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setConfirmDeleteOpen(true)}
+                  onClick={() => {
+                    if (editId != null) {
+                      openDeleteOptions(editId, {
+                        closeOnSuccess: true,
+                        isActive: editForm.active,
+                      });
+                    }
+                  }}
                   className="px-3 py-2 text-xs rounded-lg border border-red-400/60 text-red-200 hover:bg-red-500/10"
                 >
                   Eliminar producto
