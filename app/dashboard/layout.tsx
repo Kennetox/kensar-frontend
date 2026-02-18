@@ -10,6 +10,9 @@ import { fetchUserProfile, type UserProfileRecord } from "@/lib/api/profile";
 import { getApiBase } from "@/lib/api/base";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
+const LABELS_PILOT_PATH = "/dashboard/labels-pilot";
+const LABELS_PILOT_ACCESS_CODE = "0811";
+const LABELS_PILOT_ACCESS_KEY = "labels-pilot-access-ok";
 
 const navItems: Array<{
   href: string;
@@ -303,6 +306,22 @@ function isPathAllowed(
   return true;
 }
 
+function requestLabelsPilotAccess() {
+  if (typeof window === "undefined") return false;
+  const alreadyGranted =
+    window.sessionStorage.getItem(LABELS_PILOT_ACCESS_KEY) === "1";
+  if (alreadyGranted) return true;
+  const accessCode = window.prompt(
+    "Ingresa el codigo de acceso para Etiquetado (beta):"
+  );
+  if (accessCode === LABELS_PILOT_ACCESS_CODE) {
+    window.sessionStorage.setItem(LABELS_PILOT_ACCESS_KEY, "1");
+    return true;
+  }
+  window.alert("Codigo incorrecto. No tienes acceso a Etiquetado (beta).");
+  return false;
+}
+
 function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -314,6 +333,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfileRecord | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const labelsPilotPromptingRef = useRef(false);
 
   useEffect(() => {
     if (!token) return;
@@ -425,6 +445,23 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       }
     }
   }, [loading, token, routeAllowed, router, pathname, posPreview]);
+
+  useEffect(() => {
+    if (
+      pathname !== LABELS_PILOT_PATH &&
+      !pathname.startsWith(`${LABELS_PILOT_PATH}/`)
+    ) {
+      labelsPilotPromptingRef.current = false;
+      return;
+    }
+    if (labelsPilotPromptingRef.current) return;
+    if (requestLabelsPilotAccess()) {
+      labelsPilotPromptingRef.current = false;
+      return;
+    }
+    labelsPilotPromptingRef.current = true;
+    router.replace("/dashboard");
+  }, [pathname, router]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -549,7 +586,17 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     <li key={item.href}>
                       <Link
                         href={href}
-                        onClick={() => setNavOpen(false)}
+                        onClick={(event) => {
+                          if (
+                            item.href === LABELS_PILOT_PATH &&
+                            !requestLabelsPilotAccess()
+                          ) {
+                            event.preventDefault();
+                            setNavOpen(false);
+                            return;
+                          }
+                          setNavOpen(false);
+                        }}
                         className={[
                           "block rounded-lg px-3 py-2 text-sm transition",
                           isActive
@@ -615,6 +662,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     <li key={item.href}>
                       <Link
                         href={href}
+                        onClick={(event) => {
+                          if (
+                            item.href === LABELS_PILOT_PATH &&
+                            !requestLabelsPilotAccess()
+                          ) {
+                            event.preventDefault();
+                          }
+                        }}
                         className={[
                           "block rounded-lg px-3 py-2 text-sm transition",
                           isActive
