@@ -1564,6 +1564,7 @@ export default function PagoMultiplePage() {
                 const gross = item.quantity * item.unitPrice;
                 const lineTotal = Math.max(0, gross - item.lineDiscountValue);
                 const hasDiscount = item.lineDiscountValue > 0;
+                const freeSaleReason = (item.freeSaleReason ?? "").trim();
 
                 return (
                   <div
@@ -1593,6 +1594,14 @@ export default function PagoMultiplePage() {
                         )}
                       </div>
                     </div>
+                    {freeSaleReason && (
+                      <div
+                        className="mt-1 text-sm text-amber-200 truncate"
+                        title={`Motivo: ${freeSaleReason}`}
+                      >
+                        Motivo: {freeSaleReason}
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -1905,18 +1914,6 @@ export default function PagoMultiplePage() {
               </div>
 
               <div className="mt-6 space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
-                {REQUIRE_FREE_SALE_REASON && freeSaleReasons.length > 0 && (
-                  <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-                    <div className="text-xs uppercase tracking-wide text-amber-200">
-                      {FREE_SALE_REASON_NOTE_LABEL} (solo lectura)
-                    </div>
-                    <ul className="space-y-1 text-base text-amber-100">
-                      {freeSaleReasons.map((reason, index) => (
-                        <li key={`${index}-${reason}`}>{index + 1}. {reason}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
                 <div className="flex items-center justify-between text-base text-slate-400">
                   <span className="uppercase tracking-wide text-base">Notas adicionales</span>
                   <button

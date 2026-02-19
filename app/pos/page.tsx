@@ -195,6 +195,14 @@ type ClosureSale = {
   station_id?: string | null;
 };
 
+type ClosureDocumentAdjustment = {
+  id: number;
+  doc_id: number;
+  payload?: Record<string, unknown> | null;
+  total_delta?: number | null;
+  created_at?: string;
+};
+
 type ClosureReturnPayment = {
   method: string;
   amount: number;
@@ -352,6 +360,92 @@ function mapMethodToKey(method: string): keyof TotalsByMethod | null {
     return "credit";
   return null;
 }
+
+const toFiniteNumber = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+};
+
+const parseAdjustmentPayments = (
+  payload: Record<string, unknown> | null | undefined
+): Array<{ method: string; amount: number }> => {
+  if (!payload || typeof payload !== "object") return [];
+  const rawPayments = payload.payments;
+  if (!Array.isArray(rawPayments)) return [];
+  return rawPayments
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const row = entry as Record<string, unknown>;
+      const method = typeof row.method === "string" ? row.method.trim() : "";
+      if (!method) return null;
+      return {
+        method,
+        amount: Math.max(0, toFiniteNumber(row.amount)),
+      };
+    })
+    .filter((entry): entry is { method: string; amount: number } => !!entry);
+};
+
+const applyAdjustmentsToClosureSales = (
+  sales: ClosureSale[],
+  adjustments: ClosureDocumentAdjustment[]
+): ClosureSale[] => {
+  if (!sales.length || !adjustments.length) return sales;
+  const bySaleId = new Map<number, ClosureDocumentAdjustment[]>();
+  adjustments.forEach((adjustment) => {
+    const saleId = Number(adjustment.doc_id);
+    if (!Number.isFinite(saleId)) return;
+    const list = bySaleId.get(saleId) ?? [];
+    list.push(adjustment);
+    bySaleId.set(saleId, list);
+  });
+
+  return sales.map((sale) => {
+    const saleAdjustments = bySaleId.get(sale.id);
+    if (!saleAdjustments?.length) return sale;
+
+    const sortedByRecent = [...saleAdjustments].sort((a, b) => {
+      const timeA = a.created_at ? Date.parse(a.created_at) : 0;
+      const timeB = b.created_at ? Date.parse(b.created_at) : 0;
+      if (timeA === timeB) return b.id - a.id;
+      return timeB - timeA;
+    });
+
+    let adjustedPayments: Array<{ method: string; amount: number }> | null = null;
+    for (const adjustment of sortedByRecent) {
+      const parsed = parseAdjustmentPayments(adjustment.payload);
+      if (parsed.length) {
+        adjustedPayments = parsed;
+        break;
+      }
+    }
+
+    const totalDelta = saleAdjustments.reduce(
+      (sum, entry) => sum + toFiniteNumber(entry.total_delta),
+      0
+    );
+    const baseTotal = toFiniteNumber(sale.total);
+    const adjustedTotal = Math.max(0, baseTotal + totalDelta);
+
+    if (!adjustedPayments) {
+      return {
+        ...sale,
+        total: adjustedTotal,
+      };
+    }
+
+    return {
+      ...sale,
+      total: adjustedTotal,
+      payment_method: adjustedPayments[0]?.method ?? sale.payment_method,
+      payments: adjustedPayments,
+    };
+  });
+};
 
 const normalizeMethodKey = (value: string | null | undefined) =>
   value
@@ -2447,11 +2541,29 @@ const matchesStationLabel = useCallback(
         throw new Error(`Error ${changesRes.status} al obtener los cambios.`);
       }
       const sales = (await salesRes.json()) as ClosureSale[];
+      let adjustedSales = sales;
+      if (sales.length > 0) {
+        const saleIds = sales.map((sale) => sale.id);
+        const adjustmentsRes = await fetch(
+          `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${saleIds.join(",")}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+          }
+        );
+        if (adjustmentsRes.ok) {
+          const adjustmentsData =
+            (await adjustmentsRes.json()) as ClosureDocumentAdjustment[];
+          adjustedSales = applyAdjustmentsToClosureSales(sales, adjustmentsData);
+        }
+      }
       const returns = (await returnsRes.json()) as ClosureReturnRecord[];
       const changes = (await changesRes.json()) as ClosureChangeRecord[];
       const allSalesMap = new Map<number, ClosureSale>();
-      sales.forEach((sale) => allSalesMap.set(sale.id, sale));
-      const pendingSales = sales.filter(
+      adjustedSales.forEach((sale) => allSalesMap.set(sale.id, sale));
+      const pendingSales = adjustedSales.filter(
         (sale) => sale.closure_id == null && sale.status !== "voided"
       );
       const shouldFilterByStation =
@@ -7695,6 +7807,12 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                 autoFocus
                 value={freeSaleReasonValue}
                 onChange={(e) => setFreeSaleReasonValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.form?.requestSubmit();
+                  }
+                }}
                 rows={7}
                 className="w-full rounded-2xl bg-slate-950 border border-slate-700/80 px-4 py-3 text-base text-slate-50 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/30"
                 placeholder="Ej: producto aún no creado en catálogo, solicitud especial del cliente..."

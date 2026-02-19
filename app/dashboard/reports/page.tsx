@@ -82,6 +82,14 @@ export type ReportSale = {
   surcharge_label?: string | null;
 };
 
+type ReportDocumentAdjustment = {
+  id: number;
+  doc_id: number;
+  payload?: Record<string, unknown> | null;
+  total_delta?: number | null;
+  created_at?: string;
+};
+
 type ReportSummaryItem = {
   label: string;
   value: string;
@@ -326,6 +334,97 @@ const formatMoney = (value: number | undefined | null) => {
 
 const normalizeText = (value: string | null | undefined) =>
   value?.toLowerCase().trim() ?? "";
+
+const toNumber = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+};
+
+const parseAdjustmentPayments = (
+  payload: Record<string, unknown> | null | undefined
+): Array<{ method: string; amount: number }> => {
+  if (!payload || typeof payload !== "object") return [];
+  const rawPayments = payload.payments;
+  if (!Array.isArray(rawPayments)) return [];
+  return rawPayments
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const row = entry as Record<string, unknown>;
+      const method = typeof row.method === "string" ? row.method.trim() : "";
+      if (!method) return null;
+      const amount = toNumber(row.amount);
+      return { method, amount };
+    })
+    .filter((entry): entry is { method: string; amount: number } => !!entry);
+};
+
+const applyDocumentAdjustmentsToSales = (
+  sales: ReportSale[],
+  adjustments: ReportDocumentAdjustment[]
+): ReportSale[] => {
+  if (!sales.length || !adjustments.length) return sales;
+  const bySaleId = new Map<number, ReportDocumentAdjustment[]>();
+  adjustments.forEach((adjustment) => {
+    const docId = Number(adjustment.doc_id);
+    if (!Number.isFinite(docId)) return;
+    const current = bySaleId.get(docId) ?? [];
+    current.push(adjustment);
+    bySaleId.set(docId, current);
+  });
+
+  return sales.map((sale) => {
+    const saleAdjustments = bySaleId.get(sale.id);
+    if (!saleAdjustments?.length) return sale;
+
+    const sortedByRecent = [...saleAdjustments].sort((a, b) => {
+      const timeA = a.created_at ? Date.parse(a.created_at) : 0;
+      const timeB = b.created_at ? Date.parse(b.created_at) : 0;
+      if (timeA === timeB) return b.id - a.id;
+      return timeB - timeA;
+    });
+
+    let adjustedPayments: Array<{ method?: string | null; amount?: number | null }> | null =
+      null;
+    for (const adjustment of sortedByRecent) {
+      const parsed = parseAdjustmentPayments(adjustment.payload);
+      if (parsed.length) {
+        adjustedPayments = parsed;
+        break;
+      }
+    }
+
+    const totalDelta = saleAdjustments.reduce(
+      (sum, entry) => sum + toNumber(entry.total_delta),
+      0
+    );
+    const baseTotal = toNumber(sale.total ?? sale.paid_amount);
+    const nextTotal = Math.max(0, baseTotal + totalDelta);
+
+    if (!adjustedPayments) {
+      return {
+        ...sale,
+        total: nextTotal,
+      };
+    }
+
+    const adjustedPaidAmount = adjustedPayments.reduce(
+      (sum, entry) => sum + toNumber(entry.amount),
+      0
+    );
+
+    return {
+      ...sale,
+      total: nextTotal,
+      paid_amount: adjustedPaidAmount,
+      payment_method: adjustedPayments[0]?.method ?? sale.payment_method,
+      payments: adjustedPayments,
+    };
+  });
+};
 
 const normalizeComparableText = (value: string | null | undefined) =>
   value
@@ -1423,6 +1522,45 @@ export function buildReportResult(
     return map;
   };
 
+  const aggregateByPaymentMethod = () => {
+    const methodMap = new Map<string, { total: number; count: number }>();
+    const combineSale = (method: string, amount: number) => {
+      const key = method || "Sin método";
+      if (!methodMap.has(key)) {
+        methodMap.set(key, { total: 0, count: 0 });
+      }
+      const entry = methodMap.get(key)!;
+      entry.total += amount;
+      entry.count += 1;
+    };
+
+    sales.forEach((sale) => {
+      const payments = sale.payments;
+      if (Array.isArray(payments) && payments.length > 1) {
+        const sumPayments = payments.reduce(
+          (sum, payment) => sum + (payment.amount ?? 0),
+          0
+        );
+        const saleTotal = sale.total ?? sale.paid_amount ?? sumPayments;
+        payments.forEach((payment) => {
+          const rawAmount = payment.amount ?? 0;
+          const value =
+            sumPayments > 0
+              ? (rawAmount / sumPayments) * saleTotal
+              : saleTotal / payments.length;
+          combineSale(payment.method ?? sale.payment_method ?? "Sin método", value);
+        });
+      } else {
+        combineSale(
+          sale.payment_method ?? payments?.[0]?.method ?? "Sin método",
+          sale.total ?? sale.paid_amount ?? payments?.[0]?.amount ?? 0
+        );
+      }
+    });
+
+    return Array.from(methodMap.entries()).sort((a, b) => b[1].total - a[1].total);
+  };
+
 const dayFormatter = (iso: string) => {
   const keyMatch = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (keyMatch) {
@@ -1699,43 +1837,7 @@ const dateTimeFormatter = (iso: string) =>
       };
     }
     case "payment-methods": {
-      const methodMap = new Map<
-        string,
-        { total: number; count: number }
-      >();
-      const combineSale = (method: string, amount: number) => {
-        const key = method || "Sin método";
-        if (!methodMap.has(key)) {
-          methodMap.set(key, { total: 0, count: 0 });
-        }
-        const entry = methodMap.get(key)!;
-        entry.total += amount;
-        entry.count += 1;
-      };
-      sales.forEach((sale) => {
-        const payments = sale.payments;
-        if (Array.isArray(payments) && payments.length > 1) {
-          const sumPayments = payments.reduce(
-            (sum, payment) => sum + (payment.amount ?? 0),
-            0
-          );
-          const saleTotal = sale.total ?? sale.paid_amount ?? sumPayments;
-          payments.forEach((payment) => {
-            const rawAmount = payment.amount ?? 0;
-            const value =
-              sumPayments > 0
-                ? (rawAmount / sumPayments) * saleTotal
-                : saleTotal / payments.length;
-            combineSale(payment.method ?? sale.payment_method ?? "Sin método", value);
-          });
-        } else {
-          combineSale(
-            sale.payment_method ?? payments?.[0]?.method ?? "Sin método",
-            sale.total ?? sale.paid_amount ?? payments?.[0]?.amount ?? 0
-          );
-        }
-      });
-      const rows = Array.from(methodMap.entries())
+      const rows = aggregateByPaymentMethod()
         .sort((a, b) => b[1].total - a[1].total)
         .map(([method, entry]) => {
           const resolvedLabel =
@@ -1928,13 +2030,11 @@ const dateTimeFormatter = (iso: string) =>
       };
     }
     case "payments-reconciliation": {
-      const methodMap = groupBy((sale) => sale.payment_method ?? "Sin dato");
-      const rows = Array.from(methodMap.entries())
-        .sort((a, b) => b[1].total - a[1].total)
+      const rows = aggregateByPaymentMethod()
         .map(([method, entry]) => {
           const resolvedLabel =
-            method === "Sin dato"
-              ? "Sin dato"
+            method === "Sin método"
+              ? "Sin método"
               : resolvePaymentLabel(method);
           return [
             resolvedLabel,
@@ -2796,7 +2896,23 @@ export default function ReportsPage() {
         throw new Error(`Error ${salesRes.status}`);
       }
       const data: ReportSale[] = await salesRes.json();
-      setSalesData(data);
+      let nextSales = data;
+      if (data.length > 0) {
+        const ids = data.map((sale) => sale.id);
+        const adjustmentsRes = await fetch(
+          `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${ids.join(",")}`,
+          {
+            headers: authHeaders,
+            credentials: "include",
+          }
+        );
+        if (adjustmentsRes.ok) {
+          const adjustmentsData: ReportDocumentAdjustment[] =
+            await adjustmentsRes.json();
+          nextSales = applyDocumentAdjustmentsToSales(data, adjustmentsData);
+        }
+      }
+      setSalesData(nextSales);
       if (changesResult.status === "fulfilled" && changesResult.value.ok) {
         const changes: ReportChange[] = await changesResult.value.json();
         setChangesData(changes);

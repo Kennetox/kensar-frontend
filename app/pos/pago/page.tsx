@@ -1452,6 +1452,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                 const gross = item.quantity * item.unitPrice;
                 const lineTotal = Math.max(0, gross - item.lineDiscountValue);
                 const hasDiscount = item.lineDiscountValue > 0;
+                const freeSaleReason = (item.freeSaleReason ?? "").trim();
 
                 return (
                   <div
@@ -1481,6 +1482,14 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                         )}
                       </div>
                     </div>
+                    {freeSaleReason && (
+                      <div
+                        className="mt-1 text-sm text-amber-200 truncate"
+                        title={`Motivo: ${freeSaleReason}`}
+                      >
+                        Motivo: {freeSaleReason}
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -1546,8 +1555,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         </section>
 
         {/* Columna central: métodos y valores */}
-        <section className="flex-1 border-r border-slate-800 flex flex-col">
-          <div className="flex-1 flex">
+        <section className="flex-1 border-r border-slate-800 flex flex-col overflow-hidden">
+          <div className="flex-1 flex overflow-hidden">
             {/* Métodos de pago */}
             <div className="w-[14.25rem] border-r border-slate-800 p-4 flex flex-col gap-3 bg-slate-950/70">
               <h2 className="text-sm font-semibold text-slate-300 mb-1 uppercase tracking-wide">
@@ -1586,7 +1595,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             </div>
 
             {/* Área de pago */}
-            <div className="payment-main-panel flex-1 px-5 py-4 flex flex-col items-stretch">
+            <div className="payment-main-panel flex-1 px-5 py-4 flex flex-col items-stretch overflow-y-auto min-h-0">
               <div className="w-full max-w-none space-y-6">
                 <div className="flex items-start justify-between">
                   <div>
@@ -1693,18 +1702,6 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                 </div>
 
                 <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 space-y-3">
-                  {REQUIRE_FREE_SALE_REASON && freeSaleReasons.length > 0 && (
-                    <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-                      <div className="text-xs uppercase tracking-wide text-amber-200">
-                        {FREE_SALE_REASON_NOTE_LABEL} (solo lectura)
-                      </div>
-                      <ul className="space-y-1 text-base text-amber-100">
-                        {freeSaleReasons.map((reason, index) => (
-                          <li key={`${index}-${reason}`}>{index + 1}. {reason}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
                   <div className="flex items-center justify-between text-base text-slate-400">
                     <span className="uppercase tracking-wide text-base">Notas adicionales</span>
                     <button
