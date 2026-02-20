@@ -11,6 +11,15 @@ type LabelExportItemPayload = {
   quantity: number;
 };
 
+type LabelCloudPrintPayload = {
+  CODIGO: string;
+  BARRAS: string;
+  NOMBRE: string;
+  PRECIO: string;
+  format: string;
+  copies: number;
+};
+
 /**
  * Genera el Excel para etiquetas y devuelve el blob resultante.
  * El backend debe transformar price a una cadena con "$" como carácter literal,
@@ -60,4 +69,62 @@ export async function exportLabelsExcel(
   }
 
   throw new Error("No se encontró un endpoint válido para exportar etiquetas.");
+}
+
+export async function printLabelViaCloudProxy(
+  serial: string,
+  payload: LabelCloudPrintPayload,
+  options?: {
+    token?: string | null;
+    timeoutMs?: number;
+  }
+): Promise<void> {
+  const serialValue = serial.trim();
+  if (!serialValue) {
+    throw new Error("Falta el serial de la impresora.");
+  }
+
+  const apiBase = getApiBase();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    options?.timeoutMs ?? 20000
+  );
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (options?.token) {
+      headers.Authorization = `Bearer ${options.token}`;
+    }
+
+    const res = await fetch(
+      `${apiBase}/labels/cloud/print/${encodeURIComponent(serialValue)}`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          payload,
+        }),
+        credentials: "include",
+        signal: controller.signal,
+      }
+    );
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      throw new Error(detail || `Error ${res.status}`);
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Tiempo de espera agotado al contactar SATO Cloud.");
+    }
+    if (err instanceof TypeError) {
+      throw new Error("No se pudo conectar al backend para imprimir.");
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
