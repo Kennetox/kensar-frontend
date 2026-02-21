@@ -31,6 +31,7 @@ type LabelItem = {
 };
 
 const LOCAL_STORAGE_FORMAT = "kensar_labels_pilot_format";
+const SESSION_STORAGE_STATE_KEY = "kensar_labels_pilot_session_state";
 
 const AGENT_BASE_URL = "http://127.0.0.1:5177";
 const AGENT_HEALTH_URL = `${AGENT_BASE_URL}/health`;
@@ -47,6 +48,31 @@ const TEST_LABEL: PrintPayload = {
   format: DEFAULT_FORMAT,
   copies: 1,
 };
+
+type LabelsPilotSessionState = {
+  searchQuery: string;
+  searchResults: ProductSearchResult[];
+  searchError: string | null;
+  labelItems: LabelItem[];
+  activeItemId: number | null;
+  printStatus: PrintStatus;
+  printError: string | null;
+  probeStatus: PrintStatus;
+  probeMessage: string | null;
+};
+
+function asNullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function asPrintStatus(value: unknown): PrintStatus {
+  return value === "idle" ||
+    value === "printing" ||
+    value === "success" ||
+    value === "error"
+    ? value
+    : "idle";
+}
 
 async function printLabelDirect(
   targetUrl: string,
@@ -107,6 +133,7 @@ export default function LabelsPilotPage() {
   const [probeStatus, setProbeStatus] = useState<PrintStatus>("idle");
   const [probeMessage, setProbeMessage] = useState<string | null>(null);
   const [bulkPrinting, setBulkPrinting] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
 
   const canUseApi = !!authHeaders;
 
@@ -147,6 +174,58 @@ export default function LabelsPilotPage() {
     if (storedFormat) setFormat(storedFormat);
     setSettingsReady(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.sessionStorage.getItem(SESSION_STORAGE_STATE_KEY);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as Partial<LabelsPilotSessionState>;
+        setSearchQuery(typeof parsed.searchQuery === "string" ? parsed.searchQuery : "");
+        setSearchResults(Array.isArray(parsed.searchResults) ? parsed.searchResults : []);
+        setSearchError(asNullableString(parsed.searchError));
+        setLabelItems(Array.isArray(parsed.labelItems) ? parsed.labelItems : []);
+        setActiveItemId(typeof parsed.activeItemId === "number" ? parsed.activeItemId : null);
+        setPrintStatus(asPrintStatus(parsed.printStatus));
+        setPrintError(asNullableString(parsed.printError));
+        setProbeStatus(asPrintStatus(parsed.probeStatus));
+        setProbeMessage(asNullableString(parsed.probeMessage));
+      } catch (error) {
+        console.warn("No se pudo restaurar la sesion de etiquetas piloto.", error);
+      }
+    }
+    setSessionReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !sessionReady) return;
+    const payload: LabelsPilotSessionState = {
+      searchQuery,
+      searchResults,
+      searchError,
+      labelItems,
+      activeItemId,
+      printStatus: printStatus === "printing" ? "idle" : printStatus,
+      printError,
+      probeStatus: probeStatus === "printing" ? "idle" : probeStatus,
+      probeMessage,
+    };
+    window.sessionStorage.setItem(
+      SESSION_STORAGE_STATE_KEY,
+      JSON.stringify(payload)
+    );
+  }, [
+    activeItemId,
+    labelItems,
+    printError,
+    printStatus,
+    probeMessage,
+    probeStatus,
+    searchError,
+    searchQuery,
+    searchResults,
+    sessionReady,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !settingsReady) return;
@@ -396,10 +475,7 @@ export default function LabelsPilotPage() {
     <main className="flex-1 px-6 py-6 dashboard-theme text-slate-900">
       <div className="w-full max-w-7xl mx-auto space-y-6">
         <header className="space-y-1">
-          <p className="text-xs uppercase tracking-wide text-emerald-700 font-semibold">
-            Etiquetado (beta)
-          </p>
-          <h1 className="text-3xl font-bold text-slate-900">
+          <h1 className="text-2xl md:text-[2rem] font-bold text-slate-900 leading-tight">
             Impresion directa SATO
           </h1>
           <p className="text-sm text-slate-600 max-w-2xl">
@@ -655,14 +731,14 @@ export default function LabelsPilotPage() {
                   Doble clic para agregar a la lista de impresion
                 </span>
               </div>
-              <div className="max-h-80 overflow-auto text-sm">
+              <div className="max-h-64 overflow-auto text-sm">
                 <table className="w-full min-w-[520px] text-left">
                   <thead className="bg-slate-100 text-[11px] uppercase tracking-wide text-slate-700">
                     <tr>
-                      <th className="px-3 py-2">SKU</th>
-                      <th className="px-3 py-2">Producto</th>
-                      <th className="px-3 py-2 text-right">Precio</th>
-                      <th className="px-3 py-2 w-24 text-center">Accion</th>
+                      <th className="px-3 py-2 sticky top-0 z-10 bg-slate-100">SKU</th>
+                      <th className="px-3 py-2 sticky top-0 z-10 bg-slate-100">Producto</th>
+                      <th className="px-3 py-2 text-right sticky top-0 z-10 bg-slate-100">Precio</th>
+                      <th className="px-3 py-2 w-24 text-center sticky top-0 z-10 bg-slate-100">Accion</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">

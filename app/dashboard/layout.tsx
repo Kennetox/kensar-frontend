@@ -13,6 +13,8 @@ type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
 const LABELS_PILOT_PATH = "/dashboard/labels-pilot";
 const LABELS_PILOT_ACCESS_CODE = "0811";
 const LABELS_PILOT_ACCESS_KEY = "labels-pilot-access-ok";
+const LABELS_PILOT_ACCESS_TOKEN_KEY = "labels-pilot-access-token";
+const LABELS_PILOT_SESSION_STATE_KEY = "kensar_labels_pilot_session_state";
 
 const navItems: Array<{
   href: string;
@@ -306,16 +308,22 @@ function isPathAllowed(
   return true;
 }
 
-function requestLabelsPilotAccess() {
+function requestLabelsPilotAccess(token: string | null | undefined) {
   if (typeof window === "undefined") return false;
+  const currentToken = token ?? "";
   const alreadyGranted =
     window.sessionStorage.getItem(LABELS_PILOT_ACCESS_KEY) === "1";
-  if (alreadyGranted) return true;
+  const grantedToken =
+    window.sessionStorage.getItem(LABELS_PILOT_ACCESS_TOKEN_KEY) ?? "";
+  if (alreadyGranted && grantedToken === currentToken && currentToken) {
+    return true;
+  }
   const accessCode = window.prompt(
     "Ingresa el codigo de acceso para Etiquetado (beta):"
   );
   if (accessCode === LABELS_PILOT_ACCESS_CODE) {
     window.sessionStorage.setItem(LABELS_PILOT_ACCESS_KEY, "1");
+    window.sessionStorage.setItem(LABELS_PILOT_ACCESS_TOKEN_KEY, currentToken);
     return true;
   }
   window.alert("Codigo incorrecto. No tienes acceso a Etiquetado (beta).");
@@ -455,13 +463,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       return;
     }
     if (labelsPilotPromptingRef.current) return;
-    if (requestLabelsPilotAccess()) {
+    if (requestLabelsPilotAccess(token)) {
       labelsPilotPromptingRef.current = false;
       return;
     }
     labelsPilotPromptingRef.current = true;
     router.replace("/dashboard");
-  }, [pathname, router]);
+  }, [pathname, router, token]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -589,7 +597,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                         onClick={(event) => {
                           if (
                             item.href === LABELS_PILOT_PATH &&
-                            !requestLabelsPilotAccess()
+                            !requestLabelsPilotAccess(token)
                           ) {
                             event.preventDefault();
                             setNavOpen(false);
@@ -665,7 +673,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                         onClick={(event) => {
                           if (
                             item.href === LABELS_PILOT_PATH &&
-                            !requestLabelsPilotAccess()
+                            !requestLabelsPilotAccess(token)
                           ) {
                             event.preventDefault();
                           }
@@ -808,6 +816,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       type="button"
                       onClick={() => {
                         setProfileMenuOpen(false);
+                        if (typeof window !== "undefined") {
+                          window.sessionStorage.removeItem(LABELS_PILOT_ACCESS_KEY);
+                          window.sessionStorage.removeItem(
+                            LABELS_PILOT_ACCESS_TOKEN_KEY
+                          );
+                          window.sessionStorage.removeItem(
+                            LABELS_PILOT_SESSION_STATE_KEY
+                          );
+                        }
                         logout();
                         router.replace("/login");
                       }}

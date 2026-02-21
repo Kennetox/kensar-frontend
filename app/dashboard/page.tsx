@@ -840,9 +840,14 @@ export default function DashboardHomePage() {
             firstItem.quantity ?? 1
           }${adjustedItems.length > 1 ? ` +${adjustedItems.length - 1}` : ""}`
         : "—";
+      const productCode = firstItem
+        ? firstItem.product_sku ??
+          (firstItem.product_id != null ? String(firstItem.product_id) : "—")
+        : "—";
       return {
         sale,
         detail,
+        productCode,
         refundAmount,
         netTotal: safeNetTotal,
         methodLabel: adjustedMethodLabel,
@@ -1554,10 +1559,11 @@ export default function DashboardHomePage() {
           ) : (
             <div className="mt-2 text-xs">
               {/* Encabezados */}
-              <div className="grid grid-cols-[80px_160px_1fr_120px_120px] text-[11px] text-slate-400 mb-1 px-1 gap-2">
+              <div className="grid grid-cols-[80px_160px_1fr_120px_120px_120px] text-[11px] text-slate-400 mb-1 px-3 gap-2">
                 <span>Nº venta</span>
                 <span>Fecha / hora</span>
                 <span>Detalle</span>
+                <span className="pl-px">Código</span>
                 <span className="text-right">Total</span>
                 <span className="text-right">Método</span>
               </div>
@@ -1570,6 +1576,7 @@ export default function DashboardHomePage() {
                       {
                         sale,
                         detail,
+                        productCode,
                         refundAmount,
                         netTotal,
                         methodLabel,
@@ -1585,7 +1592,7 @@ export default function DashboardHomePage() {
                         : "dashboard-row-zebra-alt";
 
                     const baseRow =
-                      "grid grid-cols-[80px_160px_1fr_120px_120px] text-xs px-3 py-2 transition-colors gap-2";
+                      "grid grid-cols-[80px_160px_1fr_120px_120px_120px] text-xs px-3 py-2 transition-colors gap-2";
 
                     const saleNumber =
                       sale.sale_number ?? sale.number ?? sale.id;
@@ -1647,6 +1654,11 @@ export default function DashboardHomePage() {
                               </span>
                             )}
                           </span>
+                        </div>
+
+                        {/* Código producto (primer ítem) */}
+                        <div className="truncate text-slate-300 font-mono pl-px">
+                          {productCode}
                         </div>
 
                         {/* Total: SIEMPRE visible */}
