@@ -106,6 +106,7 @@ export async function printLabelViaCloudProxy(
         headers,
         body: JSON.stringify({
           payload,
+          fire_and_forget: false,
         }),
         credentials: "include",
         signal: controller.signal,
@@ -113,7 +114,7 @@ export async function printLabelViaCloudProxy(
     );
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
+      const detail = await extractErrorDetail(res);
       throw new Error(detail || `Error ${res.status}`);
     }
   } catch (err) {
@@ -126,5 +127,21 @@ export async function printLabelViaCloudProxy(
     throw err;
   } finally {
     window.clearTimeout(timeoutId);
+  }
+}
+
+async function extractErrorDetail(res: Response): Promise<string> {
+  try {
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      if (typeof data?.detail === "string" && data.detail.trim()) {
+        return data.detail.trim();
+      }
+      return JSON.stringify(data);
+    }
+    return (await res.text()).trim();
+  } catch {
+    return "";
   }
 }

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../providers/AuthProvider";
 import type { Product as PosProduct } from "../../pos/poscontext";
 import { getApiBase } from "@/lib/api/base";
-import { printLabelViaCloudProxy } from "@/lib/api/labels";
 
 type ProductSearchResult = Pick<
   PosProduct,
@@ -21,7 +20,6 @@ type PrintPayload = {
 };
 
 type PrintStatus = "idle" | "printing" | "success" | "error";
-type PrintMode = "local" | "cloud";
 
 type LabelItem = {
   productId: number;
@@ -32,15 +30,15 @@ type LabelItem = {
   quantity: number;
 };
 
-const LOCAL_STORAGE_PRINTER_URL = "kensar_labels_pilot_printer_url";
 const LOCAL_STORAGE_FORMAT = "kensar_labels_pilot_format";
-const LOCAL_STORAGE_PRINT_MODE = "kensar_labels_pilot_print_mode";
-const LOCAL_STORAGE_CLOUD_SERIAL = "kensar_labels_pilot_cloud_serial";
 
-const DEFAULT_PRINTER_URL = "http://10.10.20.19:8081";
+const AGENT_BASE_URL = "http://127.0.0.1:5177";
+const AGENT_HEALTH_URL = `${AGENT_BASE_URL}/health`;
+const AGENT_UI_URL = `${AGENT_BASE_URL}/ui`;
+const AGENT_WINDOWS_DOWNLOAD_URL =
+  "https://github.com/Kennetox/Kensar-print-agent/releases/latest/download/KensarPrintAgent.exe";
+const DEFAULT_AGENT_URL = "http://127.0.0.1:5177/print";
 const DEFAULT_FORMAT = "Kensar";
-const DEFAULT_PRINT_MODE: PrintMode = "cloud";
-const DEFAULT_CLOUD_SERIAL = "FL206720";
 const TEST_LABEL: PrintPayload = {
   CODIGO: "3519",
   BARRAS: "3519",
@@ -90,12 +88,12 @@ export default function LabelsPilotPage() {
     [token]
   );
 
-  const [printerUrl, setPrinterUrl] = useState(DEFAULT_PRINTER_URL);
   const [format, setFormat] = useState(DEFAULT_FORMAT);
-  const [printMode, setPrintMode] = useState<PrintMode>(DEFAULT_PRINT_MODE);
-  const [cloudSerial, setCloudSerial] = useState(DEFAULT_CLOUD_SERIAL);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
+  const [agentHealth, setAgentHealth] = useState<"checking" | "online" | "offline">(
+    "checking"
+  );
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchLoading, setSearchLoading] = useState(false);
@@ -112,25 +110,43 @@ export default function LabelsPilotPage() {
 
   const canUseApi = !!authHeaders;
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storedPrinterUrl = window.localStorage.getItem(
-      LOCAL_STORAGE_PRINTER_URL
-    );
-    const storedFormat = window.localStorage.getItem(LOCAL_STORAGE_FORMAT);
-    const storedCloudSerial = window.localStorage.getItem(
-      LOCAL_STORAGE_CLOUD_SERIAL
-    );
-    if (storedPrinterUrl) setPrinterUrl(storedPrinterUrl);
-    if (storedFormat) setFormat(storedFormat);
-    if (storedCloudSerial) setCloudSerial(storedCloudSerial);
-    setSettingsReady(true);
+  const checkAgentHealth = useCallback(async () => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 2000);
+    try {
+      const res = await fetch(AGENT_HEALTH_URL, {
+        method: "GET",
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        setAgentHealth("offline");
+        return;
+      }
+      setAgentHealth("online");
+    } catch {
+      setAgentHealth("offline");
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !settingsReady) return;
-    window.localStorage.setItem(LOCAL_STORAGE_PRINTER_URL, printerUrl);
-  }, [printerUrl, settingsReady]);
+    if (!settingsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSettingsOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedFormat = window.localStorage.getItem(LOCAL_STORAGE_FORMAT);
+    if (storedFormat) setFormat(storedFormat);
+    setSettingsReady(true);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !settingsReady) return;
@@ -138,14 +154,10 @@ export default function LabelsPilotPage() {
   }, [format, settingsReady]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !settingsReady) return;
-    window.localStorage.setItem(LOCAL_STORAGE_PRINT_MODE, printMode);
-  }, [printMode, settingsReady]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !settingsReady) return;
-    window.localStorage.setItem(LOCAL_STORAGE_CLOUD_SERIAL, cloudSerial);
-  }, [cloudSerial, settingsReady]);
+    checkAgentHealth();
+    const interval = window.setInterval(checkAgentHealth, 10000);
+    return () => window.clearInterval(interval);
+  }, [checkAgentHealth]);
 
   const handleSearch = useCallback(
     async (e?: React.FormEvent) => {
@@ -274,42 +286,19 @@ export default function LabelsPilotPage() {
     })}`;
   };
 
-  const resolvedTargetUrl = useMemo(() => {
-    if (printMode === "cloud") {
-      const serial = cloudSerial.trim();
-      return serial ? `/labels/cloud/print/${serial}` : "";
-    }
-    return printerUrl.trim();
-  }, [cloudSerial, printMode, printerUrl]);
-
-  const validateTarget = useCallback(() => {
-    if (!resolvedTargetUrl) {
-      throw new Error(
-        printMode === "cloud"
-          ? "Completa el serial para EasyPrint Cloud."
-          : "Completa Printer URL."
-      );
-    }
-  }, [printMode, resolvedTargetUrl]);
+  const resolvedTargetUrl = DEFAULT_AGENT_URL;
+  const validateTarget = useCallback(() => {}, []);
 
   const sendPrint = useCallback(
     async (payload: PrintPayload) => {
-      if (printMode === "cloud") {
-        await printLabelViaCloudProxy(cloudSerial, payload, {
-          token,
-          timeoutMs: 20000,
-        });
-        return;
-      }
-      await printLabelDirect(resolvedTargetUrl, payload);
+      await printLabelDirect(DEFAULT_AGENT_URL, payload);
     },
-    [
-      cloudSerial,
-      printMode,
-      resolvedTargetUrl,
-      token,
-    ]
+    []
   );
+
+  const handleOpenAgentUi = useCallback(() => {
+    window.open(AGENT_UI_URL, "_blank", "noopener,noreferrer");
+  }, []);
 
   const buildPayload = useCallback(
     (item: LabelItem): PrintPayload => {
@@ -414,127 +403,197 @@ export default function LabelsPilotPage() {
             Impresion directa SATO
           </h1>
           <p className="text-sm text-slate-600 max-w-2xl">
-            Piloto temporal para imprimir etiquetas con SATO FX3-LX via Easy
-            Impresion (SEPL) usando JSON directo desde el navegador.
+            Piloto temporal para imprimir etiquetas con SATO FX3-LX usando un
+            agente local en este equipo.
           </p>
         </header>
 
         <section className="rounded-3xl ui-surface p-5 md:p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-slate-700">
-              <span className="font-semibold">Modo:</span>{" "}
-              {printMode === "cloud" ? "EasyPrint Cloud" : "Local / Agente"} ·{" "}
-              <span className="font-semibold">Format:</span> {format}
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+              <span>
+                <span className="font-semibold">Modo:</span> Agente local ·{" "}
+                <span className="font-semibold">Format:</span> {format}
+              </span>
+              <span
+                className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                  agentHealth === "online"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : agentHealth === "offline"
+                    ? "bg-rose-100 text-rose-700"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {agentHealth === "online"
+                  ? "agente online"
+                  : agentHealth === "offline"
+                  ? "agente offline"
+                  : "verificando agente"}
+              </span>
             </div>
             <button
               type="button"
-              onClick={() => setSettingsOpen((prev) => !prev)}
+              onClick={() => setSettingsOpen(true)}
               className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50"
             >
-              {settingsOpen ? "Ocultar configuración" : "Mostrar configuración"}
+              Configuracion
             </button>
           </div>
+        </section>
 
-          {settingsOpen && (
-            <div className="grid gap-4 md:grid-cols-3 border-t border-slate-200 pt-4">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">
-                  Modo
-                </label>
-              <select
-                className="ui-input w-full px-3 py-2 text-sm"
-                value={printMode}
-                disabled
-              >
-                <option value="cloud">EasyPrint Cloud</option>
-              </select>
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <label className="text-sm font-semibold text-slate-700">
-                  Printer URL
-                </label>
-                <input
-                  className="ui-input w-full px-3 py-2 text-sm"
-                  value={printerUrl}
-                  onChange={(e) => setPrinterUrl(e.target.value)}
-                  placeholder="http://10.10.20.19:8081"
-                  disabled={printMode === "cloud"}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">
-                  Format
-                </label>
-                <input
-                  className="ui-input w-full px-3 py-2 text-sm"
-                  value={format}
-                  onChange={(e) => setFormat(e.target.value)}
-                  placeholder="Kensar"
-                />
-              </div>
-              {printMode === "cloud" && (
-                <>
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-700">
-                      Serial
-                    </label>
-                    <input
-                      className="ui-input w-full px-3 py-2 text-sm"
-                      value={cloudSerial}
-                      onChange={(e) => setCloudSerial(e.target.value)}
-                      placeholder={DEFAULT_CLOUD_SERIAL}
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                      X-CLIENT-KEY se toma desde el backend (
-                      <span className="font-mono">SATO_CLOUD_CLIENT_KEY</span>).
-                    </div>
-                  </div>
-                </>
-              )}
-              <div className="md:col-span-3 flex flex-wrap items-center gap-3 text-sm">
+        {settingsOpen && (
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-[2px] p-4 md:p-8"
+            onClick={() => setSettingsOpen(false)}
+          >
+            <div
+              className="mx-auto mt-4 md:mt-10 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">
+                    Configuración de impresión
+                  </h3>
+                  <p className="text-xs text-slate-600">
+                    Ajusta el agente local y prueba conexion.
+                  </p>
+                </div>
                 <button
                   type="button"
-                  className="px-4 py-2 rounded-xl border border-emerald-500 bg-emerald-500 text-white text-sm font-semibold disabled:opacity-60"
-                onClick={handleProbePrinter}
-                disabled={probeStatus === "printing"}
-              >
-                {probeStatus === "printing"
-                  ? "Probando..."
-                  : "Probar conexion (imprimir test)"}
-              </button>
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                    probeStatus === "success"
-                      ? "bg-emerald-100 text-emerald-700"
+                  onClick={() => setSettingsOpen(false)}
+                  className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="space-y-4 px-5 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <span className="text-xs text-slate-600">
+                    Abre la app del agente para autodeteccion y seleccion de impresora.
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={AGENT_WINDOWS_DOWNLOAD_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100"
+                    >
+                      Descargar agente (Windows)
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleOpenAgentUi}
+                      className="px-3 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100"
+                    >
+                      Abrir app del agente
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">
+                      Conexion del agente
+                    </h4>
+                    <p className="text-xs text-slate-600">
+                      Datos tecnicos para conectar con el print-agent local.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Modo
+                      </label>
+                      <input
+                        className="ui-input w-full px-3 py-2 text-sm bg-white"
+                        value="Agente local"
+                        disabled
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-sm font-semibold text-slate-700">
+                        URL del agente
+                      </label>
+                      <input
+                        className="ui-input w-full px-3 py-2 text-sm bg-white"
+                        value={resolvedTargetUrl}
+                        placeholder={DEFAULT_AGENT_URL}
+                        disabled
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-600 rounded-lg bg-white border border-slate-200 px-3 py-2">
+                    Endpoint actual:{" "}
+                    <span className="font-mono">
+                      {resolvedTargetUrl || "sin definir"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">
+                      Plantilla de etiqueta
+                    </h4>
+                    <p className="text-xs text-slate-600">
+                      Nombre del formato cargado en la impresora (ej: Kensar).
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-slate-700">
+                        Format
+                      </label>
+                      <input
+                        className="ui-input w-full px-3 py-2 text-sm bg-white"
+                        value={format}
+                        onChange={(e) => setFormat(e.target.value)}
+                        placeholder="Kensar"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 text-sm pt-1">
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-xl border border-emerald-500 bg-emerald-500 text-white text-sm font-semibold disabled:opacity-60"
+                    onClick={handleProbePrinter}
+                    disabled={probeStatus === "printing"}
+                  >
+                    {probeStatus === "printing"
+                      ? "Probando..."
+                      : "Probar conexion (imprimir test)"}
+                  </button>
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                      probeStatus === "success"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : probeStatus === "error"
+                        ? "bg-rose-100 text-rose-700"
+                        : probeStatus === "printing"
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {probeStatus === "success"
+                      ? "exito"
                       : probeStatus === "error"
-                      ? "bg-rose-100 text-rose-700"
+                      ? "error"
                       : probeStatus === "printing"
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-slate-100 text-slate-600"
-                }`}
-              >
-                {probeStatus === "success"
-                  ? "exito"
-                  : probeStatus === "error"
-                  ? "error"
-                  : probeStatus === "printing"
-                  ? "imprimiendo"
-                  : "inactivo"}
-              </span>
-                {probeMessage && (
-                  <span className="text-sm text-slate-600">{probeMessage}</span>
-                )}
+                      ? "imprimiendo"
+                      : "inactivo"}
+                  </span>
+                  {probeMessage && (
+                    <span className="text-sm text-slate-600">{probeMessage}</span>
+                  )}
+                </div>
               </div>
             </div>
-          )}
-
-          <div className="text-xs text-slate-600 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-            Endpoint actual (modo activo):{" "}
-            <span className="font-mono">{resolvedTargetUrl || "sin definir"}</span>
           </div>
-        </section>
+        )}
 
         <section className="rounded-3xl ui-surface p-5 md:p-6">
           <div className="space-y-4">
