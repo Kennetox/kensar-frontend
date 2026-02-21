@@ -36,7 +36,7 @@ const AGENT_BASE_URL = "http://127.0.0.1:5177";
 const AGENT_HEALTH_URL = `${AGENT_BASE_URL}/health`;
 const AGENT_UI_URL = `${AGENT_BASE_URL}/ui`;
 const AGENT_WINDOWS_DOWNLOAD_URL =
-  "https://github.com/Kennetox/Kensar-print-agent/releases/latest/download/KensarPrintAgent.exe";
+  "https://github.com/Kennetox/Kensar-print-agent-tray/releases/latest/download/KensarPrintAgent-Setup-0.1.0.exe";
 const DEFAULT_AGENT_URL = "http://127.0.0.1:5177/print";
 const DEFAULT_FORMAT = "Kensar";
 const TEST_LABEL: PrintPayload = {
