@@ -484,13 +484,20 @@ export default function HrEmployeeDetailPage() {
     }
   };
 
-  const handleDeleteDocument = async (docId: number) => {
+  const handleDeleteDocument = async (
+    docId: number,
+    source: "hr" | "profile" = "hr"
+  ) => {
     if (!token || !employee) return;
     try {
       setDeletingDocId(docId);
       setDocsError(null);
-      await deleteHrEmployeeDocument(employee.id, docId, token);
-      setDocuments((prev) => prev.filter((doc) => doc.id !== docId));
+      await deleteHrEmployeeDocument(employee.id, docId, source, token);
+      setDocuments((prev) =>
+        prev.filter(
+          (doc) => !(doc.id === docId && (doc.source ?? "hr") === source)
+        )
+      );
       showToast("Documento eliminado.");
     } catch (err) {
       setDocsError(err instanceof Error ? err.message : "No se pudo eliminar el documento.");
@@ -1042,6 +1049,7 @@ export default function HrEmployeeDetailPage() {
                       <thead>
                         <tr className="text-left border-b ui-border">
                           <th className="px-3 py-2 font-semibold">Documento</th>
+                          <th className="px-3 py-2 font-semibold">Origen</th>
                           <th className="px-3 py-2 font-semibold">Nota</th>
                           <th className="px-3 py-2 font-semibold">Fecha</th>
                           <th className="px-3 py-2 font-semibold text-right">Acciones</th>
@@ -1049,8 +1057,16 @@ export default function HrEmployeeDetailPage() {
                       </thead>
                       <tbody>
                         {documents.map((doc) => (
-                          <tr key={doc.id} className="border-b ui-border last:border-b-0">
+                          <tr
+                            key={`${doc.source ?? "hr"}-${doc.id}`}
+                            className="border-b ui-border last:border-b-0"
+                          >
                             <td className="px-3 py-2">{doc.file_name}</td>
+                            <td className="px-3 py-2">
+                              <span className="rounded-md border ui-border px-2 py-0.5 text-xs">
+                                {doc.source === "profile" ? "Perfil" : "HR"}
+                              </span>
+                            </td>
                             <td className="px-3 py-2">{doc.note || "-"}</td>
                             <td className="px-3 py-2">{formatDateTime(doc.created_at)}</td>
                             <td className="px-3 py-2">
@@ -1065,8 +1081,17 @@ export default function HrEmployeeDetailPage() {
                                 </a>
                                 <button
                                   type="button"
-                                  disabled={!canManage || deletingDocId === doc.id}
-                                  onClick={() => void handleDeleteDocument(doc.id)}
+                                  disabled={
+                                    !canManage ||
+                                    doc.can_delete === false ||
+                                    deletingDocId === doc.id
+                                  }
+                                  onClick={() =>
+                                    void handleDeleteDocument(
+                                      doc.id,
+                                      doc.source === "profile" ? "profile" : "hr"
+                                    )
+                                  }
                                   className="rounded-md border border-rose-300 px-3 py-1.5 text-rose-700 disabled:opacity-60"
                                 >
                                   {deletingDocId === doc.id ? "Eliminando..." : "Eliminar"}

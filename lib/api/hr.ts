@@ -43,6 +43,8 @@ export type HrEmployeeDocumentRecord = {
   file_size: number;
   note?: string | null;
   created_at: string;
+  source?: "hr" | "profile";
+  can_delete?: boolean;
 };
 
 export type HrSystemUserOption = {
@@ -237,9 +239,15 @@ export async function uploadHrEmployeeDocument(
 export async function deleteHrEmployeeDocument(
   employeeId: number,
   docId: number,
+  source: "hr" | "profile" = "hr",
   token: string
 ): Promise<void> {
-  await jsonRequest<void>(`/hr/employees/${employeeId}/documents/${docId}`, token, {
-    method: "DELETE",
-  });
+  const query = new URLSearchParams({ source }).toString();
+  await jsonRequest<void>(
+    `/hr/employees/${employeeId}/documents/${docId}?${query}`,
+    token,
+    {
+      method: "DELETE",
+    }
+  );
 }
