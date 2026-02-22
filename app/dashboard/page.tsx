@@ -1103,7 +1103,7 @@ export default function DashboardHomePage() {
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 text-2xl font-semibold text-emerald-600">
+              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-emerald-600 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {formatMoney(adjustedTodaySales)}
               </div>
             )}
@@ -1132,7 +1132,7 @@ export default function DashboardHomePage() {
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-16 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 text-2xl font-semibold text-slate-100">
+              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-slate-100 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {data?.today_tickets ?? 0}
               </div>
             )}
@@ -1154,7 +1154,7 @@ export default function DashboardHomePage() {
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 text-2xl font-semibold text-sky-400">
+              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-sky-400 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {formatMoney(adjustedMonthSales)}
               </div>
             )}
@@ -1183,7 +1183,7 @@ export default function DashboardHomePage() {
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 text-2xl font-semibold text-emerald-600">
+              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-emerald-600 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {formatMoney(adjustedWeekSales)}
               </div>
             )}
@@ -1205,7 +1205,7 @@ export default function DashboardHomePage() {
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-24 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 text-2xl font-semibold text-slate-100">
+              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-slate-100 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {formatMoney(adjustedMonthAvgTicket)}
               </div>
             )}
