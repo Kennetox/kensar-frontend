@@ -184,6 +184,28 @@ export async function deleteSystemUserForEmployee(
   });
 }
 
+export async function uploadHrEmployeeAvatar(
+  employeeId: number,
+  file: File,
+  token: string
+): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return jsonRequest<{ url: string }>(`/hr/employees/${employeeId}/avatar`, token, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function clearHrEmployeeAvatar(
+  employeeId: number,
+  token: string
+): Promise<HrEmployeeRecord> {
+  return jsonRequest<HrEmployeeRecord>(`/hr/employees/${employeeId}/avatar`, token, {
+    method: "DELETE",
+  });
+}
+
 export async function fetchHrSystemUsers(
   token: string,
   options?: {

@@ -3408,10 +3408,15 @@ export default function SettingsPage() {
                   ? "Pendiente"
                   : user.status;
                 const statusClass = invitationPending
-                  ? "bg-amber-500/20 text-amber-200"
+                  ? "border border-amber-500/50 bg-amber-200 text-amber-900"
                   : user.status === "Activo"
-                    ? "bg-emerald-500/20 text-emerald-300"
-                    : "bg-slate-700 text-slate-400";
+                    ? "border border-emerald-500/60 bg-emerald-200 text-emerald-900"
+                    : "border border-rose-500/60 bg-rose-200 text-rose-900";
+                const statusDotClass = invitationPending
+                  ? "bg-amber-700"
+                  : user.status === "Activo"
+                    ? "bg-emerald-700"
+                    : "bg-rose-700";
                 const invitedText =
                   invitationPending && user.invited_at
                     ? `Invitado el ${formatDateLabel(user.invited_at)}`
@@ -3465,8 +3470,9 @@ export default function SettingsPage() {
                     <td className="px-4 py-3">
                       <div>
                         <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${statusClass}`}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusClass}`}
                         >
+                          <span className={`h-1.5 w-1.5 rounded-full ${statusDotClass}`} />
                           {statusLabel}
                         </span>
                       </div>

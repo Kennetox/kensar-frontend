@@ -1,10 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Image from "next/image";
 import { useAuth } from "../../../providers/AuthProvider";
 import {
   createSystemUserForEmployee,
+  clearHrEmployeeAvatar,
   deactivateSystemUserForEmployee,
   deleteSystemUserForEmployee,
   deleteHrEmployeeDocument,
@@ -12,6 +14,7 @@ import {
   fetchHrEmployeeDocuments,
   fetchHrSystemUsers,
   linkSystemUserToEmployee,
+  uploadHrEmployeeAvatar,
   updateHrEmployee,
   uploadHrEmployeeDocument,
   type HrEmployeeDocumentRecord,
@@ -89,10 +92,22 @@ function toFormState(employee: HrEmployeeRecord): EmployeeFormState {
   };
 }
 
+function getInitials(name: string): string {
+  return (
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || "HR"
+  );
+}
+
 export default function HrEmployeeDetailPage() {
   const params = useParams<{ employeeId: string }>();
   const router = useRouter();
   const { token, user } = useAuth();
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const employeeId = Number(params?.employeeId || 0);
 
   const [employee, setEmployee] = useState<HrEmployeeRecord | null>(null);
@@ -103,7 +118,7 @@ export default function HrEmployeeDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [canManage, setCanManage] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "payroll" | "documents">(
+  const [activeTab, setActiveTab] = useState<"profile" | "access" | "payroll" | "documents">(
     "profile"
   );
 
@@ -114,6 +129,7 @@ export default function HrEmployeeDetailPage() {
   const [docFile, setDocFile] = useState<File | null>(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [creatingAccess, setCreatingAccess] = useState(false);
   const [linkingAccess, setLinkingAccess] = useState(false);
   const [deactivatingAccess, setDeactivatingAccess] = useState(false);
@@ -506,8 +522,45 @@ export default function HrEmployeeDetailPage() {
     }
   };
 
+  const handleAvatarFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !token || !employee) return;
+    try {
+      setAvatarUploading(true);
+      setError(null);
+      await uploadHrEmployeeAvatar(employee.id, file, token);
+      await refreshEmployee();
+      showToast("Foto de perfil actualizada.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo actualizar la foto.");
+    } finally {
+      setAvatarUploading(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!token || !employee) return;
+    try {
+      setAvatarUploading(true);
+      setError(null);
+      const updated = await clearHrEmployeeAvatar(employee.id, token);
+      setEmployee(updated);
+      const nextForm = toFormState(updated);
+      setForm(nextForm);
+      setSavedSnapshot(nextForm);
+      showToast("Foto de perfil eliminada.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo eliminar la foto.");
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
   const getDocumentUrl = (path: string) =>
     /^https?:\/\//i.test(path) ? path : `${getApiBase()}${path}`;
+  const getAvatarUrl = (path?: string | null) =>
+    path ? (/^https?:\/\//i.test(path) ? path : `${getApiBase()}${path}`) : "";
 
   if (!token) return null;
 
@@ -556,151 +609,40 @@ export default function HrEmployeeDetailPage() {
             </p>
             <hr className="ui-border" />
             <div>
-              <p className="font-semibold">Acceso al sistema</p>
-              {employee.system_user ? (
-                <div className="mt-1 space-y-2">
-                  <p className="ui-text-muted">
-                    Usuario #{employee.system_user.id} - {employee.system_user.email}
-                    <br />
-                    {employee.system_user.role} ({employee.system_user.status})
-                  </p>
-                  {canManage && (
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleDeactivateSystemUser()}
-                        disabled={accessBusy || employee.system_user.status === "Inactivo"}
-                        className="rounded-md border ui-border px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
-                      >
-                        {deactivatingAccess ? "Desactivando..." : "Desactivar"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteSystemUser()}
-                        disabled={accessBusy}
-                        className="rounded-md border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-60"
-                        title="Recomendado: desactivar para trazabilidad"
-                      >
-                        {deletingAccess ? "Borrando..." : "Borrar usuario"}
-                      </button>
-                    </div>
-                  )}
+              <p className="font-semibold">Foto de perfil</p>
+              <div className="mt-2 flex items-center gap-3">
+                {employee.avatar_url ? (
+                  <Image
+                    src={getAvatarUrl(employee.avatar_url)}
+                    alt={`Avatar de ${employee.name}`}
+                    className="h-16 w-16 rounded-full object-cover border ui-border"
+                    width={64}
+                    height={64}
+                  />
+                ) : (
+                  <div className="h-16 w-16 rounded-full border ui-border bg-slate-100 text-slate-700 grid place-content-center font-semibold">
+                    {getInitials(employee.name)}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(event) => void handleAvatarFileChange(event)}
+                    disabled={!canManage || avatarUploading}
+                    className="block w-full text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveAvatar()}
+                    disabled={!canManage || avatarUploading || !employee.avatar_url}
+                    className="rounded-md border ui-border px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
+                  >
+                    {avatarUploading ? "Procesando..." : "Quitar foto"}
+                  </button>
                 </div>
-              ) : (
-                <p className="ui-text-muted mt-1">Sin acceso vinculado.</p>
-              )}
-              {canManage && !employee.system_user && (
-                <div className="mt-3 space-y-3 rounded-xl border ui-border p-3">
-                  <form onSubmit={handleCreateSystemUser} className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide ui-text-muted">
-                      Crear acceso nuevo
-                    </p>
-                    <input
-                      value={systemUserEmail}
-                      onChange={(event) => setSystemUserEmail(event.target.value)}
-                      placeholder="Correo de acceso"
-                      className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
-                      disabled={accessBusy}
-                    />
-                    <div className="grid gap-2 grid-cols-2">
-                      <select
-                        value={systemUserRole}
-                        onChange={(event) =>
-                          setSystemUserRole(event.target.value as SystemRole)
-                        }
-                        className="rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
-                        disabled={accessBusy}
-                      >
-                        <option value="Administrador">Administrador</option>
-                        <option value="Supervisor">Supervisor</option>
-                        <option value="Vendedor">Vendedor</option>
-                        <option value="Auditor">Auditor</option>
-                      </select>
-                      <input
-                        value={systemUserPin}
-                        onChange={(event) => setSystemUserPin(event.target.value)}
-                        placeholder="PIN (4-8)"
-                        className="rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
-                        disabled={accessBusy}
-                      />
-                    </div>
-                    <input
-                      value={systemUserPassword}
-                      onChange={(event) => setSystemUserPassword(event.target.value)}
-                      placeholder="Contrasena temporal (opcional)"
-                      className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
-                      disabled={accessBusy}
-                    />
-                    <button
-                      type="submit"
-                      disabled={accessBusy}
-                      className="w-full rounded-md bg-emerald-500 text-slate-900 px-3 py-2 text-sm font-semibold disabled:opacity-60"
-                    >
-                      {creatingAccess ? "Creando..." : "Crear y vincular acceso"}
-                    </button>
-                  </form>
-
-                  <hr className="ui-border" />
-
-                  <form onSubmit={handleLinkExistingUser} className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide ui-text-muted">
-                      Vincular acceso existente
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        value={linkQuery}
-                        onChange={(event) => setLinkQuery(event.target.value)}
-                        placeholder="Buscar por nombre o correo"
-                        className="min-w-0 flex-1 rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
-                        disabled={accessBusy || linkOptionsLoading}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void handleRefreshLinkOptions()}
-                        disabled={accessBusy || linkOptionsLoading}
-                        className="rounded-md border ui-border px-3 py-2 text-sm font-semibold disabled:opacity-60"
-                      >
-                        {linkOptionsLoading ? "..." : "Buscar"}
-                      </button>
-                    </div>
-                    <select
-                      value={linkUserId ?? ""}
-                      onChange={(event) =>
-                        setLinkUserId(event.target.value ? Number(event.target.value) : null)
-                      }
-                      className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
-                      disabled={
-                        accessBusy ||
-                        linkOptionsLoading ||
-                        linkOptions.length === 0
-                      }
-                    >
-                      {linkOptions.length === 0 ? (
-                        <option value="">No hay usuarios disponibles</option>
-                      ) : (
-                        linkOptions.map((option) => (
-                          <option key={option.id} value={option.id}>
-                            #{option.id} - {option.name} ({option.email})
-                          </option>
-                        ))
-                      )}
-                    </select>
-                    <button
-                      type="submit"
-                      disabled={
-                        accessBusy ||
-                        !linkUserId ||
-                        linkOptionsLoading ||
-                        linkOptions.length === 0
-                      }
-                      className="w-full rounded-md border ui-border px-3 py-2 text-sm font-semibold disabled:opacity-60"
-                    >
-                      {linkingAccess ? "Vinculando..." : "Vincular usuario seleccionado"}
-                    </button>
-                  </form>
-                </div>
-              )}
-              {accessError && <p className="mt-2 text-xs text-rose-600">{accessError}</p>}
+              </div>
             </div>
           </article>
 
@@ -716,6 +658,17 @@ export default function HrEmployeeDetailPage() {
                 }`}
               >
                 Perfil
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("access")}
+                className={`rounded-md px-3 py-1.5 text-sm font-semibold transition ${
+                  activeTab === "access"
+                    ? "bg-emerald-500 text-slate-900"
+                    : "border ui-border hover:bg-white/60"
+                }`}
+              >
+                Acceso
               </button>
               <button
                 type="button"
@@ -852,6 +805,155 @@ export default function HrEmployeeDetailPage() {
                   </button>
                 </div>
               </form>
+            ) : activeTab === "access" ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="font-semibold">Acceso al sistema</p>
+                  {employee.system_user ? (
+                    <p className="ui-text-muted mt-1">
+                      Usuario #{employee.system_user.id} - {employee.system_user.email}
+                      <br />
+                      {employee.system_user.role} ({employee.system_user.status})
+                    </p>
+                  ) : (
+                    <p className="ui-text-muted mt-1">Sin acceso vinculado.</p>
+                  )}
+                </div>
+                {employee.system_user ? (
+                  canManage && (
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleDeactivateSystemUser()}
+                        disabled={accessBusy || employee.system_user.status === "Inactivo"}
+                        className="rounded-md border ui-border px-3 py-2 text-sm font-semibold disabled:opacity-60"
+                      >
+                        {deactivatingAccess ? "Desactivando..." : "Desactivar"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteSystemUser()}
+                        disabled={accessBusy}
+                        className="rounded-md border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700 disabled:opacity-60"
+                        title="Recomendado: desactivar para trazabilidad"
+                      >
+                        {deletingAccess ? "Borrando..." : "Borrar usuario"}
+                      </button>
+                    </div>
+                  )
+                ) : canManage ? (
+                  <div className="space-y-3 rounded-xl border ui-border p-3">
+                    <form onSubmit={handleCreateSystemUser} className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide ui-text-muted">
+                        Crear acceso nuevo
+                      </p>
+                      <input
+                        value={systemUserEmail}
+                        onChange={(event) => setSystemUserEmail(event.target.value)}
+                        placeholder="Correo de acceso"
+                        className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
+                        disabled={accessBusy}
+                      />
+                      <div className="grid gap-2 grid-cols-2">
+                        <select
+                          value={systemUserRole}
+                          onChange={(event) =>
+                            setSystemUserRole(event.target.value as SystemRole)
+                          }
+                          className="rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
+                          disabled={accessBusy}
+                        >
+                          <option value="Administrador">Administrador</option>
+                          <option value="Supervisor">Supervisor</option>
+                          <option value="Vendedor">Vendedor</option>
+                          <option value="Auditor">Auditor</option>
+                        </select>
+                        <input
+                          value={systemUserPin}
+                          onChange={(event) => setSystemUserPin(event.target.value)}
+                          placeholder="PIN (4-8)"
+                          className="rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
+                          disabled={accessBusy}
+                        />
+                      </div>
+                      <input
+                        value={systemUserPassword}
+                        onChange={(event) => setSystemUserPassword(event.target.value)}
+                        placeholder="Contrasena temporal (opcional)"
+                        className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
+                        disabled={accessBusy}
+                      />
+                      <button
+                        type="submit"
+                        disabled={accessBusy}
+                        className="w-full rounded-md bg-emerald-500 text-slate-900 px-3 py-2 text-sm font-semibold disabled:opacity-60"
+                      >
+                        {creatingAccess ? "Creando..." : "Crear y vincular acceso"}
+                      </button>
+                    </form>
+
+                    <hr className="ui-border" />
+
+                    <form onSubmit={handleLinkExistingUser} className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide ui-text-muted">
+                        Vincular acceso existente
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          value={linkQuery}
+                          onChange={(event) => setLinkQuery(event.target.value)}
+                          placeholder="Buscar por nombre o correo"
+                          className="min-w-0 flex-1 rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
+                          disabled={accessBusy || linkOptionsLoading}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleRefreshLinkOptions()}
+                          disabled={accessBusy || linkOptionsLoading}
+                          className="rounded-md border ui-border px-3 py-2 text-sm font-semibold disabled:opacity-60"
+                        >
+                          {linkOptionsLoading ? "..." : "Buscar"}
+                        </button>
+                      </div>
+                      <select
+                        value={linkUserId ?? ""}
+                        onChange={(event) =>
+                          setLinkUserId(event.target.value ? Number(event.target.value) : null)
+                        }
+                        className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2 text-sm"
+                        disabled={
+                          accessBusy ||
+                          linkOptionsLoading ||
+                          linkOptions.length === 0
+                        }
+                      >
+                        {linkOptions.length === 0 ? (
+                          <option value="">No hay usuarios disponibles</option>
+                        ) : (
+                          linkOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              #{option.id} - {option.name} ({option.email})
+                            </option>
+                          ))
+                        )}
+                      </select>
+                      <button
+                        type="submit"
+                        disabled={
+                          accessBusy ||
+                          !linkUserId ||
+                          linkOptionsLoading ||
+                          linkOptions.length === 0
+                        }
+                        className="w-full rounded-md border ui-border px-3 py-2 text-sm font-semibold disabled:opacity-60"
+                      >
+                        {linkingAccess ? "Vinculando..." : "Vincular usuario seleccionado"}
+                      </button>
+                    </form>
+                  </div>
+                ) : null}
+                {accessError && <p className="text-sm text-rose-600">{accessError}</p>}
+              </div>
             ) : activeTab === "payroll" ? (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">

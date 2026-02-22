@@ -203,15 +203,37 @@ export default function HrPage() {
                 </tr>
               ) : (
                 filteredEmployees.map((employee) => (
-                  <tr key={employee.id} className="border-b ui-border last:border-b-0">
+                  <tr
+                    key={employee.id}
+                    className={[
+                      "border-b ui-border last:border-b-0",
+                      employee.system_user?.status === "Inactivo"
+                        ? "bg-rose-50/40"
+                        : employee.status === "Inactivo"
+                          ? "bg-amber-50/40"
+                        : "",
+                    ].join(" ")}
+                  >
                     <td className="px-4 py-3 font-medium">
-                      <Link
-                        href={`/dashboard/hr/${employee.id}`}
-                        prefetch={false}
-                        className="text-emerald-700 hover:underline"
-                      >
-                        {employee.name}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/dashboard/hr/${employee.id}`}
+                          prefetch={false}
+                          className="text-emerald-700 hover:underline"
+                        >
+                          {employee.name}
+                        </Link>
+                        {employee.system_user?.status === "Inactivo" && (
+                          <span className="rounded-full border border-rose-300 bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                            Acceso inactivo
+                          </span>
+                        )}
+                        {employee.status === "Inactivo" && (
+                          <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                            HR inactivo
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">{employee.email || "-"}</td>
                     <td className="px-4 py-3">
