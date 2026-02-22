@@ -189,22 +189,15 @@ const navItems: Array<{
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path
-          d="M4 6.5h10l6 5.5-6 5.5H4v-11z"
+          d="M3 12l9-9h6l3 3v6l-9 9-9-9z"
           fill="none"
           stroke="currentColor"
           strokeWidth="1.6"
           strokeLinejoin="round"
         />
-        <path
-          d="M14 6.5v11"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-        />
         <circle
-          cx="8"
-          cy="12"
+          cx="16.5"
+          cy="7.5"
           r="1.5"
           fill="none"
           stroke="currentColor"
@@ -637,10 +630,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     posPreview && item.href === "/dashboard"
                       ? "/dashboard?posPreview=1"
                       : item.href;
+                  const disablePrefetch =
+                    item.href === "/dashboard/hr" ||
+                    item.href === "/dashboard/labels-pilot";
                   return (
                     <li key={item.href}>
                       <Link
                         href={href}
+                        prefetch={disablePrefetch ? false : undefined}
                         onClick={() => {
                           setNavOpen(false);
                         }}
@@ -705,10 +702,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     posPreview && item.href === "/dashboard"
                       ? "/dashboard?posPreview=1"
                       : item.href;
+                  const disablePrefetch =
+                    item.href === "/dashboard/hr" ||
+                    item.href === "/dashboard/labels-pilot";
                   return (
                     <li key={item.href}>
                       <Link
                         href={href}
+                        prefetch={disablePrefetch ? false : undefined}
                         className={[
                           "block rounded-lg px-3 py-2 text-sm transition",
                           isActive

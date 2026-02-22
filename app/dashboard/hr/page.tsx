@@ -1,8 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../providers/AuthProvider";
-import { fetchHrEmployees, type HrEmployeeRecord } from "@/lib/api/hr";
+import {
+  fetchHrEmployees,
+  type HrEmployeeRecord,
+  type SystemRole,
+} from "@/lib/api/hr";
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "-";
@@ -22,6 +27,13 @@ export default function HrPage() {
   const [employees, setEmployees] = useState<HrEmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"Todos" | SystemRole | "Sin acceso">(
+    "Todos"
+  );
+  const [statusFilter, setStatusFilter] = useState<"Todos" | HrEmployeeRecord["status"]>(
+    "Todos"
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -53,28 +65,50 @@ export default function HrPage() {
     () => employees.filter((item) => item.status === "Activo").length,
     [employees]
   );
+  const filteredEmployees = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    return employees.filter((employee) => {
+      const systemRole = employee.system_user?.role ?? "Sin acceso";
+      if (roleFilter !== "Todos" && systemRole !== roleFilter) return false;
+      if (statusFilter !== "Todos" && employee.status !== statusFilter) return false;
+      if (!normalizedSearch) return true;
+      return (
+        employee.name.toLowerCase().includes(normalizedSearch) ||
+        (employee.email || "").toLowerCase().includes(normalizedSearch)
+      );
+    });
+  }, [employees, roleFilter, search, statusFilter]);
 
   return (
     <section className="space-y-4">
       <header>
         <h1 className="text-3xl font-bold tracking-tight">Recursos humanos</h1>
         <p className="ui-text-muted mt-1">
-          Fase 1: listado base de empleados y estado actual.
+          Empleados HR separados del acceso al sistema.
         </p>
+        <div className="mt-3">
+          <Link
+            href="/dashboard/hr/new"
+            prefetch={false}
+            className="rounded-md border ui-border px-3 py-2 text-sm hover:bg-white/60 transition"
+          >
+            Nuevo empleado
+          </Link>
+        </div>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <article className="rounded-2xl border ui-border dashboard-card px-4 py-3">
+      <div className="grid gap-2 sm:grid-cols-3 lg:max-w-2xl">
+        <article className="rounded-xl border ui-border dashboard-card px-3 py-2">
           <p className="text-xs uppercase tracking-[0.12em] ui-text-muted">Total</p>
-          <p className="mt-1 text-2xl font-semibold">{employees.length}</p>
+          <p className="mt-0.5 text-xl font-semibold leading-tight">{employees.length}</p>
         </article>
-        <article className="rounded-2xl border ui-border dashboard-card px-4 py-3">
+        <article className="rounded-xl border ui-border dashboard-card px-3 py-2">
           <p className="text-xs uppercase tracking-[0.12em] ui-text-muted">Activos</p>
-          <p className="mt-1 text-2xl font-semibold text-emerald-600">{activeCount}</p>
+          <p className="mt-0.5 text-xl font-semibold leading-tight text-emerald-600">{activeCount}</p>
         </article>
-        <article className="rounded-2xl border ui-border dashboard-card px-4 py-3">
+        <article className="rounded-xl border ui-border dashboard-card px-3 py-2">
           <p className="text-xs uppercase tracking-[0.12em] ui-text-muted">Inactivos</p>
-          <p className="mt-1 text-2xl font-semibold text-rose-600">
+          <p className="mt-0.5 text-xl font-semibold leading-tight text-rose-600">
             {Math.max(0, employees.length - activeCount)}
           </p>
         </article>
@@ -84,14 +118,65 @@ export default function HrPage() {
         <div className="px-4 py-3 border-b ui-border">
           <h2 className="text-lg font-semibold">Empleados</h2>
         </div>
+        <div className="px-4 py-3 border-b ui-border grid gap-3 md:grid-cols-4">
+          <label className="text-sm">
+            <span className="block mb-1 ui-text-muted">Buscar</span>
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Nombre o correo"
+              className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="block mb-1 ui-text-muted">Acceso (rol)</span>
+            <select
+              value={roleFilter}
+              onChange={(event) =>
+                setRoleFilter(
+                  event.target.value as "Todos" | SystemRole | "Sin acceso"
+                )
+              }
+              className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2"
+            >
+              <option value="Todos">Todos</option>
+              <option value="Administrador">Administrador</option>
+              <option value="Supervisor">Supervisor</option>
+              <option value="Vendedor">Vendedor</option>
+              <option value="Auditor">Auditor</option>
+              <option value="Sin acceso">Sin acceso</option>
+            </select>
+          </label>
+          <label className="text-sm">
+            <span className="block mb-1 ui-text-muted">Estado HR</span>
+            <select
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as "Todos" | HrEmployeeRecord["status"])
+              }
+              className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2"
+            >
+              <option value="Todos">Todos</option>
+              <option value="Activo">Activo</option>
+              <option value="Inactivo">Inactivo</option>
+            </select>
+          </label>
+          <div className="text-sm flex items-end">
+            <p className="ui-text-muted">
+              Mostrando <strong>{filteredEmployees.length}</strong> de{" "}
+              <strong>{employees.length}</strong> empleados.
+            </p>
+          </div>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead>
               <tr className="text-left border-b ui-border">
                 <th className="px-4 py-2 font-semibold">Nombre</th>
                 <th className="px-4 py-2 font-semibold">Correo</th>
-                <th className="px-4 py-2 font-semibold">Rol</th>
-                <th className="px-4 py-2 font-semibold">Estado</th>
+                <th className="px-4 py-2 font-semibold">Acceso</th>
+                <th className="px-4 py-2 font-semibold">Estado HR</th>
                 <th className="px-4 py-2 font-semibold">Cargo</th>
                 <th className="px-4 py-2 font-semibold">Telefono</th>
                 <th className="px-4 py-2 font-semibold">Creado</th>
@@ -110,18 +195,30 @@ export default function HrPage() {
                     {error}
                   </td>
                 </tr>
-              ) : employees.length === 0 ? (
+              ) : filteredEmployees.length === 0 ? (
                 <tr>
                   <td className="px-4 py-4 ui-text-muted" colSpan={7}>
-                    No hay empleados registrados.
+                    No se encontraron empleados con esos filtros.
                   </td>
                 </tr>
               ) : (
-                employees.map((employee) => (
+                filteredEmployees.map((employee) => (
                   <tr key={employee.id} className="border-b ui-border last:border-b-0">
-                    <td className="px-4 py-3 font-medium">{employee.name}</td>
-                    <td className="px-4 py-3">{employee.email}</td>
-                    <td className="px-4 py-3">{employee.role}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <Link
+                        href={`/dashboard/hr/${employee.id}`}
+                        prefetch={false}
+                        className="text-emerald-700 hover:underline"
+                      >
+                        {employee.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">{employee.email || "-"}</td>
+                    <td className="px-4 py-3">
+                      {employee.system_user
+                        ? `${employee.system_user.role} (${employee.system_user.status})`
+                        : "Sin acceso"}
+                    </td>
                     <td className="px-4 py-3">{employee.status}</td>
                     <td className="px-4 py-3">{employee.position || "-"}</td>
                     <td className="px-4 py-3">{employee.phone || "-"}</td>

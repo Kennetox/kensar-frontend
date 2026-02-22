@@ -712,7 +712,7 @@ export const defaultRolePermissions: RolePermissionModule[] = [
     description: "Gestión de empleados y datos laborales.",
     roles: {
       Administrador: true,
-      Supervisor: true,
+      Supervisor: false,
       Vendedor: false,
       Auditor: false,
     },
@@ -723,7 +723,18 @@ export const defaultRolePermissions: RolePermissionModule[] = [
         description: "Permite consultar la plantilla de colaboradores.",
         roles: {
           Administrador: true,
-          Supervisor: true,
+          Supervisor: false,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
+        id: "hr.manage",
+        label: "Editar empleados",
+        description: "Permite actualizar la información de empleados.",
+        roles: {
+          Administrador: true,
+          Supervisor: false,
           Vendedor: false,
           Auditor: false,
         },

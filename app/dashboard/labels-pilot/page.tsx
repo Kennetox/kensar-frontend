@@ -51,28 +51,9 @@ const TEST_LABEL: PrintPayload = {
 
 type LabelsPilotSessionState = {
   searchQuery: string;
-  searchResults: ProductSearchResult[];
-  searchError: string | null;
   labelItems: LabelItem[];
   activeItemId: number | null;
-  printStatus: PrintStatus;
-  printError: string | null;
-  probeStatus: PrintStatus;
-  probeMessage: string | null;
 };
-
-function asNullableString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-function asPrintStatus(value: unknown): PrintStatus {
-  return value === "idle" ||
-    value === "printing" ||
-    value === "success" ||
-    value === "error"
-    ? value
-    : "idle";
-}
 
 async function printLabelDirect(
   targetUrl: string,
@@ -182,14 +163,8 @@ export default function LabelsPilotPage() {
       try {
         const parsed = JSON.parse(raw) as Partial<LabelsPilotSessionState>;
         setSearchQuery(typeof parsed.searchQuery === "string" ? parsed.searchQuery : "");
-        setSearchResults(Array.isArray(parsed.searchResults) ? parsed.searchResults : []);
-        setSearchError(asNullableString(parsed.searchError));
         setLabelItems(Array.isArray(parsed.labelItems) ? parsed.labelItems : []);
         setActiveItemId(typeof parsed.activeItemId === "number" ? parsed.activeItemId : null);
-        setPrintStatus(asPrintStatus(parsed.printStatus));
-        setPrintError(asNullableString(parsed.printError));
-        setProbeStatus(asPrintStatus(parsed.probeStatus));
-        setProbeMessage(asNullableString(parsed.probeMessage));
       } catch (error) {
         console.warn("No se pudo restaurar la sesion de etiquetas piloto.", error);
       }
@@ -199,31 +174,22 @@ export default function LabelsPilotPage() {
 
   useEffect(() => {
     if (typeof window === "undefined" || !sessionReady) return;
-    const payload: LabelsPilotSessionState = {
-      searchQuery,
-      searchResults,
-      searchError,
-      labelItems,
-      activeItemId,
-      printStatus: printStatus === "printing" ? "idle" : printStatus,
-      printError,
-      probeStatus: probeStatus === "printing" ? "idle" : probeStatus,
-      probeMessage,
-    };
-    window.sessionStorage.setItem(
-      SESSION_STORAGE_STATE_KEY,
-      JSON.stringify(payload)
-    );
+    const timeoutId = window.setTimeout(() => {
+      const payload: LabelsPilotSessionState = {
+        searchQuery,
+        labelItems,
+        activeItemId,
+      };
+      window.sessionStorage.setItem(
+        SESSION_STORAGE_STATE_KEY,
+        JSON.stringify(payload)
+      );
+    }, 250);
+    return () => window.clearTimeout(timeoutId);
   }, [
     activeItemId,
     labelItems,
-    printError,
-    printStatus,
-    probeMessage,
-    probeStatus,
-    searchError,
     searchQuery,
-    searchResults,
     sessionReady,
   ]);
 
@@ -233,10 +199,17 @@ export default function LabelsPilotPage() {
   }, [format, settingsReady]);
 
   useEffect(() => {
-    checkAgentHealth();
-    const interval = window.setInterval(checkAgentHealth, 10000);
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (!settingsOpen) return;
+
+    void checkAgentHealth();
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void checkAgentHealth();
+    }, 30000);
+
     return () => window.clearInterval(interval);
-  }, [checkAgentHealth]);
+  }, [checkAgentHealth, settingsOpen]);
 
   const handleSearch = useCallback(
     async (e?: React.FormEvent) => {
