@@ -237,6 +237,45 @@ const navItems: Array<{
     ),
   },
   {
+    href: "/dashboard/hr",
+    label: "Recursos Humanos",
+    moduleId: "hr",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle
+          cx="9"
+          cy="8"
+          r="3"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+        />
+        <path
+          d="M4.5 18a4.5 4.5 0 0 1 9 0"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <circle
+          cx="17.5"
+          cy="9"
+          r="2.2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+        />
+        <path
+          d="M14.8 17.2a3.4 3.4 0 0 1 5.4-.2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/dashboard/settings",
     label: "Configuración",
     moduleId: "settings",
@@ -277,6 +316,7 @@ const routePermissions: Array<{
   { prefix: "/dashboard/pos", moduleId: "pos" },
   { prefix: "/dashboard/labels", moduleId: "labels" },
   { prefix: "/dashboard/reports", moduleId: "reports" },
+  { prefix: "/dashboard/hr", moduleId: "hr" },
   { prefix: "/dashboard/settings", moduleId: "settings" },
   { prefix: "/dashboard", moduleId: "dashboard" },
 ];

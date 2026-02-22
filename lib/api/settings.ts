@@ -706,6 +706,30 @@ export const defaultRolePermissions: RolePermissionModule[] = [
       },
     ],
   },
+  {
+    id: "hr",
+    label: "Recursos Humanos",
+    description: "Gestión de empleados y datos laborales.",
+    roles: {
+      Administrador: true,
+      Supervisor: true,
+      Vendedor: false,
+      Auditor: false,
+    },
+    actions: [
+      {
+        id: "hr.view",
+        label: "Ver empleados",
+        description: "Permite consultar la plantilla de colaboradores.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+    ],
+  },
 ];
 
 export async function fetchPosSettings(

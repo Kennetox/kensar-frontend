@@ -355,36 +355,9 @@ export default function LabelsPage() {
           <h1 className="text-3xl font-bold text-slate-900">Etiquetas</h1>
           <p className="text-sm text-slate-600 max-w-2xl">
             Construye rápidamente una lista de productos para etiquetar y
-            genera el archivo de Excel compatible con el editor de etiquetas
-            actual. Más adelante esta sección se conectará directamente con la
-            impresora SATO.
+            genera el archivo de Excel compatible.
           </p>
         </header>
-
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4">
-            <p className="text-xs uppercase tracking-wide text-emerald-700">
-              Productos en la lista
-            </p>
-            <p className="text-3xl font-semibold text-slate-900">
-              {labelItems.length.toLocaleString("es-CO")}
-            </p>
-            <p className="text-xs text-slate-600">
-              Referencias listas para exportar.
-            </p>
-          </div>
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4">
-            <p className="text-xs uppercase tracking-wide text-slate-600">
-              Etiquetas acumuladas
-            </p>
-            <p className="text-3xl font-semibold text-slate-900">
-              {totalLabels.toLocaleString("es-CO")}
-            </p>
-            <p className="text-xs text-slate-600">
-              Total de unidades a imprimir.
-            </p>
-          </div>
-        </section>
 
         {/* Bloque 1: búsqueda de productos */}
         <section className="rounded-3xl ui-surface p-5 md:p-6">

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
+import { exportReportExcel } from "@/lib/api/reports";
 import { fetchPosSettings, PosSettingsPayload } from "@/lib/api/settings";
 import { SHOW_FREE_SALE_TRACEABILITY_REPORT } from "@/lib/config/featureFlags";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
@@ -2309,6 +2310,7 @@ type ReportDocumentViewerProps = {
   salesData: ReportSale[];
   changesData: ReportChange[];
   companyInfo: CompanyInfo;
+  token?: string | null;
   settingsError?: string | null;
   onClose?: () => void;
   resolveMethodLabel: PaymentLabelResolver;
@@ -2416,11 +2418,14 @@ function ReportDocumentViewer({
   salesData,
   changesData,
   companyInfo,
+  token,
   settingsError,
   onClose,
   resolveMethodLabel,
 }: ReportDocumentViewerProps) {
   const [pageIndex, setPageIndex] = useState(0);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const filteredSales = useMemo(
     () => filterSalesByMeta(salesData, filterMeta),
@@ -2489,6 +2494,103 @@ function ReportDocumentViewer({
     handlePrint();
   }, [handlePrint]);
 
+  const handleDownloadExcel = useCallback(async () => {
+    if (!result) return;
+    try {
+      setExportLoading(true);
+      setExportError(null);
+
+      const blob = await exportReportExcel(
+        {
+          preset_id: preset.id,
+          title: preset.title,
+          company: {
+            name: companyInfo.name,
+            address: companyInfo.address,
+            email: companyInfo.email,
+            phone: companyInfo.phone,
+          },
+          filters: {
+            from_date: filterMeta.fromDate,
+            to_date: filterMeta.toDate,
+            pos_filter: filterMeta.posFilter,
+            method_filter: filterMeta.methodFilter,
+            seller_filter: filterMeta.sellerFilter,
+          },
+          summary: result.summary.map((item) => ({
+            label: item.label,
+            value: item.value,
+          })),
+          table: {
+            columns: result.table?.columns ?? [],
+            rows: result.table?.rows ?? [],
+            empty_message: result.table?.emptyMessage,
+          },
+        },
+        token
+      );
+
+      const fileName = `reporte_${preset.id}_${filterMeta.fromDate}_${filterMeta.toDate}.xlsx`;
+      const picker = (
+        window as Window & {
+          showSaveFilePicker?: (options?: {
+            suggestedName?: string;
+            types?: {
+              description?: string;
+              accept?: Record<string, string[]>;
+            }[];
+          }) => Promise<{
+            createWritable: () => Promise<{
+              write: (data: Blob) => Promise<void>;
+              close: () => Promise<void>;
+            }>;
+          }>;
+        }
+      ).showSaveFilePicker;
+
+      if (picker) {
+        try {
+          const handle = await picker({
+            suggestedName: fileName,
+            types: [
+              {
+                description: "Excel",
+                accept: {
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+                    [".xlsx"],
+                },
+              },
+            ],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return;
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            return;
+          }
+          throw err;
+        }
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : "No se pudo exportar el archivo Excel."
+      );
+    } finally {
+      setExportLoading(false);
+    }
+  }, [result, preset, companyInfo, filterMeta, token]);
+
   const {
     totalPages,
     currentIndex,
@@ -2551,8 +2653,12 @@ function ReportDocumentViewer({
           >
             Descargar PDF
           </button>
-          <button className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400">
-            Descargar CSV
+          <button
+            className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleDownloadExcel}
+            disabled={exportLoading}
+          >
+            {exportLoading ? "Generando Excel..." : "Descargar Excel"}
           </button>
           <button
             className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400"
@@ -2574,6 +2680,11 @@ function ReportDocumentViewer({
       {settingsError && (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 text-sm text-rose-100 px-4 py-3">
           {settingsError}
+        </div>
+      )}
+      {exportError && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 text-sm text-rose-100 px-4 py-3">
+          {exportError}
         </div>
       )}
 
@@ -3232,6 +3343,7 @@ export default function ReportsPage() {
             salesData={salesData}
             changesData={changesData}
             companyInfo={companyInfo}
+            token={token}
             settingsError={settingsError}
             onClose={() => handleCloseReportTab(activeReportTab.id)}
             resolveMethodLabel={resolveMethodLabel}
