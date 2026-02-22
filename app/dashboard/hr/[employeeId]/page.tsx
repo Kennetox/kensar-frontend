@@ -108,6 +108,7 @@ export default function HrEmployeeDetailPage() {
   const router = useRouter();
   const { token, user } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const docInputRef = useRef<HTMLInputElement | null>(null);
   const employeeId = Number(params?.employeeId || 0);
 
   const [employee, setEmployee] = useState<HrEmployeeRecord | null>(null);
@@ -129,6 +130,7 @@ export default function HrEmployeeDetailPage() {
   const [docFile, setDocFile] = useState<File | null>(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
+  const [downloadingDocKey, setDownloadingDocKey] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarLoadError, setAvatarLoadError] = useState(false);
   const [creatingAccess, setCreatingAccess] = useState(false);
@@ -497,11 +499,38 @@ export default function HrEmployeeDetailPage() {
       setDocuments((prev) => [created, ...prev]);
       setDocFile(null);
       setDocNote("");
+      if (docInputRef.current) docInputRef.current.value = "";
       showToast("Documento cargado correctamente.");
     } catch (err) {
       setDocsError(err instanceof Error ? err.message : "No se pudo cargar el documento.");
     } finally {
       setUploadingDoc(false);
+    }
+  };
+
+  const handleDownloadDocument = async (doc: HrEmployeeDocumentRecord) => {
+    const docKey = `${doc.source ?? "hr"}-${doc.id}`;
+    try {
+      setDownloadingDocKey(docKey);
+      const response = await fetch(getDocumentUrl(doc.file_url));
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}`);
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = doc.file_name || "documento";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setDocsError(
+        err instanceof Error ? err.message : "No se pudo descargar el documento."
+      );
+    } finally {
+      setDownloadingDocKey(null);
     }
   };
 
@@ -1121,11 +1150,25 @@ export default function HrEmployeeDetailPage() {
                   <label className="text-sm">
                     <span className="block mb-1 ui-text-muted">Archivo</span>
                     <input
+                      ref={docInputRef}
                       type="file"
                       onChange={(event) => setDocFile(event.target.files?.[0] ?? null)}
-                      className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2"
+                      className="hidden"
                       disabled={!canManage || uploadingDoc}
                     />
+                    <div className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => docInputRef.current?.click()}
+                        disabled={!canManage || uploadingDoc}
+                        className="rounded-md border ui-border px-3 py-1.5 text-sm font-semibold hover:bg-white disabled:opacity-60"
+                      >
+                        Seleccionar archivo
+                      </button>
+                      <span className="text-sm ui-text-muted truncate">
+                        {docFile?.name ?? "Ningún archivo seleccionado"}
+                      </span>
+                    </div>
                   </label>
                   <label className="text-sm">
                     <span className="block mb-1 ui-text-muted">Nota</span>
@@ -1188,6 +1231,16 @@ export default function HrEmployeeDetailPage() {
                                 >
                                   Abrir
                                 </a>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDownloadDocument(doc)}
+                                  disabled={downloadingDocKey === `${doc.source ?? "hr"}-${doc.id}`}
+                                  className="rounded-md border ui-border px-3 py-1.5 hover:bg-white/60 disabled:opacity-60"
+                                >
+                                  {downloadingDocKey === `${doc.source ?? "hr"}-${doc.id}`
+                                    ? "Descargando..."
+                                    : "Descargar"}
+                                </button>
                                 <button
                                   type="button"
                                   disabled={
