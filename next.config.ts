@@ -25,6 +25,11 @@ const nextConfig: NextConfig = {
         hostname: "www.metrikpos.com",
         pathname: "/uploads/**",
       },
+      {
+        protocol: "https",
+        hostname: "*.onrender.com",
+        pathname: "/uploads/**",
+      },
     ],
   },
 };
