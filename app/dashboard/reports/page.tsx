@@ -37,6 +37,19 @@ type ReportSaleItem = {
   line_discount_value?: number;
 };
 
+type ReportSaleReturnItem = {
+  product_id?: number | null;
+  product_name?: string | null;
+  product_sku?: string | null;
+  quantity?: number;
+};
+
+type ReportSaleReturn = {
+  status?: string | null;
+  voided_at?: string | null;
+  items?: ReportSaleReturnItem[];
+};
+
 type ReportChangeReturnItem = {
   product_id: number;
   product_name?: string | null;
@@ -79,6 +92,7 @@ export type ReportSale = {
   cart_discount_value?: number | null;
   cart_discount_percent?: number | null;
   items?: ReportSaleItem[];
+  returns?: ReportSaleReturn[];
   surcharge_amount?: number | null;
   surcharge_label?: string | null;
 };
@@ -156,7 +170,8 @@ const isValidOpenReportTab = (value: unknown): value is OpenReportTab => {
   );
 };
 
-const REPORT_LIMIT = 500;
+const REPORT_PAGE_SIZE = 500;
+const ADJUSTMENTS_CHUNK_SIZE = 200;
 const TABLE_ROWS_PER_PAGE = 18;
 const PAPER_WIDTH_MM = 210; // A4
 const PAPER_HEIGHT_MM = 297; // A4
@@ -1646,8 +1661,9 @@ const dateTimeFormatter = (iso: string) =>
       }
 
       sales.forEach((sale) => {
-        const adjustedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
-        const pricedItems = applyCartDiscountToItems(sale, adjustedItems);
+        const changedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
+        const netItems = applyReturnsToSaleItems(sale, changedItems);
+        const pricedItems = applyCartDiscountToItems(sale, netItems);
         pricedItems.forEach((item) => {
           const category =
             item.product_group?.trim() ||
@@ -2192,8 +2208,9 @@ const dateTimeFormatter = (iso: string) =>
         });
       }
       sales.forEach((sale) => {
-        const adjustedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
-        const pricedItems = applyCartDiscountToItems(sale, adjustedItems);
+        const changedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
+        const netItems = applyReturnsToSaleItems(sale, changedItems);
+        const pricedItems = applyCartDiscountToItems(sale, netItems);
         pricedItems.forEach((item) => {
           const productName =
             item.product_name ?? item.name ?? "Producto sin nombre";
@@ -2404,6 +2421,59 @@ const applyChangesToSaleItems = (
         quantity,
         unit_price: item.unit_price,
       });
+    });
+  });
+
+  return Array.from(itemsMap.values()).filter(
+    (item) => Number(item.quantity ?? 0) > 0
+  );
+};
+
+const applyReturnsToSaleItems = (sale: ReportSale, items: ReportSaleItem[]) => {
+  if (!items.length) return items;
+  const returns = sale.returns ?? [];
+  if (!returns.length) return items;
+
+  const itemsMap = new Map<string, ReportSaleItem>();
+  items.forEach((item) => {
+    const key = buildItemKey(item);
+    const quantity = Number(item.quantity ?? 0);
+    if (quantity <= 0) return;
+    itemsMap.set(key, { ...item });
+  });
+
+  returns.forEach((ret) => {
+    if (ret.status && ret.status !== "confirmed") return;
+    if (ret.voided_at) return;
+    ret.items?.forEach((returnedItem) => {
+      const key = buildItemKey(returnedItem);
+      const existing = itemsMap.get(key);
+      const quantity = Number(returnedItem.quantity ?? 0);
+      if (quantity <= 0) return;
+      if (existing) {
+        const nextQty = Number(existing.quantity ?? 0) - quantity;
+        if (nextQty > 0) {
+          existing.quantity = nextQty;
+          itemsMap.set(key, existing);
+        } else {
+          itemsMap.delete(key);
+        }
+        return;
+      }
+      const fallbackKey = buildItemKey({
+        product_name: returnedItem.product_name ?? undefined,
+        product_sku: returnedItem.product_sku ?? undefined,
+      });
+      const fallback = itemsMap.get(fallbackKey);
+      if (fallback) {
+        const nextQty = Number(fallback.quantity ?? 0) - quantity;
+        if (nextQty > 0) {
+          fallback.quantity = nextQty;
+          itemsMap.set(fallbackKey, fallback);
+        } else {
+          itemsMap.delete(fallbackKey);
+        }
+      }
     });
   });
 
@@ -2989,44 +3059,65 @@ export default function ReportsPage() {
       setSalesLoading(true);
       setSalesError(null);
       const apiBase = getApiBase();
+
+      const fetchAllPages = async <T,>(path: string): Promise<T[]> => {
+        const rows: T[] = [];
+        let skip = 0;
+        for (;;) {
+          const res = await fetch(
+            `${apiBase}${path}?skip=${skip}&limit=${REPORT_PAGE_SIZE}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+            }
+          );
+          if (!res.ok) {
+            throw new Error(`Error ${res.status}`);
+          }
+          const page: T[] = await res.json();
+          rows.push(...page);
+          if (page.length < REPORT_PAGE_SIZE) break;
+          skip += page.length;
+        }
+        return rows;
+      };
+
       const [salesResult, changesResult] = await Promise.allSettled([
-        fetch(`${apiBase}/pos/sales?skip=0&limit=${REPORT_LIMIT}`, {
-          headers: authHeaders,
-          credentials: "include",
-        }),
-        fetch(`${apiBase}/pos/changes?skip=0&limit=${REPORT_LIMIT}`, {
-          headers: authHeaders,
-          credentials: "include",
-        }),
+        fetchAllPages<ReportSale>("/pos/sales"),
+        fetchAllPages<ReportChange>("/pos/changes"),
       ]);
+
       if (salesResult.status !== "fulfilled") {
         throw salesResult.reason;
       }
-      const salesRes = salesResult.value;
-      if (!salesRes.ok) {
-        throw new Error(`Error ${salesRes.status}`);
-      }
-      const data: ReportSale[] = await salesRes.json();
+
+      const data = salesResult.value;
       let nextSales = data;
+
       if (data.length > 0) {
         const ids = data.map((sale) => sale.id);
-        const adjustmentsRes = await fetch(
-          `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${ids.join(",")}`,
-          {
-            headers: authHeaders,
-            credentials: "include",
-          }
-        );
-        if (adjustmentsRes.ok) {
-          const adjustmentsData: ReportDocumentAdjustment[] =
-            await adjustmentsRes.json();
-          nextSales = applyDocumentAdjustmentsToSales(data, adjustmentsData);
+        const adjustmentsBatches: ReportDocumentAdjustment[] = [];
+        for (let index = 0; index < ids.length; index += ADJUSTMENTS_CHUNK_SIZE) {
+          const chunk = ids.slice(index, index + ADJUSTMENTS_CHUNK_SIZE);
+          const adjustmentsRes = await fetch(
+            `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${chunk.join(",")}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+            }
+          );
+          if (!adjustmentsRes.ok) continue;
+          const batch: ReportDocumentAdjustment[] = await adjustmentsRes.json();
+          adjustmentsBatches.push(...batch);
+        }
+        if (adjustmentsBatches.length > 0) {
+          nextSales = applyDocumentAdjustmentsToSales(data, adjustmentsBatches);
         }
       }
+
       setSalesData(nextSales);
-      if (changesResult.status === "fulfilled" && changesResult.value.ok) {
-        const changes: ReportChange[] = await changesResult.value.json();
-        setChangesData(changes);
+      if (changesResult.status === "fulfilled") {
+        setChangesData(changesResult.value);
       } else {
         setChangesData([]);
       }
