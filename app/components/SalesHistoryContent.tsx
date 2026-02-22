@@ -201,6 +201,13 @@ type Sale = {
   surcharge_label?: string | null;
 };
 
+type SalesHistoryPageResponse = {
+  total: number;
+  skip: number;
+  limit: number;
+  items: Sale[];
+};
+
 type SeparatedOrderSummary = SeparatedOrder;
 
 function getSeparatedOrderPaidTotal(
@@ -573,6 +580,7 @@ export default function SalesHistoryContent({
     backLabel ?? (backPath === "/pos" ? "Volver al POS" : "Volver");
 
   const [sales, setSales] = useState<Sale[]>([]);
+  const [salesTotal, setSalesTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -967,15 +975,24 @@ export default function SalesHistoryContent({
     };
   }, [selectedSale, token, fetchSeparatedOrderForSale]);
 
-  async function loadSales() {
+  const loadSales = useCallback(async () => {
     try {
       if (!authHeaders) throw new Error("Sin credenciales");
       setLoading(true);
       setError(null);
 
       const apiBase = getApiBase();
+      const params = new URLSearchParams();
+      params.set("skip", String((currentPage - 1) * PAGE_SIZE));
+      params.set("limit", String(PAGE_SIZE));
+      if (filterFrom) params.set("date_from", filterFrom);
+      if (filterTo) params.set("date_to", filterTo);
+      if (filterTerm.trim()) params.set("term", filterTerm.trim());
+      if (filterClient.trim()) params.set("customer", filterClient.trim());
+      if (filterPayment.trim()) params.set("payment_method", filterPayment.trim());
+      if (filterPos.trim()) params.set("pos", filterPos.trim());
       const res = await fetch(
-        `${apiBase}/pos/sales?skip=0&limit=200`,
+        `${apiBase}/pos/sales/history?${params.toString()}`,
         {
           headers: authHeaders,
           credentials: "include",
@@ -986,14 +1003,15 @@ export default function SalesHistoryContent({
         throw new Error(`Error ${res.status}`);
       }
 
-      const json: Sale[] = await res.json();
-      const ordered = [...json].sort((a, b) => {
+      const json: SalesHistoryPageResponse = await res.json();
+      const ordered = [...(json.items ?? [])].sort((a, b) => {
         const aTime = parseDateInput(a.created_at)?.getTime() ?? 0;
         const bTime = parseDateInput(b.created_at)?.getTime() ?? 0;
         return bTime - aTime;
       });
       setSeparatedPaymentsMap({});
       setSales(ordered);
+      setSalesTotal(Number(json.total ?? ordered.length));
       if (ordered.length > 0) {
         const ids = ordered.map((sale) => sale.id);
         const adjustmentsRes = await fetch(
@@ -1019,9 +1037,7 @@ export default function SalesHistoryContent({
         setSalesAdjustments({});
       }
 
-      if (!selectedSale && ordered.length > 0) {
-        setSelectedSale(ordered[0]);
-      }
+      setSelectedSale((prev) => prev ?? ordered[0] ?? null);
     } catch (err) {
       console.error(err);
       setError(
@@ -1032,13 +1048,21 @@ export default function SalesHistoryContent({
     } finally {
       setLoading(false);
     }
-  }
+  }, [
+    authHeaders,
+    currentPage,
+    filterClient,
+    filterFrom,
+    filterPayment,
+    filterPos,
+    filterTerm,
+    filterTo,
+  ]);
 
   useEffect(() => {
     if (!authHeaders) return;
     void loadSales();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authHeaders]);
+  }, [authHeaders, loadSales]);
 
   const handleRefresh = () => {
     if (!authHeaders) return;
@@ -1064,85 +1088,7 @@ export default function SalesHistoryContent({
     handleReturnForSale(selectedSale);
   };
 
-  const filteredSales = useMemo(() => {
-    const term = filterTerm.trim().toLowerCase();
-    const clientTerm = filterClient.trim().toLowerCase();
-    const payment = filterPayment.trim().toLowerCase();
-    const posFilter = filterPos.trim().toLowerCase();
-
-    return sales.filter((sale) => {
-      const createdInRange = isWithinFilterRange(sale.created_at);
-      let hasMatchingAbono = false;
-      if (!createdInRange && sale.is_separated) {
-        const paymentEntries = separatedPaymentsMap[sale.id] ?? [];
-        hasMatchingAbono = paymentEntries.some((payment) =>
-          isWithinFilterRange(payment.paid_at)
-        );
-      }
-      if (!createdInRange && !hasMatchingAbono) {
-        return false;
-      }
-
-      if (term) {
-        const saleNumberText = `${sale.sale_number ?? ""}`.toLowerCase();
-        const docText = (sale.document_number ?? "").toLowerCase();
-        const detailText = (sale.items ?? [])
-          .map((item) => (item.product_name ?? item.name ?? "").toLowerCase())
-          .join(" ");
-        if (
-          !saleNumberText.includes(term) &&
-          !docText.includes(term) &&
-          !detailText.includes(term)
-        ) {
-          return false;
-        }
-      }
-
-      if (clientTerm) {
-        if (!(sale.customer_name ?? "").toLowerCase().includes(clientTerm)) {
-          return false;
-        }
-      }
-
-      if (payment) {
-        const adjustments = salesAdjustments[sale.id] ?? [];
-        const adjustedPayments = getAdjustedPaymentsFromAdjustments(adjustments);
-        const saleMethod = adjustedPayments?.length
-          ? (adjustedPayments[0].method ?? "").toLowerCase()
-          : (sale.payment_method ?? "").toLowerCase();
-        const multiMatch = adjustedPayments?.length
-          ? adjustedPayments.some(
-              (p) => (p.method ?? "").toLowerCase() === payment
-            )
-          : (sale.payments ?? []).some(
-              (p) => (p.method ?? "").toLowerCase() === payment
-            ) || false;
-        const separatedMatch =
-          payment === "separado" && !!sale.is_separated;
-        if (saleMethod !== payment && !multiMatch && !separatedMatch) {
-          return false;
-        }
-      }
-
-      if (posFilter) {
-        const salePos = (sale.pos_name ?? "").toLowerCase();
-        if (!salePos.includes(posFilter)) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }, [
-    sales,
-    filterTerm,
-    filterClient,
-    filterPayment,
-    filterPos,
-    separatedPaymentsMap,
-    salesAdjustments,
-    isWithinFilterRange,
-  ]);
+  const filteredSales = sales;
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -2193,21 +2139,18 @@ export default function SalesHistoryContent({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterFrom, filterTo, filterTerm, filterClient, filterPayment, sales]);
+  }, [filterFrom, filterTo, filterTerm, filterClient, filterPayment, filterPos]);
 
   const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(filteredSales.length / PAGE_SIZE)),
-    [filteredSales.length]
+    () => Math.max(1, Math.ceil(salesTotal / PAGE_SIZE)),
+    [salesTotal]
   );
 
   useEffect(() => {
     setCurrentPage((prev) => Math.min(prev, totalPages));
   }, [totalPages]);
 
-  const paginatedSales = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return filteredSales.slice(start, start + PAGE_SIZE);
-  }, [filteredSales, currentPage]);
+  const paginatedSales = filteredSales;
 
   const todayKey = getBogotaDateKey();
   const isTodayRange = Boolean(
@@ -2486,13 +2429,13 @@ export default function SalesHistoryContent({
               </p>
             </div>
             <div className="text-sm text-slate-400">
-              Resultados: {loading ? "..." : filteredSales.length}
+              Resultados: {loading ? "..." : salesTotal}
             </div>
           </div>
 
           {sales.length === 0 && !loading ? (
             <p className="text-sm text-slate-500 mt-3">
-              Aún no hay ventas registradas.
+              Aún no hay ventas registradas para los filtros aplicados.
             </p>
           ) : (
             <>
@@ -2748,7 +2691,7 @@ export default function SalesHistoryContent({
               <div className="mt-2 flex items-center justify-between text-base text-slate-500">
                 <span>
                   Página{" "}
-                  {filteredSales.length > 0
+                  {salesTotal > 0
                     ? `${currentPage} de ${totalPages}`
                     : "0 de 0"}
                 </span>
