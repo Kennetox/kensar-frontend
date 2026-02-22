@@ -32,7 +32,7 @@ export default function HrPage() {
     "Todos"
   );
   const [statusFilter, setStatusFilter] = useState<"Todos" | HrEmployeeRecord["status"]>(
-    "Todos"
+    "Activo"
   );
 
   useEffect(() => {
