@@ -342,6 +342,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const posPreview = searchParams.get("posPreview") === "1";
   const [navOpen, setNavOpen] = useState(false);
   const [roleModules, setRoleModules] = useState(defaultRolePermissions);
+  const [rolePermissionsReady, setRolePermissionsReady] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfileRecord | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -361,6 +362,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       })
       .finally(() => {
         if (cancelled) return;
+        setRolePermissionsReady(true);
       });
 
     return () => {
@@ -412,6 +414,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   }, [token]);
 
   const routeAllowed = useMemo(() => {
+    if (!rolePermissionsReady && !posPreview) return true;
     if (posPreview) {
       return posPreviewAllowedPrefixes.some(
         (prefix) =>
@@ -419,7 +422,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       );
     }
     return isPathAllowed(pathname, user?.role, roleModules);
-  }, [pathname, user?.role, posPreview, roleModules]);
+  }, [pathname, user?.role, posPreview, roleModules, rolePermissionsReady]);
 
   const currentBreadcrumbs = useMemo(() => {
     if (posPreview) return ["Inicio"];
@@ -451,14 +454,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/dashboard/products/");
 
   useEffect(() => {
-    if (!loading && token && !routeAllowed) {
+    if (!loading && token && rolePermissionsReady && !routeAllowed) {
       if (posPreview) {
         router.replace("/dashboard?posPreview=1");
       } else if (pathname !== "/dashboard") {
         router.replace("/dashboard");
       }
     }
-  }, [loading, token, routeAllowed, router, pathname, posPreview]);
+  }, [loading, token, routeAllowed, router, pathname, posPreview, rolePermissionsReady]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -489,6 +492,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     return (
       <div className="min-h-screen flex items-center justify-center dashboard-shell">
         <span>Autenticando…</span>
+      </div>
+    );
+  }
+
+  if (!posPreview && !rolePermissionsReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center dashboard-shell">
+        <span>Cargando permisos…</span>
       </div>
     );
   }

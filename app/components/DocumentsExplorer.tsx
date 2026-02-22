@@ -12,8 +12,12 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import {
+  defaultRolePermissions,
+  fetchRolePermissions,
   fetchPosSettings,
+  PosUserRecord,
   PosSettingsPayload,
+  RolePermissionModule,
 } from "@/lib/api/settings";
 import {
   renderSaleTicket,
@@ -36,6 +40,17 @@ import {
 } from "@/lib/time/bogota";
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
+
+type DashboardRole = PosUserRecord["role"];
+
+function isDashboardRole(role?: string | null): role is DashboardRole {
+  return (
+    role === "Administrador" ||
+    role === "Supervisor" ||
+    role === "Vendedor" ||
+    role === "Auditor"
+  );
+}
 
 type SaleItem = {
   id?: number;
@@ -505,6 +520,9 @@ export default function DocumentsExplorer({
 }: DocumentsExplorerProps = {}) {
   const router = useRouter();
   const { token, logout, user } = useAuth();
+  const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
+    defaultRolePermissions
+  );
   const [posSettings, setPosSettings] =
     useState<PosSettingsPayload | null>(null);
   const authHeaders = useMemo(
@@ -521,6 +539,37 @@ export default function DocumentsExplorer({
       return getPaymentLabel(method, "—");
     },
     [getPaymentLabel]
+  );
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetchRolePermissions(token)
+      .then((modules) => {
+        if (!cancelled) {
+          setRoleModules(modules);
+        }
+      })
+      .catch((err) => {
+        console.error("No pudimos cargar permisos de documentos.", err);
+        if (!cancelled) {
+          setRoleModules(defaultRolePermissions);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const canDoDocumentAction = useCallback(
+    (actionId: string) => {
+      if (!isDashboardRole(user?.role)) return false;
+      const documentsModule = roleModules.find((item) => item.id === "documents");
+      if (!documentsModule) return false;
+      const action = documentsModule.actions.find((entry) => entry.id === actionId);
+      if (!action) return Boolean(documentsModule.roles[user.role]);
+      return Boolean(action.roles[user.role]);
+    },
+    [roleModules, user?.role]
   );
   const today = getBogotaDateKey();
   const [sales, setSales] = useState<SaleRecord[]>([]);
@@ -1338,7 +1387,8 @@ export default function DocumentsExplorer({
     [sales, returns, changes, closures, separatedOrders]
   );
 
-  const isAdmin = user?.role === "Administrador";
+  const canAdjustDocuments = canDoDocumentAction("documents.sales.adjust");
+  const canVoidDocuments = canDoDocumentAction("documents.sales.void");
   const getStatusLabel = (status?: string) => {
     if (!status || status === "active" || status === "confirmed") return null;
     if (status === "voided") return "Anulado";
@@ -1596,13 +1646,13 @@ const selectedDetails = selectedDoc?.data;
   }, [authHeaders, filteredDocuments, mapPaymentMethod]);
 const selectedDocCanShowVoidButton =
   !!selectedDoc &&
-  isAdmin &&
+  canVoidDocuments &&
   selectedDoc.type !== "cierre" &&
   selectedDoc.type !== "abono" &&
   !selectedDocIsVoided;
 const selectedDocCanVoid =
   !!selectedDoc &&
-  isAdmin &&
+  canVoidDocuments &&
   selectedDoc.type !== "cierre" &&
   selectedDoc.type !== "abono" &&
   !selectedDocIsVoided &&
@@ -1614,7 +1664,7 @@ const selectedDocCreatedDate = selectedDoc
 const selectedDocIsToday = selectedDocCreatedDate === today;
 const canAdjustDoc =
   !!selectedDoc &&
-  isAdmin &&
+  canAdjustDocuments &&
   selectedDoc.type === "venta" &&
   !selectedDocIsVoided &&
   selectedDocIsToday;
@@ -2339,7 +2389,7 @@ useEffect(() => {
   const toggleDetailDisabled = !canToggleDetail;
   const adjustActionTitle = !selectedDoc
     ? "Selecciona un documento"
-    : !isAdmin
+    : !canAdjustDocuments
     ? "No tienes permisos"
     : selectedDoc.type !== "venta"
     ? "Solo disponible para ventas"
@@ -2350,7 +2400,7 @@ useEffect(() => {
     : undefined;
   const voidActionTitle = !selectedDoc
     ? "Selecciona un documento"
-    : !isAdmin
+    : !canVoidDocuments
     ? "No tienes permisos"
     : selectedDoc.type === "cierre" || selectedDoc.type === "abono"
     ? "No disponible para este documento"

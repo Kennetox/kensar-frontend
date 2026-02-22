@@ -376,6 +376,28 @@ export const defaultRolePermissions: RolePermissionModule[] = [
         },
       },
       {
+        id: "documents.sales.adjust",
+        label: "Ajustar ventas",
+        description: "Permite registrar ajustes sobre ventas.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
+        id: "documents.sales.void",
+        label: "Anular ventas",
+        description: "Permite anular ventas (si aplica).",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
         id: "documents.separated_orders.void_payment",
         label: "Anular abonos",
         description: "Permite anular pagos de separados.",
