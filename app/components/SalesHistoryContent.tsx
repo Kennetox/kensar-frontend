@@ -11,10 +11,14 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import {
+  defaultRolePermissions,
+  fetchRolePermissions,
   fetchPosSettings,
   fetchPosStations,
+  PosUserRecord,
   PosSettingsPayload,
   PosStationRecord,
+  RolePermissionModule,
 } from "@/lib/api/settings";
 import {
   ensureStoredPosMode,
@@ -281,6 +285,17 @@ function getAdjustedPaymentsFromAdjustments(
 }
 
 type QuickRange = "today" | "yesterday" | "thisWeek" | "thisMonth";
+
+type DashboardRole = PosUserRecord["role"];
+
+function isDashboardRole(role?: string | null): role is DashboardRole {
+  return (
+    role === "Administrador" ||
+    role === "Supervisor" ||
+    role === "Vendedor" ||
+    role === "Auditor"
+  );
+}
 
 function getQuickRangeDates(range: QuickRange) {
   const todayKey = getBogotaDateKey();
@@ -596,7 +611,10 @@ export default function SalesHistoryContent({
   const [returnPrintLoading, setReturnPrintLoading] = useState(false);
   const [changePrintError, setChangePrintError] = useState<string | null>(null);
   const [changePrintLoading, setChangePrintLoading] = useState(false);
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
+    defaultRolePermissions
+  );
   const [posSettings, setPosSettings] =
     useState<PosSettingsPayload | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
@@ -672,6 +690,45 @@ export default function SalesHistoryContent({
   const filterFromKey = useMemo(() => (filterFrom ? filterFrom : null), [
     filterFrom,
   ]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetchRolePermissions(token)
+      .then((modules) => {
+        if (!cancelled) {
+          setRoleModules(modules);
+        }
+      })
+      .catch((err) => {
+        console.error("No pudimos cargar permisos de historial.", err);
+        if (!cancelled) {
+          setRoleModules(defaultRolePermissions);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const canUseSalesHistoryRange = useMemo(() => {
+    if (!isDashboardRole(user?.role)) return false;
+    const moduleEntry = roleModules.find((item) => item.id === "sales_history");
+    if (!moduleEntry) return false;
+    const actionEntry = moduleEntry.actions.find(
+      (action) => action.id === "sales_history.history"
+    );
+    if (!actionEntry) return Boolean(moduleEntry.roles[user.role]);
+    return Boolean(actionEntry.roles[user.role]);
+  }, [roleModules, user?.role]);
+
+  useEffect(() => {
+    if (canUseSalesHistoryRange) return;
+    const todayKey = getBogotaDateKey();
+    setFilterFrom(todayKey);
+    setFilterTo(todayKey);
+    setActiveQuickRange("today");
+  }, [canUseSalesHistoryRange]);
 
   useEffect(() => {
     if (!shouldUseQz) return;
@@ -2085,6 +2142,13 @@ export default function SalesHistoryContent({
   };
 
   const handleQuickRangeSelect = (range: QuickRange) => {
+    if (!canUseSalesHistoryRange && range !== "today") {
+      const todayRange = getQuickRangeDates("today");
+      setFilterFrom(todayRange.from);
+      setFilterTo(todayRange.to);
+      setActiveQuickRange("today");
+      return;
+    }
     const { from, to } = getQuickRangeDates(range);
     setFilterFrom(from);
     setFilterTo(to);
@@ -2092,11 +2156,13 @@ export default function SalesHistoryContent({
   };
 
   const handleManualFromChange = (value: string) => {
+    if (!canUseSalesHistoryRange) return;
     setActiveQuickRange(null);
     setFilterFrom(value);
   };
 
   const handleManualToChange = (value: string) => {
+    if (!canUseSalesHistoryRange) return;
     setActiveQuickRange(null);
     setFilterTo(value);
   };
@@ -2302,14 +2368,22 @@ export default function SalesHistoryContent({
               Limpiar
             </button>
           </div>
+          {!canUseSalesHistoryRange && (
+            <p className="text-xs text-amber-300">
+              Tu rol solo puede consultar ventas del día de hoy.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2 text-sm">
             {quickRangeOptions.map((option) => {
               const isActive = activeQuickRange === option.value;
+              const isDisabled =
+                !canUseSalesHistoryRange && option.value !== "today";
               return (
                 <button
                   key={option.value}
                   type="button"
                   onClick={() => handleQuickRangeSelect(option.value)}
+                  disabled={isDisabled}
                   className={`px-3 py-1.5 rounded-full border transition ${
                     isActive
                       ? isPosTheme
@@ -2318,7 +2392,7 @@ export default function SalesHistoryContent({
                       : isPosTheme
                       ? "border-slate-700 text-slate-400 hover:text-slate-100 hover:border-slate-500"
                       : "border-slate-300 text-slate-500 hover:text-slate-700 hover:border-slate-400 hover:bg-slate-50"
-                  }`}
+                  } ${isDisabled ? "opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
                 >
                   {option.label}
                 </button>
@@ -2333,6 +2407,7 @@ export default function SalesHistoryContent({
                 value={filterFrom}
                 onChange={(e) => handleManualFromChange(e.target.value)}
                 onFocus={(e) => e.target.showPicker?.()}
+                disabled={!canUseSalesHistoryRange}
                 className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>
@@ -2343,6 +2418,7 @@ export default function SalesHistoryContent({
                 value={filterTo}
                 onChange={(e) => handleManualToChange(e.target.value)}
                 onFocus={(e) => e.target.showPicker?.()}
+                disabled={!canUseSalesHistoryRange}
                 className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
             </label>

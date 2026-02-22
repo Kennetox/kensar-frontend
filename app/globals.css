@@ -267,6 +267,27 @@ body::after {
   border-bottom: 1px solid var(--border-strong);
 }
 
+.products-table-head th {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  background: #d3dde8;
+  border-bottom: 1px solid #b7c4d3;
+}
+
+.products-table-body .dashboard-row-zebra {
+  background: #e8edf3;
+}
+
+.products-table-body .dashboard-row-zebra-alt {
+  background: #e1e8f0;
+}
+
+.products-table-body .dashboard-row-zebra:hover,
+.products-table-body .dashboard-row-zebra-alt:hover {
+  background: #d9e3ee;
+}
+
 .dashboard-table-footer {
   color: var(--text-muted);
   border-top: 1px solid var(--border);

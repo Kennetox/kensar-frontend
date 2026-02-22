@@ -230,8 +230,8 @@ const defaultUsers: PosUserRecord[] = [
 export const defaultRolePermissions: RolePermissionModule[] = [
   {
     id: "dashboard",
-    label: "Dashboard general",
-    description: "Resumen de ventas, widgets y métricas rápidas.",
+    label: "Dashboard",
+    description: "Indicadores generales del negocio.",
     roles: {
       Administrador: true,
       Supervisor: true,
@@ -240,9 +240,9 @@ export const defaultRolePermissions: RolePermissionModule[] = [
     },
     actions: [
       {
-        id: "dashboard.metrics",
-        label: "Ver widgets financieros",
-        description: "Métricas de ventas, tickets y comparativos diarios.",
+        id: "dashboard.view",
+        label: "Ver dashboard",
+        description: "Permite acceder al panel principal.",
         roles: {
           Administrador: true,
           Supervisor: true,
@@ -251,9 +251,20 @@ export const defaultRolePermissions: RolePermissionModule[] = [
         },
       },
       {
-        id: "dashboard.top",
-        label: "Ver top de productos / vendedores",
-        description: "Listados de desempeño en el dashboard.",
+        id: "dashboard.today",
+        label: "Ver métricas de hoy",
+        description: "Muestra indicadores operativos del día actual.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: true,
+          Auditor: true,
+        },
+      },
+      {
+        id: "dashboard.history",
+        label: "Ver histórico (semana/mes)",
+        description: "Muestra KPIs y gráficas históricas del dashboard.",
         roles: {
           Administrador: true,
           Supervisor: true,
@@ -266,7 +277,7 @@ export const defaultRolePermissions: RolePermissionModule[] = [
   {
     id: "pos",
     label: "POS / Caja",
-    description: "Vista táctil para ventas y gestión de turnos.",
+    description: "Punto de venta y operaciones de caja.",
     roles: {
       Administrador: true,
       Supervisor: true,
@@ -275,9 +286,9 @@ export const defaultRolePermissions: RolePermissionModule[] = [
     },
     actions: [
       {
-        id: "pos.sale",
-        label: "Crear/editar ventas",
-        description: "Capturar productos, aplicar descuentos y finalizar.",
+        id: "pos.sales",
+        label: "Gestionar ventas",
+        description: "Crear, listar y editar ventas.",
         roles: {
           Administrador: true,
           Supervisor: true,
@@ -287,8 +298,8 @@ export const defaultRolePermissions: RolePermissionModule[] = [
       },
       {
         id: "pos.returns",
-        label: "Procesar devoluciones",
-        description: "Crear notas de crédito desde el POS.",
+        label: "Devoluciones",
+        description: "Registrar y consultar devoluciones.",
         roles: {
           Administrador: true,
           Supervisor: true,
@@ -297,9 +308,31 @@ export const defaultRolePermissions: RolePermissionModule[] = [
         },
       },
       {
-        id: "pos.drawer",
-        label: "Abrir cajón manual",
-        description: "Botón para apertura forzada del cajón de efectivo.",
+        id: "pos.returns.void",
+        label: "Anular devoluciones",
+        description: "Permite anular devoluciones registradas.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
+        id: "pos.changes.void",
+        label: "Anular cambios",
+        description: "Permite anular cambios registrados.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
+        id: "pos.customers",
+        label: "Clientes POS",
+        description: "Crear y administrar clientes.",
         roles: {
           Administrador: true,
           Supervisor: true,
@@ -308,9 +341,9 @@ export const defaultRolePermissions: RolePermissionModule[] = [
         },
       },
       {
-        id: "pos.closure",
-        label: "Cerrar turno / corte Z",
-        description: "Registrar cierres diarios y diferencias de caja.",
+        id: "pos.closures",
+        label: "Cierres de caja",
+        description: "Gestionar cierres e informes diarios.",
         roles: {
           Administrador: true,
           Supervisor: true,
@@ -323,29 +356,18 @@ export const defaultRolePermissions: RolePermissionModule[] = [
   {
     id: "documents",
     label: "Documentos",
-    description: "Consulta de facturas, devoluciones y cierres.",
+    description: "Separados y documentos relacionados.",
     roles: {
       Administrador: true,
       Supervisor: true,
       Vendedor: true,
-      Auditor: true,
+      Auditor: false,
     },
     actions: [
       {
-        id: "documents.view",
-        label: "Ver facturas y tickets",
-        description: "Historial con filtros y exportaciones básicas.",
-        roles: {
-          Administrador: true,
-          Supervisor: true,
-          Vendedor: true,
-          Auditor: true,
-        },
-      },
-      {
-        id: "documents.reprint",
-        label: "Reimprimir / reenviar tickets",
-        description: "Enviar por correo o imprimir nuevamente.",
+        id: "documents.separated_orders",
+        label: "Separados",
+        description: "Gestión de pedidos separados.",
         roles: {
           Administrador: true,
           Supervisor: true,
@@ -354,9 +376,44 @@ export const defaultRolePermissions: RolePermissionModule[] = [
         },
       },
       {
-        id: "documents.export",
-        label: "Exportar a Excel / PDF",
-        description: "Descargas de listados para control.",
+        id: "documents.separated_orders.void_payment",
+        label: "Anular abonos",
+        description: "Permite anular pagos de separados.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+    ],
+  },
+  {
+    id: "sales_history",
+    label: "Historial de ventas",
+    description: "Consulta de ventas, reimpresión y seguimiento.",
+    roles: {
+      Administrador: true,
+      Supervisor: true,
+      Vendedor: true,
+      Auditor: true,
+    },
+    actions: [
+      {
+        id: "sales_history.view",
+        label: "Ver historial de ventas",
+        description: "Permite consultar y reimprimir ventas registradas.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: true,
+          Auditor: true,
+        },
+      },
+      {
+        id: "sales_history.history",
+        label: "Ver histórico por rango",
+        description: "Permite cambiar rangos de fecha en historial de ventas.",
         roles: {
           Administrador: true,
           Supervisor: true,
@@ -368,19 +425,30 @@ export const defaultRolePermissions: RolePermissionModule[] = [
   },
   {
     id: "products",
-    label: "Productos e inventario",
-    description: "Catálogo, movimientos y ajustes físicos.",
+    label: "Productos",
+    description: "Catálogo e inventario.",
     roles: {
       Administrador: true,
       Supervisor: true,
       Vendedor: false,
-      Auditor: true,
+      Auditor: false,
     },
     actions: [
       {
+        id: "products.view",
+        label: "Ver productos",
+        description: "Permite consultar catálogo y grupos para el POS.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: true,
+          Auditor: true,
+        },
+      },
+      {
         id: "products.manage",
-        label: "Crear/editar productos",
-        description: "Actualizar precios, costos, fotos y códigos.",
+        label: "Administrar productos",
+        description: "Crear, editar y mantener el catálogo de productos.",
         roles: {
           Administrador: true,
           Supervisor: true,
@@ -389,14 +457,49 @@ export const defaultRolePermissions: RolePermissionModule[] = [
         },
       },
       {
-        id: "inventory.movements",
-        label: "Registrar movimientos",
-        description: "Entradas, salidas y transferencias.",
+        id: "products.import",
+        label: "Importar productos",
+        description: "Permite importar productos masivamente desde Excel.",
+        roles: {
+          Administrador: true,
+          Supervisor: false,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+    ],
+  },
+  {
+    id: "movements",
+    label: "Movimientos",
+    description: "Movimientos y control de stock.",
+    roles: {
+      Administrador: true,
+      Supervisor: true,
+      Vendedor: false,
+      Auditor: false,
+    },
+    actions: [
+      {
+        id: "movements.view",
+        label: "Ver movimientos",
+        description: "Consultar métricas, historial y estado del stock.",
         roles: {
           Administrador: true,
           Supervisor: true,
           Vendedor: false,
-          Auditor: true,
+          Auditor: false,
+        },
+      },
+      {
+        id: "movements.manage",
+        label: "Registrar movimientos",
+        description: "Crear ajustes y movimientos manuales de inventario.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
         },
       },
     ],
@@ -426,35 +529,48 @@ export const defaultRolePermissions: RolePermissionModule[] = [
     ],
   },
   {
-    id: "reports",
-    label: "Reportes avanzados",
-    description: "Reportes descargables, KPIs y comparativos.",
+    id: "labels_pilot",
+    label: "Etiquetado (beta)",
+    description: "Vista beta para flujo de etiquetado.",
     roles: {
       Administrador: true,
       Supervisor: true,
-      Vendedor: false,
+      Vendedor: true,
+      Auditor: false,
+    },
+    actions: [
+      {
+        id: "labels.pilot.view",
+        label: "Ver etiquetado beta",
+        description: "Permite acceder a la vista Etiquetado (beta).",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: true,
+          Auditor: false,
+        },
+      },
+    ],
+  },
+  {
+    id: "reports",
+    label: "Reportes",
+    description: "Reportes financieros y de inventario.",
+    roles: {
+      Administrador: true,
+      Supervisor: true,
+      Vendedor: true,
       Auditor: true,
     },
     actions: [
       {
-        id: "reports.export",
-        label: "Exportar reportes",
-        description: "Descargar en Excel/PDF para contabilidad.",
+        id: "reports.view",
+        label: "Ver reportes",
+        description: "Acceso a reportes y analíticas.",
         roles: {
           Administrador: true,
           Supervisor: true,
-          Vendedor: false,
-          Auditor: true,
-        },
-      },
-      {
-        id: "reports.schedule",
-        label: "Programar envíos por correo",
-        description: "Configurar envío automático de reportes.",
-        roles: {
-          Administrador: true,
-          Supervisor: true,
-          Vendedor: false,
+          Vendedor: true,
           Auditor: true,
         },
       },
@@ -463,7 +579,7 @@ export const defaultRolePermissions: RolePermissionModule[] = [
   {
     id: "settings",
     label: "Configuración",
-    description: "Identidad, POS, usuarios, notificaciones y pagos.",
+    description: "Preferencias del POS, SMTP y otros ajustes.",
     roles: {
       Administrador: true,
       Supervisor: false,
@@ -473,9 +589,21 @@ export const defaultRolePermissions: RolePermissionModule[] = [
     editable: false,
     actions: [
       {
-        id: "settings.users",
-        label: "Gestionar usuarios",
-        description: "Crear, invitar, suspender y definir permisos.",
+        id: "settings.view",
+        label: "Ver configuración POS",
+        description: "Permite consultar las preferencias para el POS.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: true,
+          Auditor: false,
+        },
+        editable: false,
+      },
+      {
+        id: "settings.manage",
+        label: "Configurar POS",
+        description: "Permite editar la configuración general del POS.",
         roles: {
           Administrador: true,
           Supervisor: false,
@@ -485,9 +613,9 @@ export const defaultRolePermissions: RolePermissionModule[] = [
         editable: false,
       },
       {
-        id: "settings.pos",
-        label: "Configurar POS / métodos de pago",
-        description: "Cambia logos, printers y métodos activos.",
+        id: "settings.payment_methods",
+        label: "Métodos de pago",
+        description: "Administrar alta, edición y estado de métodos de pago.",
         roles: {
           Administrador: true,
           Supervisor: false,
@@ -497,16 +625,62 @@ export const defaultRolePermissions: RolePermissionModule[] = [
         editable: false,
       },
       {
-        id: "settings.notifications",
-        label: "Ajustar SMTP / notificaciones",
-        description: "Control de emails, alertas y reportes programados.",
+        id: "settings.payment_methods.view",
+        label: "Ver métodos de pago",
+        description: "Permite consultar métodos de pago desde el POS.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: true,
+          Auditor: false,
+        },
+        editable: false,
+      },
+    ],
+  },
+  {
+    id: "users",
+    label: "Usuarios",
+    description: "Gestión e invitación de usuarios POS.",
+    roles: {
+      Administrador: true,
+      Supervisor: true,
+      Vendedor: false,
+      Auditor: false,
+    },
+    actions: [
+      {
+        id: "users.manage",
+        label: "Administrar usuarios",
+        description: "Crear, editar y suspender usuarios.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
+        id: "users.invite",
+        label: "Invitar usuarios",
+        description: "Enviar invitaciones para activar cuenta.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
+        id: "stations.manage",
+        label: "Estaciones POS",
+        description: "Administrar estaciones y PINs de caja.",
         roles: {
           Administrador: true,
           Supervisor: false,
           Vendedor: false,
           Auditor: false,
         },
-        editable: false,
       },
     ],
   },
@@ -669,7 +843,7 @@ export async function fetchRolePermissions(
   return request<{ modules: RolePermissionModule[] }>(
     "/pos/roles/permissions",
     undefined,
-    { modules: defaultRolePermissions },
+    token ? undefined : { modules: defaultRolePermissions },
     token
   ).then((res) => res.modules);
 }
@@ -684,7 +858,7 @@ export async function updateRolePermissions(
       method: "PUT",
       body: JSON.stringify({ modules }),
     },
-    { modules: defaultRolePermissions },
+    token ? undefined : { modules: defaultRolePermissions },
     token
   ).then((res) => res.modules);
 }

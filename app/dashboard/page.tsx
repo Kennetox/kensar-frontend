@@ -8,6 +8,12 @@ import React, {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "../providers/AuthProvider";
+import {
+  defaultRolePermissions,
+  fetchRolePermissions,
+  type PosUserRecord,
+  type RolePermissionModule,
+} from "@/lib/api/settings";
 import { getApiBase } from "@/lib/api/base";
 import {
   fetchSeparatedOrders,
@@ -299,11 +305,22 @@ function getAdjustedPaymentsFromAdjustments(
 
 /* =============== COMPONENTE =============== */
 
+type DashboardRole = PosUserRecord["role"];
+
+function isDashboardRole(role?: string | null): role is DashboardRole {
+  return (
+    role === "Administrador" ||
+    role === "Supervisor" ||
+    role === "Vendedor" ||
+    role === "Auditor"
+  );
+}
+
 export default function DashboardHomePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const posPreview = searchParams.get("posPreview") === "1";
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { getPaymentLabel } = usePaymentMethodLabelResolver();
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
@@ -350,6 +367,53 @@ export default function DashboardHomePage() {
   const [paymentMethodsError, setPaymentMethodsError] = useState<string | null>(
     null
   );
+  const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
+    defaultRolePermissions
+  );
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetchRolePermissions(token)
+      .then((modules) => {
+        if (!cancelled) {
+          setRoleModules(modules);
+        }
+      })
+      .catch((err) => {
+        console.error("No pudimos cargar permisos de dashboard.", err);
+        if (!cancelled) {
+          setRoleModules(defaultRolePermissions);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const canSeeDashboardAction = useCallback(
+    (actionId: string) => {
+      if (!isDashboardRole(user?.role)) return false;
+      const dashboardModule = roleModules.find((row) => row.id === "dashboard");
+      if (!dashboardModule) return false;
+      const action = dashboardModule.actions.find((entry) => entry.id === actionId);
+      if (!action) return Boolean(dashboardModule.roles[user.role]);
+      return Boolean(action.roles[user.role]);
+    },
+    [roleModules, user?.role]
+  );
+
+  const canViewTodayMetrics = canSeeDashboardAction("dashboard.today");
+  const canViewHistoryMetrics = canSeeDashboardAction("dashboard.history");
+
+  useEffect(() => {
+    if (!canViewHistoryMetrics) {
+      setTrendMode("week");
+      setPaymentRange("day");
+      setWeekOffset(0);
+      setYearOffset(0);
+    }
+  }, [canViewHistoryMetrics]);
 
   /* --------- Loaders reutilizables --------- */
 
@@ -1032,7 +1096,7 @@ export default function DashboardHomePage() {
         {/* KPIs principales */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Ventas hoy */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Ventas de hoy (movimientos)
             </div>
@@ -1053,10 +1117,15 @@ export default function DashboardHomePage() {
                 </span>
               )}
             </div>
+            {!canViewTodayMetrics && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
+                Sin permiso para métricas de hoy
+              </div>
+            )}
           </div>
 
           {/* Tickets hoy */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Tickets de hoy
             </div>
@@ -1070,10 +1139,15 @@ export default function DashboardHomePage() {
             <div className="mt-1 text-[11px] text-slate-400">
               Ventas registradas en el POS.
             </div>
+            {!canViewTodayMetrics && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
+                Sin permiso para métricas de hoy
+              </div>
+            )}
           </div>
 
           {/* Ventas mes actual */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Ventas mes actual (movimientos)
             </div>
@@ -1094,10 +1168,15 @@ export default function DashboardHomePage() {
                 </span>
               )}
             </div>
+            {!canViewHistoryMetrics && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
+                Sin permiso para histórico
+              </div>
+            )}
           </div>
 
           {/* Ventas semana actual */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Ventas semana actual (movimientos)
             </div>
@@ -1111,10 +1190,15 @@ export default function DashboardHomePage() {
             <div className="mt-1 text-[11px] text-slate-400">
               Lunes a domingo.
             </div>
+            {!canViewHistoryMetrics && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
+                Sin permiso para histórico
+              </div>
+            )}
           </div>
 
           {/* Ticket promedio mes */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Ticket promedio (mes)
             </div>
@@ -1128,13 +1212,18 @@ export default function DashboardHomePage() {
             <div className="mt-1 text-[11px] text-slate-400">
               Promedio por venta en el mes.
             </div>
+            {!canViewHistoryMetrics && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
+                Sin permiso para histórico
+              </div>
+            )}
           </div>
         </section>
 
         {/* Sección inferior: gráfica + métodos de pago */}
         <section className="grid gap-4 mt-6 lg:grid-cols-2 md:grid-cols-2">
           {/* Gráfico últimos 7 días */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4 min-h-[300px]">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4 min-h-[300px] relative overflow-hidden">
             <div className="flex items-center justify-between mb-3 gap-3">
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -1372,10 +1461,15 @@ export default function DashboardHomePage() {
                 })}
               </div>
             )}
+            {!canViewHistoryMetrics && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
+                Sin permiso para histórico
+              </div>
+            )}
           </div>
 
           {/* Métodos de pago */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4 h-[300px] flex flex-col">
+          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4 h-[300px] flex flex-col relative overflow-hidden">
             <div className="flex items-center justify-between gap-3 mb-1">
               <div>
                 <h2 className="text-sm font-semibold text-slate-100">
@@ -1494,6 +1588,11 @@ export default function DashboardHomePage() {
                 </div>
               </div>
             )}
+            {!canViewHistoryMetrics && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
+                Sin permiso para histórico
+              </div>
+            )}
           </div>
         </section>
 
@@ -1559,18 +1658,18 @@ export default function DashboardHomePage() {
           ) : (
             <div className="mt-2 text-xs">
               {/* Encabezados */}
-              <div className="grid grid-cols-[80px_160px_1fr_120px_120px_120px] text-[11px] text-slate-400 mb-1 px-3 gap-2">
+              <div className="grid min-w-[920px] grid-cols-[80px_160px_minmax(260px,1fr)_140px_120px_120px] text-[11px] text-slate-400 mb-1 px-3 gap-2">
                 <span>Nº venta</span>
                 <span>Fecha / hora</span>
                 <span>Detalle</span>
-                <span className="pl-px">Código</span>
+                <span className="text-right">Código</span>
                 <span className="text-right">Total</span>
                 <span className="text-right">Método</span>
               </div>
 
               {/* Contenedor con altura fija + scroll interno */}
               <div className="rounded-xl border border-slate-800/60 overflow-hidden">
-                <div className="max-h-64 overflow-y-auto">
+                <div className="max-h-64 overflow-auto">
                   {recentRows.map(
                     (
                       {
@@ -1592,7 +1691,7 @@ export default function DashboardHomePage() {
                         : "dashboard-row-zebra-alt";
 
                     const baseRow =
-                      "grid grid-cols-[80px_160px_1fr_120px_120px_120px] text-xs px-3 py-2 transition-colors gap-2";
+                      "grid min-w-[920px] grid-cols-[80px_160px_minmax(260px,1fr)_140px_120px_120px] text-xs px-3 py-2 transition-colors gap-2";
 
                     const saleNumber =
                       sale.sale_number ?? sale.number ?? sale.id;
@@ -1630,7 +1729,7 @@ export default function DashboardHomePage() {
                         </div>
 
                         {/* Detalle del producto */}
-                        <div className="flex flex-col">
+                        <div className="flex min-w-0 flex-col">
                           <span className="truncate text-slate-100 flex items-center gap-2">
                             {detail}
                             {hasAdjustment && (
@@ -1657,7 +1756,7 @@ export default function DashboardHomePage() {
                         </div>
 
                         {/* Código producto (primer ítem) */}
-                        <div className="truncate text-slate-300 font-mono pl-px">
+                        <div className="truncate text-right text-slate-300 font-mono">
                           {productCode}
                         </div>
 

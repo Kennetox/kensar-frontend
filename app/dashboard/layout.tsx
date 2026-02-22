@@ -10,16 +10,12 @@ import { fetchUserProfile, type UserProfileRecord } from "@/lib/api/profile";
 import { getApiBase } from "@/lib/api/base";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
-const LABELS_PILOT_PATH = "/dashboard/labels-pilot";
-const LABELS_PILOT_ACCESS_CODE = "0811";
-const LABELS_PILOT_ACCESS_KEY = "labels-pilot-access-ok";
-const LABELS_PILOT_ACCESS_TOKEN_KEY = "labels-pilot-access-token";
-const LABELS_PILOT_SESSION_STATE_KEY = "kensar_labels_pilot_session_state";
 
 const navItems: Array<{
   href: string;
   label: string;
   moduleId?: string;
+  permissionId?: string;
   icon: React.ReactNode;
 }> = [
   {
@@ -64,7 +60,7 @@ const navItems: Array<{
   {
     href: "/dashboard/movements",
     label: "Movimientos",
-    moduleId: "products",
+    moduleId: "movements",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path
@@ -189,7 +185,7 @@ const navItems: Array<{
   {
     href: "/dashboard/labels-pilot",
     label: "Etiquetado (beta)",
-    moduleId: "labels",
+    moduleId: "labels_pilot",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path
@@ -269,15 +265,20 @@ const navItems: Array<{
 const routePermissions: Array<{
   prefix: string;
   moduleId?: string;
+  permissionId?: string;
 }> = [
-  { prefix: "/dashboard", moduleId: "dashboard" },
+  { prefix: "/dashboard/labels-pilot", moduleId: "labels_pilot" },
   { prefix: "/dashboard/products", moduleId: "products" },
-  { prefix: "/dashboard/movements", moduleId: "products" },
+  { prefix: "/dashboard/movements", moduleId: "movements" },
   { prefix: "/dashboard/documents", moduleId: "documents" },
+  { prefix: "/dashboard/sales", moduleId: "sales_history" },
+  { prefix: "/dashboard/customers", moduleId: "documents" },
+  { prefix: "/dashboard/profile" },
   { prefix: "/dashboard/pos", moduleId: "pos" },
   { prefix: "/dashboard/labels", moduleId: "labels" },
   { prefix: "/dashboard/reports", moduleId: "reports" },
   { prefix: "/dashboard/settings", moduleId: "settings" },
+  { prefix: "/dashboard", moduleId: "dashboard" },
 ];
 
 const posPreviewAllowedPrefixes = ["/dashboard", "/dashboard/sales"];
@@ -297,37 +298,40 @@ function isPathAllowed(
   modules: typeof defaultRolePermissions
 ) {
   if (!isDashboardRole(role)) return false;
-  for (const rule of routePermissions) {
-    if (pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`)) {
-      if (!rule.moduleId) return true;
-      const moduleEntry = modules.find((item) => item.id === rule.moduleId);
-      if (!moduleEntry) return true;
-      return Boolean(moduleEntry.roles[role]);
-    }
-  }
-  return true;
-}
 
-function requestLabelsPilotAccess(token: string | null | undefined) {
-  if (typeof window === "undefined") return false;
-  const currentToken = token ?? "";
-  const alreadyGranted =
-    window.sessionStorage.getItem(LABELS_PILOT_ACCESS_KEY) === "1";
-  const grantedToken =
-    window.sessionStorage.getItem(LABELS_PILOT_ACCESS_TOKEN_KEY) ?? "";
-  if (alreadyGranted && grantedToken === currentToken && currentToken) {
-    return true;
+  const hasPermission = (
+    moduleId: string | undefined,
+    permissionId: string | undefined
+  ) => {
+    const moduleEntry = moduleId
+      ? modules.find((item) => item.id === moduleId)
+      : undefined;
+    if (!moduleEntry) return true;
+    if (!permissionId) return Boolean(moduleEntry.roles[role]);
+    const actionEntry = moduleEntry.actions.find(
+      (action) => action.id === permissionId
+    );
+    if (!actionEntry) return Boolean(moduleEntry.roles[role]);
+    return Boolean(actionEntry.roles[role]);
+  };
+
+  const matchingRules = routePermissions
+    .filter(
+      (rule) =>
+        pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`)
+    )
+    .sort((a, b) => b.prefix.length - a.prefix.length);
+  const matched = matchingRules[0];
+  if (matched) {
+    if (!matched.moduleId && !matched.permissionId) return true;
+    return hasPermission(matched.moduleId, matched.permissionId);
   }
-  const accessCode = window.prompt(
-    "Ingresa el codigo de acceso para Etiquetado (beta):"
-  );
-  if (accessCode === LABELS_PILOT_ACCESS_CODE) {
-    window.sessionStorage.setItem(LABELS_PILOT_ACCESS_KEY, "1");
-    window.sessionStorage.setItem(LABELS_PILOT_ACCESS_TOKEN_KEY, currentToken);
-    return true;
+
+  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) {
+    return false;
   }
-  window.alert("Codigo incorrecto. No tienes acceso a Etiquetado (beta).");
-  return false;
+
+  return true;
 }
 
 function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
@@ -341,7 +345,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfileRecord | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
-  const labelsPilotPromptingRef = useRef(false);
 
   useEffect(() => {
     if (!token) return;
@@ -443,6 +446,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     }
     return [match?.label ?? "Inicio"];
   }, [pathname, posPreview]);
+  const isProductsRoute =
+    pathname === "/dashboard/products" ||
+    pathname.startsWith("/dashboard/products/");
 
   useEffect(() => {
     if (!loading && token && !routeAllowed) {
@@ -453,23 +459,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       }
     }
   }, [loading, token, routeAllowed, router, pathname, posPreview]);
-
-  useEffect(() => {
-    if (
-      pathname !== LABELS_PILOT_PATH &&
-      !pathname.startsWith(`${LABELS_PILOT_PATH}/`)
-    ) {
-      labelsPilotPromptingRef.current = false;
-      return;
-    }
-    if (labelsPilotPromptingRef.current) return;
-    if (requestLabelsPilotAccess(token)) {
-      labelsPilotPromptingRef.current = false;
-      return;
-    }
-    labelsPilotPromptingRef.current = true;
-    router.replace("/dashboard");
-  }, [pathname, router, token]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -505,11 +494,18 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   }
 
   const filteredNav = navItems.filter((item) => {
-    if (!item.moduleId) return true;
+    if (!item.moduleId && !item.permissionId) return true;
     if (!isDashboardRole(user?.role)) return false;
-    const moduleEntry = roleModules.find((row) => row.id === item.moduleId);
+    const moduleEntry = item.moduleId
+      ? roleModules.find((row) => row.id === item.moduleId)
+      : undefined;
     if (!moduleEntry) return true;
-    return Boolean(moduleEntry.roles[user.role]);
+    if (!item.permissionId) return Boolean(moduleEntry.roles[user.role]);
+    const actionEntry = moduleEntry.actions.find(
+      (action) => action.id === item.permissionId
+    );
+    if (!actionEntry) return Boolean(moduleEntry.roles[user.role]);
+    return Boolean(actionEntry.roles[user.role]);
   });
 
   const effectiveNav = posPreview
@@ -545,7 +541,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     .join("");
 
   return (
-    <div className="min-h-screen flex dashboard-shell">
+    <div className="h-screen overflow-hidden flex dashboard-shell">
       {/* SIDEBAR */}
       {!posPreview && (
         <>
@@ -594,15 +590,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     <li key={item.href}>
                       <Link
                         href={href}
-                        onClick={(event) => {
-                          if (
-                            item.href === LABELS_PILOT_PATH &&
-                            !requestLabelsPilotAccess(token)
-                          ) {
-                            event.preventDefault();
-                            setNavOpen(false);
-                            return;
-                          }
+                        onClick={() => {
                           setNavOpen(false);
                         }}
                         className={[
@@ -670,14 +658,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     <li key={item.href}>
                       <Link
                         href={href}
-                        onClick={(event) => {
-                          if (
-                            item.href === LABELS_PILOT_PATH &&
-                            !requestLabelsPilotAccess(token)
-                          ) {
-                            event.preventDefault();
-                          }
-                        }}
                         className={[
                           "block rounded-lg px-3 py-2 text-sm transition",
                           isActive
@@ -706,7 +686,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       )}
 
       {/* CONTENIDO PRINCIPAL */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-h-0">
           {/* TOPBAR */}
         <header className="h-20 border-b dashboard-topbar backdrop-blur flex items-center justify-between px-4 md:px-6 shadow-[0_1px_0_rgba(15,23,42,0.12)]">
           <div className="flex items-center gap-2">
@@ -816,15 +796,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       type="button"
                       onClick={() => {
                         setProfileMenuOpen(false);
-                        if (typeof window !== "undefined") {
-                          window.sessionStorage.removeItem(LABELS_PILOT_ACCESS_KEY);
-                          window.sessionStorage.removeItem(
-                            LABELS_PILOT_ACCESS_TOKEN_KEY
-                          );
-                          window.sessionStorage.removeItem(
-                            LABELS_PILOT_SESSION_STATE_KEY
-                          );
-                        }
                         logout();
                         router.replace("/login");
                       }}
@@ -861,7 +832,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* CONTENIDO DE CADA PÁGINA */}
-        <main className="flex-1 px-4 md:px-8 py-6 md:py-8 overflow-y-auto dashboard-theme">
+        <main
+          className={`flex-1 min-h-0 px-4 md:px-8 py-6 md:py-8 dashboard-theme ${
+            isProductsRoute ? "overflow-hidden" : "overflow-y-auto"
+          }`}
+        >
           {children}
         </main>
       </div>

@@ -573,7 +573,6 @@ export default function SettingsPage() {
   const [rolePermissionsError, setRolePermissionsError] = useState<string | null>(null);
   const [rolePermissionsDirty, setRolePermissionsDirty] = useState(false);
   const [savingRolePermissions, setSavingRolePermissions] = useState(false);
-  const [rolePermissionsMessage, setRolePermissionsMessage] = useState<string | null>(null);
   const [smtpTestSending, setSmtpTestSending] = useState(false);
   const [smtpTestMessage, setSmtpTestMessage] = useState<string | null>(null);
   const [smtpTestError, setSmtpTestError] = useState<string | null>(null);
@@ -1220,7 +1219,6 @@ export default function SettingsPage() {
       const modules = await fetchRolePermissions(token);
       setRolePermissions(modules);
       setRolePermissionsDirty(false);
-      setRolePermissionsMessage(null);
       setExpandedModules({});
     } catch (err) {
       console.error(err);
@@ -2241,6 +2239,18 @@ export default function SettingsPage() {
     setExpandedModules((prev) => ({ ...prev, [module]: !prev[module] }));
   }, []);
 
+  const canToggleModuleRole = useCallback(
+    (module: RolePermissionModule, role: PosUserRecord["role"]) => {
+      const moduleEditable = module.editable ?? true;
+      if (!moduleEditable) return false;
+      const hasLockedAllowedAction = module.actions.some(
+        (action) => action.editable === false && Boolean(action.roles[role])
+      );
+      return !hasLockedAllowedAction;
+    },
+    []
+  );
+
   const handleTogglePermission = useCallback(
     (moduleId: string, role: PosUserRecord["role"], actionId?: string) => {
       setRolePermissions((prev) =>
@@ -2249,6 +2259,7 @@ export default function SettingsPage() {
           const moduleEditable = module.editable ?? true;
           if (!moduleEditable && !actionId) return module;
           if (!actionId) {
+            if (!canToggleModuleRole(module, role)) return module;
             return {
               ...module,
               roles: { ...module.roles, [role]: !module.roles[role] },
@@ -2268,7 +2279,7 @@ export default function SettingsPage() {
       );
       setRolePermissionsDirty(true);
     },
-    []
+    [canToggleModuleRole]
   );
 
   async function handleSaveRolePermissions() {
@@ -2279,7 +2290,7 @@ export default function SettingsPage() {
       const modules = await updateRolePermissions(rolePermissions, token);
       setRolePermissions(modules);
       setRolePermissionsDirty(false);
-      setRolePermissionsMessage("Permisos actualizados correctamente.");
+      setSaveMessage("Permisos guardados correctamente.");
     } catch (err) {
       console.error(err);
       setRolePermissionsError(
@@ -2289,7 +2300,6 @@ export default function SettingsPage() {
       );
     } finally {
       setSavingRolePermissions(false);
-      setTimeout(() => setRolePermissionsMessage(null), 4000);
     }
   }
 
@@ -3543,9 +3553,6 @@ export default function SettingsPage() {
             {rolePermissionsError && (
               <p className="text-xs text-red-400">{rolePermissionsError}</p>
             )}
-            {rolePermissionsMessage && (
-              <p className="text-xs text-emerald-300">{rolePermissionsMessage}</p>
-            )}
             <button
               type="button"
               onClick={() => void handleSaveRolePermissions()}
@@ -3582,7 +3589,6 @@ export default function SettingsPage() {
             </thead>
             <tbody>
               {rolePermissions.map((row) => {
-                const moduleEditable = row.editable ?? true;
                 return (
                   <tr
                     key={row.id}
@@ -3598,9 +3604,12 @@ export default function SettingsPage() {
                     </td>
                     {roleOrder.map((role) => {
                       const allowed = row.roles[role];
-                      const toggleClass = allowed
-                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                        : "bg-slate-800 text-slate-500 border border-slate-700";
+                      const canToggle = canToggleModuleRole(row, role);
+                      const toggleClass = !canToggle
+                        ? "bg-slate-700/80 text-slate-300 border border-slate-600"
+                        : allowed
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                          : "bg-slate-800 text-slate-500 border border-slate-700";
                       return (
                         <td
                           key={`${row.id}-${role}`}
@@ -3609,11 +3618,12 @@ export default function SettingsPage() {
                           <button
                             type="button"
                             onClick={() => handleTogglePermission(row.id, role)}
-                            disabled={!moduleEditable}
+                            disabled={!canToggle}
+                            title={!canToggle ? "Permiso crítico bloqueado" : undefined}
                             className={`inline-flex items-center justify-center h-6 w-6 rounded-full text-[10px] font-semibold ${
-                              moduleEditable
+                              canToggle
                                 ? "hover:scale-105 transition"
-                                : "opacity-50 cursor-not-allowed"
+                                : "cursor-not-allowed"
                             } ${toggleClass}`}
                           >
                             {allowed ? "✓" : "—"}
@@ -3670,9 +3680,11 @@ export default function SettingsPage() {
                           const actionEditable =
                             (action.editable ?? true) && moduleEditable;
                           const toggleClass = (allowed: boolean) =>
-                            allowed
-                              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                              : "bg-slate-800 text-slate-500 border border-slate-700";
+                            !actionEditable
+                              ? "bg-slate-700/80 text-slate-300 border border-slate-600"
+                              : allowed
+                                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                                : "bg-slate-800 text-slate-500 border border-slate-700";
                           return (
                             <tr
                               key={action.id}
@@ -3706,7 +3718,7 @@ export default function SettingsPage() {
                                       className={`inline-flex items-center justify-center h-5 w-5 rounded-full text-[9px] font-semibold ${
                                         actionEditable
                                           ? "hover:scale-110 transition"
-                                          : "opacity-50 cursor-not-allowed"
+                                          : "cursor-not-allowed"
                                       } ${toggleClass(allowed)}`}
                                     >
                                       {allowed ? "✓" : "—"}

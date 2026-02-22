@@ -94,6 +94,16 @@ type UploadProductImageResponse = {
   thumb_url: string | null;
 };
 
+type ProductAuditEntry = {
+  id: number;
+  product_id: number;
+  action: string;
+  actor_user_id: number | null;
+  actor_name: string | null;
+  actor_email: string | null;
+  changes: Record<string, unknown> | null;
+  created_at: string;
+};
 
 const API_BASE = getApiBase();
 const DEFAULT_TILE_COLOR = "#1f2937";
@@ -110,6 +120,110 @@ function resolveImageUrl(url: string | null): string | null {
 }
 
 type SortOption = "recent" | "oldest" | "sku_asc" | "name_asc";
+
+function formatAuditDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("es-CO", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatAuditAction(action: string): string {
+  switch (action) {
+    case "create":
+      return "Creación";
+    case "update":
+      return "Edición";
+    case "delete":
+      return "Eliminación";
+    case "snapshot":
+      return "Importación";
+    default:
+      return action;
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function formatAuditFieldLabel(field: string): string {
+  const labels: Record<string, string> = {
+    sku: "SKU",
+    name: "nombre",
+    price: "precio",
+    cost: "costo",
+    barcode: "código de barras",
+    unit: "unidad",
+    stock_min: "stock mínimo",
+    preferred_qty: "cantidad preferida",
+    reorder_point: "punto de pedido",
+    low_stock_alert: "alerta de stock",
+    allow_price_change: "cambio de precio permitido",
+    active: "estado activo",
+    service: "servicio",
+    includes_tax: "IVA incluido",
+    group_name: "grupo",
+    brand: "marca",
+    supplier: "proveedor",
+  };
+  return labels[field] ?? field.replace(/_/g, " ");
+}
+
+function formatAuditValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "vacío";
+  if (typeof value === "boolean") return value ? "sí" : "no";
+  if (typeof value === "number") return value.toLocaleString("es-CO");
+  if (typeof value === "string") return value.trim() || "vacío";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function buildAuditMessages(entry: ProductAuditEntry): string[] {
+  if (!isPlainObject(entry.changes)) return [];
+
+  if (entry.action === "update") {
+    const lines = Object.entries(entry.changes)
+      .map(([field, value]) => {
+        if (!isPlainObject(value)) return null;
+        if (!("before" in value) && !("after" in value)) return null;
+        const before = formatAuditValue(value.before);
+        const after = formatAuditValue(value.after);
+        if (before === after) return null;
+        return `Se modificó ${formatAuditFieldLabel(field)} de "${before}" a "${after}".`;
+      })
+      .filter((line): line is string => Boolean(line));
+    return lines.length ? lines : ["Se registró una edición sin detalle de campos."];
+  }
+
+  if (entry.action === "create" || entry.action === "snapshot") {
+    const after = isPlainObject(entry.changes.after) ? entry.changes.after : null;
+    if (!after) return ["Se registró el estado inicial del producto."];
+    const fields = Object.keys(after).filter((key) => key !== "id");
+    if (!fields.length) return ["Se registró el estado inicial del producto."];
+    const top = fields.slice(0, 5).map((field) => formatAuditFieldLabel(field));
+    const extra = fields.length > top.length ? ` y ${fields.length - top.length} más` : "";
+    return [`Estado inicial registrado con: ${top.join(", ")}${extra}.`];
+  }
+
+  if (entry.action === "delete") {
+    const before = isPlainObject(entry.changes.before) ? entry.changes.before : null;
+    const name = before && typeof before.name === "string" ? before.name : null;
+    const sku = before && typeof before.sku === "string" ? before.sku : null;
+    const ref = sku ? `SKU ${sku}` : name ? name : `ID ${entry.product_id}`;
+    return [`Se eliminó el producto (${ref}).`];
+  }
+
+  return ["Se registró un evento de historial."];
+}
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -140,6 +254,31 @@ export default function ProductsPage() {
   const [deleteCloseOnSuccess, setDeleteCloseOnSuccess] = useState(false);
   const [editSkuLocked, setEditSkuLocked] = useState(true);
   const [editBarcodeLocked, setEditBarcodeLocked] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyEntries, setHistoryEntries] = useState<ProductAuditEntry[]>([]);
+  const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
+  const historySummary = useMemo(() => {
+    if (!historyEntries.length) {
+      return {
+        created: null as ProductAuditEntry | null,
+        lastModified: null as ProductAuditEntry | null,
+      };
+    }
+    const oldest = historyEntries[historyEntries.length - 1];
+    const createdCandidate =
+      [...historyEntries]
+        .reverse()
+        .find((entry) => entry.action === "create" || entry.action === "snapshot") ??
+      oldest;
+    const modifiedCandidate =
+      historyEntries.find((entry) => entry.action === "update") ?? historyEntries[0];
+    return {
+      created: createdCandidate,
+      lastModified: modifiedCandidate,
+    };
+  }, [historyEntries]);
 
   // filtros / orden
   const [searchInput, setSearchInput] = useState("");
@@ -190,7 +329,8 @@ export default function ProductsPage() {
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const canImportProducts = user?.role === "Administrador";
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
@@ -215,6 +355,7 @@ export default function ProductsPage() {
       { key: "active", label: "Activo" },
       { key: "service", label: "Servicio" },
       { key: "includes_tax", label: "IVA incl." },
+      { key: "history", label: "Historial (creación + última mod.)" },
     ],
     []
   );
@@ -1266,6 +1407,38 @@ export default function ProductsPage() {
     setEditOpen(true);
   }
 
+  async function handleOpenHistory(product: Product) {
+    try {
+      if (!authHeaders) throw new Error("Sesión expirada.");
+      setHistoryProduct(product);
+      setHistoryOpen(true);
+      setHistoryLoading(true);
+      setHistoryError(null);
+      const res = await fetch(`${API_BASE}/products/${product.id}/audit?limit=100`, {
+        headers: { ...authHeaders },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg =
+          (data && (data.detail as string)) ||
+          `Error al cargar historial (código ${res.status})`;
+        throw new Error(msg);
+      }
+      const rows = (await res.json()) as ProductAuditEntry[];
+      setHistoryEntries(rows);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setHistoryError(err.message);
+      } else {
+        setHistoryError("Error desconocido al cargar historial.");
+      }
+      setHistoryEntries([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   // guardar cambios
   async function handleSubmitEdit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1496,6 +1669,10 @@ export default function ProductsPage() {
 
   // importar
   async function handleImport() {
+    if (!canImportProducts) {
+      setError("No tienes permiso para importar productos.");
+      return;
+    }
     if (!importFile) return;
     try {
       setImporting(true);
@@ -1739,7 +1916,7 @@ export default function ProductsPage() {
 
   // UI
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-6">
+    <div className="w-full max-w-7xl mx-auto h-full min-h-0 flex flex-col gap-6">
       {/* HEADER + TOOLBAR */}
       <header className="space-y-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -1768,12 +1945,14 @@ export default function ProductsPage() {
               Gestionar imágenes de grupos
             </button>
 
-            <button
-              onClick={() => setImportOpen(true)}
-              className="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-800 px-3 py-2 text-sm text-slate-100"
-            >
-              Importar
-            </button>
+            {canImportProducts && (
+              <button
+                onClick={() => setImportOpen(true)}
+                className="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-800 px-3 py-2 text-sm text-slate-100"
+              >
+                Importar
+              </button>
+            )}
 
             <button
               onClick={() => setExportDialogOpen(true)}
@@ -1902,7 +2081,7 @@ export default function ProductsPage() {
       </header>
 
       {/* LISTA DE PRODUCTOS */}
-      <section className="space-y-3">
+      <section className="space-y-3 flex-1 min-h-0">
         {loading && (
           <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
             {Array.from({ length: 6 }).map((_, idx) => (
@@ -1920,7 +2099,7 @@ export default function ProductsPage() {
         )}
 
         {!loading && !error && (
-          <div className="overflow-hidden rounded-xl ui-surface dashboard-kpi-card shadow-lg">
+          <div className="overflow-hidden rounded-xl ui-surface dashboard-kpi-card shadow-lg h-full min-h-0 flex flex-col">
             <div
               ref={topScrollRef}
               onScroll={syncMainScroll}
@@ -1976,10 +2155,10 @@ export default function ProductsPage() {
             <div
               ref={tableWrapperRef}
               onScroll={syncTopScroll}
-              className="overflow-x-auto"
+              className="overflow-auto flex-1 min-h-0"
             >
               <table ref={tableRef} className="min-w-full text-sm">
-                <thead className="dashboard-table-head">
+                <thead className="dashboard-table-head products-table-head">
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold">ID</th>
                     <th className="px-4 py-3 text-left font-semibold">SKU</th>
@@ -2031,18 +2210,20 @@ export default function ProductsPage() {
                   <th className="px-4 py-3 text-center font-semibold">
                     IVA incl.
                   </th>
-                  <th className="px-4 py-3 text-center font-semibold">
+                  <th className="px-4 py-3 text-center font-semibold min-w-[190px]">
                     Acciones
                   </th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="products-table-body">
                 {paginatedProducts.map((p, rowIndex) => (
                   <tr
                     key={p.id}
                     onDoubleClick={() => openEdit(p)}
                     className={`border-b dashboard-border transition cursor-pointer ${
-                      rowIndex % 2 === 0 ? "dashboard-row" : "dashboard-row-alt"
+                      rowIndex % 2 === 0
+                        ? "dashboard-row-zebra"
+                        : "dashboard-row-zebra-alt"
                     }`}
                   >
 
@@ -2093,21 +2274,41 @@ export default function ProductsPage() {
                     <td className="px-4 py-3 text-center">
                       {p.includes_tax ? "✔️" : "—"}
                     </td>
-                    <td className="px-4 py-3 text-center space-x-2">
-                      <button
-                        onClick={() => openEdit(p)}
-                        className="inline-flex items-center rounded-md border border-emerald-400 px-2 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() =>
-                          openDeleteOptions(p.id, { isActive: p.active })
-                        }
-                        className="inline-flex items-center rounded-md border border-red-400 px-2 py-1 text-xs font-semibold text-red-300 hover:bg-red-500/10"
-                      >
-                        Eliminar
-                      </button>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex items-center justify-center gap-2 whitespace-nowrap">
+                        <button
+                          onClick={() => openEdit(p)}
+                          className="inline-flex items-center rounded-md border border-emerald-400 px-2 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() =>
+                            openDeleteOptions(p.id, { isActive: p.active })
+                          }
+                          className="inline-flex items-center rounded-md border border-red-400 px-2 py-1 text-xs font-semibold text-red-300 hover:bg-red-500/10"
+                        >
+                          Eliminar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenHistory(p)}
+                          title="Ver historial"
+                          aria-label="Ver historial"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-500 text-slate-700 hover:bg-slate-200"
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5">
+                            <path
+                              d="M12 7v5l3 2m6-2a9 9 0 1 1-2.64-6.36M21 4v4h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -3167,7 +3368,7 @@ export default function ProductsPage() {
       )}
 
       {/* MODAL IMPORTACIÓN */}
-      {importOpen && (
+      {importOpen && canImportProducts && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="w-full max-w-lg rounded-xl bg-slate-900 border border-slate-700 p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
@@ -3381,6 +3582,123 @@ export default function ProductsPage() {
                 Exportar Excel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {historyOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-5xl rounded-xl bg-slate-900 border border-slate-700 p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-100">
+                  Historial de producto
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  {historyProduct
+                    ? `${historyProduct.name} (${historyProduct.sku ? `SKU ${historyProduct.sku}` : `ID ${historyProduct.id}`})`
+                    : "Producto"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                className="rounded-md border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            {historyLoading && (
+              <div className="mt-4 space-y-2">
+                {Array.from({ length: 4 }).map((_, idx) => (
+                  <div
+                    key={`audit-skeleton-${idx}`}
+                    className="h-14 rounded-lg bg-slate-800/70 animate-pulse"
+                  />
+                ))}
+              </div>
+            )}
+
+            {!historyLoading && historyError && (
+              <p className="mt-4 text-sm text-red-400">
+                {historyError}
+              </p>
+            )}
+
+            {!historyLoading && !historyError && historyEntries.length === 0 && (
+              <p className="mt-4 text-sm text-slate-400">
+                Este producto aún no tiene registros de auditoría.
+              </p>
+            )}
+
+            {!historyLoading && !historyError && historyEntries.length > 0 && (
+              <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="lg:col-span-1 rounded-lg border border-slate-700 bg-slate-950/60 p-3 h-fit">
+                  <h4 className="text-sm font-semibold text-slate-100">
+                    Resumen
+                  </h4>
+                  <div className="mt-3 space-y-3 text-xs">
+                    <div className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <p className="text-slate-400">Creado / importado</p>
+                      <p className="mt-1 text-slate-100 font-medium">
+                        {historySummary.created
+                          ? formatAuditDate(historySummary.created.created_at)
+                          : "Sin dato"}
+                      </p>
+                      <p className="text-slate-400 mt-1">
+                        {historySummary.created
+                          ? `por ${historySummary.created.actor_name || historySummary.created.actor_email || "Sistema"}`
+                          : "—"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <p className="text-slate-400">Última modificación</p>
+                      <p className="mt-1 text-slate-100 font-medium">
+                        {historySummary.lastModified
+                          ? formatAuditDate(historySummary.lastModified.created_at)
+                          : "Sin dato"}
+                      </p>
+                      <p className="text-slate-400 mt-1">
+                        {historySummary.lastModified
+                          ? `por ${historySummary.lastModified.actor_name || historySummary.lastModified.actor_email || "Sistema"}`
+                          : "—"}
+                      </p>
+                    </div>
+                    <div className="rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <p className="text-slate-400">Total de eventos</p>
+                      <p className="mt-1 text-slate-100 font-semibold">
+                        {historyEntries.length}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="lg:col-span-2 space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                  {historyEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                        <span className="rounded-md bg-slate-800 px-2 py-1 font-semibold text-slate-200">
+                          {formatAuditAction(entry.action)}
+                        </span>
+                        <span className="text-slate-300">
+                          {formatAuditDate(entry.created_at)}
+                        </span>
+                        <span className="text-slate-400">
+                          por {entry.actor_name || entry.actor_email || "Sistema"}
+                        </span>
+                      </div>
+                      <ul className="mt-2 space-y-1 text-xs text-slate-300">
+                        {buildAuditMessages(entry).map((line, index) => (
+                          <li key={`${entry.id}-line-${index}`}>• {line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
