@@ -1845,8 +1845,15 @@ const matchesStationLabel = useCallback(
       return;
     }
 
+    const preservePresetMethod =
+      cartSurcharge.enabled &&
+      cartSurcharge.method &&
+      cartSurcharge.method !== "manual"
+        ? cartSurcharge.method
+        : "manual";
+
     setCartSurcharge({
-      method: "manual",
+      method: preservePresetMethod,
       amount: normalized,
       enabled: true,
       isManual: true,
