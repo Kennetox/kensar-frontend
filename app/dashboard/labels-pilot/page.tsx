@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../providers/AuthProvider";
 import type { Product as PosProduct } from "../../pos/poscontext";
 import { getApiBase } from "@/lib/api/base";
@@ -115,6 +115,10 @@ export default function LabelsPilotPage() {
   const [probeMessage, setProbeMessage] = useState<string | null>(null);
   const [bulkPrinting, setBulkPrinting] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<number, string>>(
+    {}
+  );
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const canUseApi = !!authHeaders;
 
@@ -199,6 +203,15 @@ export default function LabelsPilotPage() {
   }, [format, settingsReady]);
 
   useEffect(() => {
+    if (!sessionReady) return;
+    const frame = window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [sessionReady]);
+
+  useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     if (!settingsOpen) return;
 
@@ -210,6 +223,20 @@ export default function LabelsPilotPage() {
 
     return () => window.clearInterval(interval);
   }, [checkAgentHealth, settingsOpen]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    void checkAgentHealth();
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      void checkAgentHealth();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [checkAgentHealth]);
 
   const handleSearch = useCallback(
     async (e?: React.FormEvent) => {
@@ -311,23 +338,65 @@ export default function LabelsPilotPage() {
   const handleRemoveItem = useCallback((productId: number) => {
     setLabelItems((prev) => prev.filter((p) => p.productId !== productId));
     setActiveItemId((prev) => (prev === productId ? null : prev));
+    setQuantityDrafts((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
   }, []);
 
   const handleQuantityChange = useCallback(
     (productId: number, newQuantity: number) => {
-      if (Number.isNaN(newQuantity) || newQuantity <= 0) return;
+      if (Number.isNaN(newQuantity)) return;
+      const normalized = Math.max(1, Math.floor(newQuantity));
       setLabelItems((prev) =>
         prev.map((p) =>
-          p.productId === productId ? { ...p, quantity: newQuantity } : p
+          p.productId === productId ? { ...p, quantity: normalized } : p
         )
       );
     },
     []
   );
 
+  const handleQuantityDraftChange = useCallback(
+    (productId: number, rawValue: string) => {
+      if (!/^\d*$/.test(rawValue)) return;
+      setQuantityDrafts((prev) => ({ ...prev, [productId]: rawValue }));
+      if (!rawValue) return;
+      const parsed = Number(rawValue);
+      if (!Number.isFinite(parsed) || parsed <= 0) return;
+      handleQuantityChange(productId, parsed);
+    },
+    [handleQuantityChange]
+  );
+
+  const handleQuantityDraftCommit = useCallback(
+    (productId: number) => {
+      const draft = quantityDrafts[productId];
+      const parsed = Number(draft);
+      const shouldFallback =
+        draft === undefined ||
+        draft.trim() === "" ||
+        !Number.isFinite(parsed) ||
+        parsed <= 0;
+      if (shouldFallback) {
+        handleQuantityChange(productId, 1);
+      } else {
+        handleQuantityChange(productId, parsed);
+      }
+      setQuantityDrafts((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
+    },
+    [handleQuantityChange, quantityDrafts]
+  );
+
   const handleClearList = useCallback(() => {
     setLabelItems([]);
     setActiveItemId(null);
+    setQuantityDrafts({});
   }, []);
 
   const formatPriceForPayload = (value: number) => {
@@ -664,6 +733,7 @@ export default function LabelsPilotPage() {
                     Buscar por nombre, codigo o SKU
                   </span>
                   <input
+                    ref={searchInputRef}
                     className="ui-input w-full px-3 py-2 text-sm"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -848,13 +918,28 @@ export default function LabelsPilotPage() {
                               type="number"
                               min={1}
                               className="ui-input w-20 px-2 py-1 text-xs text-center"
-                              value={item.quantity}
+                              value={
+                                quantityDrafts[item.productId] ??
+                                String(item.quantity)
+                              }
                               onChange={(e) =>
-                                handleQuantityChange(
+                                handleQuantityDraftChange(
                                   item.productId,
-                                  Number(e.target.value)
+                                  e.target.value
                                 )
                               }
+                              onFocus={(e) => e.currentTarget.select()}
+                              onClick={(e) => e.currentTarget.select()}
+                              onBlur={() =>
+                                handleQuantityDraftCommit(item.productId)
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleQuantityDraftCommit(item.productId);
+                                  (e.currentTarget as HTMLInputElement).blur();
+                                }
+                              }}
                             />
                           </td>
                           <td className="px-3 py-2 text-center">

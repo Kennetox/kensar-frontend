@@ -3293,7 +3293,7 @@ useEffect(() => {
                       {saleSummaryCards.map((card) => {
                         const toneClass =
                           card.highlight === "positive"
-                            ? "text-emerald-200"
+                            ? "text-emerald-700"
                             : card.highlight === "warning"
                             ? "text-amber-200"
                             : card.highlight === "danger"
@@ -3487,7 +3487,7 @@ useEffect(() => {
                                 </span>
                               )}
                               {payment.adjusted && (
-                                <span className="block text-[10px] text-sky-200">
+                                <span className="block text-[10px] font-semibold text-sky-700">
                                   Ajustado
                                 </span>
                               )}
