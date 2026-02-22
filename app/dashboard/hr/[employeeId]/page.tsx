@@ -130,6 +130,7 @@ export default function HrEmployeeDetailPage() {
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<number | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarLoadError, setAvatarLoadError] = useState(false);
   const [creatingAccess, setCreatingAccess] = useState(false);
   const [linkingAccess, setLinkingAccess] = useState(false);
   const [deactivatingAccess, setDeactivatingAccess] = useState(false);
@@ -226,6 +227,10 @@ export default function HrEmployeeDetailPage() {
       setSystemUserEmail(employee.email);
     }
   }, [employee, systemUserEmail]);
+
+  useEffect(() => {
+    setAvatarLoadError(false);
+  }, [employee?.avatar_url, employee?.id]);
 
   useEffect(() => {
     if (!token || !canManage || !employee || employee.system_user) return;
@@ -611,13 +616,15 @@ export default function HrEmployeeDetailPage() {
             <div>
               <p className="font-semibold">Foto de perfil</p>
               <div className="mt-2 flex items-center gap-3">
-                {employee.avatar_url ? (
+                {employee.avatar_url && !avatarLoadError ? (
                   <Image
                     src={getAvatarUrl(employee.avatar_url)}
                     alt={`Avatar de ${employee.name}`}
                     className="h-16 w-16 rounded-full object-cover border ui-border"
                     width={64}
                     height={64}
+                    unoptimized
+                    onError={() => setAvatarLoadError(true)}
                   />
                 ) : (
                   <div className="h-16 w-16 rounded-full border ui-border bg-slate-100 text-slate-700 grid place-content-center font-semibold">
