@@ -10,6 +10,7 @@ import { fetchUserProfile, type UserProfileRecord } from "@/lib/api/profile";
 import { getApiBase } from "@/lib/api/base";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
+const SCHEDULE_MODULE_ENABLED = false;
 
 const navItems: Array<{
   href: string;
@@ -269,6 +270,32 @@ const navItems: Array<{
     ),
   },
   {
+    href: "/dashboard/schedule",
+    label: "Horarios",
+    moduleId: "schedule",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect
+          x="4"
+          y="5"
+          width="16"
+          height="15"
+          rx="2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+        />
+        <path
+          d="M8 3.5v3M16 3.5v3M4 9.5h16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/dashboard/settings",
     label: "Configuración",
     moduleId: "settings",
@@ -310,6 +337,7 @@ const routePermissions: Array<{
   { prefix: "/dashboard/labels", moduleId: "labels" },
   { prefix: "/dashboard/reports", moduleId: "reports" },
   { prefix: "/dashboard/hr", moduleId: "hr" },
+  { prefix: "/dashboard/schedule", moduleId: "schedule" },
   { prefix: "/dashboard/settings", moduleId: "settings" },
   { prefix: "/dashboard", moduleId: "dashboard" },
 ];
@@ -330,6 +358,15 @@ function isPathAllowed(
   role: string | null | undefined,
   modules: typeof defaultRolePermissions
 ) {
+  if (!SCHEDULE_MODULE_ENABLED) {
+    if (
+      pathname === "/dashboard/schedule" ||
+      pathname.startsWith("/dashboard/schedule/")
+    ) {
+      return false;
+    }
+  }
+
   if (!isDashboardRole(role)) return false;
 
   const hasPermission = (
@@ -538,6 +575,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   }
 
   const filteredNav = navItems.filter((item) => {
+    if (!SCHEDULE_MODULE_ENABLED && item.moduleId === "schedule") return false;
     if (!item.moduleId && !item.permissionId) return true;
     if (!isDashboardRole(user?.role)) return false;
     const moduleEntry = item.moduleId

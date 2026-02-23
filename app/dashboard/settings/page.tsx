@@ -141,6 +141,7 @@ const roleOrder: PosUserRecord["role"][] = [
   "Vendedor",
   "Auditor",
 ];
+const SCHEDULE_MODULE_ENABLED = false;
 
 type BackgroundStyle = "clean" | "soft" | "pattern";
 
@@ -569,6 +570,13 @@ export default function SettingsPage() {
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
   const [rolePermissions, setRolePermissions] =
     useState<RolePermissionModule[]>(defaultRolePermissions);
+  const visibleRolePermissions = useMemo(
+    () =>
+      SCHEDULE_MODULE_ENABLED
+        ? rolePermissions
+        : rolePermissions.filter((module) => module.id !== "schedule"),
+    [rolePermissions]
+  );
   const [rolePermissionsLoading, setRolePermissionsLoading] = useState(true);
   const [rolePermissionsError, setRolePermissionsError] = useState<string | null>(null);
   const [rolePermissionsDirty, setRolePermissionsDirty] = useState(false);
@@ -3594,7 +3602,7 @@ export default function SettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {rolePermissions.map((row) => {
+              {visibleRolePermissions.map((row) => {
                 return (
                   <tr
                     key={row.id}
@@ -3643,7 +3651,7 @@ export default function SettingsPage() {
             </tbody>
           </table>
 
-          {rolePermissions.map((row) => {
+          {visibleRolePermissions.map((row) => {
             const isExpanded = expandedModules[row.id] ?? false;
             const moduleEditable = row.editable ?? true;
             return (
