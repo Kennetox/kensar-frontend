@@ -259,6 +259,10 @@ export default function ProductsPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyEntries, setHistoryEntries] = useState<ProductAuditEntry[]>([]);
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
+  const [globalHistoryOpen, setGlobalHistoryOpen] = useState(false);
+  const [globalHistoryLoading, setGlobalHistoryLoading] = useState(false);
+  const [globalHistoryError, setGlobalHistoryError] = useState<string | null>(null);
+  const [globalHistoryEntries, setGlobalHistoryEntries] = useState<ProductAuditEntry[]>([]);
   const historySummary = useMemo(() => {
     if (!historyEntries.length) {
       return {
@@ -366,6 +370,10 @@ export default function ProductsPage() {
     });
     return initial;
   });
+  const productMap = useMemo(
+    () => new Map(products.map((item) => [item.id, item])),
+    [products]
+  );
 
   // cerrar menú de exportar al hacer click fuera
 
@@ -1439,6 +1447,61 @@ export default function ProductsPage() {
     }
   }
 
+  function formatAuditProductRef(entry: ProductAuditEntry): string {
+    const known = productMap.get(entry.product_id);
+    if (known) {
+      if (known.sku) return `${known.name} (SKU ${known.sku})`;
+      return `${known.name} (ID ${known.id})`;
+    }
+
+    const readSnapshot = (field: "before" | "after") => {
+      if (!isPlainObject(entry.changes)) return null;
+      const snapshot = entry.changes[field];
+      if (!isPlainObject(snapshot)) return null;
+      return snapshot;
+    };
+    const source = readSnapshot("after") ?? readSnapshot("before");
+    const name =
+      source && typeof source.name === "string" ? source.name.trim() : "";
+    const sku =
+      source && typeof source.sku === "string" ? source.sku.trim() : "";
+    if (name) {
+      return sku ? `${name} (SKU ${sku})` : `${name} (ID ${entry.product_id})`;
+    }
+    return `Producto ID ${entry.product_id}`;
+  }
+
+  async function handleOpenGlobalHistory() {
+    try {
+      if (!authHeaders) throw new Error("Sesión expirada.");
+      setGlobalHistoryOpen(true);
+      setGlobalHistoryLoading(true);
+      setGlobalHistoryError(null);
+      const res = await fetch(`${API_BASE}/products/audit/recent?limit=10`, {
+        headers: { ...authHeaders },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg =
+          (data && (data.detail as string)) ||
+          `Error al cargar historial global (código ${res.status})`;
+        throw new Error(msg);
+      }
+      const rows = (await res.json()) as ProductAuditEntry[];
+      setGlobalHistoryEntries(rows);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setGlobalHistoryError(err.message);
+      } else {
+        setGlobalHistoryError("Error desconocido al cargar historial global.");
+      }
+      setGlobalHistoryEntries([]);
+    } finally {
+      setGlobalHistoryLoading(false);
+    }
+  }
+
   // guardar cambios
   async function handleSubmitEdit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1959,6 +2022,24 @@ export default function ProductsPage() {
               className="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-800 px-3 py-2 text-sm text-slate-100"
             >
               Exportar
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleOpenGlobalHistory()}
+              title="Historial general"
+              aria-label="Historial general"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-600 bg-slate-900 text-slate-100 hover:bg-slate-800"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
+                <path
+                  d="M12 7v5l3 2m6-2a9 9 0 1 1-2.64-6.36M21 4v4h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </button>
 
             <div className="flex items-center gap-2">
@@ -3699,6 +3780,87 @@ export default function ProductsPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {globalHistoryOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-4xl rounded-xl bg-slate-900 border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 z-10 border-b border-slate-700 bg-slate-900/95 backdrop-blur px-5 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-100">
+                    Historial general de productos
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Últimas 10 modificaciones registradas (creación, edición o eliminación).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setGlobalHistoryOpen(false)}
+                  className="rounded-md border border-slate-600 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+
+            {globalHistoryLoading && (
+              <div className="mt-4 space-y-2 px-5">
+                {Array.from({ length: 5 }).map((_, idx) => (
+                  <div
+                    key={`audit-global-skeleton-${idx}`}
+                    className="h-14 rounded-lg bg-slate-800/70 animate-pulse"
+                  />
+                ))}
+              </div>
+            )}
+
+            {!globalHistoryLoading && globalHistoryError && (
+              <p className="mt-4 px-5 text-sm text-red-400">{globalHistoryError}</p>
+            )}
+
+            {!globalHistoryLoading &&
+              !globalHistoryError &&
+              globalHistoryEntries.length === 0 && (
+                <p className="mt-4 px-5 text-sm text-slate-400">
+                  Aún no hay registros de auditoría global.
+                </p>
+              )}
+
+            {!globalHistoryLoading &&
+              !globalHistoryError &&
+              globalHistoryEntries.length > 0 && (
+                <div className="mt-4 space-y-2 px-5 pb-5">
+                  {globalHistoryEntries.map((entry) => (
+                    <div
+                      key={`global-audit-${entry.id}`}
+                      className="rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                        <span className="rounded-md bg-slate-800 px-2 py-1 font-semibold text-slate-200">
+                          {formatAuditAction(entry.action)}
+                        </span>
+                        <span className="text-slate-300">
+                          {formatAuditDate(entry.created_at)}
+                        </span>
+                        <span className="text-slate-400">
+                          por {entry.actor_name || entry.actor_email || "Sistema"}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs font-semibold text-emerald-700">
+                        {formatAuditProductRef(entry)}
+                      </p>
+                      <ul className="mt-1 space-y-1 text-xs text-slate-300">
+                        {buildAuditMessages(entry).map((line, index) => (
+                          <li key={`${entry.id}-global-line-${index}`}>• {line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
           </div>
         </div>
       )}
