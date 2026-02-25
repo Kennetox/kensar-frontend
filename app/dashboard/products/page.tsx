@@ -188,6 +188,12 @@ function formatAuditValue(value: unknown): string {
   }
 }
 
+function isAuditEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  return false;
+}
+
 function buildAuditMessages(entry: ProductAuditEntry): string[] {
   if (!isPlainObject(entry.changes)) return [];
 
@@ -208,11 +214,39 @@ function buildAuditMessages(entry: ProductAuditEntry): string[] {
   if (entry.action === "create" || entry.action === "snapshot") {
     const after = isPlainObject(entry.changes.after) ? entry.changes.after : null;
     if (!after) return ["Se registró el estado inicial del producto."];
-    const fields = Object.keys(after).filter((key) => key !== "id");
+    const fields = Object.entries(after).filter(([key]) => key !== "id");
     if (!fields.length) return ["Se registró el estado inicial del producto."];
-    const top = fields.slice(0, 5).map((field) => formatAuditFieldLabel(field));
-    const extra = fields.length > top.length ? ` y ${fields.length - top.length} más` : "";
-    return [`Estado inicial registrado con: ${top.join(", ")}${extra}.`];
+
+    const withValue = fields.filter(([, value]) => !isAuditEmptyValue(value));
+    const empty = fields.filter(([, value]) => isAuditEmptyValue(value));
+
+    const withValuePreview = withValue
+      .slice(0, 8)
+      .map(
+        ([field, value]) =>
+          `${formatAuditFieldLabel(field)}: "${formatAuditValue(value)}"`
+      );
+    const withValueExtra =
+      withValue.length > withValuePreview.length
+        ? ` y ${withValue.length - withValuePreview.length} más`
+        : "";
+
+    const emptyPreview = empty
+      .slice(0, 8)
+      .map(([field]) => formatAuditFieldLabel(field));
+    const emptyExtra =
+      empty.length > emptyPreview.length
+        ? ` y ${empty.length - emptyPreview.length} más`
+        : "";
+
+    const lines: string[] = [];
+    if (withValuePreview.length > 0) {
+      lines.push(`Campos con valor: ${withValuePreview.join(", ")}${withValueExtra}.`);
+    }
+    if (emptyPreview.length > 0) {
+      lines.push(`Campos vacíos: ${emptyPreview.join(", ")}${emptyExtra}.`);
+    }
+    return lines.length ? lines : ["Se registró el estado inicial del producto."];
   }
 
   if (entry.action === "delete") {
