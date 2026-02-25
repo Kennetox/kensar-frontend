@@ -671,49 +671,69 @@ export default function DocumentsExplorer({
       setError(null);
       if (!authHeaders) throw new Error("Sin sesión activa");
       const apiBase = getApiBase();
-      const [salesRes, returnsRes, changesRes, closuresRes, separatedOrdersRes] = await Promise.all([
-        fetch(`${apiBase}/pos/sales?skip=0&limit=200`, {
-          headers: authHeaders,
-          credentials: "include",
-        }),
-        fetch(`${apiBase}/pos/returns?skip=0&limit=200`, {
-          headers: authHeaders,
-          credentials: "include",
-        }),
-        fetch(`${apiBase}/pos/changes?skip=0&limit=200`, {
-          headers: authHeaders,
-          credentials: "include",
-        }),
-        fetch(`${apiBase}/pos/closures?skip=0&limit=200`, {
-          headers: authHeaders,
-          credentials: "include",
-        }),
-        fetchSeparatedOrders({ limit: 200 }, token),
-      ]);
+      const PAGE_SIZE = 200;
+      const dateParams = new URLSearchParams();
+      if (filterFrom) {
+        dateParams.set("date_from", `${filterFrom}T00:00:00`);
+      }
+      if (filterTo) {
+        dateParams.set("date_to", `${filterTo}T23:59:59`);
+      }
 
-      const handleUnauthorized = (res: Response) => {
-        if (res.status === 401) {
-          logout();
-          throw new Error(
-            "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
-          );
+      const fetchAllPages = async <T,>(
+        path: string,
+        extraParams?: URLSearchParams
+      ): Promise<T[]> => {
+        const rows: T[] = [];
+        let skip = 0;
+        for (;;) {
+          const params = new URLSearchParams(extraParams ?? undefined);
+          params.set("skip", String(skip));
+          params.set("limit", String(PAGE_SIZE));
+          const res = await fetch(`${apiBase}${path}?${params.toString()}`, {
+            headers: authHeaders,
+            credentials: "include",
+          });
+          if (res.status === 401) {
+            logout();
+            throw new Error(
+              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+            );
+          }
+          if (!res.ok) {
+            throw new Error(`Error ${res.status}`);
+          }
+          const page: T[] = await res.json();
+          rows.push(...page);
+          if (page.length < PAGE_SIZE) break;
+          skip += page.length;
         }
+        return rows;
       };
 
-      handleUnauthorized(salesRes);
-      handleUnauthorized(returnsRes);
-      handleUnauthorized(changesRes);
-      handleUnauthorized(closuresRes);
+      const fetchAllSeparatedOrders = async (): Promise<SeparatedOrder[]> => {
+        const rows: SeparatedOrder[] = [];
+        let skip = 0;
+        for (;;) {
+          const page = await fetchSeparatedOrders(
+            { skip, limit: PAGE_SIZE },
+            token
+          );
+          rows.push(...page);
+          if (page.length < PAGE_SIZE) break;
+          skip += page.length;
+        }
+        return rows;
+      };
 
-      if (!salesRes.ok) throw new Error("Error al cargar ventas");
-      if (!returnsRes.ok) throw new Error("Error al cargar devoluciones");
-      if (!changesRes.ok) throw new Error("Error al cargar cambios");
-      if (!closuresRes.ok) throw new Error("Error al cargar cierres");
-      const salesData: SaleRecord[] = await salesRes.json();
-      const returnsData: ReturnRecord[] = await returnsRes.json();
-      const changesData: ChangeRecord[] = await changesRes.json();
-      const closuresData: ClosureRecord[] = await closuresRes.json();
-      const separatedOrdersData = separatedOrdersRes as SeparatedOrder[];
+      const [salesData, returnsData, changesData, closuresData, separatedOrdersData] =
+        await Promise.all([
+          fetchAllPages<SaleRecord>("/pos/sales", dateParams),
+          fetchAllPages<ReturnRecord>("/pos/returns", dateParams),
+          fetchAllPages<ChangeRecord>("/pos/changes", dateParams),
+          fetchAllPages<ClosureRecord>("/pos/closures", dateParams),
+          fetchAllSeparatedOrders(),
+        ]);
       const adjustmentsBySaleId: Record<number, DocumentAdjustmentRecord[]> = {};
       if (salesData.length > 0) {
         const saleIds = salesData.map((sale) => sale.id);
@@ -724,7 +744,12 @@ export default function DocumentsExplorer({
             credentials: "include",
           }
         );
-        handleUnauthorized(adjustmentsRes);
+        if (adjustmentsRes.status === 401) {
+          logout();
+          throw new Error(
+            "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+          );
+        }
         if (adjustmentsRes.ok) {
           const adjustmentsData =
             (await adjustmentsRes.json()) as DocumentAdjustmentRecord[];
@@ -1090,10 +1115,10 @@ export default function DocumentsExplorer({
   };
 
   useEffect(() => {
-    if (!authHeaders) return;
+    if (!authHeaders || !filtersReady) return;
     void loadDocuments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authHeaders]);
+  }, [authHeaders, filtersReady, filterFrom, filterTo]);
 
   useEffect(() => {
     let active = true;
