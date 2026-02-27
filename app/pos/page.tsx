@@ -636,7 +636,9 @@ export default function PosPage() {
   const [stationNotice, setStationNotice] = useState<PosStationNotice | null>(null);
   const lastStationNoticeIdRef = useRef<number | null>(null);
   const stationNoticeTimerRef = useRef<number | null>(null);
+  const stationNoticePulseTimerRef = useRef<number | null>(null);
   const stationNoticeActiveIdRef = useRef<number | null>(null);
+  const dismissedStationNoticeIdsRef = useRef<Set<number>>(new Set());
   const [heldSaleSnapshot, setHeldSaleSnapshot] = useState<HeldSaleSnapshot | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
@@ -752,7 +754,7 @@ const matchesStationLabel = useCallback(
   const catalogUpdateAvailableRef = useRef(false);
   const imageBaseUrl = useMemo(() => getApiBase(), []);
   const apiBase = useMemo(() => getApiBase(), []);
-  const playStationNoticeSound = useCallback(() => {
+  const playStationNoticeSound = useCallback((variant: "intro" | "pulse" = "intro") => {
     if (typeof window === "undefined") return;
     try {
       const AudioContextRef =
@@ -763,31 +765,51 @@ const matchesStationLabel = useCallback(
       const now = ctx.currentTime;
       const master = ctx.createGain();
       master.gain.setValueAtTime(0.0001, now);
-      master.gain.exponentialRampToValueAtTime(0.25, now + 0.03);
-      master.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+      const maxGain = variant === "intro" ? 0.56 : 0.38;
+      const tail = variant === "intro" ? 1.05 : 0.5;
+      master.gain.exponentialRampToValueAtTime(maxGain, now + 0.025);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + tail);
       master.connect(ctx.destination);
 
-      const ring = (freq: number, offset: number, duration: number) => {
+      const emphasis = ctx.createBiquadFilter();
+      emphasis.type = "peaking";
+      emphasis.frequency.setValueAtTime(1900, now);
+      emphasis.Q.setValueAtTime(1.2, now);
+      emphasis.gain.setValueAtTime(8, now);
+      emphasis.connect(master);
+
+      const ring = (
+        freq: number,
+        offset: number,
+        duration: number,
+        wave: OscillatorType = "square"
+      ) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         const start = now + offset;
-        osc.type = "sine";
+        osc.type = wave;
         osc.frequency.setValueAtTime(freq, start);
         gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.exponentialRampToValueAtTime(0.5, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.74, start + 0.01);
         gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
         osc.connect(gain);
-        gain.connect(master);
+        gain.connect(emphasis);
         osc.start(start);
         osc.stop(start + duration);
       };
 
-      ring(880, 0, 0.9);
-      ring(1320, 0.02, 0.8);
-      ring(1760, 0.04, 0.6);
+      if (variant === "intro") {
+        ring(1820, 0, 0.12, "square");
+        ring(1450, 0.14, 0.11, "square");
+        ring(1960, 0.34, 0.1, "triangle");
+        ring(2260, 0.46, 0.1, "triangle");
+      } else {
+        ring(1880, 0, 0.09, "square");
+        ring(2280, 0.11, 0.08, "triangle");
+      }
       window.setTimeout(() => {
         ctx.close();
-      }, 1500);
+      }, variant === "intro" ? 1400 : 700);
     } catch (err) {
       console.warn("No se pudo reproducir el sonido del aviso", err);
     }
@@ -821,11 +843,13 @@ const matchesStationLabel = useCallback(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
   );
-  const handleDismissStationNotice = useCallback(async () => {
-    if (!token || !stationNotice || !activeStationId) return;
+  const handleDismissStationNotice = useCallback(async (noticeId?: number) => {
+    const targetNoticeId = noticeId ?? stationNotice?.id;
+    if (!token || !targetNoticeId || !activeStationId) return;
+    dismissedStationNoticeIdsRef.current.add(targetNoticeId);
     try {
-      await fetch(
-        `${apiBase}/pos/stations/${activeStationId}/notice/${stationNotice.id}`,
+      const res = await fetch(
+        `${apiBase}/pos/stations/${activeStationId}/notice/${targetNoticeId}`,
         {
           method: "DELETE",
           headers: {
@@ -833,39 +857,57 @@ const matchesStationLabel = useCallback(
           },
         }
       );
+      if (!res.ok && res.status !== 404) {
+        console.error("No se pudo confirmar el cierre del aviso", res.status);
+      }
     } catch (err) {
       console.error("No se pudo descartar el aviso", err);
     } finally {
       setStationNotice(null);
     }
-  }, [token, stationNotice, activeStationId, apiBase]);
+  }, [token, stationNotice?.id, activeStationId, apiBase]);
 
   useEffect(() => {
-    if (!stationNotice) {
+      if (!stationNotice) {
+        if (stationNoticeTimerRef.current) {
+          window.clearTimeout(stationNoticeTimerRef.current);
+          stationNoticeTimerRef.current = null;
+        }
+        if (stationNoticePulseTimerRef.current) {
+          window.clearInterval(stationNoticePulseTimerRef.current);
+          stationNoticePulseTimerRef.current = null;
+        }
+        stationNoticeActiveIdRef.current = null;
+        return;
+      }
+      if (stationNoticeActiveIdRef.current === stationNotice.id) {
+        return;
+      }
+      stationNoticeActiveIdRef.current = stationNotice.id;
+      playStationNoticeSound("intro");
       if (stationNoticeTimerRef.current) {
         window.clearTimeout(stationNoticeTimerRef.current);
-        stationNoticeTimerRef.current = null;
       }
-      stationNoticeActiveIdRef.current = null;
-      return;
-    }
-    if (stationNoticeActiveIdRef.current === stationNotice.id) {
-      return;
-    }
-    stationNoticeActiveIdRef.current = stationNotice.id;
-    if (stationNoticeTimerRef.current) {
-      window.clearTimeout(stationNoticeTimerRef.current);
-    }
-    stationNoticeTimerRef.current = window.setTimeout(() => {
-      void handleDismissStationNotice();
-    }, 60_000);
-    return () => {
-      if (stationNoticeTimerRef.current) {
-        window.clearTimeout(stationNoticeTimerRef.current);
-        stationNoticeTimerRef.current = null;
+      if (stationNoticePulseTimerRef.current) {
+        window.clearInterval(stationNoticePulseTimerRef.current);
       }
-    };
-  }, [stationNotice, handleDismissStationNotice]);
+      stationNoticePulseTimerRef.current = window.setInterval(() => {
+        playStationNoticeSound("pulse");
+      }, 9000);
+      stationNoticeTimerRef.current = window.setTimeout(() => {
+      void handleDismissStationNotice(stationNotice.id);
+      }, 60_000);
+      return () => {
+        if (stationNoticeTimerRef.current) {
+          window.clearTimeout(stationNoticeTimerRef.current);
+          stationNoticeTimerRef.current = null;
+        }
+        if (stationNoticePulseTimerRef.current) {
+          window.clearInterval(stationNoticePulseTimerRef.current);
+          stationNoticePulseTimerRef.current = null;
+        }
+      };
+  }, [stationNotice, handleDismissStationNotice, playStationNoticeSound]);
   const printerWidthOptions = useMemo(
     () => [
       { value: "80mm", label: "80 mm" },
@@ -1188,10 +1230,13 @@ const matchesStationLabel = useCallback(
           setStationNotice(null);
           return;
         }
+        if (dismissedStationNoticeIdsRef.current.has(data.id)) {
+          setStationNotice(null);
+          return;
+        }
         setStationNotice(data);
         if (data.id && lastStationNoticeIdRef.current !== data.id) {
           lastStationNoticeIdRef.current = data.id;
-          playStationNoticeSound();
         }
       } catch (err) {
         console.warn("No se pudo consultar el aviso de estación", err);
@@ -1203,7 +1248,7 @@ const matchesStationLabel = useCallback(
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [token, isStationMode, activeStationId, apiBase, playStationNoticeSound]);
+  }, [token, isStationMode, activeStationId, apiBase]);
 
   const persistPrinterConfig = useCallback(
     async (next: PosStationPrinterConfig) => {
@@ -7363,12 +7408,14 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
             className="relative rounded-[26px] border border-amber-300/60 bg-slate-950/95 px-8 py-6 shadow-2xl backdrop-blur-sm animate-[toast-in_220ms_cubic-bezier(0.22,0.61,0.36,1)]"
             style={{ animationFillMode: "both", willChange: "transform, opacity" }}
           >
-            <button
-              type="button"
-              onClick={handleDismissStationNotice}
-              className="absolute right-4 top-4 h-12 w-12 rounded-full border border-amber-300/50 text-amber-100 hover:text-amber-50 hover:bg-amber-400/10 text-3xl leading-none flex items-center justify-center"
-              aria-label="Cerrar aviso"
-            >
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleDismissStationNotice();
+                  }}
+                  className="absolute right-4 top-4 h-12 w-12 rounded-full border border-amber-300/50 text-amber-100 hover:text-amber-50 hover:bg-amber-400/10 text-3xl leading-none flex items-center justify-center"
+                  aria-label="Cerrar aviso"
+                >
               <span className="translate-y-[-1px]">×</span>
             </button>
             <div className="absolute right-20 top-6 text-[11px] uppercase tracking-[0.24em] text-amber-200/70">
