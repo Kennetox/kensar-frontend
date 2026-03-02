@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
-import { exportReportExcel } from "@/lib/api/reports";
+import { exportReportExcel, exportReportPdf } from "@/lib/api/reports";
 import { fetchPosSettings, PosSettingsPayload } from "@/lib/api/settings";
 import { SHOW_FREE_SALE_TRACEABILITY_REPORT } from "@/lib/config/featureFlags";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
@@ -173,11 +173,12 @@ const isValidOpenReportTab = (value: unknown): value is OpenReportTab => {
 const REPORT_PAGE_SIZE = 500;
 const ADJUSTMENTS_CHUNK_SIZE = 200;
 const TABLE_ROWS_PER_PAGE = 18;
+const MONTH_DAILY_ROWS_PER_PAGE = 28;
 const PAPER_WIDTH_MM = 210; // A4
 const PAPER_HEIGHT_MM = 297; // A4
 const PAGE_MARGIN_MM = 2.5;
 // Compensa diferencias entre preview y motor de impresion del navegador.
-const PAGE_CONTENT_SLACK_MM = 4;
+const PAGE_CONTENT_SLACK_MM = 1;
 const PAGE_WIDTH_MM =
   PAPER_WIDTH_MM - PAGE_MARGIN_MM * 2 - PAGE_CONTENT_SLACK_MM;
 const PAGE_HEIGHT_MM =
@@ -224,13 +225,13 @@ const getMonthRangeFromKey = (referenceDateKey: string) => {
 };
 const FAVORITES_STORAGE_KEY = "kensar_report_favorites";
 const HOURLY_CHART_BAR_MAX_HEIGHT = 260; // px for chart bars height
-const LINE_CHART_WIDTH = 780;
-const LINE_CHART_HEIGHT = 320;
+const LINE_CHART_WIDTH = 980;
+const LINE_CHART_HEIGHT = 420;
 const LINE_CHART_PADDING = {
-  top: 24,
-  right: 20,
-  bottom: 80,
-  left: 60,
+  top: 26,
+  right: 28,
+  bottom: 126,
+  left: 90,
 };
 const LINE_CHART_TICKS = 5;
 const OPEN_REPORTS_STORAGE_KEY = "kensar_report_open_tabs";
@@ -1044,7 +1045,7 @@ export function buildDocumentHtml(
   const tableRows = result.table?.rows ?? [];
   const rowsPerPage = (() => {
     if (preset.id === "hourly-sales") return 16;
-    if (preset.id === "month-daily") return 18;
+    if (preset.id === "month-daily") return MONTH_DAILY_ROWS_PER_PAGE;
     return TABLE_ROWS_PER_PAGE;
   })();
   const chartConfig = getChartConfig(preset.id, tableRows);
@@ -1256,34 +1257,49 @@ export function buildDocumentHtml(
             : (safeMax / (tickCount - 1)) * idx;
         const ratio = safeMax > 0 ? value / safeMax : 0;
         const y = top + innerHeight - ratio * innerHeight;
-        return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" class="line-grid" />
-        <text x="${left - 10}" y="${y + 4}" class="line-y-label">${formatMoney(
+        return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="#cbd5e1" stroke-width="1" />
+        <text x="${left - 14}" y="${y + 4}" fill="#475569" font-size="13" text-anchor="end">${formatMoney(
           value
         )}</text>`;
       })
       .join("");
+    let lastValueLabelX = -Infinity;
+    let lastValueLabelY = -Infinity;
     const pointElements = points
       .map((point, idx) => {
         const ratio = safeMax > 0 ? point.value / safeMax : 0;
         const x =
           left + (points.length > 1 ? idx * xStep : innerWidth / 2);
         const y = top + innerHeight - ratio * innerHeight;
-        const labelY = height - bottom + 30;
-        return `<circle cx="${x}" cy="${y}" r="4" class="line-point" />
-        <text x="${x}" y="${y - 8}" class="line-value">${formatMoney(
+        const labelY = height - bottom + 50;
+        let valueLabelY = y <= top + 26 ? y + 24 : y - 14;
+        if (
+          Math.abs(x - lastValueLabelX) < 52 &&
+          Math.abs(valueLabelY - lastValueLabelY) < 24
+        ) {
+          valueLabelY = valueLabelY - 18;
+        }
+        if (valueLabelY < top + 12) {
+          valueLabelY = y + 24;
+        }
+        const chartDayLabel = point.label;
+        lastValueLabelX = x;
+        lastValueLabelY = valueLabelY;
+        return `<circle cx="${x}" cy="${y}" r="7" fill="#1d9fe3" stroke="#ffffff" stroke-width="3" />
+        <text x="${x}" y="${valueLabelY}" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">${formatMoney(
           point.value
         )}</text>
-        <text x="${x}" y="${labelY}" transform="rotate(-40 ${x} ${labelY})" class="line-x-label">${point.label}</text>`;
+        <text x="${x}" y="${labelY}" fill="#475569" font-size="12" text-anchor="end" transform="rotate(-38 ${x} ${labelY})">${chartDayLabel}</text>`;
       })
       .join("");
     chartContent = `<div class="line-chart">
-      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" class="line-svg">
-        <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom + 10}" class="line-axis" />
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:${height}px;display:block;">
+        <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom + 10}" stroke="#94a3b8" stroke-width="2" />
         <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${
           height - bottom
-        }" class="line-axis" />
+        }" stroke="#94a3b8" stroke-width="2" />
         ${tickLines}
-        <polyline points="${polylinePoints}" class="line-path" />
+        <polyline points="${polylinePoints}" fill="none" stroke="#10b981" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" />
         ${pointElements}
       </svg>
     </div>`;
@@ -1372,7 +1388,7 @@ export function buildDocumentHtml(
         <title>${documentTitle}</title>
         <style>
           @page { size: ${paperWidth} ${paperHeight}; margin: ${pageMargin}; }
-          @page chart-landscape { size: ${paperHeight} ${paperWidth}; margin: ${pageMargin}; }
+          @page chart-landscape { size: A4 landscape; margin: ${pageMargin}; }
           * { box-sizing: border-box; font-family: "Inter", Arial, sans-serif; }
           body { background: #f4f6f9; color: #0f172a; margin: 0; padding: 24px 0; }
           @media print {
@@ -1393,6 +1409,9 @@ export function buildDocumentHtml(
               page-break-after: always !important;
               break-after: page !important;
             }
+            .chart-wrapper.landscape {
+              min-height: calc(${pageWidth} - 2mm) !important;
+            }
             .page-body { display: block !important; flex: 0 0 auto !important; }
             .table-block {
               display: block !important;
@@ -1412,7 +1431,7 @@ export function buildDocumentHtml(
           .report-wrapper { width: ${pageWidth}; min-height: ${pageHeight}; margin: 0 auto 12mm; background: #fff; border: 1px solid #d3d7df; page-break-after: always; break-after: page; display:flex; flex-direction:column; }
           .report-wrapper:last-of-type { page-break-after: auto; break-after: auto; }
           .chart-wrapper { width: ${pageWidth}; }
-          .chart-wrapper.landscape { width: ${pageHeight}; page: chart-landscape; }
+          .chart-wrapper.landscape { width: ${pageHeight}; min-height: ${pageWidth}; page: chart-landscape; }
           .chart-body { flex:1; display:flex; flex-direction:column; padding: 16px 20px 18px; }
           .page-body { flex:1; display:flex; flex-direction:column; }
           header { padding: 12px 18px 10px; border-bottom: 1px solid #e3e6ef; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 3px; }
@@ -1452,14 +1471,15 @@ export function buildDocumentHtml(
           .chart-value { font-size: 11px; font-weight: 600; margin-bottom: 4px; color:#0f172a; display:inline-block; transform:rotate(-32deg); transform-origin:left bottom; }
           .chart-label { font-size: 10px; font-weight: 600; margin-top: 6px; color:#0f172a; }
           .chart-subtext { font-size: 9px; color:#94a3b8; margin-top: 1px; }
-          .line-chart { flex:1; border:1px solid #d7dbe5; border-radius: 18px; background:#fff; padding: 12px 8px; }
-          .line-svg { width: 100%; height: 100%; }
+          .line-chart { flex:1; min-height: 440px; border:1px solid #d7dbe5; border-radius: 18px; background:#fff; padding: 12px 8px; }
+          .chart-wrapper.landscape .line-chart { min-height: 440px; }
+          .line-svg { width: 100%; height: 100%; display:block; }
           .line-grid { stroke: #e2e8f0; stroke-width: 1; }
           .line-axis { stroke: #94a3b8; stroke-width: 1.2; }
           .line-path { fill: none; stroke: #10b981; stroke-width: 2.5; }
           .line-point { fill: #0ea5e9; stroke: #fff; stroke-width: 1.5; }
           .line-value { font-size: 10px; fill: #0f172a; text-anchor: middle; }
-          .line-x-label { font-size: 9px; fill: #475569; text-anchor: end; }
+          .line-x-label { font-size: 8px; fill: #475569; text-anchor: middle; }
           .line-y-label { font-size: 9px; fill: #475569; text-anchor: end; }
           .payment-bars { display:flex; flex-direction:column; gap:10px; padding:12px 0; }
           .payment-row { display:grid; grid-template-columns: 130px 1fr 90px; gap:12px; align-items:center; font-size:11px; color:#0f172a; }
@@ -2516,7 +2536,7 @@ function ReportDocumentViewer({
     const tableRows = result?.table?.rows ?? [];
     const rowsPerPage = (() => {
       if (preset.id === "hourly-sales") return 16;
-      if (preset.id === "month-daily") return 18;
+      if (preset.id === "month-daily") return MONTH_DAILY_ROWS_PER_PAGE;
       return TABLE_ROWS_PER_PAGE;
     })();
     const chartConfig = getChartConfig(preset.id, tableRows);
@@ -2559,10 +2579,95 @@ function ReportDocumentViewer({
     win.print();
   }, [result, preset, companyInfo, filterMeta, resolveMethodLabel]);
 
-  const handleDownloadPdf = useCallback(() => {
-    // Se utiliza el mismo flujo de impresión para permitir "Guardar como PDF".
-    handlePrint();
-  }, [handlePrint]);
+  const handleDownloadPdf = useCallback(async () => {
+    if (!result) return;
+    try {
+      setExportLoading(true);
+      setExportError(null);
+
+      const documentTitle = getReportDocumentTitle(preset, filterMeta);
+      const html = buildDocumentHtml(
+        preset,
+        result,
+        companyInfo,
+        filterMeta,
+        resolveMethodLabel
+      );
+      const blob = await exportReportPdf(
+        {
+          title: documentTitle,
+          document_html: html,
+          preset_id: preset.id,
+        },
+        token
+      );
+
+      const fileName = `reporte_${preset.id}_${filterMeta.fromDate}_${filterMeta.toDate}.pdf`;
+      const picker = (
+        window as Window & {
+          showSaveFilePicker?: (options?: {
+            suggestedName?: string;
+            types?: {
+              description?: string;
+              accept?: Record<string, string[]>;
+            }[];
+          }) => Promise<{
+            createWritable: () => Promise<{
+              write: (data: Blob) => Promise<void>;
+              close: () => Promise<void>;
+            }>;
+          }>;
+        }
+      ).showSaveFilePicker;
+
+      if (picker) {
+        try {
+          const handle = await picker({
+            suggestedName: fileName,
+            types: [
+              {
+                description: "PDF",
+                accept: {
+                  "application/pdf": [".pdf"],
+                },
+              },
+            ],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return;
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") {
+            return;
+          }
+          throw err;
+        }
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : "No se pudo exportar el archivo PDF."
+      );
+    } finally {
+      setExportLoading(false);
+    }
+  }, [
+    result,
+    preset,
+    companyInfo,
+    filterMeta,
+    resolveMethodLabel,
+    token,
+  ]);
 
   const handleDownloadExcel = useCallback(async () => {
     if (!result) return;
@@ -2718,10 +2823,11 @@ function ReportDocumentViewer({
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
           <button
-            className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400"
+            className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={handleDownloadPdf}
+            disabled={exportLoading}
           >
-            Descargar PDF
+            {exportLoading ? "Generando PDF..." : "Descargar PDF"}
           </button>
           <button
             className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -3282,24 +3388,45 @@ export default function ReportsPage() {
   );
 
   const renderPresetRow = useCallback(
-    (preset: ReportPreset) => {
+    (preset: ReportPreset, variant: "default" | "favorite" = "default") => {
       const isActive = selectedPresetId === preset.id;
       const isFavorite = favoriteReportIds.includes(preset.id);
+      const isFavoriteVariant = variant === "favorite";
       return (
         <li
           key={preset.id}
-          className={`px-4 py-3 flex items-start gap-3 cursor-pointer ${
-            isActive ? "bg-emerald-500/10" : "hover:bg-slate-900"
+          className={`px-4 py-3 flex items-start gap-3 cursor-pointer transition-colors ${
+            isFavoriteVariant
+              ? isActive
+                ? "bg-amber-200/55"
+                : "hover:bg-amber-100/60"
+              : isActive
+              ? "bg-emerald-500/10"
+              : "hover:bg-slate-900"
           }`}
           onClick={() => handleSelectPreset(preset.id)}
           onDoubleClick={() => handleOpenPreset(preset)}
         >
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-slate-100">{preset.title}</p>
-            <p className="text-[11px] text-slate-400 line-clamp-2">
+            <p
+              className={`font-semibold ${
+                isFavoriteVariant ? "text-amber-950" : "text-slate-100"
+              }`}
+            >
+              {preset.title}
+            </p>
+            <p
+              className={`text-[11px] line-clamp-2 ${
+                isFavoriteVariant ? "text-amber-900/85" : "text-slate-400"
+              }`}
+            >
               {preset.description}
             </p>
-            <p className="mt-1 text-[11px] text-slate-500">
+            <p
+              className={`mt-1 text-[11px] ${
+                isFavoriteVariant ? "text-amber-900/75" : "text-slate-500"
+              }`}
+            >
               Alcance: {preset.scope}
             </p>
           </div>
@@ -3311,7 +3438,11 @@ export default function ReportsPage() {
             }}
             className={`text-lg ${
               isFavorite
-                ? "text-amber-400 hover:text-amber-300"
+                ? isFavoriteVariant
+                  ? "text-amber-700 hover:text-amber-800"
+                  : "text-amber-400 hover:text-amber-300"
+                : isFavoriteVariant
+                ? "text-amber-600/70 hover:text-amber-700"
                 : "text-slate-500 hover:text-slate-300"
             }`}
             aria-label={
@@ -3459,13 +3590,15 @@ export default function ReportsPage() {
 
               <div className="space-y-4 max-h-[620px] overflow-auto pr-1">
                 {favoritePresets.length > 0 && (
-                  <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5">
-                    <div className="px-4 py-2 border-b border-amber-400/30 text-xs uppercase tracking-wide text-amber-300 flex items-center justify-between">
+                  <div className="rounded-2xl border border-amber-400/80 bg-gradient-to-br from-amber-100 via-amber-50 to-white shadow-[0_0_0_1px_rgba(245,158,11,0.35)]">
+                    <div className="px-4 py-2 border-b border-amber-300/70 text-xs uppercase tracking-wide text-amber-800 font-bold flex items-center justify-between">
                       <span>Favoritos</span>
                       <span>{favoritePresets.length}</span>
                     </div>
-                    <ul className="divide-y divide-amber-400/30 text-sm">
-                      {favoritePresets.map((preset) => renderPresetRow(preset))}
+                    <ul className="divide-y divide-amber-300/60 text-sm">
+                      {favoritePresets.map((preset) =>
+                        renderPresetRow(preset, "favorite")
+                      )}
                     </ul>
                   </div>
                 )}
@@ -3521,7 +3654,16 @@ export default function ReportsPage() {
                           type="date"
                           value={fromDate}
                           onChange={(e) => handleFromDateChange(e.target.value)}
-                          onFocus={(e) => e.target.showPicker?.()}
+                          onClick={(e) => {
+                            const input = e.currentTarget;
+                            if (typeof input.showPicker === "function") {
+                              try {
+                                input.showPicker();
+                              } catch {
+                                // Algunos navegadores requieren un gesto de usuario estricto.
+                              }
+                            }
+                          }}
                           className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
                         />
                       </label>
@@ -3533,7 +3675,16 @@ export default function ReportsPage() {
                           type="date"
                           value={toDate}
                           onChange={(e) => handleToDateChange(e.target.value)}
-                          onFocus={(e) => e.target.showPicker?.()}
+                          onClick={(e) => {
+                            const input = e.currentTarget;
+                            if (typeof input.showPicker === "function") {
+                              try {
+                                input.showPicker();
+                              } catch {
+                                // Algunos navegadores requieren un gesto de usuario estricto.
+                              }
+                            }
+                          }}
                           className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
                         />
                       </label>
