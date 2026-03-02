@@ -211,9 +211,63 @@ type ClosureRecord = {
   } | null;
 };
 
+type ReceivingDocumentRecord = {
+  id: number;
+  lot_number: string;
+  status: "open" | "closed" | "cancelled";
+  purchase_type: "invoice" | "cash";
+  origin_name: string;
+  supplier_name?: string | null;
+  invoice_reference?: string | null;
+  support_file_name?: string | null;
+  support_file_url?: string | null;
+  support_file_size?: number | null;
+  lines_count: number;
+  units_total: number;
+  created_at: string;
+  closed_at?: string | null;
+  closed_by_user_name?: string | null;
+};
+
+type ReceivingLotRecord = {
+  id: number;
+  lot_number: string;
+  status: "open" | "closed" | "cancelled";
+  purchase_type: "invoice" | "cash";
+  origin_name: string;
+  supplier_name?: string | null;
+  invoice_reference?: string | null;
+  source_reference?: string | null;
+  support_file_name?: string | null;
+  support_file_url?: string | null;
+  support_file_size?: number | null;
+  created_at: string;
+  closed_at?: string | null;
+};
+
+type ReceivingLotItemRecord = {
+  id: number;
+  lot_id: number;
+  product_id: number;
+  product_name_snapshot: string;
+  sku_snapshot?: string | null;
+  barcode_snapshot?: string | null;
+  qty_received: number;
+};
+
+type ReceivingLotDetailRecord = {
+  lot: ReceivingLotRecord;
+  items: ReceivingLotItemRecord[];
+  labels_summary?: {
+    pending?: number;
+    printed?: number;
+    error?: number;
+  };
+};
+
 type DocumentRow = {
   id: string;
-  type: "venta" | "devolucion" | "cambio" | "cierre" | "abono";
+  type: "venta" | "devolucion" | "cambio" | "cierre" | "abono" | "recepcion";
   recordId: number;
   saleId?: number;
   createdAt: string;
@@ -232,7 +286,13 @@ type DocumentRow = {
   isAnnulation?: boolean;
   status?: string;
   closureId?: number | null;
-  data: SaleRecord | ReturnRecord | ChangeRecord | ClosureRecord | AbonoRecord;
+  data:
+    | SaleRecord
+    | ReturnRecord
+    | ChangeRecord
+    | ClosureRecord
+    | AbonoRecord
+    | ReceivingDocumentRecord;
 };
 
 type SummaryCard = {
@@ -340,6 +400,27 @@ function formatDateTime(value: string | undefined): string {
       hour12: true,
     }) || value
   );
+}
+
+function formatFileSize(bytes: number | null | undefined): string {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
+    return "Tamaño no disponible";
+  }
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(kb >= 100 ? 0 : 1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
+}
+
+function getFileExtension(filename: string | null | undefined): string {
+  if (!filename) return "Archivo";
+  const trimmed = filename.trim();
+  if (!trimmed) return "Archivo";
+  const parts = trimmed.split(".");
+  if (parts.length < 2) return "Archivo";
+  const ext = parts[parts.length - 1]?.trim().toUpperCase();
+  return ext || "Archivo";
 }
 
 function computeSaleTotals(sale: SaleRecord) {
@@ -576,6 +657,7 @@ export default function DocumentsExplorer({
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [changes, setChanges] = useState<ChangeRecord[]>([]);
   const [closures, setClosures] = useState<ClosureRecord[]>([]);
+  const [receivingDocs, setReceivingDocs] = useState<ReceivingDocumentRecord[]>([]);
   const [separatedOrders, setSeparatedOrders] = useState<SeparatedOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -584,6 +666,12 @@ export default function DocumentsExplorer({
   const [detailExpanded, setDetailExpanded] = useState(false);
   const [selectedSeparatedOrder, setSelectedSeparatedOrder] =
     useState<SeparatedOrder | null>(null);
+  const [selectedReceivingDetail, setSelectedReceivingDetail] =
+    useState<ReceivingLotDetailRecord | null>(null);
+  const [loadingReceivingDetail, setLoadingReceivingDetail] = useState(false);
+  const [receivingDetailError, setReceivingDetailError] = useState<string | null>(
+    null
+  );
 
   const [filterType, setFilterType] = useState("all");
   const [filterFrom, setFilterFrom] = useState(today);
@@ -726,13 +814,51 @@ export default function DocumentsExplorer({
         return rows;
       };
 
-      const [salesData, returnsData, changesData, closuresData, separatedOrdersData] =
+      const fetchAllReceivingDocuments = async (): Promise<ReceivingDocumentRecord[]> => {
+        const rows: ReceivingDocumentRecord[] = [];
+        let skip = 0;
+        for (;;) {
+          const params = new URLSearchParams(dateParams);
+          params.set("skip", String(skip));
+          params.set("limit", String(PAGE_SIZE));
+          const res = await fetch(
+            `${apiBase}/receiving/documents?${params.toString()}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+            }
+          );
+          if (res.status === 401) {
+            logout();
+            throw new Error(
+              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+            );
+          }
+          if (!res.ok) {
+            throw new Error(`Error ${res.status}`);
+          }
+          const page = (await res.json()) as {
+            items: ReceivingDocumentRecord[];
+            total: number;
+            skip: number;
+            limit: number;
+          };
+          const items = page.items ?? [];
+          rows.push(...items);
+          if (items.length < PAGE_SIZE) break;
+          skip += items.length;
+        }
+        return rows;
+      };
+
+      const [salesData, returnsData, changesData, closuresData, separatedOrdersData, receivingDocsData] =
         await Promise.all([
           fetchAllPages<SaleRecord>("/pos/sales", dateParams),
           fetchAllPages<ReturnRecord>("/pos/returns", dateParams),
           fetchAllPages<ChangeRecord>("/pos/changes", dateParams),
           fetchAllPages<ClosureRecord>("/pos/closures", dateParams),
           fetchAllSeparatedOrders(),
+          fetchAllReceivingDocuments(),
         ]);
       const adjustmentsBySaleId: Record<number, DocumentAdjustmentRecord[]> = {};
       if (salesData.length > 0) {
@@ -764,6 +890,7 @@ export default function DocumentsExplorer({
       setReturns(returnsData);
       setChanges(changesData);
       setClosures(closuresData);
+      setReceivingDocs(receivingDocsData);
       setSeparatedOrders(separatedOrdersData);
       setSaleAdjustmentsById(adjustmentsBySaleId);
       const docsList = mappedDocuments(
@@ -771,7 +898,8 @@ export default function DocumentsExplorer({
         returnsData,
         changesData,
         closuresData,
-        separatedOrdersData
+        separatedOrdersData,
+        receivingDocsData
       );
       setSelectedDoc((prev) => {
         if (prev) {
@@ -1215,7 +1343,8 @@ export default function DocumentsExplorer({
     returnsList: ReturnRecord[],
     changesList: ChangeRecord[],
     closuresList: ClosureRecord[],
-    separatedOrdersList: SeparatedOrder[]
+    separatedOrdersList: SeparatedOrder[],
+    receivingList: ReceivingDocumentRecord[]
   ): DocumentRow[] {
     const salesById = new Map<number, SaleRecord>();
     salesList.forEach((sale) => {
@@ -1394,12 +1523,40 @@ export default function DocumentsExplorer({
       });
     });
 
+    const receivingLotDocs: DocumentRow[] = receivingList
+      .filter((lotDoc) => lotDoc.status === "closed")
+      .map((lotDoc) => {
+        const purchaseLabel = lotDoc.purchase_type === "cash" ? "Contado" : "Factura";
+        const invoiceMeta =
+          lotDoc.purchase_type === "invoice"
+            ? ` · ${lotDoc.supplier_name || "Proveedor sin definir"} · ${lotDoc.invoice_reference || "Sin referencia"}`
+            : "";
+        return {
+          id: `receiving-${lotDoc.id}`,
+          type: "recepcion",
+          recordId: lotDoc.id,
+          createdAt: lotDoc.closed_at ?? lotDoc.created_at,
+          documentNumber: lotDoc.lot_number,
+          reference: `Recepción - ${lotDoc.origin_name}`,
+          detail: `${lotDoc.lines_count} líneas · ${lotDoc.units_total} unidades · ${purchaseLabel}${invoiceMeta}`,
+          total: 0,
+          paymentMethod: "recepcion",
+          customer: undefined,
+          pos: lotDoc.origin_name,
+          vendor: lotDoc.closed_by_user_name ?? undefined,
+          status: lotDoc.status,
+          closureId: null,
+          data: lotDoc,
+        };
+      });
+
     return [
       ...saleDocs,
       ...returnDocs,
       ...changeDocs,
       ...abonoDocs,
       ...closureDocs,
+      ...receivingLotDocs,
     ].sort(
       (a, b) =>
         (parseDateInput(b.createdAt)?.getTime() ?? 0) -
@@ -1408,8 +1565,8 @@ export default function DocumentsExplorer({
   }
 
   const documents = useMemo(
-    () => mappedDocuments(sales, returns, changes, closures, separatedOrders),
-    [sales, returns, changes, closures, separatedOrders]
+    () => mappedDocuments(sales, returns, changes, closures, separatedOrders, receivingDocs),
+    [sales, returns, changes, closures, separatedOrders, receivingDocs]
   );
 
   const canAdjustDocuments = canDoDocumentAction("documents.sales.adjust");
@@ -1419,6 +1576,9 @@ export default function DocumentsExplorer({
     if (status === "voided") return "Anulado";
     if (status === "adjusted") return "Ajustado";
     if (status === "adjustment") return "Ajuste";
+    if (status === "closed") return "Cerrado";
+    if (status === "open") return "Abierto";
+    if (status === "cancelled") return "Cancelado";
     return status;
   };
 
@@ -1564,7 +1724,108 @@ useEffect(() => {
   setDetailExpanded(false);
 }, [selectedDoc?.id]);
 
+useEffect(() => {
+  const isReceivingDoc = selectedDoc?.type === "recepcion";
+  const receivingLotId = isReceivingDoc ? selectedDoc.recordId : null;
+
+  if (!isReceivingDoc || !receivingLotId || !authHeaders) {
+    setSelectedReceivingDetail(null);
+    setReceivingDetailError(null);
+    setLoadingReceivingDetail(false);
+    return;
+  }
+
+  let cancelled = false;
+  const apiBase = getApiBase();
+  setLoadingReceivingDetail(true);
+  setReceivingDetailError(null);
+
+  const loadReceivingDetail = async () => {
+    try {
+      const res = await fetch(
+        `${apiBase}/receiving/lots/${receivingLotId}`,
+        {
+          headers: authHeaders,
+          credentials: "include",
+        }
+      );
+      if (res.status === 401) {
+        logout();
+        throw new Error(
+          "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+        );
+      }
+      if (!res.ok) {
+        throw new Error(`No se pudo cargar el detalle de la recepción (${res.status}).`);
+      }
+      const detail = (await res.json()) as ReceivingLotDetailRecord;
+      if (!cancelled) {
+        setSelectedReceivingDetail(detail);
+      }
+    } catch (err) {
+      console.error(err);
+      if (!cancelled) {
+        setSelectedReceivingDetail(null);
+        setReceivingDetailError(
+          err instanceof Error
+            ? err.message
+            : "Error al cargar detalle de recepción."
+        );
+      }
+    } finally {
+      if (!cancelled) {
+        setLoadingReceivingDetail(false);
+      }
+    }
+  };
+
+  void loadReceivingDetail();
+  return () => {
+    cancelled = true;
+  };
+}, [selectedDoc, authHeaders, logout]);
+
 const selectedDetails = selectedDoc?.data;
+  const selectedSupportFile = selectedReceivingDetail?.lot ?? null;
+  const selectedSupportFileUrl = selectedSupportFile?.support_file_url
+    ? selectedSupportFile.support_file_url.startsWith("http")
+      ? selectedSupportFile.support_file_url
+      : `${getApiBase()}${selectedSupportFile.support_file_url}`
+    : null;
+  const selectedSupportFileName =
+    selectedSupportFile?.support_file_name || "soporte_recepcion";
+  const selectedSupportFileType = getFileExtension(selectedSupportFileName);
+
+  const handleDownloadSupportFile = useCallback(async () => {
+    if (!selectedSupportFileUrl) {
+      showToast("No hay soporte adjunto para descargar.", "error");
+      return;
+    }
+    try {
+      const res = await fetch(selectedSupportFileUrl, {
+        headers: authHeaders ?? undefined,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error(`No se pudo descargar el archivo (${res.status}).`);
+      }
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = selectedSupportFileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+      showToast("Descarga iniciada.", "info");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "No se pudo descargar el soporte.";
+      showToast(message, "error");
+    }
+  }, [selectedSupportFileUrl, selectedSupportFileName, authHeaders, showToast]);
+
   const selectedDocStatusLabel = getStatusLabel(selectedDoc?.status);
   const selectedDocIsVoided = selectedDoc?.status === "voided";
 
@@ -1586,6 +1847,8 @@ const selectedDetails = selectedDoc?.data;
           ? "Cambio"
           : doc.type === "abono"
           ? "Abono"
+          : doc.type === "recepcion"
+          ? "Recepción"
           : "Cierre";
       const statusLabel = getStatusLabel(doc.status) ?? "";
       const methodLabel = doc.isSeparated
@@ -1674,12 +1937,14 @@ const selectedDocCanShowVoidButton =
   canVoidDocuments &&
   selectedDoc.type !== "cierre" &&
   selectedDoc.type !== "abono" &&
+  selectedDoc.type !== "recepcion" &&
   !selectedDocIsVoided;
 const selectedDocCanVoid =
   !!selectedDoc &&
   canVoidDocuments &&
   selectedDoc.type !== "cierre" &&
   selectedDoc.type !== "abono" &&
+  selectedDoc.type !== "recepcion" &&
   !selectedDocIsVoided &&
   (selectedDoc.type === "venta" || selectedDoc.closureId == null);
 const voidActionLabel = "Anular";
@@ -2427,7 +2692,7 @@ useEffect(() => {
     ? "Selecciona un documento"
     : !canVoidDocuments
     ? "No tienes permisos"
-    : selectedDoc.type === "cierre" || selectedDoc.type === "abono"
+    : selectedDoc.type === "cierre" || selectedDoc.type === "abono" || selectedDoc.type === "recepcion"
     ? "No disponible para este documento"
     : selectedDocIsVoided
     ? "Documento ya anulado"
@@ -2561,6 +2826,7 @@ useEffect(() => {
               <option value="devolucion">Devoluciones</option>
               <option value="cambio">Cambios</option>
               <option value="abono">Abonos</option>
+              <option value="recepcion">Recepciones</option>
               <option value="cierre">Cierres de caja</option>
             </select>
           </label>
@@ -2804,9 +3070,9 @@ useEffect(() => {
               <table className="w-full text-xs table-fixed">
                 <colgroup>
                   <col style={{ width: "180px" }} />
-                  <col style={{ width: "120px" }} />
+                  <col style={{ width: "180px" }} />
                   <col style={{ width: "auto" }} />
-                  <col style={{ width: "120px" }} />
+                  <col style={{ width: "180px" }} />
                   <col style={{ width: "200px" }} />
                 </colgroup>
                 <thead className="bg-[var(--surface-2)] text-[11px] text-slate-700">
@@ -2881,6 +3147,8 @@ useEffect(() => {
                         ? "Cambio"
                         : doc.type === "abono"
                         ? "Abono"
+                        : doc.type === "recepcion"
+                        ? "Recepción"
                         : "Cierre";
                     const statusLabel = getStatusLabel(doc.status);
                     const docIsSeparated = !!doc.isSeparated;
@@ -2931,34 +3199,38 @@ useEffect(() => {
                           </div>
                         </td>
                         <td className="px-3 py-2 align-top">
-                          <span
-                            className={`px-2.5 py-1 rounded-full border text-[11px] font-semibold shadow-sm ${
-                              doc.type === "venta"
-                                ? doc.status === "voided"
-                                  ? "border-rose-400/70 bg-rose-50 text-rose-700"
-                                  : "border-emerald-300/80 bg-emerald-50 text-emerald-700"
-                                : doc.type === "devolucion"
-                                ? isAnnulation
-                                  ? "border-rose-400/70 bg-rose-50 text-rose-700"
-                                  : "border-rose-300/70 bg-rose-50 text-rose-700"
-                                : doc.type === "abono"
-                                ? "border-cyan-300/80 bg-cyan-50 text-cyan-700"
-                                : "border-sky-300/80 bg-sky-50 text-sky-700"
-                            }`}
-                          >
-                            {typeBadge}
-                          </span>
-                          {statusLabel && (
+                          <div className="flex flex-wrap gap-1.5">
                             <span
-                              className={`ml-2 px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm ${
-                                doc.status === "voided"
-                                  ? "border-rose-400/70 bg-rose-50 text-rose-700"
-                                  : "border-amber-300/80 bg-amber-50 text-amber-700"
+                              className={`px-2.5 py-1 rounded-full border text-[11px] font-semibold shadow-sm whitespace-nowrap ${
+                                doc.type === "venta"
+                                  ? doc.status === "voided"
+                                    ? "border-rose-400/70 bg-rose-50 text-rose-700"
+                                    : "border-emerald-300/80 bg-emerald-50 text-emerald-700"
+                                  : doc.type === "devolucion"
+                                  ? isAnnulation
+                                    ? "border-rose-400/70 bg-rose-50 text-rose-700"
+                                    : "border-rose-300/70 bg-rose-50 text-rose-700"
+                                  : doc.type === "abono"
+                                  ? "border-cyan-300/80 bg-cyan-50 text-cyan-700"
+                                  : doc.type === "recepcion"
+                                  ? "border-violet-300/80 bg-violet-50 text-violet-700"
+                                  : "border-sky-300/80 bg-sky-50 text-sky-700"
                               }`}
                             >
-                              {statusLabel}
+                              {typeBadge}
                             </span>
-                          )}
+                            {statusLabel && (
+                              <span
+                                className={`px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm whitespace-nowrap ${
+                                  doc.status === "voided"
+                                    ? "border-rose-400/70 bg-rose-50 text-rose-700"
+                                    : "border-amber-400/80 bg-amber-200 text-amber-900"
+                                }`}
+                              >
+                                {statusLabel}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-sm align-top">
                           <span className="block truncate flex items-center gap-2">
@@ -3045,6 +3317,8 @@ useEffect(() => {
                       ? "Cambio"
                       : selectedDoc.type === "abono"
                       ? "Abono"
+                      : selectedDoc.type === "recepcion"
+                      ? "Recepción"
                       : "Cierre de caja"}
                   </span>
                 </div>
@@ -3052,10 +3326,10 @@ useEffect(() => {
                   <div className="flex justify-between gap-3">
                     <span className="text-slate-400">Estado</span>
                     <span
-                      className={`text-right font-semibold ${
+                      className={`text-right inline-flex items-center px-2.5 py-1 rounded-full border text-xs uppercase font-semibold ${
                         selectedDoc.status === "voided"
-                          ? "text-rose-200"
-                          : "text-amber-100"
+                          ? "border-rose-300/80 bg-rose-50 text-rose-700"
+                          : "border-amber-400/80 bg-amber-200 text-amber-900"
                       }`}
                     >
                       {selectedDocStatusLabel}
@@ -3263,6 +3537,114 @@ useEffect(() => {
                   <p className="text-slate-100 text-sm">
                     {selectedDoc.detail}
                   </p>
+                </div>
+              )}
+
+              {selectedDoc.type === "recepcion" && (
+                <div className="space-y-2">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Detalle de recepción
+                  </div>
+                  {selectedReceivingDetail?.lot?.purchase_type === "invoice" && (
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 text-xs text-slate-200 space-y-1">
+                      <div>
+                        <span className="text-slate-400">Proveedor:</span>{" "}
+                        <span>{selectedReceivingDetail.lot.supplier_name || "Sin definir"}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400">Referencia factura:</span>{" "}
+                        <span>
+                          {selectedReceivingDetail.lot.invoice_reference ||
+                            selectedReceivingDetail.lot.source_reference ||
+                            "Sin definir"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {selectedSupportFileUrl && (
+                    <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3 text-xs shadow-sm">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-300">
+                          Soporte adjunto
+                        </div>
+                        <span className="rounded-md border border-emerald-500 bg-emerald-500/35 px-2 py-1 text-[10px] font-semibold text-emerald-950">
+                          {selectedSupportFileType}
+                        </span>
+                      </div>
+                      <div className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2">
+                        <div className="truncate text-sm font-medium text-slate-100">
+                          {selectedSupportFileName}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-400">
+                          {formatFileSize(selectedSupportFile?.support_file_size)}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <a
+                          href={selectedSupportFileUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center rounded-lg border border-slate-500 bg-slate-800 px-3 py-1.5 text-slate-100 hover:bg-slate-700 transition-colors"
+                        >
+                          Ver archivo
+                        </a>
+                        <button
+                          type="button"
+                          onClick={handleDownloadSupportFile}
+                          className="inline-flex items-center rounded-lg border border-emerald-500 bg-emerald-500 px-3 py-1.5 font-medium text-slate-950 hover:bg-emerald-400 transition-colors"
+                        >
+                          Descargar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {loadingReceivingDetail ? (
+                    <div className="text-xs text-slate-400">
+                      Cargando líneas del lote…
+                    </div>
+                  ) : receivingDetailError ? (
+                    <div className="text-xs text-rose-300">
+                      {receivingDetailError}
+                    </div>
+                  ) : selectedReceivingDetail?.items?.length ? (
+                    <div className="rounded-2xl border border-slate-800/60 overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left text-[12px]">
+                          <thead className="bg-slate-950 text-[11px] text-slate-400 uppercase tracking-wide">
+                            <tr>
+                              <th className="px-3 py-2 font-normal">Producto</th>
+                              <th className="px-3 py-2 font-normal">SKU</th>
+                              <th className="px-3 py-2 font-normal">Código barras</th>
+                              <th className="px-3 py-2 font-normal text-right">Cantidad</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedReceivingDetail.items.map((item) => (
+                              <tr
+                                key={item.id}
+                                className="border-t border-slate-800/40 text-slate-100"
+                              >
+                                <td className="px-3 py-2">{item.product_name_snapshot}</td>
+                                <td className="px-3 py-2 text-slate-200">
+                                  {item.sku_snapshot || "—"}
+                                </td>
+                                <td className="px-3 py-2 text-slate-200">
+                                  {item.barcode_snapshot || "—"}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono">
+                                  {Number(item.qty_received ?? 0)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500">
+                      Este documento no tiene líneas registradas.
+                    </div>
+                  )}
                 </div>
               )}
 
