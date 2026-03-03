@@ -64,12 +64,24 @@ export default function LandingPage() {
                 >
                   Ingresar
                 </Link>
-                <a
-                  href="mailto:info@kensar.com"
+                <Link
+                  href="/descargas"
+                  className="text-slate-600 transition hover:text-slate-900"
+                >
+                  Descargas
+                </Link>
+                <Link
+                  href="/politica-de-privacidad"
+                  className="text-slate-600 transition hover:text-slate-900"
+                >
+                  Privacidad
+                </Link>
+                <Link
+                  href="/contacto#ventas"
                   className="rounded-full border-2 border-blue-600 px-4 py-2 text-blue-600 transition hover:bg-blue-600 hover:text-white sm:px-5"
                 >
                   Hablar con Kensar
-                </a>
+                </Link>
               </div>
             </nav>
 
@@ -93,12 +105,14 @@ export default function LandingPage() {
                   >
                     Ingresar al panel
                   </Link>
-                  <Link
-                    href="/descargar-pos"
+                  <a
+                    href="https://github.com/Kennetox/kensar_pos_desktop/releases/latest/download/MetrikPOS-Setup.exe"
                     className="rounded-2xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:scale-105 sm:px-8 sm:py-4 sm:text-lg w-full sm:w-auto text-center"
+                    target="_blank"
+                    rel="noreferrer"
                   >
                     Descargar POS
-                  </Link>
+                  </a>
                 </div>
               </div>
 
@@ -142,16 +156,20 @@ export default function LandingPage() {
 
             <footer className="mt-14 rounded-3xl bg-white/80 px-5 py-6 text-center text-sm text-slate-500 shadow-lg sm:px-10">
               © {new Date().getFullYear()} Metrik · Kensar Electronic
+              {" · "}
+              <Link href="/politica-de-privacidad" className="font-medium text-slate-700 hover:text-slate-900">
+                Política de privacidad
+              </Link>
             </footer>
           </div>
         </div>
 
-        <a
-          href="mailto:soporte@kensar.com"
+        <Link
+          href="/contacto#soporte"
           className="fixed bottom-6 right-4 flex items-center gap-3 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-2xl transition hover:scale-105 sm:bottom-8 sm:right-8 sm:px-6"
         >
           ¿Necesitas ayuda? Contactar soporte
-        </a>
+        </Link>
       </main>
     </>
   );
