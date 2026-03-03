@@ -163,7 +163,7 @@ export default function LandingPage() {
         </div>
 
         <Link
-          href="/contacto#ventas"
+          href="/contacto#solicitud"
           className="fixed bottom-6 right-4 flex items-center gap-3 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-2xl transition hover:scale-105 sm:bottom-8 sm:right-8 sm:px-6"
         >
           ¿Necesitas ayuda? Contactar soporte
