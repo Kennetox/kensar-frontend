@@ -1445,17 +1445,18 @@ export default function DashboardHomePage() {
                             {point.tickets} tickets
                           </div>
                         ) : null}
-                        {isWeekMode ? (
-                          <div
-                            className={`text-[11px] ${
-                              isCurrentDay
-                                ? "dashboard-chart-value-strong"
-                                : "dashboard-chart-value"
-                            }`}
-                          >
-                            {formatMoney(point.total)}
-                          </div>
-                        ) : null}
+                        <div
+                          className={`text-[11px] ${
+                            isCurrentDay
+                              ? "dashboard-chart-value-strong"
+                              : "dashboard-chart-value"
+                          }`}
+                          title={formatMoney(point.total)}
+                        >
+                          {isWeekMode
+                            ? formatMoney(point.total)
+                            : formatMoneyCompact(point.total)}
+                        </div>
                       </div>
 
                       <div
@@ -1494,15 +1495,7 @@ export default function DashboardHomePage() {
                             </span>
                           </>
                         ) : (
-                          <>
-                            <span className="capitalize">{primaryLabel}</span>
-                            <span
-                              className="text-[11px] text-slate-200 font-semibold"
-                              title={formatMoney(point.total)}
-                            >
-                              {formatMoneyCompact(point.total)}
-                            </span>
-                          </>
+                          <span className="capitalize">{primaryLabel}</span>
                         )}
                       </div>
                     </div>
