@@ -1825,15 +1825,28 @@ const selectedDetails = selectedDoc?.data;
     (selectedDoc?.type === "recepcion"
       ? (selectedDetails as ReceivingDocumentRecord | null)
       : null);
+  const selectedReceivingLotId =
+    selectedDoc?.type === "recepcion" ? selectedDoc.recordId : null;
+  const hasSelectedSupportFile = Boolean(
+    selectedSupportFile?.support_file_name ||
+      selectedSupportFile?.support_file_url
+  );
   const selectedReceivingNotes =
     selectedReceivingDetail?.lot?.notes?.trim() ||
     (selectedDoc?.type === "recepcion"
       ? (selectedDetails as ReceivingDocumentRecord | null)?.notes?.trim()
       : "");
-  const selectedSupportFileUrl = resolveReceivingSupportUrl(
-    selectedSupportFile?.support_file_url,
-    getApiBase()
-  );
+  const selectedSupportFileUrl =
+    selectedReceivingLotId && hasSelectedSupportFile
+      ? `${getApiBase()}/receiving/lots/${selectedReceivingLotId}/support-file`
+      : resolveReceivingSupportUrl(
+          selectedSupportFile?.support_file_url,
+          getApiBase()
+        );
+  const selectedSupportFileDownloadUrl =
+    selectedReceivingLotId && hasSelectedSupportFile
+      ? `${getApiBase()}/receiving/lots/${selectedReceivingLotId}/support-file?download=true`
+      : selectedSupportFileUrl;
   const selectedSupportFileName =
     selectedSupportFile?.support_file_name || "soporte_recepcion";
   const selectedSupportFileType = getFileExtension(selectedSupportFileName);
@@ -1844,7 +1857,7 @@ const selectedDetails = selectedDoc?.data;
       return;
     }
     try {
-      const res = await fetch(selectedSupportFileUrl, {
+      const res = await fetch(selectedSupportFileDownloadUrl || selectedSupportFileUrl, {
         headers: authHeaders ?? undefined,
         credentials: "include",
       });
@@ -1866,7 +1879,7 @@ const selectedDetails = selectedDoc?.data;
         err instanceof Error ? err.message : "No se pudo descargar el soporte.";
       showToast(message, "error");
     }
-  }, [selectedSupportFileUrl, selectedSupportFileName, authHeaders, showToast]);
+  }, [selectedSupportFileUrl, selectedSupportFileDownloadUrl, selectedSupportFileName, authHeaders, showToast]);
 
   const selectedDocStatusLabel = getStatusLabel(selectedDoc?.status);
   const selectedDocIsVoided = selectedDoc?.status === "voided";
