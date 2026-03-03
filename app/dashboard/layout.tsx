@@ -629,7 +629,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         <>
           {/* Mobile drawer */}
           <aside
-            className={`fixed inset-y-0 left-0 z-40 w-64 border-r dashboard-sidebar backdrop-blur flex flex-col transform transition-transform md:hidden ${
+            className={`fixed inset-y-0 left-0 z-40 w-64 border-r dashboard-sidebar backdrop-blur flex flex-col transform transition-transform lg:hidden ${
               navOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
@@ -704,13 +704,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           </aside>
           {navOpen && (
             <div
-              className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm md:hidden"
+              className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
               onClick={() => setNavOpen(false)}
             />
           )}
 
           {/* Desktop sidebar */}
-          <aside className="hidden md:flex md:flex-col w-64 border-r dashboard-sidebar backdrop-blur md:sticky md:top-0 md:h-screen md:self-start shadow-[inset_-1px_0_0_rgba(15,23,42,0.2)]">
+          <aside className="hidden lg:flex lg:flex-col w-64 border-r dashboard-sidebar backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:self-start shadow-[inset_-1px_0_0_rgba(15,23,42,0.2)]">
             <div className="h-20 flex items-center px-5 border-b dashboard-border">
               <div className="flex items-center gap-3">
                 <Image
@@ -784,7 +784,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => setNavOpen((prev: boolean) => !prev)}
-                className="md:hidden px-3 py-1.5 rounded-md border ui-border ui-text text-xs"
+                className="lg:hidden px-3 py-1.5 rounded-md border ui-border ui-text text-xs"
               >
                 Menú
               </button>
