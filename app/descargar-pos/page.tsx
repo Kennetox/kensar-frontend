@@ -86,7 +86,7 @@ export default function DescargarPosPage() {
                   Descargar para Windows
                 </a>
                 <a
-                  href="mailto:soporte@kensar.com?subject=Descarga%20Metrik%20POS"
+                  href="mailto:kensarelec@gmail.com?cc=kennethjc2301@gmail.com&subject=Descarga%20Metrik%20POS"
                   className="rounded-2xl border border-slate-300 px-6 py-3 text-base font-semibold text-slate-700 transition hover:border-slate-500 hover:text-slate-900"
                 >
                   Solicitar instalador

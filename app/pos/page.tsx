@@ -4097,7 +4097,7 @@ const matchesStationLabel = useCallback(
               name: posSettings?.company_name?.trim() || "Kensar Electronic",
               address: posSettings?.address?.trim() || "Cra 24 #30-75",
               email: posSettings?.contact_email?.trim() || "kensarelec@gmail.com",
-              phone: posSettings?.contact_phone?.trim() || "3185657508",
+              phone: posSettings?.contact_phone?.trim() || "3136397939",
               logoUrl: rawLogo.trim() || "",
             };
             const closureLabel = closure.consecutive ?? `CL-${closure.id}`;

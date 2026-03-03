@@ -25,7 +25,7 @@ export default function LandingPage() {
             contactPoint: [
               {
                 "@type": "ContactPoint",
-                email: "info@kensar.com",
+                email: "kensarelec@gmail.com",
                 contactType: "sales",
                 areaServed: "CO",
                 availableLanguage: ["es"],
@@ -105,14 +105,12 @@ export default function LandingPage() {
                   >
                     Ingresar al panel
                   </Link>
-                  <a
-                    href="https://github.com/Kennetox/kensar_pos_desktop/releases/latest/download/MetrikPOS-Setup.exe"
+                  <Link
+                    href="/descargar-pos"
                     className="rounded-2xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:scale-105 sm:px-8 sm:py-4 sm:text-lg w-full sm:w-auto text-center"
-                    target="_blank"
-                    rel="noreferrer"
                   >
                     Descargar POS
-                  </a>
+                  </Link>
                 </div>
               </div>
 
@@ -165,7 +163,7 @@ export default function LandingPage() {
         </div>
 
         <Link
-          href="/contacto#soporte"
+          href="/contacto#ventas"
           className="fixed bottom-6 right-4 flex items-center gap-3 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-2xl transition hover:scale-105 sm:bottom-8 sm:right-8 sm:px-6"
         >
           ¿Necesitas ayuda? Contactar soporte

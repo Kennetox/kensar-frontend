@@ -76,7 +76,10 @@ export default function PrivacyPolicyPage() {
                 <p className="mt-2 leading-7 text-slate-700">
                   Responsable: <strong>Kensar Electronic</strong>.
                   <br />
-                  Correo de contacto: <a href="mailto:kensarelec@gmail.com">kensarelec@gmail.com</a>.
+                  Correo de contacto:{" "}
+                  <a href="mailto:kensarelec@gmail.com?cc=kennethjc2301@gmail.com">
+                    kensarelec@gmail.com
+                  </a>.
                 </p>
               </article>
 
@@ -138,7 +141,9 @@ export default function PrivacyPolicyPage() {
                 <h2 className="text-xl font-semibold text-slate-900">8. Derechos de los titulares</h2>
                 <p className="mt-2 leading-7 text-slate-700">
                   Puedes solicitar acceso, correccion, actualizacion o eliminacion de datos escribiendo a{" "}
-                  <a href="mailto:kensarelec@gmail.com">kensarelec@gmail.com</a>.
+                  <a href="mailto:kensarelec@gmail.com?cc=kennethjc2301@gmail.com">
+                    kensarelec@gmail.com
+                  </a>.
                 </p>
               </article>
 

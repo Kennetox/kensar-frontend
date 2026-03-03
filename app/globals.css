@@ -113,6 +113,36 @@ body::after {
 }
 
 /* =========================
+   Mobile overflow guardrails
+   (Phase 1 - global, low risk)
+   ========================= */
+@media (max-width: 1023px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  body {
+    position: relative;
+  }
+
+  img,
+  svg,
+  canvas,
+  video,
+  iframe {
+    max-width: 100%;
+  }
+
+  /* Prevent flex/grid children from forcing horizontal overflow on mobile. */
+  :where(main, section, article, aside, nav, header, footer, div, form, li) {
+    min-width: 0;
+  }
+}
+
+/* =========================
    Generic UI helpers
    ========================= */
 .ui-surface,

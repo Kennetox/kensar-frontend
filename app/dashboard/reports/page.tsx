@@ -337,7 +337,7 @@ const FALLBACK_COMPANY: CompanyInfo = {
   name: "Kensar Electronic",
   address: "Cra 24 #30-75 Palmira",
   email: "kensarelec@gmail.com",
-  phone: "3185657508",
+  phone: "3136397939",
   logoUrl: "",
 };
 
