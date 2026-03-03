@@ -144,6 +144,24 @@ function formatMoney(value: number): string {
   });
 }
 
+function formatMoneyCompact(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1_000_000_000) {
+    const n = (abs / 1_000_000_000).toFixed(1).replace(/\.0$/, "");
+    return `${sign}${n}B`;
+  }
+  if (abs >= 1_000_000) {
+    const n = (abs / 1_000_000).toFixed(1).replace(/\.0$/, "");
+    return `${sign}${n}M`;
+  }
+  if (abs >= 1_000) {
+    const n = (abs / 1_000).toFixed(1).replace(/\.0$/, "");
+    return `${sign}${n}K`;
+  }
+  return `${sign}${Math.round(abs)}`;
+}
+
 const buildSaleItemKey = (item: {
   product_id?: number | null;
   product_name?: string | null;
@@ -1376,7 +1394,20 @@ export default function DashboardHomePage() {
                 {chartEmptyMessage}
               </div>
             ) : (
-              <div className="h-48 pt-8 flex items-end gap-3">
+              <div
+                className={
+                  trendMode === "year"
+                    ? "h-52 pt-4 overflow-x-auto"
+                    : "h-48 pt-8"
+                }
+              >
+                <div
+                  className={
+                    trendMode === "year"
+                      ? "min-w-[720px] sm:min-w-0 h-full flex items-end gap-3 pr-1"
+                      : "h-full flex items-end gap-3"
+                  }
+                >
                 {chartPoints.map((point) => {
                   const isWeekMode = trendMode === "week";
                   const pointKey = getBogotaDateKey(point.date);
@@ -1404,23 +1435,27 @@ export default function DashboardHomePage() {
                   return (
                     <div
                       key={`${trendMode}-${point.date}`}
-                      className="flex-1 flex flex-col items-center justify-end gap-1"
+                      className={`flex flex-col items-center justify-end gap-1 ${
+                        isWeekMode ? "flex-1" : "w-14 sm:flex-1 shrink-0"
+                      }`}
                     >
-                      <div className="flex flex-col items-center gap-1 mb-2">
-                        {isWeekMode && (
+                      <div className="flex flex-col items-center gap-1 mb-2 min-h-[34px]">
+                        {isWeekMode ? (
                           <div className="text-[11px] dashboard-chart-ticket">
                             {point.tickets} tickets
                           </div>
-                        )}
-                        <div
-                          className={`text-[11px] ${
-                            isCurrentDay
-                              ? "dashboard-chart-value-strong"
-                              : "dashboard-chart-value"
-                          }`}
-                        >
-                          {formatMoney(point.total)}
-                        </div>
+                        ) : null}
+                        {isWeekMode ? (
+                          <div
+                            className={`text-[11px] ${
+                              isCurrentDay
+                                ? "dashboard-chart-value-strong"
+                                : "dashboard-chart-value"
+                            }`}
+                          >
+                            {formatMoney(point.total)}
+                          </div>
+                        ) : null}
                       </div>
 
                       <div
@@ -1445,20 +1480,35 @@ export default function DashboardHomePage() {
                             : "dashboard-chart-label"
                         }`}
                       >
-                        <span className="capitalize">{primaryLabel}</span>
-                        <span
-                          className={`text-[10px] ${
-                            isCurrentDay
-                              ? "dashboard-chart-label-strong"
-                              : "dashboard-chart-label"
-                          }`}
-                        >
-                          {secondaryLabel}
-                        </span>
+                        {isWeekMode ? (
+                          <>
+                            <span className="capitalize">{primaryLabel}</span>
+                            <span
+                              className={`text-[10px] ${
+                                isCurrentDay
+                                  ? "dashboard-chart-label-strong"
+                                  : "dashboard-chart-label"
+                              }`}
+                            >
+                              {secondaryLabel}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="capitalize">{primaryLabel}</span>
+                            <span
+                              className="text-[11px] text-slate-200 font-semibold"
+                              title={formatMoney(point.total)}
+                            >
+                              {formatMoneyCompact(point.total)}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                   );
                 })}
+              </div>
               </div>
             )}
             {!canViewHistoryMetrics && (
