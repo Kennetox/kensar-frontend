@@ -441,13 +441,19 @@ function resolveReceivingSupportUrl(
   const absoluteMatch = trimmed.match(/^https?:\/\/[^/]+(\/.*)?$/i);
   if (absoluteMatch) {
     const path = absoluteMatch[1] ?? "/";
-    if (path.startsWith("/uploads/receiving-support/")) {
-      return `${normalizedApiBase}${path}`;
+    const normalizedPath = path
+      .replace(/^\/upload\//, "/uploads/")
+      .replace(/^\/receiving-support\//, "/uploads/receiving-support/");
+    if (normalizedPath.includes("/receiving-support/")) {
+      return `${normalizedApiBase}${normalizedPath}`;
     }
     return trimmed;
   }
 
-  return `${normalizedApiBase}/${trimmed.replace(/^\/+/, "")}`;
+  const normalizedRelative = trimmed
+    .replace(/^upload\//, "uploads/")
+    .replace(/^receiving-support\//, "uploads/receiving-support/");
+  return `${normalizedApiBase}/${normalizedRelative.replace(/^\/+/, "")}`;
 }
 
 function computeSaleTotals(sale: SaleRecord) {
@@ -1814,7 +1820,16 @@ useEffect(() => {
 }, [selectedDoc, authHeaders, logout]);
 
 const selectedDetails = selectedDoc?.data;
-  const selectedSupportFile = selectedReceivingDetail?.lot ?? null;
+  const selectedSupportFile =
+    selectedReceivingDetail?.lot ??
+    (selectedDoc?.type === "recepcion"
+      ? (selectedDetails as ReceivingDocumentRecord | null)
+      : null);
+  const selectedReceivingNotes =
+    selectedReceivingDetail?.lot?.notes?.trim() ||
+    (selectedDoc?.type === "recepcion"
+      ? (selectedDetails as ReceivingDocumentRecord | null)?.notes?.trim()
+      : "");
   const selectedSupportFileUrl = resolveReceivingSupportUrl(
     selectedSupportFile?.support_file_url,
     getApiBase()
@@ -3588,10 +3603,10 @@ useEffect(() => {
                       </div>
                     </div>
                   )}
-                  {selectedReceivingDetail?.lot?.notes?.trim() ? (
+                  {selectedReceivingNotes ? (
                     <div className="rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 text-xs text-slate-200">
                       <span className="text-slate-400">Observación:</span>{" "}
-                      <span>{selectedReceivingDetail.lot.notes}</span>
+                      <span>{selectedReceivingNotes}</span>
                     </div>
                   ) : null}
                   {selectedSupportFileUrl && (
