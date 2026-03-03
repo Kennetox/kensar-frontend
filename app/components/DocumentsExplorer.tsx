@@ -219,6 +219,7 @@ type ReceivingDocumentRecord = {
   origin_name: string;
   supplier_name?: string | null;
   invoice_reference?: string | null;
+  notes?: string | null;
   support_file_name?: string | null;
   support_file_url?: string | null;
   support_file_size?: number | null;
@@ -238,6 +239,7 @@ type ReceivingLotRecord = {
   supplier_name?: string | null;
   invoice_reference?: string | null;
   source_reference?: string | null;
+  notes?: string | null;
   support_file_name?: string | null;
   support_file_url?: string | null;
   support_file_size?: number | null;
@@ -421,6 +423,31 @@ function getFileExtension(filename: string | null | undefined): string {
   if (parts.length < 2) return "Archivo";
   const ext = parts[parts.length - 1]?.trim().toUpperCase();
   return ext || "Archivo";
+}
+
+function resolveReceivingSupportUrl(
+  rawUrl: string | null | undefined,
+  apiBase: string
+): string | null {
+  if (!rawUrl) return null;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  const normalizedApiBase = apiBase.replace(/\/$/, "");
+
+  if (trimmed.startsWith("/")) {
+    return `${normalizedApiBase}${trimmed}`;
+  }
+
+  const absoluteMatch = trimmed.match(/^https?:\/\/[^/]+(\/.*)?$/i);
+  if (absoluteMatch) {
+    const path = absoluteMatch[1] ?? "/";
+    if (path.startsWith("/uploads/receiving-support/")) {
+      return `${normalizedApiBase}${path}`;
+    }
+    return trimmed;
+  }
+
+  return `${normalizedApiBase}/${trimmed.replace(/^\/+/, "")}`;
 }
 
 function computeSaleTotals(sale: SaleRecord) {
@@ -1531,6 +1558,7 @@ export default function DocumentsExplorer({
           lotDoc.purchase_type === "invoice"
             ? ` · ${lotDoc.supplier_name || "Proveedor sin definir"} · ${lotDoc.invoice_reference || "Sin referencia"}`
             : "";
+        const notesMeta = lotDoc.notes?.trim() ? ` · Obs: ${lotDoc.notes.trim()}` : "";
         return {
           id: `receiving-${lotDoc.id}`,
           type: "recepcion",
@@ -1538,7 +1566,7 @@ export default function DocumentsExplorer({
           createdAt: lotDoc.closed_at ?? lotDoc.created_at,
           documentNumber: lotDoc.lot_number,
           reference: `Recepción - ${lotDoc.origin_name}`,
-          detail: `${lotDoc.lines_count} líneas · ${lotDoc.units_total} unidades · ${purchaseLabel}${invoiceMeta}`,
+          detail: `${lotDoc.lines_count} líneas · ${lotDoc.units_total} unidades · ${purchaseLabel}${invoiceMeta}${notesMeta}`,
           total: 0,
           paymentMethod: "recepcion",
           customer: undefined,
@@ -1787,11 +1815,10 @@ useEffect(() => {
 
 const selectedDetails = selectedDoc?.data;
   const selectedSupportFile = selectedReceivingDetail?.lot ?? null;
-  const selectedSupportFileUrl = selectedSupportFile?.support_file_url
-    ? selectedSupportFile.support_file_url.startsWith("http")
-      ? selectedSupportFile.support_file_url
-      : `${getApiBase()}${selectedSupportFile.support_file_url}`
-    : null;
+  const selectedSupportFileUrl = resolveReceivingSupportUrl(
+    selectedSupportFile?.support_file_url,
+    getApiBase()
+  );
   const selectedSupportFileName =
     selectedSupportFile?.support_file_name || "soporte_recepcion";
   const selectedSupportFileType = getFileExtension(selectedSupportFileName);
@@ -3561,6 +3588,12 @@ useEffect(() => {
                       </div>
                     </div>
                   )}
+                  {selectedReceivingDetail?.lot?.notes?.trim() ? (
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 text-xs text-slate-200">
+                      <span className="text-slate-400">Observación:</span>{" "}
+                      <span>{selectedReceivingDetail.lot.notes}</span>
+                    </div>
+                  ) : null}
                   {selectedSupportFileUrl && (
                     <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3 text-xs shadow-sm">
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

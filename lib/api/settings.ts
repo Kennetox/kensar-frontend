@@ -741,6 +741,63 @@ export const defaultRolePermissions: RolePermissionModule[] = [
       },
     ],
   },
+  {
+    id: "schedule",
+    label: "Horarios",
+    description: "Planificación semanal de turnos del equipo.",
+    roles: {
+      Administrador: true,
+      Supervisor: true,
+      Vendedor: false,
+      Auditor: false,
+    },
+    actions: [
+      {
+        id: "schedule.view",
+        label: "Ver horarios",
+        description: "Consultar la grilla semanal de turnos.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
+        id: "schedule.manage",
+        label: "Editar horarios",
+        description: "Crear, mover y actualizar turnos.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
+        id: "schedule.publish",
+        label: "Publicar horario",
+        description: "Publicar la semana para compartir con el equipo.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+      {
+        id: "schedule.export",
+        label: "Exportar horario",
+        description: "Exportar la semana en CSV o PDF.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+    ],
+  },
 ];
 
 export async function fetchPosSettings(
