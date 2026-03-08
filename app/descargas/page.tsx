@@ -63,7 +63,7 @@ const resources: DownloadResource[] = [
     description:
       "App complementaria para inventario y operaciones de stock desde dispositivo Android.",
     downloadHref:
-      "mailto:kensarelec@gmail.com?cc=kennethjc2301@gmail.com&subject=Solicitud%20APK%20Metrik%20Stock",
+      "https://github.com/Kennetox/metrik-stock-mobile/releases/latest/download/MetrikStockMobile.apk",
     manualHref:
       "mailto:kensarelec@gmail.com?cc=kennethjc2301@gmail.com&subject=Solicitud%20manual%20Metrik%20Stock",
     requirements: "Android 10 o superior · Cuenta activa en Metrik",
