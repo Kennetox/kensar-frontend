@@ -90,53 +90,54 @@ export default function DownloadsAccessPanel({ resources }: Props) {
 
   return (
     <>
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/85 p-4 sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-[0.78rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Control de acceso
+      <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 sm:px-4">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2.5">
+            <p className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Acceso descargas
             </p>
-            <p className="mt-1 text-sm text-slate-700">{accessLabel}</p>
+            <span
+              className={`inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                accessState.granted
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {accessState.granted ? "Activo" : "Bloqueado"}
+            </span>
+            <p className="hidden text-xs text-slate-500 sm:block">{accessLabel}</p>
           </div>
-          <span
-            className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold ${
-              accessState.granted
-                ? "bg-emerald-100 text-emerald-700"
-                : "bg-amber-100 text-amber-700"
-            }`}
-          >
-            {accessState.granted ? "Descargas activas" : "Bloqueado"}
-          </span>
+
+          <form className="flex w-full gap-2 sm:w-auto" onSubmit={handleUnlock}>
+            <input
+              type="password"
+              value={accessCode}
+              onChange={(event) => setAccessCode(event.target.value)}
+              placeholder="Codigo"
+              autoComplete="off"
+              className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none ring-blue-200 transition focus:border-blue-400 focus:ring sm:w-52"
+              disabled={isSubmitting || isLoading || accessState.granted || !accessState.configured}
+            />
+            <button
+              type="submit"
+              className="h-9 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              disabled={isSubmitting || isLoading || accessState.granted || !accessState.configured}
+            >
+              {isSubmitting ? "Validando..." : "Habilitar"}
+            </button>
+          </form>
         </div>
 
-        <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={handleUnlock}>
-          <input
-            type="password"
-            value={accessCode}
-            onChange={(event) => setAccessCode(event.target.value)}
-            placeholder="Ingresa codigo de acceso"
-            autoComplete="off"
-            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm text-slate-700 outline-none ring-blue-200 transition focus:border-blue-400 focus:ring"
-            disabled={isSubmitting || isLoading || accessState.granted || !accessState.configured}
-          />
-          <button
-            type="submit"
-            className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-            disabled={isSubmitting || isLoading || accessState.granted || !accessState.configured}
-          >
-            {isSubmitting ? "Validando..." : "Habilitar descargas"}
-          </button>
-        </form>
-
-        {error ? <p className="mt-2 text-sm text-rose-600">{error}</p> : null}
+        <p className="mt-2 text-xs text-slate-500 sm:hidden">{accessLabel}</p>
+        {error ? <p className="mt-1.5 text-xs text-rose-600">{error}</p> : null}
         {!accessState.configured ? (
-          <p className="mt-2 text-sm text-rose-600">
-            Falta configurar DOWNLOAD_ACCESS_CODE(S) y DOWNLOAD_ACCESS_SECRET en el servidor.
+          <p className="mt-1.5 text-xs text-rose-600">
+            Falta configurar `DOWNLOAD_ACCESS_CODE(S)` y `DOWNLOAD_ACCESS_SECRET`.
           </p>
         ) : null}
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80">
+      <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80">
         {resources.map((resource, index) => (
           <article
             key={resource.slug}
