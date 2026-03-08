@@ -77,6 +77,12 @@ export default function LandingPage() {
                   Privacidad
                 </Link>
                 <Link
+                  href="/politica-de-cookies"
+                  className="text-slate-600 transition hover:text-slate-900"
+                >
+                  Cookies
+                </Link>
+                <Link
                   href="/contacto#ventas"
                   className="rounded-full border-2 border-blue-600 px-4 py-2 text-blue-600 transition hover:bg-blue-600 hover:text-white sm:px-5"
                 >
@@ -157,6 +163,10 @@ export default function LandingPage() {
               {" · "}
               <Link href="/politica-de-privacidad" className="font-medium text-slate-700 hover:text-slate-900">
                 Política de privacidad
+              </Link>
+              {" · "}
+              <Link href="/politica-de-cookies" className="font-medium text-slate-700 hover:text-slate-900">
+                Política de cookies
               </Link>
             </footer>
           </div>

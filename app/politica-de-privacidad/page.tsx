@@ -159,6 +159,10 @@ export default function PrivacyPolicyPage() {
 
           <footer className="mt-12 rounded-3xl bg-white/80 px-5 py-6 text-center text-sm text-slate-500 shadow-lg sm:px-10">
             © {new Date().getFullYear()} Metrik · Kensar Electronic
+            {" · "}
+            <Link href="/politica-de-cookies" className="font-medium text-slate-700 hover:text-slate-900">
+              Politica de cookies
+            </Link>
           </footer>
         </div>
       </div>

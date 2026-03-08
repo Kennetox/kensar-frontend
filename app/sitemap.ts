@@ -9,6 +9,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${base}/`, lastModified },
     { url: `${base}/contacto`, lastModified },
     { url: `${base}/politica-de-privacidad`, lastModified },
+    { url: `${base}/politica-de-cookies`, lastModified },
     { url: `${base}/descargas`, lastModified },
     { url: `${base}/descargar-pos`, lastModified },
     { url: `${base}/login`, lastModified },

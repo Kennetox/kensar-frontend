@@ -1,9 +1,12 @@
 // app/layout.tsx
 import type { Metadata, Viewport } from "next";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { Suspense } from "react";
 import { AuthProvider } from "./providers/AuthProvider";
 import { ThemePreviewer } from "./providers/ThemePreviewer";
+import CookieConsentBanner from "./components/CookieConsentBanner";
+import { COOKIE_CONSENT_COOKIE_NAME, parseCookieConsent } from "@/lib/cookieConsent";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://metrikpos.com"),
@@ -64,11 +67,14 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const cookieStore = await cookies();
+  const initialConsent = parseCookieConsent(cookieStore.get(COOKIE_CONSENT_COOKIE_NAME)?.value);
+
   return (
     <html lang="es">
       <body data-theme="dark" className="min-h-screen">
@@ -77,6 +83,7 @@ export default function RootLayout({
             <ThemePreviewer />
           </Suspense>
           {children}
+          <CookieConsentBanner initialConsent={initialConsent} />
         </AuthProvider>
       </body>
     </html>

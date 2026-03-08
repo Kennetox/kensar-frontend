@@ -75,6 +75,10 @@ export default function DescargasPage() {
 
           <footer className="mt-10 rounded-3xl bg-white/80 px-5 py-5 text-center text-xs text-slate-500 shadow-lg sm:px-10 sm:text-sm">
             © {new Date().getFullYear()} Metrik · Kensar Electronic
+            {" · "}
+            <Link href="/politica-de-cookies" className="font-medium text-slate-700 hover:text-slate-900">
+              Politica de cookies
+            </Link>
           </footer>
         </div>
       </div>
