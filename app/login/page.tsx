@@ -249,6 +249,12 @@ export default function LoginPage() {
                   >
                     ¿Olvidaste tu contraseña?
                   </Link>
+                  <p className="mt-3">
+                    ¿Aún no tienes empresa?{" "}
+                    <Link href="/demo" className="font-semibold text-slate-900 hover:text-slate-700">
+                      Probar demo
+                    </Link>
+                  </p>
                 </div>
               </div>
             </div>

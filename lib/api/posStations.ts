@@ -46,6 +46,7 @@ export type PosStationAccess = {
   id: string;
   email?: string | null;
   label?: string;
+  tenantName?: string;
 };
 
 export type PosAccessMode = "station" | "web";
@@ -85,6 +86,10 @@ export function getPosStationAccess(): PosStationAccess | null {
         id: parsed.id,
         label: typeof parsed.label === "string" ? parsed.label : undefined,
         email: typeof parsed.email === "string" ? parsed.email : undefined,
+        tenantName:
+          typeof parsed.tenantName === "string"
+            ? parsed.tenantName
+            : undefined,
       };
       return access;
     }
@@ -100,6 +105,10 @@ export function getPosStationAccess(): PosStationAccess | null {
         id: parsed.id,
         label: typeof parsed.label === "string" ? parsed.label : undefined,
         email: typeof parsed.email === "string" ? parsed.email : undefined,
+        tenantName:
+          typeof parsed.tenantName === "string"
+            ? parsed.tenantName
+            : undefined,
       };
       window.localStorage.setItem(
         POS_STATION_STORAGE_KEY,

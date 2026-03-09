@@ -8,6 +8,7 @@ import { useAuth } from "../providers/AuthProvider";
 import { defaultRolePermissions, fetchRolePermissions } from "@/lib/api/settings";
 import { fetchUserProfile, type UserProfileRecord } from "@/lib/api/profile";
 import { getApiBase } from "@/lib/api/base";
+import { isTenantModuleEnabled } from "@/lib/tenantModules";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
 const SCHEDULE_MODULE_ENABLED = false;
@@ -356,7 +357,8 @@ function isDashboardRole(role?: string | null): role is DashboardRole {
 function isPathAllowed(
   pathname: string,
   role: string | null | undefined,
-  modules: typeof defaultRolePermissions
+  modules: typeof defaultRolePermissions,
+  enabledModules: string[] | null | undefined
 ) {
   if (!SCHEDULE_MODULE_ENABLED) {
     if (
@@ -373,6 +375,9 @@ function isPathAllowed(
     moduleId: string | undefined,
     permissionId: string | undefined
   ) => {
+    if (moduleId && !isTenantModuleEnabled(enabledModules, moduleId)) {
+      return false;
+    }
     const moduleEntry = moduleId
       ? modules.find((item) => item.id === moduleId)
       : undefined;
@@ -408,7 +413,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { user, token, loading, logout } = useAuth();
+  const { user, tenant, token, loading, logout } = useAuth();
   const posPreview = searchParams.get("posPreview") === "1";
   const [navOpen, setNavOpen] = useState(false);
   const [roleModules, setRoleModules] = useState(defaultRolePermissions);
@@ -416,9 +421,22 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfileRecord | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const canLoadRolePermissions = useMemo(() => {
+    if (!user?.role) return false;
+    const settingsModule = defaultRolePermissions.find(
+      (row) => row.id === "settings"
+    );
+    const settingsAction = settingsModule?.actions.find(
+      (entry) => entry.id === "settings.view"
+    );
+    if (!settingsAction) return false;
+    return Boolean(settingsAction.roles[user.role as DashboardRole]);
+  }, [user?.role]);
+  const permissionsResolved = rolePermissionsReady || !canLoadRolePermissions;
 
   useEffect(() => {
     if (!token) return;
+    if (!canLoadRolePermissions) return;
     let cancelled = false;
     fetchRolePermissions(token)
       .then((modules) => {
@@ -438,7 +456,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [canLoadRolePermissions, token]);
 
   useEffect(() => {
     if (!loading && !token) {
@@ -484,15 +502,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   }, [token]);
 
   const routeAllowed = useMemo(() => {
-    if (!rolePermissionsReady && !posPreview) return true;
+    if (!permissionsResolved && !posPreview) return true;
     if (posPreview) {
       return posPreviewAllowedPrefixes.some(
         (prefix) =>
           pathname === prefix || pathname.startsWith(`${prefix}/`)
       );
     }
-    return isPathAllowed(pathname, user?.role, roleModules);
-  }, [pathname, user?.role, posPreview, roleModules, rolePermissionsReady]);
+    return isPathAllowed(pathname, user?.role, roleModules, tenant?.enabled_modules);
+  }, [pathname, tenant?.enabled_modules, user?.role, posPreview, roleModules, permissionsResolved]);
 
   const currentBreadcrumbs = useMemo(() => {
     if (posPreview) return ["Inicio"];
@@ -524,14 +542,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/dashboard/products/");
 
   useEffect(() => {
-    if (!loading && token && rolePermissionsReady && !routeAllowed) {
+    if (!loading && token && permissionsResolved && !routeAllowed) {
       if (posPreview) {
         router.replace("/dashboard?posPreview=1");
       } else if (pathname !== "/dashboard") {
         router.replace("/dashboard");
       }
     }
-  }, [loading, token, routeAllowed, router, pathname, posPreview, rolePermissionsReady]);
+  }, [loading, token, routeAllowed, router, pathname, posPreview, permissionsResolved]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -566,7 +584,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!posPreview && !rolePermissionsReady) {
+  if (!posPreview && !permissionsResolved) {
     return (
       <div className="min-h-screen flex items-center justify-center dashboard-shell">
         <span>Cargando permisos…</span>
@@ -581,6 +599,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     const moduleEntry = item.moduleId
       ? roleModules.find((row) => row.id === item.moduleId)
       : undefined;
+    if (item.moduleId && !isTenantModuleEnabled(tenant?.enabled_modules, item.moduleId)) {
+      return false;
+    }
     if (!moduleEntry) return true;
     if (!item.permissionId) return Boolean(moduleEntry.roles[user.role]);
     const actionEntry = moduleEntry.actions.find(
@@ -615,6 +636,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const resolvedAvatarUrl = avatarUrl.startsWith("/")
     ? `${getApiBase()}${avatarUrl}`
     : avatarUrl;
+  const tenantBrandName = tenant?.name?.trim() || "Mi Empresa";
   const initials = displayName
     .split(" ")
     .filter(Boolean)
@@ -790,6 +812,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               </button>
             )}
             <span className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
+              <span
+                className="max-w-[180px] truncate text-xs md:text-sm font-semibold uppercase tracking-[0.08em] text-emerald-200"
+                title={tenantBrandName}
+              >
+                {tenantBrandName}
+              </span>
+              <span className="text-white/70 font-normal">·</span>
               <span className="text-white">Panel Metrik {posPreview && "· Vista rápida"}</span>
               <span className="text-white font-normal">›</span>
               <span className="dashboard-breadcrumb-pill">
@@ -924,10 +953,23 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         {/* CONTENIDO DE CADA PÁGINA */}
         <main
           className={`flex-1 min-h-0 px-4 md:px-8 py-6 md:py-8 dashboard-theme ${
-            isProductsRoute ? "overflow-hidden" : "overflow-y-auto"
+            isProductsRoute
+              ? "overflow-hidden flex flex-col"
+              : "overflow-y-auto"
           }`}
         >
-          {children}
+          {tenant?.lifecycle_stage === "demo" && (
+            <div className="mb-5 shrink-0 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
+              <span className="font-semibold">Modo demo activo.</span>{" "}
+              Te quedan {tenant.trial_days_remaining ?? 0} dias para probar Metrik con{" "}
+              <span className="font-semibold text-amber-950">{tenant.name}</span>.
+            </div>
+          )}
+          {isProductsRoute ? (
+            <div className="flex-1 min-h-0">{children}</div>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

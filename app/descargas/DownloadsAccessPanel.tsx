@@ -110,7 +110,7 @@ export default function DownloadsAccessPanel({ resources }: Props) {
 
           <form className="flex w-full gap-2 sm:w-auto" onSubmit={handleUnlock}>
             <input
-              type="password"
+              type="text"
               value={accessCode}
               onChange={(event) => setAccessCode(event.target.value)}
               placeholder="Codigo"

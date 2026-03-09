@@ -1,10 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAuth } from "../../providers/AuthProvider";
+import { STORAGE_KEY, useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import { exportReportExcel, exportReportPdf } from "@/lib/api/reports";
-import { fetchPosSettings, PosSettingsPayload } from "@/lib/api/settings";
+import {
+  defaultRolePermissions,
+  fetchPosSettings,
+  fetchRolePermissions,
+  PosSettingsPayload,
+  RolePermissionModule,
+} from "@/lib/api/settings";
 import { SHOW_FREE_SALE_TRACEABILITY_REPORT } from "@/lib/config/featureFlags";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
 import {
@@ -223,7 +229,7 @@ const getMonthRangeFromKey = (referenceDateKey: string) => {
   const toDate = `${yearRaw}-${monthText}-${lastDay}`;
   return { fromDate, toDate };
 };
-const FAVORITES_STORAGE_KEY = "kensar_report_favorites";
+const REPORT_STORAGE_PREFIX = "kensar_report";
 const HOURLY_CHART_BAR_MAX_HEIGHT = 260; // px for chart bars height
 const LINE_CHART_WIDTH = 980;
 const LINE_CHART_HEIGHT = 420;
@@ -234,8 +240,27 @@ const LINE_CHART_PADDING = {
   left: 90,
 };
 const LINE_CHART_TICKS = 5;
-const OPEN_REPORTS_STORAGE_KEY = "kensar_report_open_tabs";
-const ACTIVE_REPORT_TAB_STORAGE_KEY = "kensar_report_active_tab";
+const resolveReportStorageScope = () => {
+  if (typeof window === "undefined") return "anon";
+  try {
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return "anon";
+    const parsed = JSON.parse(raw) as {
+      user?: { id?: number; email?: string | null };
+    };
+    if (typeof parsed.user?.id === "number") {
+      return `u${parsed.user.id}`;
+    }
+    const email = parsed.user?.email?.trim().toLowerCase();
+    if (email) return email;
+  } catch {
+    // ignore and fallback
+  }
+  return "anon";
+};
+
+const buildReportStorageKey = (suffix: string) =>
+  `${REPORT_STORAGE_PREFIX}_${resolveReportStorageScope()}_${suffix}`;
 
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
@@ -334,10 +359,10 @@ const getColumnPresentation = (
 
 
 const FALLBACK_COMPANY: CompanyInfo = {
-  name: "Kensar Electronic",
-  address: "Cra 24 #30-75 Palmira",
-  email: "kensarelec@gmail.com",
-  phone: "3136397939",
+  name: "",
+  address: "",
+  email: "",
+  phone: "",
   logoUrl: "",
 };
 
@@ -2919,7 +2944,19 @@ function ReportDocumentViewer({
 }
 
 export default function ReportsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const favoritesStorageKey = useMemo(
+    () => buildReportStorageKey("favorites"),
+    []
+  );
+  const openReportsStorageKey = useMemo(
+    () => buildReportStorageKey("open_tabs"),
+    []
+  );
+  const activeReportTabStorageKey = useMemo(
+    () => buildReportStorageKey("active_tab"),
+    []
+  );
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
@@ -2950,7 +2987,7 @@ export default function ReportsPage() {
   const [openReports, setOpenReports] = useState<OpenReportTab[]>(() => {
     if (typeof window === "undefined") return [];
     try {
-      const raw = window.localStorage.getItem(OPEN_REPORTS_STORAGE_KEY);
+      const raw = window.localStorage.getItem(buildReportStorageKey("open_tabs"));
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
@@ -2963,9 +3000,7 @@ export default function ReportsPage() {
   const tabsInitializedRef = useRef(false);
   const [activeTabId, setActiveTabId] = useState<string>(() => {
     if (typeof window === "undefined") return "selector";
-    const stored = window.localStorage.getItem(
-      ACTIVE_REPORT_TAB_STORAGE_KEY
-    );
+    const stored = window.localStorage.getItem(buildReportStorageKey("active_tab"));
     return stored || "selector";
   });
 
@@ -2976,7 +3011,7 @@ export default function ReportsPage() {
   const [favoriteReportIds, setFavoriteReportIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
     try {
-      const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+      const raw = window.localStorage.getItem(buildReportStorageKey("favorites"));
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
@@ -2994,6 +3029,9 @@ export default function ReportsPage() {
     null
   );
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
+    defaultRolePermissions
+  );
 
   const filterMeta: FilterMeta = useMemo(
     () => ({
@@ -3012,6 +3050,36 @@ export default function ReportsPage() {
         : resolveMethodLabel(methodFilter),
     [methodFilter, resolveMethodLabel]
   );
+  const canLoadRolePermissions = useMemo(() => {
+    if (!user?.role) return false;
+    const settingsModule = defaultRolePermissions.find(
+      (row) => row.id === "settings"
+    );
+    const settingsAction = settingsModule?.actions.find(
+      (entry) => entry.id === "settings.view"
+    );
+    if (!settingsAction) return false;
+    return Boolean(settingsAction.roles[user.role]);
+  }, [user?.role]);
+  const canSeeModuleAction = useCallback(
+    (moduleId: string, actionId: string) => {
+      if (!user?.role) return false;
+      const permissionModule = roleModules.find((row) => row.id === moduleId);
+      if (!permissionModule) return false;
+      const action = permissionModule.actions.find(
+        (entry) => entry.id === actionId
+      );
+      if (!action) return Boolean(permissionModule.roles[user.role]);
+      return Boolean(action.roles[user.role]);
+    },
+    [roleModules, user?.role]
+  );
+  const canViewOperationalSales = canSeeModuleAction("pos", "pos.sales");
+  const canViewReportDataset =
+    canSeeModuleAction("reports", "reports.view") ||
+    canSeeModuleAction("sales_history", "sales_history.view") ||
+    canViewOperationalSales;
+  const canViewPosSettings = canSeeModuleAction("settings", "settings.view");
 
   const companyInfo = useMemo<CompanyInfo>(() => {
     if (!posSettings) return FALLBACK_COMPANY;
@@ -3043,48 +3111,72 @@ export default function ReportsPage() {
   );
 
   useEffect(() => {
+    if (!token) return;
+    if (!canLoadRolePermissions) {
+      setRoleModules(defaultRolePermissions);
+      return;
+    }
+    let cancelled = false;
+    fetchRolePermissions(token)
+      .then((modules) => {
+        if (!cancelled) {
+          setRoleModules(modules);
+        }
+      })
+      .catch((err) => {
+        console.error("No pudimos cargar permisos de reportes.", err);
+        if (!cancelled) {
+          setRoleModules(defaultRolePermissions);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canLoadRolePermissions, token]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem(
-        FAVORITES_STORAGE_KEY,
+        favoritesStorageKey,
         JSON.stringify(favoriteReportIds)
       );
     } catch (err) {
       console.warn("No se pudieron guardar favoritos", err);
     }
-  }, [favoriteReportIds]);
+  }, [favoriteReportIds, favoritesStorageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       if (openReports.length) {
         window.localStorage.setItem(
-          OPEN_REPORTS_STORAGE_KEY,
+          openReportsStorageKey,
           JSON.stringify(openReports)
         );
       } else {
-        window.localStorage.removeItem(OPEN_REPORTS_STORAGE_KEY);
+        window.localStorage.removeItem(openReportsStorageKey);
       }
     } catch (err) {
       console.warn("No se pudieron guardar las pestañas de reportes", err);
     }
-  }, [openReports]);
+  }, [openReports, openReportsStorageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       if (activeTabId && activeTabId !== "selector") {
         window.localStorage.setItem(
-          ACTIVE_REPORT_TAB_STORAGE_KEY,
+          activeReportTabStorageKey,
           activeTabId
         );
       } else {
-        window.localStorage.removeItem(ACTIVE_REPORT_TAB_STORAGE_KEY);
+        window.localStorage.removeItem(activeReportTabStorageKey);
       }
     } catch (err) {
       console.warn("No se pudo guardar la pestaña activa de reportes", err);
     }
-  }, [activeTabId]);
+  }, [activeTabId, activeReportTabStorageKey]);
 
   useEffect(() => {
     if (!openReports.length) {
@@ -3160,6 +3252,13 @@ export default function ReportsPage() {
   };
 
   const loadSales = useCallback(async () => {
+    if (!canViewReportDataset) {
+      setSalesData([]);
+      setChangesData([]);
+      setSalesError(null);
+      setSalesLoading(false);
+      return;
+    }
     if (!authHeaders) return;
     try {
       setSalesLoading(true);
@@ -3237,7 +3336,7 @@ export default function ReportsPage() {
     } finally {
       setSalesLoading(false);
     }
-  }, [authHeaders]);
+  }, [authHeaders, canViewReportDataset]);
 
   useEffect(() => {
     void loadSales();
@@ -3246,6 +3345,11 @@ export default function ReportsPage() {
   useEffect(() => {
     let active = true;
     if (!token) return;
+    if (!canViewPosSettings) {
+      setPosSettings(null);
+      setSettingsError(null);
+      return;
+    }
     (async () => {
       try {
         const settings = await fetchPosSettings(token);
@@ -3265,7 +3369,7 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [canViewPosSettings, token]);
 
   const handleSelectPreset = useCallback((presetId: string) => {
     if (presetId === "month-daily") {
@@ -3815,6 +3919,8 @@ export default function ReportsPage() {
                       ? "Cargando ventas…"
                       : !currentPreset
                       ? "Selecciona un informe en la lista"
+                      : !canViewReportDataset
+                      ? "Sin acceso a datos operativos"
                       : "Mostrar reporte"}
                   </button>
                   <button
@@ -3830,17 +3936,21 @@ export default function ReportsPage() {
                   >
                     Restablecer filtros
                   </button>
-                  {salesError && (
+                  {!canViewReportDataset ? (
+                    <p className="text-xs text-slate-400">
+                      Este rol no tiene acceso al dataset necesario para generar
+                      reportes.
+                    </p>
+                  ) : salesError ? (
                     <p className="text-xs text-rose-300">
                       Error al cargar las ventas: {salesError}
                     </p>
-                  )}
-                  {!salesError && !salesLoading && !salesData.length && (
+                  ) : !salesLoading && !salesData.length ? (
                     <p className="text-xs text-slate-400">
                       Aún no hay datos de ventas desde el POS para este
                       periodo.
                     </p>
-                  )}
+                  ) : null}
                 </div>
               </div>
 

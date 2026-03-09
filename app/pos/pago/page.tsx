@@ -451,6 +451,7 @@ export default function PagoPage() {
         ),
     [paymentCatalog]
   );
+  const hasActivePaymentMethods = activePaymentMethods.length > 0;
   const getMethodLabel = useCallback(
     (slug: PaymentMethodSlug) => {
       const found = paymentCatalog.find((m) => m.slug === slug);
@@ -480,16 +481,17 @@ export default function PagoPage() {
   const requiresManualAmount = allowsChange || isCreditLike;
   const confirmDisabled =
     !cart.length ||
+    !hasActivePaymentMethods ||
     (requiresManualAmount && (!paidValue || paidValue === "0"));
   const canSubmitWithEnter = !confirmDisabled && !successSale;
 
   useEffect(() => {
-    if (!activePaymentMethods.length) return;
+    if (!hasActivePaymentMethods) return;
     const exists = activePaymentMethods.some((m) => m.slug === method);
     if (!exists) {
       setMethod(activePaymentMethods[0].slug);
     }
-  }, [activePaymentMethods, method]);
+  }, [activePaymentMethods, hasActivePaymentMethods, method]);
 
   useEffect(() => {
     if (method !== "separado") {
@@ -621,6 +623,12 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
 
       if (!cart.length) {
         setErrorWithToast("No hay productos en el carrito.");
+        return;
+      }
+      if (!hasActivePaymentMethods || !selectedMethod) {
+        setErrorWithToast(
+          "No hay métodos de pago activos. Configúralos en Configuración > Métodos de pago."
+        );
         return;
       }
 
@@ -838,7 +846,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         setMessage(null);
         setErrorWithToast(
           customMessage ??
-            "Guardamos la venta como pendiente. Se enviará cuando vuelva la conexión."
+            "Guardamos la venta como pendiente. Se enviará cuando se recupere la conexión con el servidor."
         );
         markResumeHeldSale();
         router.replace("/pos");
@@ -863,11 +871,17 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         });
       } catch (err) {
         console.error(err);
+        const browserOffline =
+          typeof navigator !== "undefined" && !navigator.onLine;
         if (
-          (typeof navigator !== "undefined" && !navigator.onLine) ||
+          browserOffline ||
           err instanceof TypeError
         ) {
-          queueSaleOffline();
+          queueSaleOffline(
+            browserOffline
+              ? undefined
+              : "No se pudo conectar con el servidor. Guardamos la venta como pendiente para enviarla al restablecer la conexión."
+          );
           return;
         }
         throw err;
@@ -908,12 +922,16 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             });
           } catch (err) {
             console.error(err);
+            const browserOffline =
+              typeof navigator !== "undefined" && !navigator.onLine;
             if (
-              (typeof navigator !== "undefined" && !navigator.onLine) ||
+              browserOffline ||
               err instanceof TypeError
             ) {
               queueSaleOffline(
-                "El consecutivo se actualizó pero perdimos la conexión. Guardamos la venta como pendiente."
+                browserOffline
+                  ? "El consecutivo se actualizó pero perdimos internet. Guardamos la venta como pendiente."
+                  : "El consecutivo se actualizó, pero no hubo conexión con el servidor. Guardamos la venta como pendiente."
               );
               return;
             }
@@ -1395,6 +1413,22 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
     typeof saleNumber === "number" && Number.isFinite(saleNumber)
       ? `#${saleNumber.toString().padStart(3, "0")}`
       : "—";
+  const successSeparatedInfo = successSale?.separatedInfo;
+  const successInitialPayment = successSeparatedInfo?.payments?.[0];
+  const successPaidTotal = successSeparatedInfo
+    ? successSeparatedInfo.payments.reduce(
+        (sum, payment) => sum + Number(payment.amount || 0),
+        0
+      )
+    : successSale?.total ?? 0;
+  const successPendingBalance = successSeparatedInfo?.balance ?? 0;
+  const successTotalLabel = successSeparatedInfo ? "Total abonado" : "Total pagado";
+  const successHeadline = successSeparatedInfo
+    ? "¡Venta separada registrada con éxito!"
+    : "¡Venta completada con éxito!";
+  const successSubtitle = successSeparatedInfo
+    ? "El abono inicial quedó aplicado. Puedes entregar comprobante o continuar luego con abonos."
+    : "Selecciona cómo deseas entregar el recibo al cliente.";
 
   return (
     <main className="h-screen bg-slate-950 text-slate-50 flex flex-col overflow-hidden">
@@ -1563,9 +1597,10 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                 Tipo de pago
               </h2>
 
-              {activePaymentMethods.length === 0 && (
-                <p className="text-xs text-slate-500">
-                  No hay métodos de pago activos.
+              {!hasActivePaymentMethods && (
+                <p className="text-xs text-amber-300">
+                  No hay métodos de pago activos. Configúralos en
+                  Configuración {">"} Métodos de pago.
                 </p>
               )}
 
@@ -1805,10 +1840,10 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                 Venta registrada correctamente
               </p>
               <h2 className="text-3xl sm:text-4xl font-bold text-slate-50 mt-2">
-                ¡Venta completada con éxito!
+                {successHeadline}
               </h2>
               <p className="text-slate-400 mt-2 text-sm sm:text-base">
-                Selecciona cómo deseas entregar el recibo al cliente.
+                {successSubtitle}
               </p>
             </div>
 
@@ -1858,10 +1893,42 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                       </span>
                     </div>
                   )}
+                {successSeparatedInfo && (
+                  <>
+                    <div className="flex justify-between py-1 text-slate-300">
+                      <span>Total venta</span>
+                      <span className="font-semibold text-slate-100">
+                        {successSale.total.toLocaleString("es-CO")}
+                      </span>
+                    </div>
+                    {successInitialPayment && (
+                      <>
+                        <div className="flex justify-between py-1 text-slate-400">
+                          <span>Método abono inicial</span>
+                          <span className="text-slate-100">
+                            {successInitialPayment.method ?? "No especificado"}
+                          </span>
+                        </div>
+                        <div className="flex justify-between py-1 text-slate-300">
+                          <span>Abono inicial</span>
+                          <span className="font-semibold text-slate-100">
+                            {Number(successInitialPayment.amount || 0).toLocaleString("es-CO")}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    <div className="flex justify-between py-1 text-rose-300">
+                      <span>Saldo pendiente</span>
+                      <span className="font-semibold">
+                        {successPendingBalance.toLocaleString("es-CO")}
+                      </span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between py-1">
-                  <span className="text-slate-400">Total pagado</span>
+                  <span className="text-slate-400">{successTotalLabel}</span>
                   <span className="font-semibold text-emerald-400 text-xl">
-                    {successSale.total.toLocaleString("es-CO")}
+                    {successPaidTotal.toLocaleString("es-CO")}
                   </span>
                 </div>
                 {successSale.showChange && successSale.changeAmount > 0 && (

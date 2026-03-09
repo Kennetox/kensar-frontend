@@ -3347,7 +3347,7 @@ useEffect(() => {
                       {selectedDoc.documentNumber}
                     </div>
                     {selectedDoc.type === "venta" && selectedDocIsSeparated && (
-                      <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-100">
+                      <span className="rounded-full border border-amber-400 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900 shadow-sm">
                         Venta con separado
                       </span>
                     )}

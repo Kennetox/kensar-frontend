@@ -40,7 +40,6 @@ import {
   sendSmtpTestEmail,
 } from "@/lib/api/settings";
 import {
-  DEFAULT_PAYMENT_METHODS,
   fetchPaymentMethods,
   createPaymentMethod,
   updatePaymentMethod,
@@ -53,6 +52,7 @@ import { useAuth } from "../../providers/AuthProvider";
 import { clearPosStationAccess, getPosStationAccess } from "@/lib/api/posStations";
 import { getApiBase } from "@/lib/api/base";
 import { fetchSeparatedOrders, SeparatedOrder } from "@/lib/api/separatedOrders";
+import { isTenantModuleEnabled } from "@/lib/tenantModules";
 import {
   buildBogotaDateFromKey,
   formatBogotaDate,
@@ -96,29 +96,28 @@ type SettingsFormState = {
 };
 
 const defaultForm: SettingsFormState = {
-  companyName: "Kensar Electronic",
-  taxId: "900000000-0",
-  address: "Cra. 15 #123 - Bogotá, Colombia",
-  contactEmail: "contacto@kensar.com",
-  contactPhone: "+57 300 000 0000",
+  companyName: "",
+  taxId: "",
+  address: "",
+  contactEmail: "",
+  contactPhone: "",
   logoUrl: "",
-  theme: "dark",
-  colorAccent: "#10b981",
-  ticketFooter:
-    "Gracias por tu compra. Recuerda nuestros canales oficiales para soporte.",
-  autoCloseTickets: true,
+  theme: "light",
+  colorAccent: "#0A84FF",
+  ticketFooter: "",
+  autoCloseTickets: false,
   lowStockAlert: true,
   requireSellerPin: false,
   notifications: {
-    dailySummaryEmail: true,
-    cashAlertEmail: true,
+    dailySummaryEmail: false,
+    cashAlertEmail: false,
     cashAlertSms: false,
-    monthlyReportEmail: true,
+    monthlyReportEmail: false,
   },
   closureEmailRecipients: "",
   ticketEmailCc: "",
   smtpHost: "",
-  smtpPort: "587",
+  smtpPort: "",
   smtpUser: "",
   smtpPassword: "",
   smtpUseTls: true,
@@ -131,6 +130,16 @@ const defaultForm: SettingsFormState = {
   webPosSendClosureEmail: true,
   stationEmailOverrides: {},
 };
+
+function toSlug(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
 
 const previewTicketNumber = 42;
 const CONTROL_PENDING_LOOKBACK_DAYS = 30;
@@ -550,6 +559,7 @@ export default function SettingsPage() {
     role: PosUserRecord["role"];
     password: string;
     pin: string;
+    createHrProfile: boolean;
   }>({
     name: "",
     email: "",
@@ -559,6 +569,7 @@ export default function SettingsPage() {
     role: "Vendedor",
     password: "",
     pin: "",
+    createHrProfile: true,
   });
   const [creatingUser, setCreatingUser] = useState(false);
   const [userFormError, setUserFormError] = useState<string | null>(null);
@@ -568,14 +579,16 @@ export default function SettingsPage() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
+  const { token, user, tenant } = useAuth();
   const [rolePermissions, setRolePermissions] =
     useState<RolePermissionModule[]>(defaultRolePermissions);
   const visibleRolePermissions = useMemo(
     () =>
-      SCHEDULE_MODULE_ENABLED
-        ? rolePermissions
-        : rolePermissions.filter((module) => module.id !== "schedule"),
-    [rolePermissions]
+      rolePermissions.filter((module) => {
+        if (!SCHEDULE_MODULE_ENABLED && module.id === "schedule") return false;
+        return isTenantModuleEnabled(tenant?.enabled_modules, module.id);
+      }),
+    [rolePermissions, tenant?.enabled_modules]
   );
   const [rolePermissionsLoading, setRolePermissionsLoading] = useState(true);
   const [rolePermissionsError, setRolePermissionsError] = useState<string | null>(null);
@@ -599,7 +612,7 @@ export default function SettingsPage() {
   });
   const [paymentMethods, setPaymentMethods] = useState<
     PaymentMethodRecord[]
-  >(DEFAULT_PAYMENT_METHODS);
+  >([]);
   const [paymentMethodsLoading, setPaymentMethodsLoading] =
     useState(false);
   const [paymentMethodsError, setPaymentMethodsError] = useState<
@@ -621,11 +634,11 @@ export default function SettingsPage() {
     allow_change: false,
     color: "",
   });
+  const [paymentSlugEdited, setPaymentSlugEdited] = useState(false);
   const [paymentFormError, setPaymentFormError] = useState<string | null>(
     null
   );
   const [paymentSaving, setPaymentSaving] = useState(false);
-  const { token, user } = useAuth();
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
@@ -636,6 +649,14 @@ export default function SettingsPage() {
   const [logoUploadMessage, setLogoUploadMessage] = useState<string | null>(null);
   const [stations, setStations] = useState<PosStationRecord[]>([]);
   const visibleStations = useMemo(() => stations, [stations]);
+  const desktopStations = useMemo(
+    () =>
+      stations.filter(
+        (station) =>
+          (station.station_type ?? "desktop") === "desktop" && station.is_active
+      ),
+    [stations]
+  );
   const stationRecordMap = useMemo(() => {
     const map = new Map<string, PosStationRecord>();
     stations.forEach((station) => map.set(station.id, station));
@@ -645,14 +666,22 @@ export default function SettingsPage() {
   const [stationsError, setStationsError] = useState<string | null>(null);
   const [stationModalOpen, setStationModalOpen] = useState(false);
   const [editingStation, setEditingStation] = useState<PosStationRecord | null>(null);
+  const availableDesktopStations = useMemo(
+    () => desktopStations.filter((station) => station.id !== editingStation?.id),
+    [desktopStations, editingStation?.id]
+  );
   const [stationForm, setStationForm] = useState<{
     label: string;
+    stationType: "desktop" | "tablet";
+    parentStationId: string;
     email: string;
     password: string;
     confirmPassword: string;
     sendClosureEmail: boolean;
   }>({
     label: "",
+    stationType: "desktop",
+    parentStationId: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -709,6 +738,7 @@ export default function SettingsPage() {
       role: "Vendedor",
       password: "",
       pin: "",
+      createHrProfile: true,
     });
     setEditingUser(null);
   }, []);
@@ -1264,6 +1294,8 @@ export default function SettingsPage() {
   function openStationModal() {
     setStationForm({
       label: "",
+      stationType: "desktop",
+      parentStationId: "",
       email: "",
       password: "",
       confirmPassword: "",
@@ -1277,6 +1309,8 @@ export default function SettingsPage() {
   function openEditStationModal(station: PosStationRecord) {
     setStationForm({
       label: station.label ?? "",
+      stationType: station.station_type === "tablet" ? "tablet" : "desktop",
+      parentStationId: station.parent_station_id ?? "",
       email: station.station_email ?? "",
       password: "",
       confirmPassword: "",
@@ -1345,6 +1379,12 @@ export default function SettingsPage() {
       setStationFormError("Debes ingresar el nombre y el correo de la estación.");
       return;
     }
+    if (stationForm.stationType === "tablet" && !stationForm.parentStationId) {
+      setStationFormError(
+        "Debes vincular la tablet a una estación desktop activa."
+      );
+      return;
+    }
     if (editingStation) {
       if (password || confirmPassword) {
         if (password !== confirmPassword) {
@@ -1377,11 +1417,18 @@ export default function SettingsPage() {
       if (editingStation) {
         const payload: {
           label: string;
+          station_type: "desktop" | "tablet";
+          parent_station_id?: string | null;
           station_email: string;
           station_password?: string;
           send_closure_email: boolean;
         } = {
           label,
+          station_type: stationForm.stationType,
+          parent_station_id:
+            stationForm.stationType === "tablet"
+              ? stationForm.parentStationId || null
+              : null,
           station_email: email,
           send_closure_email: stationForm.sendClosureEmail,
         };
@@ -1399,11 +1446,18 @@ export default function SettingsPage() {
       } else {
         const payload: {
           label: string;
+          station_type: "desktop" | "tablet";
+          parent_station_id?: string | null;
           send_closure_email: boolean;
           station_email: string;
           station_password: string;
         } = {
           label,
+          station_type: stationForm.stationType,
+          parent_station_id:
+            stationForm.stationType === "tablet"
+              ? stationForm.parentStationId || null
+              : null,
           send_closure_email: stationForm.sendClosureEmail,
           station_email: email,
           station_password: password,
@@ -1415,6 +1469,8 @@ export default function SettingsPage() {
       setStationModalOpen(false);
       setStationForm({
         label: "",
+        stationType: "desktop",
+        parentStationId: "",
         email: "",
         password: "",
         confirmPassword: "",
@@ -1610,19 +1666,36 @@ export default function SettingsPage() {
     setPaymentForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const handlePaymentNameChange = (value: string) => {
+    setPaymentForm((prev) => ({
+      ...prev,
+      name: value,
+      slug: paymentSlugEdited || editingPayment ? prev.slug : toSlug(value),
+    }));
+  };
+
+  const handlePaymentSlugChange = (value: string) => {
+    setPaymentSlugEdited(true);
+    setPaymentForm((prev) => ({ ...prev, slug: toSlug(value) }));
+  };
+
   async function handleSubmitPaymentMethod(
     e: FormEvent<HTMLFormElement>
   ) {
     e.preventDefault();
     if (!token) return;
     const name = paymentForm.name.trim();
-    const slug = paymentForm.slug.trim().toLowerCase();
+    const slug = toSlug(paymentForm.slug);
     if (!name) {
       setPaymentFormError("El nombre es obligatorio.");
       return;
     }
     if (!slug) {
       setPaymentFormError("El slug es obligatorio.");
+      return;
+    }
+    if (!/^[a-z0-9-]+$/.test(slug)) {
+      setPaymentFormError("El slug solo admite minúsculas, números y guiones.");
       return;
     }
     const payload = {
@@ -1732,7 +1805,7 @@ export default function SettingsPage() {
       setPaymentMethodsLoading(true);
       setPaymentMethodsError(null);
       const data = await fetchPaymentMethods(token);
-      setPaymentMethods(data.length ? data : DEFAULT_PAYMENT_METHODS);
+      setPaymentMethods(data);
     } catch (err) {
       console.error(err);
       setPaymentMethodsError(
@@ -1740,7 +1813,7 @@ export default function SettingsPage() {
           ? err.message
           : "No pudimos cargar los métodos de pago."
       );
-      setPaymentMethods(DEFAULT_PAYMENT_METHODS);
+      setPaymentMethods([]);
     } finally {
       setPaymentMethodsLoading(false);
     }
@@ -1756,10 +1829,23 @@ export default function SettingsPage() {
   }, [token, loadSettings, loadUsers, loadPaymentMethods, loadRolePermissions, loadStations]);
 
   useEffect(() => {
-    if (activeTab === "control" && !controlLoading && controlRows.length === 0) {
+    if (
+      activeTab === "control" &&
+      !controlLoading &&
+      controlRows.length === 0 &&
+      !controlLastUpdated &&
+      !controlError
+    ) {
       void loadControlData();
     }
-  }, [activeTab, controlLoading, controlRows.length, loadControlData]);
+  }, [
+    activeTab,
+    controlLoading,
+    controlRows.length,
+    controlLastUpdated,
+    controlError,
+    loadControlData,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1970,6 +2056,7 @@ export default function SettingsPage() {
   function openPaymentModal(method?: PaymentMethodRecord | null) {
     if (method) {
       setEditingPayment(method);
+      setPaymentSlugEdited(true);
       setPaymentForm({
         name: method.name,
         slug: method.slug,
@@ -1979,6 +2066,7 @@ export default function SettingsPage() {
       });
     } else {
       setEditingPayment(null);
+      setPaymentSlugEdited(false);
       setPaymentForm({
         name: "",
         slug: "",
@@ -2092,6 +2180,7 @@ export default function SettingsPage() {
         role: user.role,
         password: "",
         pin: "",
+        createHrProfile: false,
       });
     } else {
       resetUserForm();
@@ -2122,6 +2211,7 @@ export default function SettingsPage() {
       notes?: string;
       password?: string;
       pin_plain?: string;
+      create_hr_profile?: boolean;
     } = {
       name: userForm.name.trim(),
       email: userForm.email.trim(),
@@ -2139,6 +2229,9 @@ export default function SettingsPage() {
         return;
       }
       payload.pin_plain = userForm.pin.trim();
+    }
+    if (!editingUser) {
+      payload.create_hr_profile = userForm.createHrProfile;
     }
     try {
       setCreatingUser(true);
@@ -2941,9 +3034,15 @@ export default function SettingsPage() {
               visibleStations.map((station) => {
                 const isUpdating = updatingStationId === station.id;
                 const statusLabel = station.is_active ? "Activa" : "Inactiva";
+                const typeLabel =
+                  station.station_type === "tablet" ? "Tablet" : "Desktop";
+                const typeClass =
+                  station.station_type === "tablet"
+                    ? "border border-sky-200 bg-sky-50 text-sky-700"
+                    : "border border-slate-300 bg-slate-100 text-slate-700";
                 const statusClass = station.is_active
-                  ? "bg-emerald-500/20 text-emerald-300"
-                  : "bg-slate-700 text-slate-300";
+                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border border-slate-300 bg-slate-200 text-slate-700";
                 const overrideValue =
                   form.stationEmailOverrides[station.id];
                 const fallbackValue =
@@ -2964,6 +3063,18 @@ export default function SettingsPage() {
                       <div className="font-semibold text-slate-100">
                         {station.label}
                       </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${typeClass}`}
+                        >
+                          {typeLabel}
+                        </span>
+                      </div>
+                      {station.station_type === "tablet" && (
+                        <div className="text-[11px] text-slate-500">
+                          Principal: {station.parent_station_label ?? "Sin vincular"}
+                        </div>
+                      )}
                       <div className="text-[11px] text-slate-500 font-mono">
                         {station.id}
                       </div>
@@ -2982,7 +3093,7 @@ export default function SettingsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] ${statusClass}`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusClass}`}
                       >
                         {statusLabel}
                       </span>
@@ -3312,27 +3423,6 @@ export default function SettingsPage() {
             {smtpTestSending ? "Enviando..." : "Enviar correo de prueba"}
           </button>
         </div>
-      </article>
-      <article className="rounded-2xl border border-dashed border-emerald-400/60 bg-emerald-500/5 p-6 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-emerald-200">
-              Reportes por email
-            </h2>
-            <p className="text-sm text-emerald-100/70">
-              Próximamente podrás definir destinatarios y plantillas para
-              reportes automáticos (cierres, ventas por línea, etc.).
-            </p>
-          </div>
-          <span className="text-xs px-3 py-1 rounded-full border border-emerald-400 text-emerald-100">
-            Próximamente
-          </span>
-        </div>
-        <p className="text-xs text-emerald-100/80">
-          Esta sección quedará lista para conectarse con el nuevo endpoint
-          `reporte_email`; mientras tanto, utiliza las notificaciones
-          anteriores para seguir recibiendo resúmenes diarios y mensuales.
-        </p>
       </article>
     </div>
   );
@@ -3829,14 +3919,14 @@ export default function SettingsPage() {
               Incluye POS Web y registros heredados.
             </p>
           </div>
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-            <p className="text-[11px] uppercase tracking-wide text-amber-200">
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+            <p className="text-[11px] uppercase tracking-wide text-amber-800">
               Estaciones con pendientes
             </p>
-            <p className="text-3xl font-semibold text-amber-100">
+            <p className="text-3xl font-semibold text-amber-950">
               {pendingStationsCount}
             </p>
-            <p className="text-xs text-amber-100/80 mt-1">
+            <p className="text-xs text-amber-800/80 mt-1">
               Revisa las filas en color ámbar en el listado inferior.
             </p>
           </div>
@@ -3881,7 +3971,7 @@ export default function SettingsPage() {
                     <tr
                       key={row.stationId ?? "legacy"}
                       className={`border-t border-slate-900 ${
-                        hasPending ? "bg-amber-500/5" : ""
+                        hasPending ? "bg-amber-50/80" : ""
                       }`}
                     >
                       <td className="px-4 py-4 align-top">
@@ -3940,12 +4030,12 @@ export default function SettingsPage() {
                       <td className="px-4 py-4 align-top">
                         {hasPending ? (
                           <div className="space-y-1">
-                            <div className="text-base font-semibold text-amber-200">
+                            <div className="text-base font-semibold text-amber-900">
                               {row.pendingCount} pendiente
                               {row.pendingCount > 1 ? "s" : ""}
                             </div>
                             {row.pendingSinceLabel && (
-                              <div className="text-[11px] text-amber-100/80">
+                              <div className="text-[11px] text-amber-800/80">
                                 Desde {row.pendingSinceLabel}
                               </div>
                             )}
@@ -3957,7 +4047,7 @@ export default function SettingsPage() {
                                   adminClosureLoading ===
                                   (row.stationId ?? "__legacy__")
                                 }
-                                className="mt-2 inline-flex items-center rounded-md border border-amber-400/60 px-2.5 py-1 text-[11px] font-medium text-amber-100 hover:bg-amber-500/10 disabled:opacity-50"
+                                className="mt-2 inline-flex items-center rounded-md border border-amber-400 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
                               >
                                 {adminClosureLoading ===
                                 (row.stationId ?? "__legacy__")
@@ -4374,6 +4464,27 @@ export default function SettingsPage() {
                     placeholder="Comentarios visibles solo para administradores."
                   />
                 </label>
+                {!editingUser && (
+                  <label className="flex items-start gap-2 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={userForm.createHrProfile}
+                      onChange={(e) =>
+                        setUserForm((prev) => ({
+                          ...prev,
+                          createHrProfile: e.target.checked,
+                        }))
+                      }
+                      className="mt-0.5 h-4 w-4 accent-emerald-500"
+                    />
+                    <span>
+                      Crear también perfil en Recursos Humanos
+                      <span className="mt-0.5 block text-xs text-slate-400">
+                        Aparecerá en la lista de empleados para evitar registro doble.
+                      </span>
+                    </span>
+                  </label>
+                )}
                 {userFormError && (
                   <p className="text-xs text-red-400">{userFormError}</p>
                 )}
@@ -4443,9 +4554,7 @@ export default function SettingsPage() {
                   <input
                     type="text"
                     value={paymentForm.name}
-                    onChange={(e) =>
-                      handlePaymentInput("name", e.target.value)
-                    }
+                    onChange={(e) => handlePaymentNameChange(e.target.value)}
                     className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
                     placeholder="Ej. Efectivo"
                   />
@@ -4455,9 +4564,7 @@ export default function SettingsPage() {
                   <input
                     type="text"
                     value={paymentForm.slug}
-                    onChange={(e) =>
-                      handlePaymentInput("slug", e.target.value)
-                    }
+                    onChange={(e) => handlePaymentSlugChange(e.target.value)}
                     disabled={!!editingPayment}
                     className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 disabled:opacity-50"
                     placeholder="cash, qr..."
@@ -4656,6 +4763,51 @@ export default function SettingsPage() {
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
+                <span className="text-slate-400">Tipo de estación</span>
+                <select
+                  value={stationForm.stationType}
+                  onChange={(e) =>
+                    setStationForm((prev) => ({
+                      ...prev,
+                      stationType: e.target.value === "tablet" ? "tablet" : "desktop",
+                      parentStationId:
+                        e.target.value === "tablet" ? prev.parentStationId : "",
+                    }))
+                  }
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                >
+                  <option value="desktop">Desktop</option>
+                  <option value="tablet">Tablet</option>
+                </select>
+              </label>
+              {stationForm.stationType === "tablet" && (
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-slate-400">Estación principal (desktop)</span>
+                  <select
+                    value={stationForm.parentStationId}
+                    onChange={(e) =>
+                      setStationForm((prev) => ({
+                        ...prev,
+                        parentStationId: e.target.value,
+                      }))
+                    }
+                    className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+                  >
+                    <option value="">Selecciona una estación desktop</option>
+                    {availableDesktopStations.map((station) => (
+                      <option key={station.id} value={station.id}>
+                        {station.label}
+                      </option>
+                    ))}
+                  </select>
+                  {availableDesktopStations.length === 0 && (
+                    <span className="text-xs text-amber-300">
+                      Crea primero una estación desktop activa para poder vincular tablets.
+                    </span>
+                  )}
+                </label>
+              )}
+              <label className="flex flex-col gap-1 text-sm">
                 <span className="text-slate-400">Correo de estación</span>
                 <input
                   type="email"
@@ -4809,15 +4961,6 @@ export default function SettingsPage() {
             </form>
           </div>
         )}
-
-        <footer className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 p-5 text-xs text-slate-400 flex flex-col gap-2">
-          <p className="font-semibold text-slate-200">Próximas integraciones</p>
-          <p>
-            Este módulo queda listo para conectarse con el backend. Cuando agregues
-            los endpoints, solo tendrás que asegurarte de retornar los campos
-            definidos en la API y activar las cargas reales de logo y temas.
-          </p>
-        </footer>
       </div>
     </main>
   );

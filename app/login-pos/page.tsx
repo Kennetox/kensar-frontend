@@ -27,6 +27,7 @@ type KensarBridge = {
       stationId?: string | null;
       stationLabel?: string | null;
       stationEmail?: string | null;
+      tenantName?: string | null;
     } | null>;
     hasAdminPin?: () => Promise<boolean>;
     setAdminPin?: (pin: string) => Promise<{ ok: boolean; error?: string }>;
@@ -74,6 +75,8 @@ function PosLoginContent() {
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const [submitting, setSubmitting] = useState(false);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
+  const tenantDisplayName =
+    stationInfo?.tenantName?.trim().toUpperCase() || "KENSAR ELECTRONIC";
   const [timeLabel, setTimeLabel] = useState("");
   const [appZoom, setAppZoom] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -234,6 +237,7 @@ function PosLoginContent() {
         id: stationIdParam,
         label: searchParams.get("station_label") ?? undefined,
         email: searchParams.get("station_email") ?? undefined,
+        tenantName: searchParams.get("tenant_name") ?? undefined,
       });
     }
     const reason = window.sessionStorage.getItem(LOGOUT_REASON_KEY);
@@ -275,6 +279,7 @@ function PosLoginContent() {
             id: config.stationId,
             label: config.stationLabel ?? undefined,
             email: config.stationEmail ?? undefined,
+            tenantName: config.tenantName ?? undefined,
           });
           setStoredPosMode("station");
           syncStation();
@@ -825,7 +830,7 @@ function PosLoginContent() {
           <div className="relative rounded-[26px] border border-white/15 bg-white/10 px-7 pb-7 pt-12 backdrop-blur-[16px]">
             <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-[165%] text-center">
               <p className="text-[34px] font-semibold tracking-[0.36em] text-white drop-shadow-[0_8px_22px_rgba(0,0,0,0.6)]">
-                KENSAR ELECTRONIC
+                {tenantDisplayName}
               </p>
             </div>
 

@@ -33,14 +33,27 @@ type AuthUser = {
   phone?: string | null;
 };
 
+type AuthTenant = {
+  id: number;
+  slug: string;
+  name: string;
+  lifecycle_stage: "demo" | "active" | "inactive" | "suspended" | "archived";
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
+  trial_days_remaining?: number | null;
+  enabled_modules?: string[];
+};
+
 type AuthContextValue = {
   user: AuthUser | null;
+  tenant: AuthTenant | null;
   token: string | null;
   loading: boolean;
   login: (
     email: string,
     password: string,
     options?: {
+      tenantSlug?: string;
       stationId?: string;
       isPosStation?: boolean;
       deviceId?: string;
@@ -48,6 +61,12 @@ type AuthContextValue = {
       posAuthMode?: "pin" | "password";
     }
   ) => Promise<void>;
+  acceptSession: (payload: {
+    token: string;
+    user: AuthUser;
+    tenant?: AuthTenant | null;
+    sessionType?: "web" | "pos";
+  }) => void;
   logout: (reason?: string) => void;
   authHeaders: Record<string, string> | null;
 };
@@ -55,6 +74,7 @@ type AuthContextValue = {
 type AuthStorageShape = {
   token: string;
   user: AuthUser;
+  tenant?: AuthTenant | null;
   sessionType?: "web" | "pos";
 };
 
@@ -68,6 +88,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [tenant, setTenant] = useState<AuthTenant | null>(null);
   const [sessionType, setSessionType] = useState<"web" | "pos" | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -101,14 +122,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const parsed: AuthStorageShape = JSON.parse(stored);
         setToken(parsed.token);
         setUser(parsed.user);
+        setTenant(parsed.tenant ?? null);
         setSessionType(parsed.sessionType ?? "web");
       } else {
         const transfer = consumeAuthTransferSnapshot<AuthUser>();
         if (transfer) {
           setToken(transfer.token);
           setUser(transfer.user);
+          setTenant(null);
           setSessionType("web");
-          persistAuth({ token: transfer.token, user: transfer.user, sessionType: "web" });
+          persistAuth({
+            token: transfer.token,
+            user: transfer.user,
+            tenant: null,
+            sessionType: "web",
+          });
         }
       }
       window.localStorage.removeItem(STORAGE_KEY);
@@ -130,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email: string,
       password: string,
       options?: {
+        tenantSlug?: string;
         stationId?: string;
         isPosStation?: boolean;
         deviceId?: string;
@@ -158,7 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 device_id: options.deviceId,
                 device_label: options.deviceLabel,
               }
-          : { email, password };
+          : { email, password, tenant_slug: options?.tenantSlug };
       const res = await fetch(`${apiBase}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -178,14 +207,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = (await res.json()) as {
         token: string;
         user: AuthUser;
+        tenant?: AuthTenant | null;
         expires_at?: string | null;
       };
 
       const nextSessionType = options?.isPosStation ? "pos" : "web";
       setToken(data.token);
       setUser(data.user);
+      setTenant(data.tenant ?? null);
       setSessionType(nextSessionType);
-      persistAuth({ token: data.token, user: data.user, sessionType: nextSessionType });
+      persistAuth({
+        token: data.token,
+        user: data.user,
+        tenant: data.tenant ?? null,
+        sessionType: nextSessionType,
+      });
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(LOGOUT_REASON_KEY);
+      }
+    },
+    [persistAuth]
+  );
+
+  const acceptSession = useCallback(
+    (payload: {
+      token: string;
+      user: AuthUser;
+      tenant?: AuthTenant | null;
+      sessionType?: "web" | "pos";
+    }) => {
+      const nextSessionType = payload.sessionType ?? "web";
+      setToken(payload.token);
+      setUser(payload.user);
+      setTenant(payload.tenant ?? null);
+      setSessionType(nextSessionType);
+      persistAuth({
+        token: payload.token,
+        user: payload.user,
+        tenant: payload.tenant ?? null,
+        sessionType: nextSessionType,
+      });
       if (typeof window !== "undefined") {
         window.sessionStorage.removeItem(LOGOUT_REASON_KEY);
       }
@@ -207,6 +268,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setToken(null);
     setUser(null);
+    setTenant(null);
     setSessionType(null);
     persistAuth(null);
     if (typeof window !== "undefined") {
@@ -361,13 +423,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
+      tenant,
       token,
       loading,
       login,
+      acceptSession,
       logout,
       authHeaders,
     }),
-    [user, token, loading, login, logout, authHeaders]
+    [user, tenant, token, loading, login, acceptSession, logout, authHeaders]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

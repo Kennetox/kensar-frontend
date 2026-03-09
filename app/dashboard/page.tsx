@@ -388,9 +388,24 @@ export default function DashboardHomePage() {
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
     defaultRolePermissions
   );
+  const canLoadRolePermissions = useMemo(() => {
+    if (!isDashboardRole(user?.role)) return false;
+    const settingsModule = defaultRolePermissions.find(
+      (row) => row.id === "settings"
+    );
+    const settingsAction = settingsModule?.actions.find(
+      (entry) => entry.id === "settings.view"
+    );
+    if (!settingsAction) return false;
+    return Boolean(settingsAction.roles[user.role]);
+  }, [user?.role]);
 
   useEffect(() => {
     if (!token) return;
+    if (!canLoadRolePermissions) {
+      setRoleModules(defaultRolePermissions);
+      return;
+    }
     let cancelled = false;
     fetchRolePermissions(token)
       .then((modules) => {
@@ -407,7 +422,7 @@ export default function DashboardHomePage() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [canLoadRolePermissions, token]);
 
   const canSeeDashboardAction = useCallback(
     (actionId: string) => {
@@ -421,8 +436,23 @@ export default function DashboardHomePage() {
     [roleModules, user?.role]
   );
 
+  const canSeeModuleAction = useCallback(
+    (moduleId: string, actionId: string) => {
+      if (!isDashboardRole(user?.role)) return false;
+      const permissionModule = roleModules.find((row) => row.id === moduleId);
+      if (!permissionModule) return false;
+      const action = permissionModule.actions.find(
+        (entry) => entry.id === actionId
+      );
+      if (!action) return Boolean(permissionModule.roles[user.role]);
+      return Boolean(action.roles[user.role]);
+    },
+    [roleModules, user?.role]
+  );
+
   const canViewTodayMetrics = canSeeDashboardAction("dashboard.today");
   const canViewHistoryMetrics = canSeeDashboardAction("dashboard.history");
+  const canViewOperationalSales = canSeeModuleAction("pos", "pos.sales");
 
   useEffect(() => {
     if (!canViewHistoryMetrics) {
@@ -463,6 +493,14 @@ export default function DashboardHomePage() {
   }, [authHeaders]);
 
   const loadRecentSales = useCallback(async () => {
+    if (!canViewOperationalSales) {
+      setRecentSales([]);
+      setRecentChanges({});
+      setRecentAdjustments({});
+      setRecentError(null);
+      setRecentLoading(false);
+      return;
+    }
     if (!authHeaders) return;
     try {
       setRecentLoading(true);
@@ -540,7 +578,7 @@ export default function DashboardHomePage() {
     } finally {
       setRecentLoading(false);
     }
-  }, [authHeaders]);
+  }, [authHeaders, canViewOperationalSales]);
 
   const loadYearlySales = useCallback(async () => {
     if (!authHeaders) return;
@@ -598,6 +636,12 @@ export default function DashboardHomePage() {
   }, [authHeaders, selectedYear]);
 
   const loadSeparatedOrders = useCallback(async () => {
+    if (!canViewOperationalSales) {
+      setSeparatedOrders([]);
+      setSeparatedError(null);
+      setSeparatedLoading(false);
+      return;
+    }
     if (!token) return;
     try {
       setSeparatedLoading(true);
@@ -617,7 +661,7 @@ export default function DashboardHomePage() {
     } finally {
       setSeparatedLoading(false);
     }
-  }, [token]);
+  }, [canViewOperationalSales, token]);
   const loadPaymentMethods = useCallback(
     async (range: "day" | "week" | "month", startDate: string | null) => {
       if (!authHeaders) return;
@@ -1521,7 +1565,7 @@ export default function DashboardHomePage() {
                 <p className="text-xs text-slate-400">
                   Distribución de los movimientos por método de pago.
                 </p>
-                {paymentRange !== "month" && separatedError && (
+                {paymentRange !== "month" && canViewOperationalSales && separatedError && (
                   <p className="text-[11px] text-amber-300 mt-1">
                     {separatedError}
                   </p>
@@ -1596,7 +1640,7 @@ export default function DashboardHomePage() {
                       </div>
                     </div>
                   ))}
-                  {paymentRange !== "month" && separatedOverview && (
+                  {paymentRange !== "month" && canViewOperationalSales && separatedOverview && (
                     <div className="mt-3 rounded-lg border border-dashed border-slate-700 p-3 space-y-1">
                       <div className="flex justify-between text-[11px] text-slate-100 font-semibold">
                         <span>Ventas por separado</span>
@@ -1672,7 +1716,11 @@ export default function DashboardHomePage() {
               <p className="text-xs text-slate-400 mt-1">
                 Últimos tickets registrados en el POS.
               </p>
-              {recentError && (
+              {!canViewOperationalSales ? (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Este rol no tiene acceso al detalle operativo del POS.
+                </p>
+              ) : recentError && (
                 <p className="text-[11px] text-red-400 mt-1">
                   Error: {recentError}
                 </p>
@@ -1694,7 +1742,12 @@ export default function DashboardHomePage() {
             </button>
           </div>
 
-          {!recentRows.length ? (
+          {!canViewOperationalSales ? (
+            <p className="text-xs text-slate-500 mt-2">
+              El rol auditor puede revisar métricas y reportes, pero no el feed
+              operativo de tickets del POS.
+            </p>
+          ) : !recentRows.length ? (
             <p className="text-xs text-slate-500 mt-2">
               Aún no hay ventas registradas.
             </p>

@@ -123,8 +123,8 @@ export default function AbonosPage() {
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
   const [note, setNote] = useState("");
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ id: number; message: string; tone: "info" | "error" } | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(null);
   const [canPrintTicket, setCanPrintTicket] = useState(false);
@@ -145,6 +145,10 @@ export default function AbonosPage() {
   } | null>(null);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const lastDrawerPaymentId = useRef<string | null>(null);
+  const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const amountInputRef = useRef<HTMLInputElement | null>(null);
+  const skipTicketAutoloadRef = useRef(false);
   const resolvedPosName = useMemo(
     () => formatPosDisplayName(stationInfo, POS_DISPLAY_NAME),
     [stationInfo]
@@ -368,17 +372,26 @@ export default function AbonosPage() {
 
   useEffect(() => {
     if (!result) {
-      setAmount("");
+      setAmount("0");
       setReference("");
       setNote("");
       setCanPrintTicket(false);
       return;
     }
-    const remaining = Math.max(result.balance, 0);
-    setAmount(remaining ? String(Math.round(remaining)) : "");
-    setSubmitSuccess(null);
-    setSubmitError(null);
+    setAmount("0");
   }, [result]);
+
+  useEffect(() => {
+    const timers = toastTimerRef.current;
+    return () => {
+      if (timers.hide) {
+        window.clearTimeout(timers.hide);
+      }
+      if (timers.remove) {
+        window.clearTimeout(timers.remove);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -495,6 +508,10 @@ export default function AbonosPage() {
   );
 
   useEffect(() => {
+    if (skipTicketAutoloadRef.current) {
+      skipTicketAutoloadRef.current = false;
+      return;
+    }
     if (ticketParam && ticketParam !== scanValue) {
       setScanValue(ticketParam);
       void lookupSeparated(ticketParam);
@@ -507,21 +524,66 @@ export default function AbonosPage() {
     await lookupSeparated(scanValue);
   }
 
+  const showToast = useCallback(
+    (message: string, tone: "info" | "error" = "error", duration = 3200) => {
+      const timers = toastTimerRef.current;
+      if (timers.hide) {
+        window.clearTimeout(timers.hide);
+      }
+      if (timers.remove) {
+        window.clearTimeout(timers.remove);
+      }
+      const toastId = Date.now();
+      setToast({ id: toastId, message, tone });
+      setToastVisible(false);
+      requestAnimationFrame(() => setToastVisible(true));
+      timers.hide = window.setTimeout(() => setToastVisible(false), duration);
+      timers.remove = window.setTimeout(() => {
+        setToast((current) => (current?.id === toastId ? null : current));
+      }, duration + 240);
+    },
+    []
+  );
+
+  const resetAbonoFlow = useCallback(() => {
+    if (ticketParam) {
+      skipTicketAutoloadRef.current = true;
+      router.replace("/pos/abonos");
+    }
+    setScanValue("");
+    setLookupError(null);
+    setResult(null);
+    setSaleDetail(null);
+    setSelectedMethod(null);
+    setAmount("0");
+    setReference("");
+    setNote("");
+    setCanPrintTicket(false);
+    setSuccessSummary(null);
+    setSuccessModalOpen(false);
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        scanInputRef.current?.focus();
+        scanInputRef.current?.select();
+      });
+    }
+  }, [router, ticketParam]);
+
   async function handleRegisterPayment(e: React.FormEvent) {
     e.preventDefault();
     if (!result || !token) return;
     if (!selectedMethod) {
-      setSubmitError("Por favor elige un método de pago antes de registrar el abono.");
+      const message = "Debes elegir un método de pago antes de registrar el abono.";
+      showToast(message, "error");
       return;
     }
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) {
-      setSubmitError("Ingresa un monto válido");
+      const message = "Debes ingresar un valor de abono mayor a cero.";
+      showToast(message, "error");
       return;
     }
     setSubmitting(true);
-    setSubmitError(null);
-    setSubmitSuccess(null);
     try {
       const payload: {
         method: string;
@@ -567,10 +629,11 @@ export default function AbonosPage() {
       setNote("");
     } catch (err) {
       console.error("No pudimos registrar el abono", err);
-      setSubmitError(
+      showToast(
         err instanceof Error
           ? err.message
-          : "No pudimos registrar el abono. Intenta nuevamente."
+          : "No pudimos registrar el abono. Intenta nuevamente.",
+        "error"
       );
     } finally {
       setSubmitting(false);
@@ -608,9 +671,7 @@ export default function AbonosPage() {
   const registrationDisabled =
     !result ||
     result.status === "cancelado" ||
-    !selectedMethod ||
-    submitting ||
-    Number(amount) <= 0;
+    submitting;
 
   const historyEntries = useMemo(() => {
     if (!result) return [];
@@ -696,6 +757,7 @@ export default function AbonosPage() {
 
   function formatAmountInput(value: string): string {
     if (!value) return "";
+    if (value === "0") return "0";
     const numberValue = Number(value);
     if (!Number.isFinite(numberValue)) return "";
     return numberValue.toLocaleString("es-CO");
@@ -703,7 +765,7 @@ export default function AbonosPage() {
 
   function handleAmountChange(rawValue: string) {
     const normalized = rawValue.replace(/[^\d]/g, "");
-    setAmount(normalized);
+    setAmount(normalized || "0");
   }
 
   function openTicketWindow(html: string) {
@@ -883,6 +945,7 @@ export default function AbonosPage() {
               <form onSubmit={handleLookup} className="space-y-3">
                 <label className="block text-xs text-slate-400">Código</label>
                 <input
+                  ref={scanInputRef}
                   value={scanValue}
                   onChange={(e) => setScanValue(e.target.value)}
                   placeholder="Ej: KSR-0001"
@@ -1162,16 +1225,12 @@ export default function AbonosPage() {
                             );
                           })}
                         </div>
-                        {!selectedMethod && (
-                          <p className="text-xs text-amber-300">
-                            Debes elegir un método de pago antes de registrar el abono.
-                          </p>
-                        )}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <label className="text-sm text-emerald-200 space-y-1">
                           <span className="font-semibold">Monto del abono</span>
                           <input
+                            ref={amountInputRef}
                             value={formatAmountInput(amount)}
                             onChange={(e) => handleAmountChange(e.target.value)}
                             inputMode="numeric"
@@ -1211,16 +1270,6 @@ export default function AbonosPage() {
                         saldo y la lista de movimientos se actualizan al
                         instante.
                       </div>
-                      {submitError && (
-                        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
-                          {submitError}
-                        </p>
-                      )}
-                      {submitSuccess && (
-                        <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
-                          {submitSuccess}
-                        </p>
-                      )}
                       <button
                         type="submit"
                         disabled={registrationDisabled}
@@ -1282,7 +1331,7 @@ export default function AbonosPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setSuccessModalOpen(false)}
+                onClick={resetAbonoFlow}
                 className="px-6 py-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-base font-semibold"
               >
                 Registrar otro abono
@@ -1298,6 +1347,52 @@ export default function AbonosPage() {
           </div>
         </div>
       )}
+
+      {toast && (
+        <div className="fixed inset-x-0 bottom-6 z-[90] flex justify-center px-4 pointer-events-none">
+          <div
+            className={
+              "w-full max-w-md rounded-2xl border px-5 py-4 shadow-[0_22px_55px_rgba(15,23,42,0.45)] backdrop-blur " +
+              (toast.tone === "info"
+                ? "border-emerald-300/60 bg-emerald-50/95 text-emerald-950"
+                : "border-rose-400/50 bg-slate-900/95 text-rose-100") +
+              " " +
+              (toastVisible
+                ? "animate-[toast-in_220ms_cubic-bezier(0.22,0.61,0.36,1)]"
+                : "animate-[toast-out_180ms_ease-in] opacity-0")
+            }
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em]">
+              {toast.tone === "info" ? "Aviso" : "Falta un dato"}
+            </p>
+            <p className="mt-1 text-base font-medium">{toast.message}</p>
+          </div>
+        </div>
+      )}
+
+      <style jsx global>{`
+        @keyframes toast-in {
+          from {
+            opacity: 0;
+            transform: translate3d(0, 14px, 0) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: translate3d(0, 0, 0) scale(1);
+          }
+        }
+
+        @keyframes toast-out {
+          from {
+            opacity: 1;
+            transform: translate3d(0, 0, 0) scale(1);
+          }
+          to {
+            opacity: 0;
+            transform: translate3d(0, 10px, 0) scale(0.98);
+          }
+        }
+      `}</style>
     </main>
   );
 }

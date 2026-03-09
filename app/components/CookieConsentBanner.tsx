@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 import {
   buildCookieConsentCookie,
-  clearCookieConsentCookie,
   type CookieConsentValue,
 } from "@/lib/cookieConsent";
 
@@ -22,11 +21,6 @@ export default function CookieConsentBanner({ initialConsent }: Props) {
 
     document.cookie = `${baseCookie}${secureSuffix}`;
     setConsent(value);
-  }
-
-  function openPreferences() {
-    document.cookie = clearCookieConsentCookie();
-    setConsent(null);
   }
 
   return (
@@ -67,18 +61,6 @@ export default function CookieConsentBanner({ initialConsent }: Props) {
             </button>
           </div>
         </div>
-      ) : null}
-
-      {consent ? (
-        <button
-          type="button"
-          onClick={openPreferences}
-          aria-label="Abrir preferencias de cookies"
-          title="Preferencias de cookies"
-          className="fixed bottom-4 left-4 z-[70] rounded-full border border-slate-300 bg-white/95 px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-lg backdrop-blur-sm transition hover:border-slate-400 hover:text-slate-900"
-        >
-          Cookies
-        </button>
       ) : null}
     </>
   );

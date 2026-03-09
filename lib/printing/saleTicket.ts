@@ -168,6 +168,15 @@ export type ClosureTicketUserBreakdown = {
   total: number;
 };
 
+export type ClosureTicketStationBreakdown = {
+  stationId?: string | null;
+  stationLabel: string;
+  stationType?: string | null;
+  salesCount: number;
+  totalAmount: number;
+  netAmount: number;
+};
+
 export type ClosureTicketOptions = {
   documentNumber: string;
   closedAt: Date;
@@ -190,6 +199,7 @@ export type ClosureTicketOptions = {
   };
   methods: ClosureTicketMethod[];
   userBreakdown?: ClosureTicketUserBreakdown[];
+  stationBreakdown?: ClosureTicketStationBreakdown[];
   notes?: string | null;
   settings?: PosSettingsPayload | null;
   separatedSummary?: {
@@ -1456,6 +1466,18 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
           )
           .join("")
       : "";
+  const stationRows =
+    options.stationBreakdown && options.stationBreakdown.length
+      ? options.stationBreakdown
+          .map(
+            (entry) => `
+        <div class="row">
+          <span>${escapeHtml(entry.stationLabel)} (${Math.max(0, Number(entry.salesCount || 0))})</span>
+          <span>${formatMoney(Number(entry.netAmount || 0))}</span>
+        </div>`
+          )
+          .join("")
+      : "";
 
   const notesBlock =
     options.notes && options.notes.trim().length
@@ -1569,6 +1591,15 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
         <div class="block">
           <div class="muted">Ventas por usuario</div>
           ${userRows}
+        </div>`
+          : ""
+      }
+      ${
+        stationRows
+          ? `<hr />
+        <div class="block">
+          <div class="muted">Ventas por estación</div>
+          ${stationRows}
         </div>`
           : ""
       }

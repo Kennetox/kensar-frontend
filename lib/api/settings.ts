@@ -80,6 +80,9 @@ export type RolePermissionModule = {
 export type PosStationRecord = {
   id: string;
   label: string;
+  station_type?: "desktop" | "tablet";
+  parent_station_id?: string | null;
+  parent_station_label?: string | null;
   station_email?: string | null;
   is_active: boolean;
   send_closure_email?: boolean | null;
@@ -164,29 +167,28 @@ async function request<T>(
 }
 
 const defaultSettings: PosSettingsPayload = {
-  company_name: "Kensar Electronic",
-  tax_id: "900000000-0",
-  address: "Cra. 15 #123 - Bogotá, Colombia",
-  contact_email: "contacto@kensar.com",
-  contact_phone: "+57 300 000 0000",
+  company_name: "",
+  tax_id: "",
+  address: "",
+  contact_email: "",
+  contact_phone: "",
   ticket_logo_url: "",
-  theme_mode: "dark",
-  accent_color: "#10b981",
-  ticket_footer:
-    "Gracias por tu compra. Para garantías comunícate al WhatsApp oficial.",
-  auto_close_ticket: true,
+  theme_mode: "light",
+  accent_color: "#0A84FF",
+  ticket_footer: "",
+  auto_close_ticket: false,
   low_stock_alert: true,
   require_seller_pin: false,
   notifications: {
-    daily_summary_email: true,
-    cash_alert_email: true,
+    daily_summary_email: false,
+    cash_alert_email: false,
     cash_alert_sms: false,
-    monthly_report_email: true,
+    monthly_report_email: false,
   },
   closure_email_recipients: [],
   ticket_email_cc: [],
   smtp_host: "",
-  smtp_port: 587,
+  smtp_port: null,
   smtp_user: "",
   smtp_password: "",
   smtp_use_tls: true,
@@ -200,32 +202,7 @@ const defaultSettings: PosSettingsPayload = {
   station_closure_email_overrides: {},
 };
 
-const defaultUsers: PosUserRecord[] = [
-  {
-    id: 1,
-    name: "Nelsy Álvarez",
-    email: "nelsy@kensar.com",
-    role: "Administrador",
-    status: "Activo",
-    phone: "+57 300 123 4567",
-    position: "Gerente",
-    notes: "Usuario demo",
-    invited_at: null,
-    accepted_at: null,
-  },
-  {
-    id: 2,
-    name: "Laura Contreras",
-    email: "laura@kensar.com",
-    role: "Vendedor",
-    status: "Activo",
-    phone: "+57 315 987 6543",
-    position: "Vendedora",
-    notes: "",
-    invited_at: null,
-    accepted_at: null,
-  },
-];
+const defaultUsers: PosUserRecord[] = [];
 
 export const defaultRolePermissions: RolePermissionModule[] = [
   {
@@ -827,6 +804,8 @@ export async function createPosStation(
     label: string;
     station_email: string;
     station_password: string;
+    station_type?: "desktop" | "tablet";
+    parent_station_id?: string | null;
     send_closure_email?: boolean;
   },
   token?: string | null
@@ -846,6 +825,8 @@ export async function updatePosStation(
   stationId: string,
   payload: {
     label?: string;
+    station_type?: "desktop" | "tablet";
+    parent_station_id?: string | null;
     is_active?: boolean;
     reset_pin?: boolean;
     pin_plain?: string;
@@ -986,6 +967,7 @@ export async function createPosUser(input: {
   role: PosUserRecord["role"];
   password?: string;
   pin_plain?: string;
+  create_hr_profile?: boolean;
 }, token?: string | null): Promise<PosUserRecord> {
   return request<PosUserRecord>(
     "/pos/users",
@@ -993,18 +975,20 @@ export async function createPosUser(input: {
       method: "POST",
       body: JSON.stringify(input),
     },
-    {
-      id: Date.now(),
-      name: input.name,
-      email: input.email,
-      role: input.role,
-      status: "Activo",
-      phone: input.phone ?? "",
-      position: input.position ?? "",
-      notes: input.notes ?? "",
-      invited_at: null,
-      accepted_at: null,
-    },
+    token
+      ? undefined
+      : {
+          id: Date.now(),
+          name: input.name,
+          email: input.email,
+          role: input.role,
+          status: "Activo",
+          phone: input.phone ?? "",
+          position: input.position ?? "",
+          notes: input.notes ?? "",
+          invited_at: null,
+          accepted_at: null,
+        },
     token
   );
 }

@@ -119,12 +119,36 @@ type UserContribution = {
   total: number;
 };
 
+type ClosureStationContribution = {
+  stationId: string;
+  stationLabel: string;
+  stationType: "desktop" | "tablet";
+  isPrimary: boolean;
+  salesCount: number;
+  gross: number;
+  refunds: number;
+  changeExtra: number;
+  changeRefund: number;
+  net: number;
+};
+
 type PosStationNotice = {
   id: number;
   station_id: string;
   message: string;
   created_at: string;
   created_by_user_name?: string | null;
+};
+
+type PosClosureStationScopeResponse = {
+  primary_station_id: string;
+  station_ids: string[];
+  stations: {
+    station_id: string;
+    station_label: string;
+    station_type: "desktop" | "tablet";
+    is_primary: boolean;
+  }[];
 };
 
 type PosClosureResult = {
@@ -159,6 +183,14 @@ type PosClosureResult = {
   } | null;
   adjusted_totals?: ClosureAdjustedTotals | null;
   custom_methods?: ClosureCustomMethod[] | null;
+  station_breakdown?: {
+    station_id?: string | null;
+    station_label: string;
+    station_type?: string | null;
+    sales_count?: number | null;
+    total_amount?: number | null;
+    net_amount?: number | null;
+  }[] | null;
 };
 
 const initialClosureForm: ClosureFormState = {
@@ -2066,6 +2098,8 @@ const matchesStationLabel = useCallback(
     setClosureError(null);
     setClosureResult(null);
     setClosureSeparatedInfo(null);
+    setClosureStationBreakdown([]);
+    setClosureHasAuxiliaryScope(false);
     setClosureCustomMethods([]);
     setClosureMethodDetails([]);
     setClosureSaving(false);
@@ -2108,6 +2142,11 @@ const matchesStationLabel = useCallback(
   }, []);
 
   const [closureUsers, setClosureUsers] = useState<UserContribution[]>([]);
+  const [closureStationBreakdown, setClosureStationBreakdown] = useState<
+    ClosureStationContribution[]
+  >([]);
+  const [closureHasAuxiliaryScope, setClosureHasAuxiliaryScope] =
+    useState(false);
   const [closureSeparatedInfo, setClosureSeparatedInfo] =
     useState<ClosureSeparatedOverview | null>(null);
   const [pendingClosureAlert, setPendingClosureAlert] =
@@ -2369,7 +2408,7 @@ const matchesStationLabel = useCallback(
         setPendingBannerStatus({
           type: "info",
           message:
-            "Guardamos una venta pendiente. Envíala cuando vuelva la conexión.",
+            "Guardamos una venta pendiente por falta de conexión o acceso al servidor.",
         });
       } else if (action === "removed") {
         setPendingBannerStatus({
@@ -2613,18 +2652,94 @@ const matchesStationLabel = useCallback(
       }
       const returns = (await returnsRes.json()) as ClosureReturnRecord[];
       const changes = (await changesRes.json()) as ClosureChangeRecord[];
+      let scopedStationIds: string[] = [];
+      let scopedStations: PosClosureStationScopeResponse["stations"] = [];
+      let scopedPrimaryStationId: string | null = null;
+      if (activeStationId) {
+        const scopeRes = await fetch(
+          `${apiBase}/pos/stations/${activeStationId}/closure-scope`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+          }
+        );
+        if (!scopeRes.ok) {
+          throw new Error(
+            `Error ${scopeRes.status} al obtener el alcance de estaciones para el cierre.`
+          );
+        }
+        const scopeData = (await scopeRes.json()) as PosClosureStationScopeResponse;
+        scopedStations = Array.isArray(scopeData.stations)
+          ? scopeData.stations
+          : [];
+        scopedPrimaryStationId =
+          typeof scopeData.primary_station_id === "string" &&
+          scopeData.primary_station_id.trim().length > 0
+            ? scopeData.primary_station_id
+            : null;
+        scopedStationIds = Array.isArray(scopeData.station_ids)
+          ? scopeData.station_ids.filter(
+              (item): item is string => typeof item === "string" && item.trim().length > 0
+            )
+          : [];
+      }
+      const stationMetaMap = new Map(
+        scopedStations.map((item) => [item.station_id, item] as const)
+      );
+      setClosureHasAuxiliaryScope(
+        scopedStations.some((station) => station.station_type === "tablet")
+      );
+      const scopedStationSet =
+        scopedStationIds.length > 0 ? new Set(scopedStationIds) : null;
+      const matchesScopedStation = (
+        stationId?: string | null,
+        posName?: string | null
+      ) => {
+        if (!scopedStationSet) return false;
+        if (stationId && scopedStationSet.has(stationId)) return true;
+        return !stationId && matchesStationLabel(posName);
+      };
+      const matchesScopedPayment = (
+        paymentStationId?: string | null,
+        saleStationId?: string | null,
+        salePosName?: string | null
+      ) => {
+        if (!scopedStationSet) return false;
+        if (paymentStationId && scopedStationSet.has(paymentStationId)) return true;
+        if (!paymentStationId && saleStationId && scopedStationSet.has(saleStationId)) {
+          return true;
+        }
+        return !paymentStationId && !saleStationId && matchesStationLabel(salePosName);
+      };
+      const resolveContributionStationId = (
+        stationId?: string | null,
+        posName?: string | null
+      ): string | null => {
+        if (stationId && (!scopedStationSet || scopedStationSet.has(stationId))) {
+          return stationId;
+        }
+        if (
+          !stationId &&
+          scopedPrimaryStationId &&
+          (!scopedStationSet || matchesStationLabel(posName))
+        ) {
+          return scopedPrimaryStationId;
+        }
+        return null;
+      };
       const allSalesMap = new Map<number, ClosureSale>();
       adjustedSales.forEach((sale) => allSalesMap.set(sale.id, sale));
       const pendingSales = adjustedSales.filter(
         (sale) => sale.closure_id == null && sale.status !== "voided"
       );
       const shouldFilterByStation =
-        Boolean(activeStationId) && activeStationId !== "";
+        Boolean(scopedStationSet && scopedStationSet.size > 0);
       const filteredPendingSales = shouldFilterByStation
         ? pendingSales.filter(
             (sale) =>
-              sale.station_id === activeStationId ||
-              (!sale.station_id && matchesStationLabel(sale.pos_name))
+              matchesScopedStation(sale.station_id, sale.pos_name)
           )
         : isWebMode
           ? pendingSales.filter((sale) => isPosWebName(sale.pos_name))
@@ -2640,10 +2755,7 @@ const matchesStationLabel = useCallback(
               : undefined;
             const stationId = ret.station_id ?? relatedSale?.station_id;
             const posName = ret.pos_name ?? relatedSale?.pos_name ?? null;
-            return (
-              stationId === activeStationId ||
-              (!stationId && matchesStationLabel(posName))
-            );
+            return matchesScopedStation(stationId, posName);
           })
         : isWebMode
           ? pendingReturns.filter((ret) => {
@@ -2666,10 +2778,7 @@ const matchesStationLabel = useCallback(
               change.station_id ?? relatedSale?.station_id;
             const posName =
               change.pos_name ?? relatedSale?.pos_name ?? null;
-            return (
-              stationId === activeStationId ||
-              (!stationId && matchesStationLabel(posName))
-            );
+            return matchesScopedStation(stationId, posName);
           })
         : isWebMode
           ? pendingChanges.filter((change) => {
@@ -2725,6 +2834,64 @@ const matchesStationLabel = useCallback(
         { label: string; slug?: string | null; amount: number; order: number }
       >();
       const userTotals = new Map<string, number>();
+      const stationBreakdownMap = new Map<
+        string,
+        {
+          stationId: string;
+          stationLabel: string;
+          stationType: "desktop" | "tablet";
+          isPrimary: boolean;
+          salesCount: number;
+          gross: number;
+          refunds: number;
+          changeExtra: number;
+          changeRefund: number;
+        }
+      >();
+      const ensureStationRow = (stationIdRaw: string | null) => {
+        const stationId = stationIdRaw || scopedPrimaryStationId || "unassigned";
+        if (!stationBreakdownMap.has(stationId)) {
+          const meta = stationMetaMap.get(stationId);
+          stationBreakdownMap.set(stationId, {
+            stationId,
+            stationLabel:
+              meta?.station_label ||
+              (stationId === "unassigned" ? "Sin estación" : stationId),
+            stationType: meta?.station_type === "tablet" ? "tablet" : "desktop",
+            isPrimary: Boolean(meta?.is_primary) || stationId === scopedPrimaryStationId,
+            salesCount: 0,
+            gross: 0,
+            refunds: 0,
+            changeExtra: 0,
+            changeRefund: 0,
+          });
+        }
+        return stationBreakdownMap.get(stationId)!;
+      };
+      const addStationGross = (stationIdRaw: string | null, amount: number, isSale = false) => {
+        if (!Number.isFinite(amount) || amount === 0) return;
+        const row = ensureStationRow(stationIdRaw);
+        row.gross += amount;
+        if (isSale) row.salesCount += 1;
+      };
+      const addStationRefund = (stationIdRaw: string | null, amount: number) => {
+        if (!Number.isFinite(amount) || amount === 0) return;
+        const row = ensureStationRow(stationIdRaw);
+        row.refunds += amount;
+      };
+      const addStationChange = (
+        stationIdRaw: string | null,
+        extraAmount: number,
+        refundAmount: number
+      ) => {
+        const row = ensureStationRow(stationIdRaw);
+        if (Number.isFinite(extraAmount) && extraAmount !== 0) {
+          row.changeExtra += extraAmount;
+        }
+        if (Number.isFinite(refundAmount) && refundAmount !== 0) {
+          row.changeRefund += refundAmount;
+        }
+      };
       const saleMap = new Map<number, ClosureSale>();
       filteredPendingSales.forEach((sale) => {
         saleMap.set(sale.id, sale);
@@ -2747,12 +2914,11 @@ const matchesStationLabel = useCallback(
           const paymentMatches = shouldFilterByStation
             ? pendingPayments.some(
                 (payment) =>
-                  payment.station_id === activeStationId ||
-                  (!payment.station_id &&
-                    baseSale?.station_id === activeStationId) ||
-                  (!payment.station_id &&
-                    !baseSale?.station_id &&
-                    matchesStationLabel(baseSale?.pos_name))
+                  matchesScopedPayment(
+                    payment.station_id,
+                    baseSale?.station_id,
+                    baseSale?.pos_name ?? null
+                  )
               )
             : isWebMode
               ? pendingPayments.some(() => isPosWebName(baseSale?.pos_name))
@@ -2889,6 +3055,10 @@ const matchesStationLabel = useCallback(
       let rangeEndKey: string | null = null;
 
       filteredPendingSales.forEach((sale) => {
+        const stationContributionId = resolveContributionStationId(
+          sale.station_id,
+          sale.pos_name
+        );
         const saleDate = getLocalDateKey(sale.created_at);
         if (!rangeStartKey || saleDate < rangeStartKey) {
           rangeStartKey = saleDate;
@@ -2908,6 +3078,11 @@ const matchesStationLabel = useCallback(
           separatedSummary.pendingTotal += Math.max(pending ?? 0, 0);
           const initialAmount =
             sale.initial_payment_amount ?? order?.initial_payment ?? 0;
+          addStationGross(
+            stationContributionId,
+            initialAmount > 0 ? initialAmount : 0,
+            true
+          );
           if (initialAmount > 0) {
             const initialMethod =
               sale.initial_payment_method ?? sale.payment_method;
@@ -2931,6 +3106,7 @@ const matchesStationLabel = useCallback(
             ? Math.max(0, sale.refunded_balance)
             : Math.max(0, gross - refund);
         totalGrossCollected += gross;
+        addStationGross(stationContributionId, gross, true);
 
         const payments =
           sale.payments && sale.payments.length > 0
@@ -2954,6 +3130,7 @@ const matchesStationLabel = useCallback(
           );
         });
         if (refund > 0) {
+          addStationRefund(stationContributionId, refund);
           fallbackRefundsTotal += refund;
           payments.forEach((payment) => {
             const paymentAmount = Math.max(payment.amount ?? 0, 0);
@@ -2987,22 +3164,21 @@ const matchesStationLabel = useCallback(
             }
           }
           const paymentMatches = shouldFilterByStation
-            ? payment.station_id === activeStationId ||
-              (!payment.station_id &&
-                (relatedSale?.station_id ?? baseSale?.station_id) ===
-                  activeStationId) ||
-              (!payment.station_id &&
-                !relatedSale?.station_id &&
-                !baseSale?.station_id &&
-                matchesStationLabel(
-                  relatedSale?.pos_name ?? baseSale?.pos_name ?? null
-                ))
+            ? matchesScopedPayment(
+                payment.station_id,
+                relatedSale?.station_id ?? baseSale?.station_id,
+                relatedSale?.pos_name ?? baseSale?.pos_name ?? null
+              )
             : isWebMode
               ? isPosWebName(
                   relatedSale?.pos_name ?? baseSale?.pos_name ?? null
                 )
               : true;
           if (!paymentMatches) return;
+          const stationContributionId = resolveContributionStationId(
+            payment.station_id ?? relatedSale?.station_id ?? baseSale?.station_id ?? null,
+            relatedSale?.pos_name ?? baseSale?.pos_name ?? null
+          );
           addMethodAmount(
             methodGrossMap,
             extraMethodGrossMap,
@@ -3010,6 +3186,7 @@ const matchesStationLabel = useCallback(
             payment.amount
           );
           totalGrossCollected += payment.amount;
+          addStationGross(stationContributionId, payment.amount);
           separatedSummary.paymentsTotal += payment.amount;
           const vendorName =
             relatedSale?.vendor_name?.trim() ??
@@ -3020,6 +3197,13 @@ const matchesStationLabel = useCallback(
       });
 
       filteredPendingReturns.forEach((ret) => {
+        const relatedSale = ret.sale_id
+          ? allSalesMap.get(ret.sale_id)
+          : undefined;
+        const stationContributionId = resolveContributionStationId(
+          ret.station_id ?? relatedSale?.station_id ?? null,
+          ret.pos_name ?? relatedSale?.pos_name ?? null
+        );
         const returnDate = ret.created_at
           ? getLocalDateKey(ret.created_at)
           : null;
@@ -3035,6 +3219,11 @@ const matchesStationLabel = useCallback(
           ret.payments?.filter((payment) => (payment.amount ?? 0) > 0) ?? [];
         if (payments.length > 0) {
           hasReturnRefunds = true;
+          const paymentRefundTotal = payments.reduce(
+            (sum, payment) => sum + Math.max(payment.amount ?? 0, 0),
+            0
+          );
+          addStationRefund(stationContributionId, paymentRefundTotal);
           payments.forEach((payment) => {
             const amount = Math.max(payment.amount ?? 0, 0);
             if (amount <= 0) return;
@@ -3052,9 +3241,7 @@ const matchesStationLabel = useCallback(
         const refundAmount = Math.max(ret.total_refund ?? 0, 0);
         if (refundAmount <= 0) return;
         hasReturnRefunds = true;
-        const relatedSale = ret.sale_id
-          ? allSalesMap.get(ret.sale_id)
-          : undefined;
+        addStationRefund(stationContributionId, refundAmount);
         const salePayments =
           relatedSale?.payments && relatedSale.payments.length > 0
             ? relatedSale.payments
@@ -3095,6 +3282,13 @@ const matchesStationLabel = useCallback(
       });
 
       filteredPendingChanges.forEach((change) => {
+        const relatedSale = change.sale_id
+          ? allSalesMap.get(change.sale_id)
+          : undefined;
+        const stationContributionId = resolveContributionStationId(
+          change.station_id ?? relatedSale?.station_id ?? null,
+          change.pos_name ?? relatedSale?.pos_name ?? null
+        );
         const extra = Math.max(change.extra_payment ?? 0, 0);
         const refund = Math.max(change.refund_due ?? 0, 0);
         const changeDate = change.created_at
@@ -3113,6 +3307,7 @@ const matchesStationLabel = useCallback(
         }
         changeExtraTotal += extra;
         changeRefundTotal += refund;
+        addStationChange(stationContributionId, extra, refund);
 
         if (extra > 0) {
           const payments =
@@ -3163,6 +3358,36 @@ const matchesStationLabel = useCallback(
         Array.from(userTotals.entries())
           .map(([name, total]) => ({ name, total }))
           .sort((a, b) => b.total - a.total)
+      );
+      setClosureStationBreakdown(
+        Array.from(stationBreakdownMap.values())
+          .map((row) => ({
+            ...row,
+            salesCount: Math.max(0, Number(row.salesCount || 0)),
+            gross: Number(row.gross.toFixed(2)),
+            refunds: Number(row.refunds.toFixed(2)),
+            changeExtra: Number(row.changeExtra.toFixed(2)),
+            changeRefund: Number(row.changeRefund.toFixed(2)),
+            net: Number(
+              (row.gross - row.refunds + row.changeExtra - row.changeRefund).toFixed(2)
+            ),
+          }))
+          .filter(
+            (row) =>
+              row.salesCount > 0 ||
+              row.gross !== 0 ||
+              row.refunds !== 0 ||
+              row.changeExtra !== 0 ||
+              row.changeRefund !== 0
+          )
+          .sort((a, b) => {
+            if (a.isPrimary && !b.isPrimary) return -1;
+            if (!a.isPrimary && b.isPrimary) return 1;
+            if (a.stationType !== b.stationType) {
+              return a.stationType === "desktop" ? -1 : 1;
+            }
+            return a.stationLabel.localeCompare(b.stationLabel, "es");
+          })
       );
 
       setClosureSeparatedInfo(
@@ -3306,6 +3531,8 @@ const matchesStationLabel = useCallback(
       );
       setClosureCustomMethods([]);
       setClosureMethodDetails([]);
+      setClosureStationBreakdown([]);
+      setClosureHasAuxiliaryScope(false);
     } finally {
       setClosureTotalsLoading(false);
     }
@@ -3891,6 +4118,23 @@ const matchesStationLabel = useCallback(
               pendingTotal: payload.separated_summary.pending_total ?? 0,
             }
           : null);
+      const stationBreakdown =
+        payload.station_breakdown?.map((row) => ({
+          stationId: row.station_id ?? null,
+          stationLabel: row.station_label || "Sin estación",
+          stationType: row.station_type ?? null,
+          salesCount: Math.max(0, Number(row.sales_count ?? 0)),
+          totalAmount: Number(row.total_amount ?? 0),
+          netAmount: Number(row.net_amount ?? 0),
+        })) ?? [];
+      const hasAuxiliaryStationBreakdown = stationBreakdown.some(
+        (row) => row.stationType === "tablet"
+      );
+      const stationBreakdownForPrint =
+        (closureHasAuxiliaryScope || hasAuxiliaryStationBreakdown) &&
+        stationBreakdown.length > 0
+          ? stationBreakdown
+          : undefined;
 
       const rangeSummary = closureRange
         ? {
@@ -3918,6 +4162,7 @@ const matchesStationLabel = useCallback(
         },
         methods: methodRows,
         userBreakdown,
+        stationBreakdown: stationBreakdownForPrint,
         notes: payload.notes ?? null,
         settings: posSettings,
         separatedSummary: separatedSummary || undefined,
@@ -4016,6 +4261,7 @@ const matchesStationLabel = useCallback(
       closureSeparatedInfo,
       closureCustomMethods,
       closureMethodDetails,
+      closureHasAuxiliaryScope,
       resolvedPosName,
       closureRange,
       printerConfig,
@@ -4677,7 +4923,7 @@ const matchesStationLabel = useCallback(
     const path = currentPath;
 
     if (path.length === 0) {
-      // Pantalla principal: grupos raíz + servicios sin grupo
+      // Pantalla principal: grupos raíz + productos sin grupo
       const groupsSet = new Set<string>();
 
       filteredBySearch.forEach(({ path: pPath, isService }) => {
@@ -4702,10 +4948,9 @@ const matchesStationLabel = useCallback(
           });
         });
 
-      // Servicios / productos sin grupo al final (bloques grises)
-      filteredBySearch.forEach(({ product, isService, path: pPath }) => {
+      // Productos sin grupo al final
+      filteredBySearch.forEach(({ product, path: pPath }) => {
         if (pPath && pPath.length > 0) return;
-        if (!isService) return;
         tiles.push({
           type: "product",
           id: `p-${product.id}`,
@@ -5537,7 +5782,7 @@ const matchesStationLabel = useCallback(
               <span className="leading-tight">Nueva venta</span>
             </button>
             <button
-              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-emerald-400/70 text-emerald-300 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
+              className="w-[104px] h-[65px] px-4 py-2 text-[15px] font-semibold bg-slate-800 hover:bg-slate-700 rounded border border-rose-400/70 text-rose-300 transition text-center flex flex-col items-center justify-between gap-1 whitespace-nowrap"
               onClick={() => {
                 if (shouldBlockSales) {
                   setClosureReminderOpen(true);
@@ -5547,7 +5792,7 @@ const matchesStationLabel = useCallback(
               }}
             >
               <svg
-                className="h-[26px] w-[26px] text-emerald-300"
+                className="h-[26px] w-[26px] text-rose-300"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -6049,7 +6294,7 @@ const matchesStationLabel = useCallback(
                     {pendingSales.length === 1 ? "" : "s"} pendientes
                   </p>
                   <p className="text-[11px] text-amber-100/80">
-                    Se guardaron sin conexión. Envíalas cuando vuelvas a estar en línea.
+                    Se guardaron por conexión inestable o falta de acceso al servidor. Envíalas cuando se restablezca.
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -7320,6 +7565,80 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                   >
                     {formatMoney(closureSeparatedInfo.pendingTotal)}
                   </span>
+                </div>
+              </div>
+            )}
+
+            {closureHasAuxiliaryScope && closureStationBreakdown.length > 0 && (
+              <div className="rounded-2xl border border-slate-800 overflow-hidden">
+                <div className="px-4 py-2 bg-slate-950 text-xs text-slate-400 uppercase tracking-wide">
+                  Aporte por estación
+                </div>
+                <div className="divide-y divide-slate-800">
+                  {closureStationBreakdown.map((stationRow) => {
+                    const isUnassigned =
+                      stationRow.stationId === "unassigned" ||
+                      stationRow.stationLabel.trim().toLowerCase() === "sin estación";
+                    const stationBadgeLabel = stationRow.isPrimary
+                      ? "Principal"
+                      : stationRow.stationType === "tablet"
+                        ? "Auxiliar tablet"
+                        : isUnassigned
+                          ? "Sin asignar"
+                          : "Secundaria";
+                    const stationBadgeClass = stationRow.isPrimary
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : stationRow.stationType === "tablet"
+                        ? "bg-sky-500/20 text-sky-300 border border-sky-500/40"
+                        : "bg-slate-700/40 text-slate-300 border border-slate-600";
+
+                    return (
+                      <div
+                        key={stationRow.stationId}
+                        className="px-4 py-3 text-slate-200 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{stationRow.stationLabel}</span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${stationBadgeClass}`}
+                            >
+                              {stationBadgeLabel}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-400">
+                            {stationRow.salesCount} ventas
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+                          <div className="rounded-md border border-slate-800 bg-slate-950/50 px-2 py-1">
+                            <p className="text-slate-500">Bruto</p>
+                            <p className="font-mono text-slate-100">
+                              {formatMoney(stationRow.gross)}
+                            </p>
+                          </div>
+                          <div className="rounded-md border border-slate-800 bg-slate-950/50 px-2 py-1">
+                            <p className="text-slate-500">Reembolsos</p>
+                            <p className="font-mono text-rose-300">
+                              {formatMoney(-stationRow.refunds)}
+                            </p>
+                          </div>
+                          <div className="rounded-md border border-slate-800 bg-slate-950/50 px-2 py-1">
+                            <p className="text-slate-500">Cambios neto</p>
+                            <p className="font-mono text-slate-300">
+                              {formatMoney(stationRow.changeExtra - stationRow.changeRefund)}
+                            </p>
+                          </div>
+                          <div className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1">
+                            <p className="text-slate-400">Neto estación</p>
+                            <p className="font-mono text-emerald-300">
+                              {formatMoney(stationRow.net)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

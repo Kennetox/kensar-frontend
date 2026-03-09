@@ -698,9 +698,21 @@ export default function SalesHistoryContent({
   const filterFromKey = useMemo(() => (filterFrom ? filterFrom : null), [
     filterFrom,
   ]);
+  const canLoadRolePermissions = useMemo(() => {
+    if (!isDashboardRole(user?.role)) return false;
+    const settingsModule = defaultRolePermissions.find(
+      (row) => row.id === "settings"
+    );
+    const settingsAction = settingsModule?.actions.find(
+      (entry) => entry.id === "settings.view"
+    );
+    if (!settingsAction) return false;
+    return Boolean(settingsAction.roles[user.role]);
+  }, [user?.role]);
 
   useEffect(() => {
     if (!token) return;
+    if (!canLoadRolePermissions) return;
     let cancelled = false;
     fetchRolePermissions(token)
       .then((modules) => {
@@ -717,7 +729,7 @@ export default function SalesHistoryContent({
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [canLoadRolePermissions, token]);
 
   const canUseSalesHistoryRange = useMemo(() => {
     if (!isDashboardRole(user?.role)) return false;
@@ -1174,14 +1186,31 @@ export default function SalesHistoryContent({
   }, [token]);
 
   const posOptions = useMemo(() => {
-    const names = new Set<string>();
-    names.add("POS Web");
+    const options: Array<{ value: string; label: string; sortKey: string }> = [
+      { value: "POS Web", label: "POS Web", sortKey: "0-pos-web" },
+    ];
+    const seen = new Set<string>(["POS Web"]);
+
     for (const station of posStations) {
-      if (station.is_active) {
-        names.add(station.label);
-      }
+      if (!station.is_active) continue;
+      const rawLabel = station.label?.trim();
+      if (!rawLabel || seen.has(rawLabel)) continue;
+      seen.add(rawLabel);
+
+      const isAuxiliary = (station.station_type ?? "desktop") === "tablet";
+      const parentLabel = station.parent_station_label?.trim();
+      const label = isAuxiliary
+        ? `${rawLabel} · Auxiliar${parentLabel ? ` (${parentLabel})` : ""}`
+        : `${rawLabel} · Principal`;
+      const sortPrefix = isAuxiliary ? "2-" : "1-";
+      options.push({
+        value: rawLabel,
+        label,
+        sortKey: `${sortPrefix}${rawLabel.toLocaleLowerCase("es-CO")}`,
+      });
     }
-    return Array.from(names).sort((a, b) => a.localeCompare(b));
+
+    return options.sort((a, b) => a.sortKey.localeCompare(b.sortKey, "es-CO"));
   }, [posStations]);
 
   const selectedSaleItemsTotal = useMemo(
@@ -2393,9 +2422,9 @@ export default function SalesHistoryContent({
                 className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">Todos</option>
-                {posOptions.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
+                {posOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>

@@ -100,6 +100,12 @@ export default function LandingPage() {
                     Ingresar al panel
                   </Link>
                   <Link
+                    href="/demo"
+                    className="rounded-2xl bg-white px-6 py-3 text-base font-semibold text-slate-900 shadow-xl transition hover:scale-105 hover:bg-slate-50 sm:px-8 sm:py-4 sm:text-lg w-full sm:w-auto text-center"
+                  >
+                    Probar demo
+                  </Link>
+                  <Link
                     href="/descargar-pos"
                     className="rounded-2xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-6 py-3 text-base font-semibold text-white shadow-xl transition hover:scale-105 sm:px-8 sm:py-4 sm:text-lg w-full sm:w-auto text-center"
                   >
