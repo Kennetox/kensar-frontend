@@ -5,7 +5,11 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../providers/AuthProvider";
-import { defaultRolePermissions, fetchRolePermissions } from "@/lib/api/settings";
+import {
+  defaultRolePermissions,
+  fetchPosSettings,
+  fetchRolePermissions,
+} from "@/lib/api/settings";
 import { fetchUserProfile, type UserProfileRecord } from "@/lib/api/profile";
 import { getApiBase } from "@/lib/api/base";
 import { isTenantModuleEnabled } from "@/lib/tenantModules";
@@ -420,6 +424,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [rolePermissionsReady, setRolePermissionsReady] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfileRecord | null>(null);
+  const [companyBrandName, setCompanyBrandName] = useState("");
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const canLoadRolePermissions = useMemo(() => {
     if (!user?.role) return false;
@@ -477,6 +482,25 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         console.error("No pudimos cargar el perfil.", err);
         if (!cancelled) {
           setProfile(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetchPosSettings(token)
+      .then((settings) => {
+        if (cancelled) return;
+        setCompanyBrandName(settings.company_name?.trim() || "");
+      })
+      .catch((err) => {
+        console.error("No pudimos cargar el nombre comercial.", err);
+        if (!cancelled) {
+          setCompanyBrandName("");
         }
       });
     return () => {
@@ -636,7 +660,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const resolvedAvatarUrl = avatarUrl.startsWith("/")
     ? `${getApiBase()}${avatarUrl}`
     : avatarUrl;
-  const tenantBrandName = tenant?.name?.trim() || "Mi Empresa";
+  const tenantBrandName =
+    companyBrandName || tenant?.name?.trim() || "Mi Empresa";
   const initials = displayName
     .split(" ")
     .filter(Boolean)
