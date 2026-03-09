@@ -8,6 +8,7 @@ import {
   defaultRolePermissions,
   fetchPosSettings,
   fetchRolePermissions,
+  PosUserRecord,
   PosSettingsPayload,
   RolePermissionModule,
 } from "@/lib/api/settings";
@@ -151,6 +152,17 @@ type OpenReportTab = {
   filterMeta: FilterMeta;
   createdAt: string;
 };
+
+type DashboardRole = PosUserRecord["role"];
+
+function isDashboardRole(role?: string | null): role is DashboardRole {
+  return (
+    role === "Administrador" ||
+    role === "Supervisor" ||
+    role === "Vendedor" ||
+    role === "Auditor"
+  );
+}
 
 const isValidFilterMeta = (value: unknown): value is FilterMeta => {
   if (!value || typeof value !== "object") return false;
@@ -3051,7 +3063,7 @@ export default function ReportsPage() {
     [methodFilter, resolveMethodLabel]
   );
   const canLoadRolePermissions = useMemo(() => {
-    if (!user?.role) return false;
+    if (!isDashboardRole(user?.role)) return false;
     const settingsModule = defaultRolePermissions.find(
       (row) => row.id === "settings"
     );
@@ -3063,7 +3075,7 @@ export default function ReportsPage() {
   }, [user?.role]);
   const canSeeModuleAction = useCallback(
     (moduleId: string, actionId: string) => {
-      if (!user?.role) return false;
+      if (!isDashboardRole(user?.role)) return false;
       const permissionModule = roleModules.find((row) => row.id === moduleId);
       if (!permissionModule) return false;
       const action = permissionModule.actions.find(
