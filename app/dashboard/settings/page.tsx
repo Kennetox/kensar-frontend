@@ -51,7 +51,11 @@ import {
 import { useAuth } from "../../providers/AuthProvider";
 import { clearPosStationAccess, getPosStationAccess } from "@/lib/api/posStations";
 import { getApiBase } from "@/lib/api/base";
-import { fetchSeparatedOrders, SeparatedOrder } from "@/lib/api/separatedOrders";
+import {
+  fetchSeparatedOrders,
+  type SeparatedOrder,
+  type SeparatedOrderPayment,
+} from "@/lib/api/separatedOrders";
 import { isTenantModuleEnabled } from "@/lib/tenantModules";
 import {
   buildBogotaDateFromKey,
@@ -254,6 +258,8 @@ type StationControlRow = {
 type ControlSaleRecord = {
   id: number;
   created_at: string;
+  status?: string | null;
+  voided_at?: string | null;
   closure_id?: number | null;
   station_id?: string | null;
   pos_name?: string | null;
@@ -272,6 +278,9 @@ type ControlSaleRecord = {
 type ControlReturnRecord = {
   id: number;
   created_at: string;
+  status?: string | null;
+  voided_at?: string | null;
+  adjustment_reference?: string | null;
   closure_id?: number | null;
   sale_id?: number | null;
   station_id?: string | null;
@@ -283,6 +292,8 @@ type ControlReturnRecord = {
 type ControlChangeRecord = {
   id: number;
   created_at: string;
+  status?: string | null;
+  voided_at?: string | null;
   closure_id?: number | null;
   sale_id?: number | null;
   station_id?: string | null;
@@ -382,6 +393,23 @@ const mapMethodToKey = (method: string): keyof ClosureTotalsByMethod | null => {
   }
   return null;
 };
+
+const isVoidedStatus = (status?: string | null) =>
+  (status ?? "").trim().toLowerCase() === "voided";
+
+const isActiveSaleForTotals = (sale: ControlSaleRecord) =>
+  !isVoidedStatus(sale.status) && !sale.voided_at;
+
+const isEffectiveReturnForTotals = (ret: ControlReturnRecord) =>
+  (ret.status ?? "confirmed") === "confirmed" &&
+  !ret.voided_at &&
+  !ret.adjustment_reference;
+
+const isEffectiveChangeForTotals = (change: ControlChangeRecord) =>
+  (change.status ?? "confirmed") === "confirmed" && !change.voided_at;
+
+const isActiveSeparatedPayment = (payment: SeparatedOrderPayment) =>
+  payment.status !== "voided" && !payment.voided_at;
 
 const resolveLogoUrl = (raw?: string | null): string => {
   const trimmed = raw?.trim();
@@ -838,11 +866,13 @@ export default function SettingsPage() {
       };
       sales.forEach((sale) => {
         if (sale.closure_id != null) return;
+        if (!isActiveSaleForTotals(sale)) return;
         const resolvedStation = resolveStationId(sale.station_id ?? null, sale.pos_name ?? null);
         registerPending(resolvedStation, sale.created_at);
       });
       returns.forEach((ret) => {
         if (ret.closure_id != null) return;
+        if (!isEffectiveReturnForTotals(ret)) return;
         const relatedSale = ret.sale_id ? saleMap.get(ret.sale_id) : undefined;
         const resolvedStation = resolveStationId(
           ret.station_id ?? relatedSale?.station_id ?? null,
@@ -852,6 +882,7 @@ export default function SettingsPage() {
       });
       changes.forEach((change) => {
         if (change.closure_id != null) return;
+        if (!isEffectiveChangeForTotals(change)) return;
         const relatedSale = change.sale_id ? saleMap.get(change.sale_id) : undefined;
         const resolvedStation = resolveStationId(
           change.station_id ?? relatedSale?.station_id ?? null,
@@ -863,6 +894,7 @@ export default function SettingsPage() {
         const baseSale = saleMap.get(order.sale_id);
         order.payments?.forEach((payment) => {
           if (payment.closure_id != null) return;
+          if (!isActiveSeparatedPayment(payment)) return;
           const paymentStation = resolveStationId(
             payment.station_id ?? baseSale?.station_id ?? null,
             baseSale?.pos_name ?? null
@@ -962,7 +994,9 @@ export default function SettingsPage() {
       const sales: ControlSaleRecord[] = await salesRes.json();
       const returns: ControlReturnRecord[] = await returnsRes.json();
       const changes: ControlChangeRecord[] = await changesRes.json();
-      const pendingSales = sales.filter((sale) => sale.closure_id == null);
+      const pendingSales = sales.filter(
+        (sale) => sale.closure_id == null && isActiveSaleForTotals(sale)
+      );
       const isPosWeb = stationId === "pos-web";
       const matchesStation = (value?: string | null, posName?: string | null) => {
         if (isPosWeb) return isPosWebName(posName);
@@ -1040,7 +1074,9 @@ export default function SettingsPage() {
         });
       });
 
-      const pendingReturns = returns.filter((ret) => ret.closure_id == null);
+      const pendingReturns = returns.filter(
+        (ret) => ret.closure_id == null && isEffectiveReturnForTotals(ret)
+      );
       const filteredReturns = pendingReturns.filter((ret) => {
         const relatedSale = ret.sale_id ? saleMap.get(ret.sale_id) : undefined;
         const station = ret.station_id ?? relatedSale?.station_id ?? null;
@@ -1065,7 +1101,9 @@ export default function SettingsPage() {
         }
       });
 
-      const pendingChanges = changes.filter((change) => change.closure_id == null);
+      const pendingChanges = changes.filter(
+        (change) => change.closure_id == null && isEffectiveChangeForTotals(change)
+      );
       const filteredChanges = pendingChanges.filter((change) => {
         const relatedSale = change.sale_id ? saleMap.get(change.sale_id) : undefined;
         const station = change.station_id ?? relatedSale?.station_id ?? null;
@@ -1093,7 +1131,9 @@ export default function SettingsPage() {
       separatedOrders.forEach((order: SeparatedOrder) => {
         const baseSale = saleMap.get(order.sale_id);
         const pendingPayments =
-          order.payments?.filter((payment) => payment.closure_id == null) ?? [];
+          order.payments?.filter(
+            (payment) => payment.closure_id == null && isActiveSeparatedPayment(payment)
+          ) ?? [];
         pendingPayments.forEach((payment) => {
           const paymentMatches = stationId === "pos-web"
             ? isPosWebName(baseSale?.pos_name)

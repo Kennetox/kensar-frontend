@@ -88,6 +88,8 @@ type SaleReturnSummary = {
   document_number?: string;
   created_at?: string;
   total?: number;
+  status?: string | null;
+  voided_at?: string | null;
 };
 
 type SaleChangeSummary = {
@@ -1494,7 +1496,10 @@ export default function SalesHistoryContent({
     selectedSaleSummary.total > 0;
   const canPrintTicket = !!selectedSale;
   const canPrintReturn =
-    !!selectedSale?.returns && selectedSale.returns.length > 0;
+    !!selectedSale?.returns?.some(
+      (entry) =>
+        (entry.status ?? "confirmed") === "confirmed" && !entry.voided_at
+    );
   const canPrintChange =
     !!selectedSale?.changes && selectedSale.changes.length > 0;
   const trimmedRecipient = emailRecipient.trim();
@@ -1760,7 +1765,12 @@ export default function SalesHistoryContent({
 
   const getLatestReturn = (returns?: SaleReturnSummary[]) => {
     if (!returns || returns.length === 0) return null;
-    return returns.reduce((latest, current) => {
+    const effectiveReturns = returns.filter(
+      (entry) =>
+        (entry.status ?? "confirmed") === "confirmed" && !entry.voided_at
+    );
+    if (!effectiveReturns.length) return null;
+    return effectiveReturns.reduce((latest, current) => {
       const latestTime = latest.created_at
         ? new Date(latest.created_at).getTime()
         : 0;

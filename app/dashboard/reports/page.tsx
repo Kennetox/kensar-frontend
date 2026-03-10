@@ -86,6 +86,8 @@ export type ReportSale = {
   sale_number?: number;
   document_number?: string;
   created_at: string;
+  status?: string | null;
+  voided_at?: string | null;
   total?: number;
   paid_amount?: number;
   payment_method?: string;
@@ -1030,6 +1032,9 @@ function filterSalesByMeta(
   to.setUTCMilliseconds(-1);
 
   return salesData.filter((sale) => {
+    const saleStatus = (sale.status ?? "").toLowerCase().trim();
+    if (saleStatus === "voided" || !!sale.voided_at) return false;
+
     const saleDate = parseDateInput(sale.created_at);
     if (!saleDate) return false;
     if (saleDate < from || saleDate > to) return false;
