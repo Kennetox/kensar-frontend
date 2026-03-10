@@ -714,9 +714,6 @@ export default function DocumentsExplorer({
   const [filterCustomer, setFilterCustomer] = useState("");
   const [filterPos, setFilterPos] = useState("");
   const [filterVendor, setFilterVendor] = useState("");
-  const [filterAnnulation, setFilterAnnulation] = useState<
-    "all" | "only" | "exclude"
-  >("all");
   const [filtersReady, setFiltersReady] = useState(false);
   const [persistedSelectedId, setPersistedSelectedId] = useState<string | null>(
     null
@@ -1316,7 +1313,6 @@ export default function DocumentsExplorer({
           filterCustomer?: string;
           filterPos?: string;
           filterVendor?: string;
-          filterAnnulation?: "all" | "only" | "exclude";
           selectedDocId?: string | null;
         };
         if (saved.filterType) setFilterType(saved.filterType);
@@ -1331,13 +1327,6 @@ export default function DocumentsExplorer({
         if (typeof saved.filterPos === "string") setFilterPos(saved.filterPos);
         if (typeof saved.filterVendor === "string")
           setFilterVendor(saved.filterVendor);
-        if (
-          saved.filterAnnulation === "all" ||
-          saved.filterAnnulation === "only" ||
-          saved.filterAnnulation === "exclude"
-        ) {
-          setFilterAnnulation(saved.filterAnnulation);
-        }
         if (typeof saved.selectedDocId === "string")
           setPersistedSelectedId(saved.selectedDocId);
       }
@@ -1359,7 +1348,6 @@ export default function DocumentsExplorer({
       filterCustomer,
       filterPos,
       filterVendor,
-      filterAnnulation,
       selectedDocId: selectedDoc?.id ?? null,
     };
     try {
@@ -1379,7 +1367,6 @@ export default function DocumentsExplorer({
     filterCustomer,
     filterPos,
     filterVendor,
-    filterAnnulation,
     selectedDoc?.id,
     filtersReady,
   ]);
@@ -1693,10 +1680,12 @@ export default function DocumentsExplorer({
       const docKey = getBogotaDateKey(doc.createdAt);
       if (fromKey && docKey < fromKey) return false;
       if (toKey && docKey > toKey) return false;
-      if (filterType !== "all" && doc.type !== filterType) return false;
       const isAnnulationDoc = isAnnulationDocument(doc);
-      if (filterAnnulation === "only" && !isAnnulationDoc) return false;
-      if (filterAnnulation === "exclude" && isAnnulationDoc) return false;
+      if (filterType === "anulacion") {
+        if (!isAnnulationDoc) return false;
+      } else if (filterType !== "all" && doc.type !== filterType) {
+        return false;
+      }
       const docIsSeparated = !!doc.isSeparated;
       const adjustments =
         doc.type === "venta" ? saleAdjustmentsById[doc.recordId] ?? [] : [];
@@ -1755,7 +1744,6 @@ export default function DocumentsExplorer({
   }, [
     documents,
     filterType,
-    filterAnnulation,
     filterFrom,
     filterTo,
     filterTerm,
@@ -2892,7 +2880,6 @@ useEffect(() => {
               setFilterCustomer("");
               setFilterPos("");
               setFilterVendor("");
-              setFilterAnnulation("all");
             }}
             className="text-[11px] text-slate-400 hover:text-slate-200 underline"
           >
@@ -2911,6 +2898,7 @@ useEffect(() => {
               <option value="venta">Ventas</option>
               <option value="devolucion">Devoluciones</option>
               <option value="cambio">Cambios</option>
+              <option value="anulacion">Anulaciones</option>
               <option value="abono">Abonos</option>
               <option value="recepcion">Recepciones</option>
               <option value="cierre">Cierres de caja</option>
@@ -2982,22 +2970,6 @@ useEffect(() => {
                 <option key={customer} value={customer} />
               ))}
             </datalist>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Anulaciones</span>
-            <select
-              value={filterAnnulation}
-              onChange={(e) =>
-                setFilterAnnulation(
-                  e.target.value as "all" | "only" | "exclude"
-                )
-              }
-              className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
-            >
-              <option value="all">Todas</option>
-              <option value="only">Solo anulaciones</option>
-              <option value="exclude">Excluir anulaciones</option>
-            </select>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-slate-400">POS</span>
