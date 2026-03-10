@@ -23,5 +23,12 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.redirect(unauthorizedUrl);
   }
 
-  return NextResponse.redirect(download.downloadHref);
+  const targetUrl = new URL(download.downloadHref);
+  targetUrl.searchParams.set("ts", Date.now().toString());
+
+  const response = NextResponse.redirect(targetUrl, 302);
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
+  return response;
 }
