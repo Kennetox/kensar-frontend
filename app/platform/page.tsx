@@ -77,6 +77,7 @@ function getVisibleModuleCatalog(tenant: PlatformTenant): TenantModuleCatalogIte
 export default function PlatformPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
+  const [platformUserName, setPlatformUserName] = useState("");
   const [tenants, setTenants] = useState<PlatformTenant[]>([]);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,12 +110,13 @@ export default function PlatformPage() {
       return;
     }
     try {
-      const parsed = JSON.parse(raw) as { token?: string };
+      const parsed = JSON.parse(raw) as { token?: string; user?: { name?: string } };
       if (!parsed?.token) {
         router.replace("/platform/login");
         return;
       }
       setToken(parsed.token);
+      setPlatformUserName(parsed.user?.name?.trim() || "");
     } catch {
       router.replace("/platform/login");
     }
@@ -426,7 +428,7 @@ export default function PlatformPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-8">
       <div className="mx-auto max-w-6xl space-y-6">
-        <header className="flex items-center justify-between">
+        <header className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.28em] text-slate-400">
               Metrik Platform
@@ -435,8 +437,12 @@ export default function PlatformPage() {
             <p className="text-sm text-slate-400 mt-1">
               Panel oculto para crear y administrar tenants.
             </p>
+            <p className="mt-3 inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-sm font-medium text-emerald-300">
+              Hola {platformUserName.split(" ")[0] || "Kenneth"}, bienvenido.
+            </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex gap-2">
             <button
               type="button"
               onClick={handlePlatformLogout}
@@ -450,6 +456,7 @@ export default function PlatformPage() {
             >
               Dashboard
             </Link>
+            </div>
           </div>
         </header>
 
