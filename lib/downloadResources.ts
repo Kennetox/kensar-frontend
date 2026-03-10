@@ -60,6 +60,19 @@ export const downloadResources: DownloadResource[] = [
       "mailto:kensarelec@gmail.com?cc=kennethjc2301@gmail.com&subject=Solicitud%20manual%20Metrik%20Stock",
     requirements: "Android 10 o superior · Cuenta activa en Metrik",
   },
+  {
+    slug: "metrik-pos-mobile",
+    name: "Metrik POS Mobile",
+    logo: "/branding/metrik-pos-mobile-logo.png",
+    platform: "Android Tablet",
+    description:
+      "App de caja POS para tablets Android, integrada con estaciones, vendedores y catálogo en tiempo real.",
+    downloadHref:
+      "https://github.com/Kennetox/Kensar_pos_tablet/releases/latest/download/MetrikPOSMobile.apk",
+    manualHref:
+      "mailto:kensarelec@gmail.com?cc=kennethjc2301@gmail.com&subject=Solicitud%20manual%20Metrik%20POS%20Mobile",
+    requirements: "Android 10 o superior · Estación tablet configurada en Metrik",
+  },
 ];
 
 export function getDownloadBySlug(slug: string) {

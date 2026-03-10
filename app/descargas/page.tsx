@@ -7,7 +7,7 @@ import { downloadResources } from "@/lib/downloadResources";
 export const metadata: Metadata = {
   title: "Descargas",
   description:
-    "Centro de descargas de Metrik: POS escritorio, Print Agent Tray y recursos de configuracion.",
+    "Centro de descargas de Metrik: POS escritorio, POS Mobile para tablet, Print Agent Tray y recursos de configuracion.",
   alternates: {
     canonical: "/descargas",
   },
@@ -68,7 +68,7 @@ export default function DescargasPage() {
             </h1>
             <p className="mt-3 text-[0.95rem] text-slate-600 sm:text-[1.05rem]">
               Un solo espacio con todas las apps oficiales para instalar y dejar
-              operativo un nuevo equipo.
+              operativo un nuevo equipo en escritorio o tablet.
             </p>
             <DownloadsAccessPanel resources={downloadResources} />
           </section>
