@@ -519,7 +519,6 @@ type BackTile = {
 };
 
 type GridTile = ProductTile | GroupTile | BackTile;
-type GridSwipeDirection = -1 | 0 | 1;
 
 type GroupAppearance = {
   image_url: string | null;
@@ -598,8 +597,6 @@ const GRID_ZOOM_MIN = 0.8;
 const GRID_ZOOM_MAX = 1.25;
 const GRID_ZOOM_STEP = 0.05;
 const GRID_ZOOM_DEFAULT = 1;
-const GRID_SWIPE_MIN_DISTANCE_PX = 72;
-const GRID_SWIPE_MIN_VELOCITY = 0.45;
 const FREE_SALE_REASON_MIN_LENGTH = 3;
 const FREE_SALE_NAME_MATCH = "venta libre";
 
@@ -775,20 +772,6 @@ const matchesStationLabel = useCallback(
   const [customSurchargePercent, setCustomSurchargePercent] = useState("5");
   const [currentPath, setCurrentPath] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [gridSwipeOffsetPx, setGridSwipeOffsetPx] = useState(0);
-  const [gridSwipeDirection, setGridSwipeDirection] =
-    useState<GridSwipeDirection>(0);
-  const [gridSwipeSnapBack, setGridSwipeSnapBack] = useState(false);
-  const gridSwipeStateRef = useRef({
-    active: false,
-    dragging: false,
-    startX: 0,
-    startY: 0,
-    startTime: 0,
-    lastX: 0,
-    lastDx: 0,
-  });
-  const gridSwipeViewportRef = useRef<HTMLDivElement | null>(null);
   const [groupAppearances, setGroupAppearances] = useState<Record<string, GroupAppearance>>({});
   const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -5085,37 +5068,14 @@ const matchesStationLabel = useCallback(
 
   const totalPages = Math.max(1, Math.ceil(tiles.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
-  const safePageIndex = Math.max(0, safePage - 1);
-
-  const pagedTiles = useMemo(
-    () =>
-      Array.from({ length: totalPages }, (_, index) =>
-        tiles.slice(index * PAGE_SIZE, (index + 1) * PAGE_SIZE)
-      ),
-    [tiles, totalPages]
+  const pageTiles = useMemo(
+    () => tiles.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [tiles, safePage]
   );
-  const pageTiles = pagedTiles[safePageIndex] ?? [];
-  const previousPageTiles = safePageIndex > 0 ? pagedTiles[safePageIndex - 1] ?? [] : [];
-  const nextPageTiles =
-    safePageIndex < totalPages - 1 ? pagedTiles[safePageIndex + 1] ?? [] : [];
-  const canGoToPreviousPage = safePage > 1;
-  const canGoToNextPage = safePage < totalPages;
-  const isGridSwipeAnimating = gridSwipeDirection !== 0 || gridSwipeSnapBack;
-  const gridTrackTranslate = gridSwipeDirection === 1
-    ? "-200%"
-    : gridSwipeDirection === -1
-      ? "0%"
-      : `calc(-100% + ${gridSwipeOffsetPx}px)`;
-  const gridTrackTransition = isGridSwipeAnimating
-    ? "transform 220ms cubic-bezier(0.22, 1, 0.36, 1)"
-    : "none";
 
   // Cuando cambie el contenido (buscar / navegar), reseteamos página
   useEffect(() => {
     setCurrentPage(1);
-    setGridSwipeOffsetPx(0);
-    setGridSwipeDirection(0);
-    setGridSwipeSnapBack(false);
   }, [search, currentPath.length]);
 
   // --------- Carrito & totales ---------
@@ -5167,141 +5127,6 @@ const matchesStationLabel = useCallback(
       focusSearchInput(true);
     }
   }
-
-  const startGridPageTransition = useCallback(
-    (direction: Exclude<GridSwipeDirection, 0>) => {
-      if (gridSwipeDirection !== 0 || gridSwipeSnapBack) return;
-      if (direction === -1 && !canGoToPreviousPage) return;
-      if (direction === 1 && !canGoToNextPage) return;
-      setGridSwipeOffsetPx(0);
-      setGridSwipeSnapBack(false);
-      setGridSwipeDirection(direction);
-    },
-    [
-      canGoToNextPage,
-      canGoToPreviousPage,
-      gridSwipeDirection,
-      gridSwipeSnapBack,
-    ]
-  );
-
-  const handleGridSwipeTrackTransitionEnd = useCallback(
-    (event: React.TransitionEvent<HTMLDivElement>) => {
-      if (event.target !== event.currentTarget) return;
-      if (gridSwipeDirection !== 0) {
-        setCurrentPage((previous) =>
-          clampNumber(previous + gridSwipeDirection, 1, totalPages)
-        );
-      }
-      setGridSwipeDirection(0);
-      setGridSwipeSnapBack(false);
-      setGridSwipeOffsetPx(0);
-    },
-    [gridSwipeDirection, totalPages]
-  );
-
-  const beginGridSwipeGesture = useCallback(
-    (clientX: number, clientY: number) => {
-      if (totalPages <= 1) return;
-      if (gridSwipeDirection !== 0 || gridSwipeSnapBack) return;
-      gridSwipeStateRef.current = {
-        active: true,
-        dragging: false,
-        startX: clientX,
-        startY: clientY,
-        startTime: Date.now(),
-        lastX: clientX,
-        lastDx: 0,
-      };
-      setGridSwipeSnapBack(false);
-    },
-    [gridSwipeDirection, gridSwipeSnapBack, totalPages]
-  );
-
-  const moveGridSwipeGesture = useCallback(
-    (clientX: number, clientY: number, preventDefault?: () => void) => {
-      const state = gridSwipeStateRef.current;
-      if (!state.active) return;
-      const dx = clientX - state.startX;
-      const dy = clientY - state.startY;
-
-      if (!state.dragging) {
-        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-        if (Math.abs(dx) <= Math.abs(dy) * 1.15) {
-          state.active = false;
-          return;
-        }
-        state.dragging = true;
-      }
-
-      preventDefault?.();
-      const viewportWidth = gridSwipeViewportRef.current?.clientWidth ?? 1;
-      const maxDrag = viewportWidth * 0.42;
-      const blockedAtEdge =
-        (dx > 0 && !canGoToPreviousPage) || (dx < 0 && !canGoToNextPage);
-      const resistedDx = blockedAtEdge ? dx * 0.28 : dx;
-      const clampedDx = clampNumber(resistedDx, -maxDrag, maxDrag);
-      state.lastX = clientX;
-      state.lastDx = clampedDx;
-      setGridSwipeOffsetPx(clampedDx);
-    },
-    [canGoToNextPage, canGoToPreviousPage]
-  );
-
-  const endGridSwipeGesture = useCallback(() => {
-    const state = gridSwipeStateRef.current;
-    if (!state.active) return;
-
-    gridSwipeStateRef.current.active = false;
-    if (!state.dragging) {
-      setGridSwipeOffsetPx(0);
-      return;
-    }
-
-    const elapsedMs = Math.max(1, Date.now() - state.startTime);
-    const distance = state.lastDx || state.lastX - state.startX;
-    const velocity = Math.abs(distance) / elapsedMs;
-    const shouldSwipePage =
-      Math.abs(distance) >= GRID_SWIPE_MIN_DISTANCE_PX ||
-      velocity >= GRID_SWIPE_MIN_VELOCITY;
-    const nextDirection = distance < 0 ? 1 : -1;
-    const canApplySwipe =
-      (nextDirection === -1 && canGoToPreviousPage) ||
-      (nextDirection === 1 && canGoToNextPage);
-
-    if (shouldSwipePage && canApplySwipe) {
-      setGridSwipeOffsetPx(0);
-      setGridSwipeSnapBack(false);
-      setGridSwipeDirection(nextDirection);
-      return;
-    }
-
-    setGridSwipeOffsetPx(0);
-    setGridSwipeDirection(0);
-    setGridSwipeSnapBack(true);
-  }, [canGoToNextPage, canGoToPreviousPage]);
-
-  const handleGridSwipeTouchStart = useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      const touch = event.touches[0];
-      if (!touch) return;
-      beginGridSwipeGesture(touch.clientX, touch.clientY);
-    },
-    [beginGridSwipeGesture]
-  );
-
-  const handleGridSwipeTouchMove = useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      const touch = event.touches[0];
-      if (!touch) return;
-      moveGridSwipeGesture(touch.clientX, touch.clientY, () => event.preventDefault());
-    },
-    [moveGridSwipeGesture]
-  );
-
-  const handleGridSwipeTouchEnd = useCallback(() => {
-    endGridSwipeGesture();
-  }, [endGridSwipeGesture]);
 
   const renderGridTile = (tile: GridTile) => {
       if (tile.type === "back") {
@@ -7119,50 +6944,18 @@ const matchesStationLabel = useCallback(
           {/* Grid + paginación */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Grid */}
-            <div className="flex-1 overflow-hidden px-3 py-3">
+            <div className="flex-1 overflow-auto px-3 py-3">
               <div
-                ref={gridSwipeViewportRef}
-                className="h-full w-full overflow-hidden"
-                style={{ touchAction: "pan-y" }}
-                onTouchStart={handleGridSwipeTouchStart}
-                onTouchMove={handleGridSwipeTouchMove}
-                onTouchEnd={handleGridSwipeTouchEnd}
-                onTouchCancel={handleGridSwipeTouchEnd}
+                ref={gridRef}
+                className="grid w-full gap-4"
+                style={gridStyle}
               >
-                <div
-                  className="flex h-full w-[300%]"
-                  style={{
-                    transform: `translateX(${gridTrackTranslate})`,
-                    transition: gridTrackTransition,
-                    willChange: "transform",
-                  }}
-                  onTransitionEnd={handleGridSwipeTrackTransitionEnd}
-                >
-                  {[previousPageTiles, pageTiles, nextPageTiles].map(
-                    (tilesForPage, index) => {
-                      const isCurrentPage = index === 1;
-                      return (
-                        <div
-                          key={`grid-page-${safePage}-${index}`}
-                          className="h-full w-full shrink-0 overflow-auto"
-                        >
-                          <div
-                            ref={isCurrentPage ? gridRef : undefined}
-                            className="grid w-full gap-4"
-                            style={gridStyle}
-                          >
-                            {tilesForPage.map(renderGridTile)}
-                            {isCurrentPage && tilesForPage.length === 0 && !loading && (
-                              <div className="col-span-full text-center text-sm text-slate-400 py-6">
-                                No hay elementos para mostrar.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    }
-                  )}
-                </div>
+                {pageTiles.map(renderGridTile)}
+                {pageTiles.length === 0 && !loading && (
+                  <div className="col-span-full text-center text-sm text-slate-400 py-6">
+                    No hay elementos para mostrar.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -7200,47 +6993,34 @@ const matchesStationLabel = useCallback(
                   <button
                     className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
                     disabled={safePage === 1}
-                    onClick={() => {
-                      setGridSwipeDirection(0);
-                      setGridSwipeOffsetPx(0);
-                      setGridSwipeSnapBack(false);
-                      setCurrentPage(1);
-                    }}
+                    onClick={() => setCurrentPage(1)}
                   >
                     ⏮
                   </button>
                   <button
                     className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
                     disabled={safePage === 1}
-                    onClick={() => startGridPageTransition(-1)}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   >
                     ◀
                   </button>
                   <button
                     className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
                     disabled={safePage === totalPages}
-                    onClick={() => startGridPageTransition(1)}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   >
                     ▶
                   </button>
                   <button
                     className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
                     disabled={safePage === totalPages}
-                    onClick={() => {
-                      setGridSwipeDirection(0);
-                      setGridSwipeOffsetPx(0);
-                      setGridSwipeSnapBack(false);
-                      setCurrentPage(totalPages);
-                    }}
+                    onClick={() => setCurrentPage(totalPages)}
                   >
                     ⏭
                   </button>
                   <button
                     className="ml-4 px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700"
                     onClick={() => {
-                      setGridSwipeDirection(0);
-                      setGridSwipeOffsetPx(0);
-                      setGridSwipeSnapBack(false);
                       setCurrentPath([]);
                       setCurrentPage(1);
                       setSearch("");
