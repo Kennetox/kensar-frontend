@@ -36,6 +36,7 @@ import {
   fetchPosStationPrinterConfig,
   type PosStationPrinterConfig,
 } from "@/lib/api/posStations";
+import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
 
 type PaymentMethodSlug = string;
 
@@ -92,7 +93,7 @@ type SuccessSaleSummary = {
   };
 };
 
-const RESUME_HELD_SALE_KEY = "kensar_pos_resume_held_sale_v1";
+const RESUME_HELD_SALE_KEY_BASE = "kensar_pos_resume_held_sale_v1";
 const FREE_SALE_REASON_NOTE_LABEL = "Motivo venta libre";
 
 function buildCombinedSaleNotes(
@@ -189,7 +190,7 @@ export default function PagoMultiplePage() {
     setReservedSaleNumber,
     setSaleNumber,
   } = usePos();
-  const { token, user } = useAuth();
+  const { token, user, tenant } = useAuth();
   const isOnline = useOnlineStatus();
   const totalToPay = cartTotal;
   const freeSaleReasons = useMemo(
@@ -234,14 +235,6 @@ export default function PagoMultiplePage() {
       .split(/[\n,]/)
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
-  const markResumeHeldSale = useCallback(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.sessionStorage.setItem(RESUME_HELD_SALE_KEY, "1");
-    } catch (err) {
-      console.warn("No se pudo marcar la venta en espera para reanudar", err);
-    }
-  }, []);
   const handleConfirmRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const showToast = useCallback((message: string, duration = 2600) => {
     if (toastTimerRef.current.hide) {
@@ -305,6 +298,23 @@ export default function PagoMultiplePage() {
   }, [posMode]);
   const isStationMode = posMode === "station";
   const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
+  const resumeHeldSaleKey = useMemo(
+    () =>
+      buildScopedPosStorageKey(RESUME_HELD_SALE_KEY_BASE, {
+        tenantId: tenant?.id ?? null,
+        userId: user?.id ?? null,
+        stationId: activeStationId,
+      }),
+    [activeStationId, tenant?.id, user?.id]
+  );
+  const markResumeHeldSale = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(resumeHeldSaleKey, "1");
+    } catch (err) {
+      console.warn("No se pudo marcar la venta en espera para reanudar", err);
+    }
+  }, [resumeHeldSaleKey]);
   const printerStorageKey = useMemo(
     () => `kensar_pos_printer_${activeStationId ?? "pos-web"}`,
     [activeStationId]
@@ -781,49 +791,24 @@ export default function PagoMultiplePage() {
       let assignedSaleNumber = saleNumber;
       let reservationId = reservedSaleId ?? null;
       let reservationNumber = reservedSaleNumber ?? null;
-      const normalizedPayments = payments.map((p) => ({
-        method: getLineEffectiveMethod(p),
-        amount: p.amount,
-      }));
-
-      type SaleSubmissionPayload = {
-        payment_method: PaymentMethodSlug;
-        total: number;
-        paid_amount: number;
-        change_amount: number;
-        items: {
-          product_id: number;
-          quantity: number;
-          unit_price: number;
-          product_sku?: string | null;
-          product_name: string;
-          product_barcode?: string | null;
-          total?: number;
-          discount?: number;
-        }[];
-        payments: { method: PaymentMethodSlug; amount: number }[];
-        sale_number_preassigned: number;
-        reservation_id?: number;
-        notes?: string;
-        pos_name?: string;
-        vendor_name?: string;
-        customer_id?: number;
-        due_date?: string;
-        surcharge_amount?: number;
-        surcharge_label?: string;
-        station_id?: string;
+      const isInvalidReservationDetail = (detail: string) => {
+        const normalized = detail
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "");
+        return normalized.includes("la reserva de numero de venta no es valida");
       };
-
-      if (!token) {
-        throw new Error("Sesión expirada. Inicia sesión nuevamente.");
-      }
-
-      if (!reservationId) {
+      const reserveIfNeeded = async (forceNew = false) => {
+        if (forceNew) {
+          reservationId = null;
+          reservationNumber = null;
+          setReservedSaleId(null);
+          setReservedSaleNumber(null);
+        }
+        if (reservationId) return;
         if (!isOnline) {
-          setErrorWithToast(
-            "Necesitas conexión para reservar el número de venta."
-          );
-          return;
+          setErrorWithToast("Necesitas conexión para reservar el número de venta.");
+          throw new Error("Necesitas conexión para reservar el número de venta.");
         }
         const reservationRes = await fetch(`${apiBase}/pos/sales/reserve-number`, {
           method: "POST",
@@ -862,7 +847,45 @@ export default function PagoMultiplePage() {
         ) {
           setSaleNumber(reservationNumber);
         }
+      };
+      const normalizedPayments = payments.map((p) => ({
+        method: getLineEffectiveMethod(p),
+        amount: p.amount,
+      }));
+
+      type SaleSubmissionPayload = {
+        payment_method: PaymentMethodSlug;
+        total: number;
+        paid_amount: number;
+        change_amount: number;
+        items: {
+          product_id: number;
+          quantity: number;
+          unit_price: number;
+          product_sku?: string | null;
+          product_name: string;
+          product_barcode?: string | null;
+          total?: number;
+          discount?: number;
+        }[];
+        payments: { method: PaymentMethodSlug; amount: number }[];
+        sale_number_preassigned: number;
+        reservation_id?: number;
+        notes?: string;
+        pos_name?: string;
+        vendor_name?: string;
+        customer_id?: number;
+        due_date?: string;
+        surcharge_amount?: number;
+        surcharge_label?: string;
+        station_id?: string;
+      };
+
+      if (!token) {
+        throw new Error("Sesión expirada. Inicia sesión nuevamente.");
       }
+
+      await reserveIfNeeded();
 
       if (
         typeof reservationNumber === "number" &&
@@ -981,7 +1004,7 @@ export default function PagoMultiplePage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        const detail =
+        let detail =
           data && data.detail
             ? Array.isArray(data.detail)
               ? data.detail
@@ -991,10 +1014,59 @@ export default function PagoMultiplePage() {
                       : d.msg ?? ""
                   )
                   .filter(Boolean)
-                  .join(", ")
+                      .join(", ")
               : String(data.detail)
             : `Error ${res.status}`;
-        if (res.status === 409) {
+
+        if (isInvalidReservationDetail(detail)) {
+          await reserveIfNeeded(true);
+          const retryInvalidReservationPayload = buildPayload();
+          try {
+            res = await fetch(`${apiBase}${endpoint}`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              credentials: "include",
+              body: JSON.stringify(retryInvalidReservationPayload),
+            });
+          } catch (err) {
+            console.error(err);
+            const browserOffline =
+              typeof navigator !== "undefined" && !navigator.onLine;
+            if (
+              browserOffline ||
+              err instanceof TypeError
+            ) {
+              queueSaleOffline(
+                browserOffline
+                  ? "Renovamos la reserva, pero perdimos internet. Guardamos la venta como pendiente."
+                  : "Renovamos la reserva, pero no hubo conexión con el servidor. Guardamos la venta como pendiente."
+              );
+              return;
+            }
+            throw err;
+          }
+          if (!res.ok) {
+            const retryInvalidData = await res.json().catch(() => null);
+            detail =
+              retryInvalidData && retryInvalidData.detail
+                ? Array.isArray(retryInvalidData.detail)
+                  ? retryInvalidData.detail
+                      .map((d: { msg?: string } | string) =>
+                        typeof d === "string" ? d : d.msg ?? ""
+                      )
+                      .filter(Boolean)
+                      .join(", ")
+                  : String(retryInvalidData.detail)
+                : `Error ${res.status}`;
+          }
+        }
+
+        if (res.ok) {
+          // Reserva renovada y venta registrada en el reintento.
+        } else if (res.status === 409) {
           const updated = await refreshSaleNumber();
           if (updated && updated > 0) {
             assignedSaleNumber = updated;

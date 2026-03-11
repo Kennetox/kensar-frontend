@@ -75,10 +75,11 @@ import {
   updatePosStationPrinterConfig,
   type PosStationPrinterConfig,
 } from "@/lib/api/posStations";
+import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
 
 const PENDING_ALERT_ACK_STORAGE_KEY = "metrik_pos_pending_ack_v1";
-const HELD_SALE_STORAGE_KEY = "kensar_pos_held_sale_v1";
-const RESUME_HELD_SALE_KEY = "kensar_pos_resume_held_sale_v1";
+const HELD_SALE_STORAGE_KEY_BASE = "kensar_pos_held_sale_v1";
+const RESUME_HELD_SALE_KEY_BASE = "kensar_pos_resume_held_sale_v1";
 
 type DiscountScope = "item" | "cart";
 type DiscountMode = "value" | "percent";
@@ -656,6 +657,8 @@ function splitGroupPath(groupName: string | null): string[] | null {
 
 export default function PosPage() {
   // --------- Datos base ---------
+  const router = useRouter();
+  const { token, user, tenant, logout } = useAuth();
   const searchParams = useSearchParams();
   const newTabQuery = searchParams.get("newTab") === "1";
   const [products, setProducts] = useState<Product[]>([]);
@@ -687,6 +690,24 @@ export default function PosPage() {
   const isWebMode = posMode === "web";
   const isKioskMode = isStationMode;
   const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
+  const heldSaleStorageKey = useMemo(
+    () =>
+      buildScopedPosStorageKey(HELD_SALE_STORAGE_KEY_BASE, {
+        tenantId: tenant?.id ?? null,
+        userId: user?.id ?? null,
+        stationId: activeStationId,
+      }),
+    [activeStationId, tenant?.id, user?.id]
+  );
+  const resumeHeldSaleKey = useMemo(
+    () =>
+      buildScopedPosStorageKey(RESUME_HELD_SALE_KEY_BASE, {
+        tenantId: tenant?.id ?? null,
+        userId: user?.id ?? null,
+        stationId: activeStationId,
+      }),
+    [activeStationId, tenant?.id, user?.id]
+  );
   const normalizePosLabel = useCallback((value?: string | null) => {
     return (value ?? "").replace(/^(pos\s+)+/i, "").trim().toLowerCase();
   }, []);
@@ -861,8 +882,6 @@ const matchesStationLabel = useCallback(
     autoOpenDrawer: false,
     showDrawerButton: true,
   });
-  const router = useRouter();
-  const { token, user, logout } = useAuth();
   const isDesktopApp =
     typeof window !== "undefined" &&
     Boolean((window as Window & { kensar?: { quitApp?: () => Promise<void> } }).kensar?.quitApp);
@@ -2238,7 +2257,7 @@ const matchesStationLabel = useCallback(
 
   const readHeldSaleSnapshot = useCallback((): HeldSaleSnapshot | null => {
     if (typeof window === "undefined") return null;
-    const raw = window.sessionStorage.getItem(HELD_SALE_STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(heldSaleStorageKey);
     if (!raw) return null;
     try {
       return JSON.parse(raw) as HeldSaleSnapshot;
@@ -2246,7 +2265,7 @@ const matchesStationLabel = useCallback(
       console.warn("No se pudo leer la venta en espera", err);
       return null;
     }
-  }, []);
+  }, [heldSaleStorageKey]);
 
   useEffect(() => {
     if (!discountModalOpen) return;
@@ -2263,20 +2282,20 @@ const matchesStationLabel = useCallback(
     if (typeof window === "undefined") return;
     try {
       window.sessionStorage.setItem(
-        HELD_SALE_STORAGE_KEY,
+        heldSaleStorageKey,
         JSON.stringify(snapshot)
       );
       setHeldSaleSnapshot(snapshot);
     } catch (err) {
       console.warn("No se pudo guardar la venta en espera", err);
     }
-  }, []);
+  }, [heldSaleStorageKey]);
 
   const clearHeldSaleSnapshot = useCallback(() => {
     if (typeof window === "undefined") return;
-    window.sessionStorage.removeItem(HELD_SALE_STORAGE_KEY);
+    window.sessionStorage.removeItem(heldSaleStorageKey);
     setHeldSaleSnapshot(null);
-  }, []);
+  }, [heldSaleStorageKey]);
 
   const reserveSaleNumber = useCallback(async (minSaleNumber?: number) => {
     if (!token) {
@@ -2401,9 +2420,9 @@ const matchesStationLabel = useCallback(
   useEffect(() => {
     if (typeof window === "undefined") return;
     const shouldResume =
-      window.sessionStorage.getItem(RESUME_HELD_SALE_KEY) === "1";
+      window.sessionStorage.getItem(resumeHeldSaleKey) === "1";
     if (!shouldResume) return;
-    window.sessionStorage.removeItem(RESUME_HELD_SALE_KEY);
+    window.sessionStorage.removeItem(resumeHeldSaleKey);
     const snapshot = readHeldSaleSnapshot();
     if (!snapshot) return;
     if (cart.length > 0) return;
@@ -2413,6 +2432,7 @@ const matchesStationLabel = useCallback(
     cart.length,
     clearHeldSaleSnapshot,
     readHeldSaleSnapshot,
+    resumeHeldSaleKey,
     restoreHeldSaleSnapshot,
   ]);
 

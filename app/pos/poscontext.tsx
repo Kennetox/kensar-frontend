@@ -12,6 +12,8 @@ import React, {
 } from "react";
 import { useAuth } from "../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
+import { getPosStationAccess } from "@/lib/api/posStations";
+import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
 
 export const POS_DISPLAY_NAME = "POS 1 · KENSAR ELECTRONIC";
 
@@ -109,9 +111,9 @@ export type SurchargeState = {
 
 const PosContext = createContext<PosContextValue | undefined>(undefined);
 
-const LOCAL_STORAGE_KEY = "kensar_pos_sale_number";
-const SALE_NUMBER_CHANNEL = "kensar_pos_sale_number_channel";
-const SESSION_STORAGE_KEY = "kensar_pos_session_v1";
+const LOCAL_STORAGE_KEY_BASE = "kensar_pos_sale_number";
+const SALE_NUMBER_CHANNEL_BASE = "kensar_pos_sale_number_channel";
+const SESSION_STORAGE_KEY_BASE = "kensar_pos_session_v1";
 const SESSION_STORAGE_VERSION = 1;
 
 type PersistedSession = {
@@ -144,13 +146,34 @@ export function PosProvider({ children }: { children: ReactNode }) {
     isManual: false,
   });
   const sessionHydratedRef = useRef(false);
-  const { token } = useAuth();
+  const { token, tenant, user } = useAuth();
   const saleNumberChannelRef = useRef<BroadcastChannel | null>(null);
+  const stationId = useMemo(() => getPosStationAccess()?.id ?? null, []);
+  const storageScope = useMemo(
+    () => ({
+      tenantId: tenant?.id ?? null,
+      userId: user?.id ?? null,
+      stationId,
+    }),
+    [stationId, tenant?.id, user?.id]
+  );
+  const localStorageKey = useMemo(
+    () => buildScopedPosStorageKey(LOCAL_STORAGE_KEY_BASE, storageScope),
+    [storageScope]
+  );
+  const sessionStorageKey = useMemo(
+    () => buildScopedPosStorageKey(SESSION_STORAGE_KEY_BASE, storageScope),
+    [storageScope]
+  );
+  const saleNumberChannelName = useMemo(
+    () => buildScopedPosStorageKey(SALE_NUMBER_CHANNEL_BASE, storageScope),
+    [storageScope]
+  );
 
   const persistSaleNumber = useCallback((value: number) => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, value.toString());
-  }, []);
+    window.localStorage.setItem(localStorageKey, value.toString());
+  }, [localStorageKey]);
 
   const refreshSaleNumber = useCallback(async (): Promise<number | null> => {
     if (!token) return null;
@@ -187,13 +210,11 @@ export function PosProvider({ children }: { children: ReactNode }) {
   // 1) Al montar el POS: intentar recuperar el número de venta y el estado del carrito
   useEffect(() => {
     if (typeof window === "undefined") return;
-    let hasReservation = false;
-
     try {
-      const rawSession = window.localStorage.getItem(SESSION_STORAGE_KEY);
-        if (rawSession) {
-          const parsed: PersistedSession = JSON.parse(rawSession);
-          if (parsed.version === SESSION_STORAGE_VERSION) {
+      const rawSession = window.localStorage.getItem(sessionStorageKey);
+      if (rawSession) {
+        const parsed: PersistedSession = JSON.parse(rawSession);
+        if (parsed.version === SESSION_STORAGE_VERSION) {
           if (Array.isArray(parsed.cart) && parsed.cart.length > 0) {
             setCart(parsed.cart);
           }
@@ -218,21 +239,6 @@ export function PosProvider({ children }: { children: ReactNode }) {
           ) {
             setCartSurcharge(parsed.cartSurcharge);
           }
-          if (typeof parsed.reservedSaleId === "number") {
-            setReservedSaleId(parsed.reservedSaleId);
-            hasReservation = true;
-          }
-          if (typeof parsed.reservedSaleNumber === "number") {
-            setReservedSaleNumber(parsed.reservedSaleNumber);
-            setSaleNumber(parsed.reservedSaleNumber);
-            hasReservation = true;
-            if (typeof window !== "undefined") {
-              window.localStorage.setItem(
-                LOCAL_STORAGE_KEY,
-                parsed.reservedSaleNumber.toString()
-              );
-            }
-          }
         }
       }
     } catch (err) {
@@ -241,25 +247,21 @@ export function PosProvider({ children }: { children: ReactNode }) {
       sessionHydratedRef.current = true;
     }
 
-    if (!hasReservation) {
-      const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (stored) {
-        const parsed = parseInt(stored, 10);
-        if (!Number.isNaN(parsed) && parsed > 0) {
-          setSaleNumber(parsed);
-        }
+    const stored = window.localStorage.getItem(localStorageKey);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        setSaleNumber(parsed);
       }
     }
 
-    if (!hasReservation) {
-      void refreshSaleNumber();
-    }
-  }, [refreshSaleNumber]);
+    void refreshSaleNumber();
+  }, [localStorageKey, refreshSaleNumber, sessionStorageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     function handleStorage(event: StorageEvent) {
-      if (event.key !== LOCAL_STORAGE_KEY) return;
+      if (event.key !== localStorageKey) return;
       if (!sessionHydratedRef.current) return;
       if (reservedSaleId != null || reservedSaleNumber != null) return;
       if (!event.newValue) return;
@@ -269,12 +271,12 @@ export function PosProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, [reservedSaleId, reservedSaleNumber]);
+  }, [localStorageKey, reservedSaleId, reservedSaleNumber]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!("BroadcastChannel" in window)) return;
-    const channel = new BroadcastChannel(SALE_NUMBER_CHANNEL);
+    const channel = new BroadcastChannel(saleNumberChannelName);
     saleNumberChannelRef.current = channel;
     channel.onmessage = (event) => {
       if (!sessionHydratedRef.current) return;
@@ -291,18 +293,18 @@ export function PosProvider({ children }: { children: ReactNode }) {
       channel.close();
       saleNumberChannelRef.current = null;
     };
-  }, [reservedSaleId, reservedSaleNumber]);
+  }, [reservedSaleId, reservedSaleNumber, saleNumberChannelName]);
 
   // 2) Guardar siempre que cambie el número de venta
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!sessionHydratedRef.current) return;
     if (reservedSaleId != null || reservedSaleNumber != null) return;
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, saleNumber.toString());
+    window.localStorage.setItem(localStorageKey, saleNumber.toString());
     if (saleNumberChannelRef.current) {
       saleNumberChannelRef.current.postMessage({ saleNumber });
     }
-  }, [reservedSaleId, reservedSaleNumber, saleNumber]);
+  }, [localStorageKey, reservedSaleId, reservedSaleNumber, saleNumber]);
 
   useEffect(() => {
     if (!sessionHydratedRef.current) return;
@@ -324,12 +326,10 @@ export function PosProvider({ children }: { children: ReactNode }) {
       cartDiscountValue > 0 ||
       cartDiscountPercent > 0 ||
       cartSurcharge.enabled ||
-      cartSurcharge.amount > 0 ||
-      reservedSaleId != null ||
-      reservedSaleNumber != null;
+      cartSurcharge.amount > 0;
 
     if (!hasContent) {
-      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      window.localStorage.removeItem(sessionStorageKey);
       return;
     }
 
@@ -348,7 +348,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
 
     try {
       window.localStorage.setItem(
-        SESSION_STORAGE_KEY,
+        sessionStorageKey,
         JSON.stringify(payload)
       );
     } catch (err) {
@@ -356,6 +356,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
     }
   }, [
     cart,
+    sessionStorageKey,
     saleNotes,
     selectedCustomer,
     cartDiscountValue,
@@ -422,7 +423,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
       isManual: false,
     });
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      window.localStorage.removeItem(sessionStorageKey);
     }
     void refreshSaleNumber();
   }
