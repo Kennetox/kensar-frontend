@@ -519,6 +519,7 @@ type BackTile = {
 };
 
 type GridTile = ProductTile | GroupTile | BackTile;
+type GridSwipeDirection = -1 | 0 | 1;
 
 type GroupAppearance = {
   image_url: string | null;
@@ -597,6 +598,8 @@ const GRID_ZOOM_MIN = 0.8;
 const GRID_ZOOM_MAX = 1.25;
 const GRID_ZOOM_STEP = 0.05;
 const GRID_ZOOM_DEFAULT = 1;
+const GRID_SWIPE_MIN_DISTANCE_PX = 72;
+const GRID_SWIPE_MIN_VELOCITY = 0.45;
 const FREE_SALE_REASON_MIN_LENGTH = 3;
 const FREE_SALE_NAME_MATCH = "venta libre";
 
@@ -772,6 +775,20 @@ const matchesStationLabel = useCallback(
   const [customSurchargePercent, setCustomSurchargePercent] = useState("5");
   const [currentPath, setCurrentPath] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [gridSwipeOffsetPx, setGridSwipeOffsetPx] = useState(0);
+  const [gridSwipeDirection, setGridSwipeDirection] =
+    useState<GridSwipeDirection>(0);
+  const [gridSwipeSnapBack, setGridSwipeSnapBack] = useState(false);
+  const gridSwipeStateRef = useRef({
+    active: false,
+    dragging: false,
+    startX: 0,
+    startY: 0,
+    startTime: 0,
+    lastX: 0,
+    lastDx: 0,
+  });
+  const gridSwipeViewportRef = useRef<HTMLDivElement | null>(null);
   const [groupAppearances, setGroupAppearances] = useState<Record<string, GroupAppearance>>({});
   const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -1594,6 +1611,11 @@ const matchesStationLabel = useCallback(
   const [isMobile, setIsMobile] = useState(false);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const gridZoomHydratedRef = useRef(false);
+  const cartResizeBoundsRef = useRef<{ left: number; width: number } | null>(
+    null
+  );
+  const cartResizePendingClientXRef = useRef<number | null>(null);
+  const cartResizeRafRef = useRef<number | null>(null);
   const cartWidthStorageKey = useMemo(
     () =>
       activeStationId
@@ -1615,6 +1637,38 @@ const matchesStationLabel = useCallback(
       clampNumber(value, CART_PANEL_MIN_PERCENT, CART_PANEL_MAX_PERCENT),
     []
   );
+  const applyCartResizeFromClientX = useCallback(
+    (clientX: number) => {
+      const container = layoutRef.current;
+      if (!container) return;
+
+      let bounds = cartResizeBoundsRef.current;
+      if (!bounds || bounds.width <= 0) {
+        const rect = container.getBoundingClientRect();
+        bounds = { left: rect.left, width: rect.width };
+        cartResizeBoundsRef.current = bounds;
+      }
+      if (bounds.width <= 0) return;
+
+      const relativeX = clientX - bounds.left;
+      const nextPercent = clampCartPanelPercent((relativeX / bounds.width) * 100);
+      setCartPanelWidthPercent(nextPercent);
+    },
+    [clampCartPanelPercent]
+  );
+  const scheduleCartResizeFromClientX = useCallback(
+    (clientX: number) => {
+      cartResizePendingClientXRef.current = clientX;
+      if (cartResizeRafRef.current != null) return;
+      cartResizeRafRef.current = window.requestAnimationFrame(() => {
+        cartResizeRafRef.current = null;
+        const pendingClientX = cartResizePendingClientXRef.current;
+        if (pendingClientX == null) return;
+        applyCartResizeFromClientX(pendingClientX);
+      });
+    },
+    [applyCartResizeFromClientX]
+  );
   const handleCartResizeStart = useCallback(
     (
       event:
@@ -1628,15 +1682,11 @@ const matchesStationLabel = useCallback(
       const container = layoutRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      const relativeX = clientX - rect.left;
-      const nextPercent = clampCartPanelPercent(
-        (relativeX / rect.width) * 100
-      );
-      setCartPanelWidthPercent(nextPercent);
+      cartResizeBoundsRef.current = { left: rect.left, width: rect.width };
+      applyCartResizeFromClientX(clientX);
       setIsResizingCartPanel(true);
     },
-    [clampCartPanelPercent]
+    [applyCartResizeFromClientX]
   );
   const handleCartResizeKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -1716,28 +1766,29 @@ const matchesStationLabel = useCallback(
     if (!isResizingCartPanel) return;
     const handleMouseMove = (event: MouseEvent) => {
       event.preventDefault();
-      const container = layoutRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      const relativeX = event.clientX - rect.left;
-      const percent = clampCartPanelPercent((relativeX / rect.width) * 100);
-      setCartPanelWidthPercent(percent);
+      scheduleCartResizeFromClientX(event.clientX);
     };
     const handleTouchMove = (event: TouchEvent) => {
       const touch = event.touches[0];
       if (!touch) return;
-      const container = layoutRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      const relativeX = touch.clientX - rect.left;
-      const percent = clampCartPanelPercent((relativeX / rect.width) * 100);
-      setCartPanelWidthPercent(percent);
+      event.preventDefault();
+      scheduleCartResizeFromClientX(touch.clientX);
     };
-    const stopResizing = () => setIsResizingCartPanel(false);
+    const stopResizing = () => {
+      const pendingClientX = cartResizePendingClientXRef.current;
+      if (pendingClientX != null) {
+        applyCartResizeFromClientX(pendingClientX);
+      }
+      if (cartResizeRafRef.current != null) {
+        window.cancelAnimationFrame(cartResizeRafRef.current);
+        cartResizeRafRef.current = null;
+      }
+      cartResizePendingClientXRef.current = null;
+      cartResizeBoundsRef.current = null;
+      setIsResizingCartPanel(false);
+    };
     window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("touchmove", handleTouchMove);
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
     window.addEventListener("mouseup", stopResizing);
     window.addEventListener("touchend", stopResizing);
     window.addEventListener("touchcancel", stopResizing);
@@ -1748,7 +1799,7 @@ const matchesStationLabel = useCallback(
       window.removeEventListener("touchend", stopResizing);
       window.removeEventListener("touchcancel", stopResizing);
     };
-  }, [isResizingCartPanel, clampCartPanelPercent]);
+  }, [applyCartResizeFromClientX, isResizingCartPanel, scheduleCartResizeFromClientX]);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const media = window.matchMedia("(max-width: 1023px)");
@@ -1775,6 +1826,14 @@ const matchesStationLabel = useCallback(
       document.body.style.cursor = prevCursor;
     };
   }, [isResizingCartPanel]);
+  useEffect(() => {
+    return () => {
+      if (cartResizeRafRef.current != null) {
+        window.cancelAnimationFrame(cartResizeRafRef.current);
+        cartResizeRafRef.current = null;
+      }
+    };
+  }, []);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const element = gridRef.current;
@@ -5026,15 +5085,37 @@ const matchesStationLabel = useCallback(
 
   const totalPages = Math.max(1, Math.ceil(tiles.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
+  const safePageIndex = Math.max(0, safePage - 1);
 
-  const pageTiles = useMemo(
-    () => tiles.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [tiles, safePage]
+  const pagedTiles = useMemo(
+    () =>
+      Array.from({ length: totalPages }, (_, index) =>
+        tiles.slice(index * PAGE_SIZE, (index + 1) * PAGE_SIZE)
+      ),
+    [tiles, totalPages]
   );
+  const pageTiles = pagedTiles[safePageIndex] ?? [];
+  const previousPageTiles = safePageIndex > 0 ? pagedTiles[safePageIndex - 1] ?? [] : [];
+  const nextPageTiles =
+    safePageIndex < totalPages - 1 ? pagedTiles[safePageIndex + 1] ?? [] : [];
+  const canGoToPreviousPage = safePage > 1;
+  const canGoToNextPage = safePage < totalPages;
+  const isGridSwipeAnimating = gridSwipeDirection !== 0 || gridSwipeSnapBack;
+  const gridTrackTranslate = gridSwipeDirection === 1
+    ? "-200%"
+    : gridSwipeDirection === -1
+      ? "0%"
+      : `calc(-100% + ${gridSwipeOffsetPx}px)`;
+  const gridTrackTransition = isGridSwipeAnimating
+    ? "transform 220ms cubic-bezier(0.22, 1, 0.36, 1)"
+    : "none";
 
   // Cuando cambie el contenido (buscar / navegar), reseteamos página
   useEffect(() => {
     setCurrentPage(1);
+    setGridSwipeOffsetPx(0);
+    setGridSwipeDirection(0);
+    setGridSwipeSnapBack(false);
   }, [search, currentPath.length]);
 
   // --------- Carrito & totales ---------
@@ -5086,6 +5167,270 @@ const matchesStationLabel = useCallback(
       focusSearchInput(true);
     }
   }
+
+  const startGridPageTransition = useCallback(
+    (direction: Exclude<GridSwipeDirection, 0>) => {
+      if (gridSwipeDirection !== 0 || gridSwipeSnapBack) return;
+      if (direction === -1 && !canGoToPreviousPage) return;
+      if (direction === 1 && !canGoToNextPage) return;
+      setGridSwipeOffsetPx(0);
+      setGridSwipeSnapBack(false);
+      setGridSwipeDirection(direction);
+    },
+    [
+      canGoToNextPage,
+      canGoToPreviousPage,
+      gridSwipeDirection,
+      gridSwipeSnapBack,
+    ]
+  );
+
+  const handleGridSwipeTrackTransitionEnd = useCallback(
+    (event: React.TransitionEvent<HTMLDivElement>) => {
+      if (event.target !== event.currentTarget) return;
+      if (gridSwipeDirection !== 0) {
+        setCurrentPage((previous) =>
+          clampNumber(previous + gridSwipeDirection, 1, totalPages)
+        );
+      }
+      setGridSwipeDirection(0);
+      setGridSwipeSnapBack(false);
+      setGridSwipeOffsetPx(0);
+    },
+    [gridSwipeDirection, totalPages]
+  );
+
+  const beginGridSwipeGesture = useCallback(
+    (clientX: number, clientY: number) => {
+      if (totalPages <= 1) return;
+      if (gridSwipeDirection !== 0 || gridSwipeSnapBack) return;
+      gridSwipeStateRef.current = {
+        active: true,
+        dragging: false,
+        startX: clientX,
+        startY: clientY,
+        startTime: Date.now(),
+        lastX: clientX,
+        lastDx: 0,
+      };
+      setGridSwipeSnapBack(false);
+    },
+    [gridSwipeDirection, gridSwipeSnapBack, totalPages]
+  );
+
+  const moveGridSwipeGesture = useCallback(
+    (clientX: number, clientY: number, preventDefault?: () => void) => {
+      const state = gridSwipeStateRef.current;
+      if (!state.active) return;
+      const dx = clientX - state.startX;
+      const dy = clientY - state.startY;
+
+      if (!state.dragging) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        if (Math.abs(dx) <= Math.abs(dy) * 1.15) {
+          state.active = false;
+          return;
+        }
+        state.dragging = true;
+      }
+
+      preventDefault?.();
+      const viewportWidth = gridSwipeViewportRef.current?.clientWidth ?? 1;
+      const maxDrag = viewportWidth * 0.42;
+      const blockedAtEdge =
+        (dx > 0 && !canGoToPreviousPage) || (dx < 0 && !canGoToNextPage);
+      const resistedDx = blockedAtEdge ? dx * 0.28 : dx;
+      const clampedDx = clampNumber(resistedDx, -maxDrag, maxDrag);
+      state.lastX = clientX;
+      state.lastDx = clampedDx;
+      setGridSwipeOffsetPx(clampedDx);
+    },
+    [canGoToNextPage, canGoToPreviousPage]
+  );
+
+  const endGridSwipeGesture = useCallback(() => {
+    const state = gridSwipeStateRef.current;
+    if (!state.active) return;
+
+    gridSwipeStateRef.current.active = false;
+    if (!state.dragging) {
+      setGridSwipeOffsetPx(0);
+      return;
+    }
+
+    const elapsedMs = Math.max(1, Date.now() - state.startTime);
+    const distance = state.lastDx || state.lastX - state.startX;
+    const velocity = Math.abs(distance) / elapsedMs;
+    const shouldSwipePage =
+      Math.abs(distance) >= GRID_SWIPE_MIN_DISTANCE_PX ||
+      velocity >= GRID_SWIPE_MIN_VELOCITY;
+    const nextDirection = distance < 0 ? 1 : -1;
+    const canApplySwipe =
+      (nextDirection === -1 && canGoToPreviousPage) ||
+      (nextDirection === 1 && canGoToNextPage);
+
+    if (shouldSwipePage && canApplySwipe) {
+      setGridSwipeOffsetPx(0);
+      setGridSwipeSnapBack(false);
+      setGridSwipeDirection(nextDirection);
+      return;
+    }
+
+    setGridSwipeOffsetPx(0);
+    setGridSwipeDirection(0);
+    setGridSwipeSnapBack(true);
+  }, [canGoToNextPage, canGoToPreviousPage]);
+
+  const handleGridSwipeTouchStart = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      beginGridSwipeGesture(touch.clientX, touch.clientY);
+    },
+    [beginGridSwipeGesture]
+  );
+
+  const handleGridSwipeTouchMove = useCallback(
+    (event: React.TouchEvent<HTMLDivElement>) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      moveGridSwipeGesture(touch.clientX, touch.clientY, () => event.preventDefault());
+    },
+    [moveGridSwipeGesture]
+  );
+
+  const handleGridSwipeTouchEnd = useCallback(() => {
+    endGridSwipeGesture();
+  }, [endGridSwipeGesture]);
+
+  const renderGridTile = (tile: GridTile) => {
+      if (tile.type === "back") {
+        return (
+          <button
+            key={tile.id}
+            onClick={() => handleTileClick(tile)}
+            className="rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-800 flex items-center justify-center text-sm font-semibold select-none"
+          >
+            ← Volver
+          </button>
+        );
+      }
+
+      if (tile.type === "group") {
+        const groupStyle = tile.color ? { backgroundColor: tile.color } : undefined;
+        return (
+          <button
+            key={tile.id}
+            onClick={() => handleTileClick(tile)}
+            className="rounded-lg bg-slate-800 hover:bg-slate-700 flex flex-col items-center justify-center text-sm font-semibold text-center px-3 py-4 select-none"
+            style={groupStyle}
+          >
+            <div className="w-full flex flex-col items-center gap-2">
+              {tile.imageUrl && (
+                <div
+                  className="w-full rounded-lg flex items-center justify-center overflow-hidden p-2"
+                  style={{
+                    height: `${tileImageHeight}px`,
+                    maxHeight: `${tileImageHeight}px`,
+                  }}
+                >
+                  <img
+                    src={tile.imageUrl}
+                    alt={tile.label}
+                    loading="lazy"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </div>
+              )}
+              <span
+                className="text-center font-semibold text-slate-100 leading-tight whitespace-normal break-words mt-1"
+                style={{ fontSize: `${tileLabelFontSize}rem` }}
+              >
+                {tile.label}
+              </span>
+            </div>
+          </button>
+        );
+      }
+
+      const product = tile.product;
+      const productImageUrl = resolveAssetUrl(
+        product.image_thumb_url ?? product.image_url
+      );
+      const hasProductImage = Boolean(productImageUrl);
+      const isServiceTile =
+        (!product.group_name || !product.group_name.trim()) &&
+        (product.service || product.allow_price_change);
+      const tileBgClass = hasProductImage
+        ? "bg-slate-800 hover:bg-slate-700"
+        : isServiceTile
+          ? "bg-slate-800 hover:bg-slate-700"
+          : "bg-slate-700 hover:bg-slate-600";
+      const tileStyle = product.tile_color
+        ? { backgroundColor: product.tile_color }
+        : undefined;
+
+    return (
+        <button
+          key={tile.id}
+          onClick={() => handleTileClick(tile)}
+          className={`group relative w-full h-full rounded-xl border border-slate-700/60 px-3 py-3 text-xs text-slate-50 overflow-hidden select-none ${tileBgClass}`}
+          style={tileStyle}
+        >
+          {hasProductImage ? (
+            <div className="flex h-full w-full flex-col items-center justify-between gap-2">
+              <span
+                className="line-clamp-2 text-center font-semibold mt-1"
+                style={{ fontSize: `${tileLabelFontSize}rem` }}
+              >
+                {product.name}
+              </span>
+              <div
+                className="flex-1 w-full flex items-center justify-center py-2 overflow-hidden min-h-0"
+                style={{
+                  height: `${tileImageHeight}px`,
+                  maxHeight: `${tileImageHeight}px`,
+                }}
+              >
+                <img
+                  src={productImageUrl ?? undefined}
+                  alt={product.name}
+                  loading="lazy"
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+              <span
+                className="font-bold mb-1"
+                style={{ fontSize: `${tilePriceFontSize}rem` }}
+              >
+                {formatMoney(product.price)}
+              </span>
+            </div>
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-between">
+              <span
+                className="mt-1 line-clamp-2 text-center font-semibold"
+                style={{ fontSize: `${tileLabelFontSize}rem` }}
+              >
+                {product.name}
+              </span>
+              <span
+                className="mt-2 text-slate-300"
+                style={{ fontSize: `${tileMetaFontSize}rem` }}
+              >
+                {product.sku || product.barcode || " "}
+              </span>
+              <span
+                className="mt-3 font-bold"
+                style={{ fontSize: `${tilePriceFontSize}rem` }}
+              >
+                {formatMoney(product.price)}
+              </span>
+            </div>
+          )}
+        </button>
+    );
+  };
 
   function addProductToCart(
     product: Product,
@@ -6402,7 +6747,9 @@ const matchesStationLabel = useCallback(
       <div ref={layoutRef} className="flex flex-1 overflow-hidden">
         {/* Carrito */}
         <section
-          className={`border-r border-slate-800 flex flex-col bg-slate-950 transition-all ${
+          className={`border-r border-slate-800 flex flex-col bg-slate-950 ${
+            isResizingCartPanel ? "transition-none" : "transition-all duration-150"
+          } ${
             cartDrawerOpen
               ? "fixed inset-y-0 left-0 z-40 w-[90vw] max-w-md shadow-2xl md:static md:flex"
               : "hidden md:flex"
@@ -6499,8 +6846,8 @@ const matchesStationLabel = useCallback(
                     }`}
                     onClick={() => handleSelectCartItem(item.id)}
                   >
-                    <div className="flex justify-between gap-2">
-                      <div className="flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
                         <div className="font-semibold truncate text-base text-slate-50">
                           {item.product.name}
                         </div>
@@ -6514,7 +6861,7 @@ const matchesStationLabel = useCallback(
                         )}
                       </div>
 
-                      <div className="text-right">
+                      <div className="shrink-0 text-right tabular-nums">
                         {hasDiscount && (
                           <div className="text-sm text-slate-500 line-through">
                             {formatMoney(gross)}
@@ -6772,147 +7119,50 @@ const matchesStationLabel = useCallback(
           {/* Grid + paginación */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Grid */}
-            <div className="flex-1 overflow-auto px-3 py-3">
+            <div className="flex-1 overflow-hidden px-3 py-3">
               <div
-                ref={gridRef}
-                className="grid w-full gap-4"
-                style={gridStyle}
+                ref={gridSwipeViewportRef}
+                className="h-full w-full overflow-hidden"
+                style={{ touchAction: "pan-y" }}
+                onTouchStart={handleGridSwipeTouchStart}
+                onTouchMove={handleGridSwipeTouchMove}
+                onTouchEnd={handleGridSwipeTouchEnd}
+                onTouchCancel={handleGridSwipeTouchEnd}
               >
-                {pageTiles.map((tile) => {
-                  if (tile.type === "back") {
-                    return (
-                      <button
-                        key={tile.id}
-                        onClick={() => handleTileClick(tile)}
-                        className="rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-800 flex items-center justify-center text-sm font-semibold select-none"
-                      >
-                        ← Volver
-                      </button>
-                    );
-                  }
-
-                  if (tile.type === "group") {
-                    const groupStyle = tile.color ? { backgroundColor: tile.color } : undefined;
-                    return (
-                      <button
-                        key={tile.id}
-                        onClick={() => handleTileClick(tile)}
-                        className="rounded-lg bg-slate-800 hover:bg-slate-700 flex flex-col items-center justify-center text-sm font-semibold text-center px-3 py-4 select-none"
-                        style={groupStyle}
-                      >
-                        <div className="w-full flex flex-col items-center gap-2">
-                          {tile.imageUrl && (
-                            <div
-                              className="w-full rounded-lg flex items-center justify-center overflow-hidden p-2"
-                              style={{
-                                height: `${tileImageHeight}px`,
-                                maxHeight: `${tileImageHeight}px`,
-                              }}
-                            >
-                              <img
-                                src={tile.imageUrl}
-                                alt={tile.label}
-                                loading="lazy"
-                                className="max-h-full max-w-full object-contain"
-                              />
-                            </div>
-                          )}
-                          <span
-                            className="text-center font-semibold text-slate-100 leading-tight whitespace-normal break-words mt-1"
-                            style={{ fontSize: `${tileLabelFontSize}rem` }}
-                          >
-                            {tile.label}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  }
-
-                  const product = tile.product;
-                  const productImageUrl = resolveAssetUrl(
-                    product.image_thumb_url ?? product.image_url
-                  );
-                  const hasProductImage = Boolean(productImageUrl);
-                  const isServiceTile =
-                    (!product.group_name || !product.group_name.trim()) &&
-                    (product.service || product.allow_price_change);
-                  const tileBgClass = hasProductImage
-                    ? "bg-slate-800 hover:bg-slate-700"
-                    : isServiceTile
-                      ? "bg-slate-800 hover:bg-slate-700"
-                      : "bg-slate-700 hover:bg-slate-600";
-                  const tileStyle = product.tile_color
-                    ? { backgroundColor: product.tile_color }
-                    : undefined;
-
-                  return (
-                    <button
-                      key={tile.id}
-                      onClick={() => handleTileClick(tile)}
-                      className={`group relative w-full h-full rounded-xl border border-slate-700/60 px-3 py-3 text-xs text-slate-50 overflow-hidden select-none ${tileBgClass}`}
-                      style={tileStyle}
-                    >
-                      {hasProductImage ? (
-                        <div className="flex h-full w-full flex-col items-center justify-between gap-2">
-                          <span
-                            className="line-clamp-2 text-center font-semibold mt-1"
-                            style={{ fontSize: `${tileLabelFontSize}rem` }}
-                          >
-                            {product.name}
-                          </span>
+                <div
+                  className="flex h-full w-[300%]"
+                  style={{
+                    transform: `translateX(${gridTrackTranslate})`,
+                    transition: gridTrackTransition,
+                    willChange: "transform",
+                  }}
+                  onTransitionEnd={handleGridSwipeTrackTransitionEnd}
+                >
+                  {[previousPageTiles, pageTiles, nextPageTiles].map(
+                    (tilesForPage, index) => {
+                      const isCurrentPage = index === 1;
+                      return (
+                        <div
+                          key={`grid-page-${safePage}-${index}`}
+                          className="h-full w-full shrink-0 overflow-auto"
+                        >
                           <div
-                            className="flex-1 w-full flex items-center justify-center py-2 overflow-hidden min-h-0"
-                            style={{
-                              height: `${tileImageHeight}px`,
-                              maxHeight: `${tileImageHeight}px`,
-                            }}
+                            ref={isCurrentPage ? gridRef : undefined}
+                            className="grid w-full gap-4"
+                            style={gridStyle}
                           >
-                            <img
-                              src={productImageUrl ?? undefined}
-                              alt={product.name}
-                              loading="lazy"
-                              className="max-h-full max-w-full object-contain"
-                            />
+                            {tilesForPage.map(renderGridTile)}
+                            {isCurrentPage && tilesForPage.length === 0 && !loading && (
+                              <div className="col-span-full text-center text-sm text-slate-400 py-6">
+                                No hay elementos para mostrar.
+                              </div>
+                            )}
                           </div>
-                          <span
-                            className="font-bold mb-1"
-                            style={{ fontSize: `${tilePriceFontSize}rem` }}
-                          >
-                            {formatMoney(product.price)}
-                          </span>
                         </div>
-                      ) : (
-                        <div className="flex h-full w-full flex-col items-center justify-between">
-                          <span
-                            className="mt-1 line-clamp-2 text-center font-semibold"
-                            style={{ fontSize: `${tileLabelFontSize}rem` }}
-                          >
-                            {product.name}
-                          </span>
-                          <span
-                            className="mt-2 text-slate-300"
-                            style={{ fontSize: `${tileMetaFontSize}rem` }}
-                          >
-                            {product.sku || product.barcode || " "}
-                          </span>
-                          <span
-                            className="mt-3 font-bold"
-                            style={{ fontSize: `${tilePriceFontSize}rem` }}
-                          >
-                            {formatMoney(product.price)}
-                          </span>
-                        </div>
-                      )}
-                    </button>
-                  );
-
-                })}
-
-                {pageTiles.length === 0 && !loading && (
-                  <div className="col-span-full text-center text-sm text-slate-400 py-6">
-                    No hay elementos para mostrar.
-                  </div>
-                )}
+                      );
+                    }
+                  )}
+                </div>
               </div>
             </div>
 
@@ -6950,34 +7200,47 @@ const matchesStationLabel = useCallback(
                   <button
                     className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
                     disabled={safePage === 1}
-                    onClick={() => setCurrentPage(1)}
+                    onClick={() => {
+                      setGridSwipeDirection(0);
+                      setGridSwipeOffsetPx(0);
+                      setGridSwipeSnapBack(false);
+                      setCurrentPage(1);
+                    }}
                   >
                     ⏮
                   </button>
                   <button
                     className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
                     disabled={safePage === 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    onClick={() => startGridPageTransition(-1)}
                   >
                     ◀
                   </button>
                   <button
                     className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
                     disabled={safePage === totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() => startGridPageTransition(1)}
                   >
                     ▶
                   </button>
                   <button
                     className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
                     disabled={safePage === totalPages}
-                    onClick={() => setCurrentPage(totalPages)}
+                    onClick={() => {
+                      setGridSwipeDirection(0);
+                      setGridSwipeOffsetPx(0);
+                      setGridSwipeSnapBack(false);
+                      setCurrentPage(totalPages);
+                    }}
                   >
                     ⏭
                   </button>
                   <button
                     className="ml-4 px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700"
                     onClick={() => {
+                      setGridSwipeDirection(0);
+                      setGridSwipeOffsetPx(0);
+                      setGridSwipeSnapBack(false);
                       setCurrentPath([]);
                       setCurrentPage(1);
                       setSearch("");
