@@ -38,6 +38,9 @@ import {
   PosStationResponse,
   sendPosStationNotice,
   sendSmtpTestEmail,
+  fetchStockDevices,
+  updateStockDevice,
+  StockDeviceRecord,
 } from "@/lib/api/settings";
 import {
   fetchPaymentMethods,
@@ -724,6 +727,11 @@ export default function SettingsPage() {
   const [stationNoticeMessage, setStationNoticeMessage] = useState("");
   const [stationNoticeError, setStationNoticeError] = useState<string | null>(null);
   const [stationNoticeSending, setStationNoticeSending] = useState(false);
+  const [stockDevices, setStockDevices] = useState<StockDeviceRecord[]>([]);
+  const [stockDevicesLoading, setStockDevicesLoading] = useState(false);
+  const [stockDevicesError, setStockDevicesError] = useState<string | null>(null);
+  const [stockDeviceMessage, setStockDeviceMessage] = useState<string | null>(null);
+  const [updatingStockDeviceId, setUpdatingStockDeviceId] = useState<string | null>(null);
   const [controlRows, setControlRows] = useState<StationControlRow[]>([]);
   const [controlLoading, setControlLoading] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -1331,6 +1339,26 @@ export default function SettingsPage() {
     }
   }, [token]);
 
+  const loadStockDevices = useCallback(async () => {
+    if (!token) return;
+    try {
+      setStockDevicesLoading(true);
+      setStockDevicesError(null);
+      const items = await fetchStockDevices(token);
+      setStockDevices(items);
+    } catch (err) {
+      console.error(err);
+      setStockDevicesError(
+        err instanceof Error
+          ? err.message
+          : "No pudimos cargar los dispositivos de Metrik Stock."
+      );
+      setStockDevices([]);
+    } finally {
+      setStockDevicesLoading(false);
+    }
+  }, [token]);
+
   function openStationModal() {
     setStationForm({
       label: "",
@@ -1699,6 +1727,55 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleToggleStockDeviceActive(
+    device: StockDeviceRecord,
+    nextActive: boolean
+  ) {
+    if (!token) return;
+    try {
+      setUpdatingStockDeviceId(device.id);
+      await updateStockDevice(device.id, { is_active: nextActive }, token);
+      setStockDeviceMessage(
+        nextActive
+          ? "Dispositivo de Metrik Stock activado nuevamente."
+          : "Dispositivo de Metrik Stock desactivado."
+      );
+      await loadStockDevices();
+    } catch (err) {
+      console.error(err);
+      setStockDevicesError(
+        err instanceof Error
+          ? err.message
+          : "No pudimos actualizar el estado del dispositivo."
+      );
+    } finally {
+      setUpdatingStockDeviceId(null);
+    }
+  }
+
+  async function handleRenameStockDevice(device: StockDeviceRecord) {
+    if (!token) return;
+    const nextName = window
+      .prompt("Nuevo nombre para el dispositivo Metrik Stock", device.name)
+      ?.trim();
+    if (!nextName || nextName === device.name) return;
+    try {
+      setUpdatingStockDeviceId(device.id);
+      await updateStockDevice(device.id, { name: nextName }, token);
+      setStockDeviceMessage("Nombre de dispositivo actualizado.");
+      await loadStockDevices();
+    } catch (err) {
+      console.error(err);
+      setStockDevicesError(
+        err instanceof Error
+          ? err.message
+          : "No pudimos actualizar el nombre del dispositivo."
+      );
+    } finally {
+      setUpdatingStockDeviceId(null);
+    }
+  }
+
   const handlePaymentInput = <K extends keyof typeof paymentForm>(
     key: K,
     value: (typeof paymentForm)[K]
@@ -1866,7 +1943,16 @@ export default function SettingsPage() {
     void loadPaymentMethods();
     void loadRolePermissions();
     void loadStations();
-  }, [token, loadSettings, loadUsers, loadPaymentMethods, loadRolePermissions, loadStations]);
+    void loadStockDevices();
+  }, [
+    token,
+    loadSettings,
+    loadUsers,
+    loadPaymentMethods,
+    loadRolePermissions,
+    loadStations,
+    loadStockDevices,
+  ]);
 
   useEffect(() => {
     if (
@@ -1909,6 +1995,17 @@ export default function SettingsPage() {
       window.clearTimeout(timeout);
     };
   }, [stationMessage]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!stockDeviceMessage) return;
+    const timeout = window.setTimeout(() => {
+      setStockDeviceMessage(null);
+    }, 4000);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [stockDeviceMessage]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -4118,6 +4215,126 @@ export default function SettingsPage() {
             Abre Documentos y filtra por estación
           </Link>
           .
+        </div>
+      </article>
+      <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-100">
+              Dispositivos Metrik Stock
+            </h2>
+            <p className="text-sm text-slate-400 max-w-3xl">
+              Gestiona tablets de recepción/recuento registradas en Metrik Stock.
+              Al desactivar un dispositivo, la API bloquea nuevas operaciones desde
+              esa tablet.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadStockDevices()}
+            className="text-xs text-slate-400 hover:text-slate-200 underline"
+          >
+            Refrescar
+          </button>
+        </div>
+        {stockDevicesError && (
+          <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+            {stockDevicesError}
+          </p>
+        )}
+        {stockDeviceMessage && (
+          <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
+            {stockDeviceMessage}
+          </p>
+        )}
+        <div className="rounded-2xl border border-slate-800 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-400">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium">Dispositivo</th>
+                <th className="text-left px-4 py-2 font-medium">Equipo vinculado</th>
+                <th className="text-left px-4 py-2 font-medium">Estado</th>
+                <th className="text-left px-4 py-2 font-medium">Última actividad</th>
+                <th className="text-right px-4 py-2 font-medium">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stockDevicesLoading &&
+                Array.from({ length: 3 }).map((_, idx) => (
+                  <tr key={`stock-device-skeleton-${idx}`} className="border-t border-slate-800/50">
+                    <td className="px-4 py-4">
+                      <div className="h-4 w-36 rounded bg-slate-800/70 animate-pulse" />
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="h-4 w-40 rounded bg-slate-800/70 animate-pulse" />
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="h-5 w-20 rounded-full bg-slate-800/70 animate-pulse" />
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="h-4 w-28 rounded bg-slate-800/70 animate-pulse" />
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="h-4 w-20 rounded bg-slate-800/70 animate-pulse ml-auto" />
+                    </td>
+                  </tr>
+                ))}
+              {!stockDevicesLoading && stockDevices.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-6 text-center text-xs text-slate-500">
+                    No hay dispositivos de Metrik Stock registrados.
+                  </td>
+                </tr>
+              )}
+              {!stockDevicesLoading &&
+                stockDevices.map((device) => {
+                  const isUpdating = updatingStockDeviceId === device.id;
+                  const statusClass = device.is_active
+                    ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border border-slate-300 bg-slate-200 text-slate-700";
+                  return (
+                    <tr key={device.id} className="border-t border-slate-800/50 hover:bg-slate-900/50">
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-slate-100">{device.name}</div>
+                        <div className="text-[11px] text-slate-500 font-mono">{device.id}</div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-300 text-xs">
+                        {device.bound_device_label ?? device.bound_device_id ?? "Sin dato"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusClass}`}>
+                          {device.is_active ? "Activo" : "Bloqueado"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[11px] text-slate-400">
+                        {device.last_seen_at ? formatDateLabel(device.last_seen_at) : "Sin actividad"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-2 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => void handleRenameStockDevice(device)}
+                            disabled={isUpdating}
+                            className="text-slate-300 hover:text-emerald-300 disabled:opacity-40"
+                          >
+                            Renombrar
+                          </button>
+                          <span className="text-slate-600">|</span>
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleStockDeviceActive(device, !device.is_active)}
+                            disabled={isUpdating}
+                            className="text-slate-300 hover:text-emerald-300 disabled:opacity-40"
+                          >
+                            {device.is_active ? "Desactivar" : "Activar"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
         </div>
       </article>
     </div>

@@ -8,7 +8,7 @@ import React, {
   useState,
 } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import {
@@ -230,6 +230,51 @@ type ReceivingDocumentRecord = {
   closed_by_user_name?: string | null;
 };
 
+type ManualMovementDocumentRecord = {
+  id: number;
+  document_number: string;
+  kind: "salida_manual" | "venta_manual" | "ajuste" | "perdida_dano";
+  status: "open" | "closed" | "cancelled";
+  origin_name: string;
+  header: Record<string, unknown>;
+  notes?: string | null;
+  external_reference_type?: string | null;
+  external_reference_id?: number | null;
+  created_by_user_name?: string | null;
+  closed_by_user_name?: string | null;
+  created_at: string;
+  updated_at: string;
+  closed_at?: string | null;
+  lines_count: number;
+  units_total: number;
+};
+
+type InventoryRecountDocumentRecord = {
+  id: number;
+  code: string;
+  status: "draft" | "counting" | "closed" | "applied" | "cancelled";
+  source?: "web" | "app";
+  scope_type: "all" | "group";
+  scope_value?: string | null;
+  count_mode: "blind" | "visible";
+  title?: string | null;
+  notes?: string | null;
+  created_by_user_name?: string | null;
+  closed_by_user_name?: string | null;
+  applied_by_user_name?: string | null;
+  created_at: string;
+  closed_at?: string | null;
+  applied_at?: string | null;
+  summary: {
+    counted_lines: number;
+    total_lines: number;
+    lines_with_diff: number;
+    total_diff_units: number;
+    positive_diff_units: number;
+    negative_diff_units: number;
+  };
+};
+
 type ReceivingLotRecord = {
   id: number;
   lot_number: string;
@@ -269,7 +314,15 @@ type ReceivingLotDetailRecord = {
 
 type DocumentRow = {
   id: string;
-  type: "venta" | "devolucion" | "cambio" | "cierre" | "abono" | "recepcion";
+  type:
+    | "venta"
+    | "devolucion"
+    | "cambio"
+    | "cierre"
+    | "abono"
+    | "recepcion"
+    | "movimiento_manual"
+    | "recuento";
   recordId: number;
   saleId?: number;
   createdAt: string;
@@ -284,6 +337,9 @@ type DocumentRow = {
   customer?: string;
   pos?: string;
   vendor?: string;
+  linkedDocumentId?: string;
+  linkedDocumentNumber?: string;
+  linkedDocumentType?: string;
   refundAmount?: number;
   isAnnulation?: boolean;
   status?: string;
@@ -294,7 +350,9 @@ type DocumentRow = {
     | ChangeRecord
     | ClosureRecord
     | AbonoRecord
-    | ReceivingDocumentRecord;
+    | ReceivingDocumentRecord
+    | ManualMovementDocumentRecord
+    | InventoryRecountDocumentRecord;
 };
 
 type SummaryCard = {
@@ -633,6 +691,7 @@ export default function DocumentsExplorer({
   hideManageCustomers = false,
 }: DocumentsExplorerProps = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { token, logout, user } = useAuth();
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
     defaultRolePermissions
@@ -691,6 +750,8 @@ export default function DocumentsExplorer({
   const [changes, setChanges] = useState<ChangeRecord[]>([]);
   const [closures, setClosures] = useState<ClosureRecord[]>([]);
   const [receivingDocs, setReceivingDocs] = useState<ReceivingDocumentRecord[]>([]);
+  const [manualMovementDocs, setManualMovementDocs] = useState<ManualMovementDocumentRecord[]>([]);
+  const [recountDocs, setRecountDocs] = useState<InventoryRecountDocumentRecord[]>([]);
   const [separatedOrders, setSeparatedOrders] = useState<SeparatedOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -793,13 +854,6 @@ export default function DocumentsExplorer({
       if (!authHeaders) throw new Error("Sin sesión activa");
       const apiBase = getApiBase();
       const PAGE_SIZE = 200;
-      const dateParams = new URLSearchParams();
-      if (filterFrom) {
-        dateParams.set("date_from", `${filterFrom}T00:00:00`);
-      }
-      if (filterTo) {
-        dateParams.set("date_to", `${filterTo}T23:59:59`);
-      }
 
       const fetchAllPages = async <T,>(
         path: string,
@@ -851,7 +905,7 @@ export default function DocumentsExplorer({
         const rows: ReceivingDocumentRecord[] = [];
         let skip = 0;
         for (;;) {
-          const params = new URLSearchParams(dateParams);
+          const params = new URLSearchParams();
           params.set("skip", String(skip));
           params.set("limit", String(PAGE_SIZE));
           const res = await fetch(
@@ -884,14 +938,106 @@ export default function DocumentsExplorer({
         return rows;
       };
 
-      const [salesData, returnsData, changesData, closuresData, separatedOrdersData, receivingDocsData] =
+      const fetchAllManualMovementDocuments = async (): Promise<ManualMovementDocumentRecord[]> => {
+        const rows: ManualMovementDocumentRecord[] = [];
+        let skip = 0;
+        for (;;) {
+          const params = new URLSearchParams();
+          params.set("status", "closed");
+          params.set("skip", String(skip));
+          params.set("limit", String(PAGE_SIZE));
+          const res = await fetch(
+            `${apiBase}/manual-movements/documents?${params.toString()}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+            }
+          );
+          if (res.status === 401) {
+            logout();
+            throw new Error(
+              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+            );
+          }
+          if (!res.ok) {
+            throw new Error(`Error ${res.status}`);
+          }
+          const page = (await res.json()) as {
+            items: ManualMovementDocumentRecord[];
+            total: number;
+            skip: number;
+            limit: number;
+          };
+          const items = page.items ?? [];
+          rows.push(...items);
+          if (items.length < PAGE_SIZE) break;
+          skip += items.length;
+        }
+        return rows;
+      };
+
+      const fetchAllRecountsByStatus = async (
+        recountStatus: "closed" | "applied"
+      ): Promise<InventoryRecountDocumentRecord[]> => {
+        const rows: InventoryRecountDocumentRecord[] = [];
+        let skip = 0;
+        const RECOUNTS_PAGE_SIZE = 100;
+        for (;;) {
+          const params = new URLSearchParams();
+          params.set("status", recountStatus);
+          params.set("skip", String(skip));
+          params.set("limit", String(RECOUNTS_PAGE_SIZE));
+          const res = await fetch(
+            `${apiBase}/inventory/recounts?${params.toString()}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+            }
+          );
+          if (res.status === 401) {
+            logout();
+            throw new Error(
+              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+            );
+          }
+          if (!res.ok) {
+            throw new Error(`Error ${res.status}`);
+          }
+          const page = (await res.json()) as {
+            items: InventoryRecountDocumentRecord[];
+            total: number;
+            skip: number;
+            limit: number;
+          };
+          const items = page.items ?? [];
+          rows.push(...items);
+          if (items.length < RECOUNTS_PAGE_SIZE) break;
+          skip += items.length;
+        }
+        return rows;
+      };
+
+      const [
+        salesData,
+        returnsData,
+        changesData,
+        closuresData,
+        separatedOrdersData,
+        receivingDocsData,
+        manualMovementDocsData,
+        recountClosedData,
+        recountAppliedData,
+      ] =
         await Promise.all([
-          fetchAllPages<SaleRecord>("/pos/sales", dateParams),
-          fetchAllPages<ReturnRecord>("/pos/returns", dateParams),
-          fetchAllPages<ChangeRecord>("/pos/changes", dateParams),
-          fetchAllPages<ClosureRecord>("/pos/closures", dateParams),
+          fetchAllPages<SaleRecord>("/pos/sales"),
+          fetchAllPages<ReturnRecord>("/pos/returns"),
+          fetchAllPages<ChangeRecord>("/pos/changes"),
+          fetchAllPages<ClosureRecord>("/pos/closures"),
           fetchAllSeparatedOrders(),
           fetchAllReceivingDocuments(),
+          fetchAllManualMovementDocuments(),
+          fetchAllRecountsByStatus("closed"),
+          fetchAllRecountsByStatus("applied"),
         ]);
       const adjustmentsBySaleId: Record<number, DocumentAdjustmentRecord[]> = {};
       if (salesData.length > 0) {
@@ -924,6 +1070,13 @@ export default function DocumentsExplorer({
       setChanges(changesData);
       setClosures(closuresData);
       setReceivingDocs(receivingDocsData);
+      setManualMovementDocs(manualMovementDocsData);
+      const recountById = new Map<number, InventoryRecountDocumentRecord>();
+      [...recountClosedData, ...recountAppliedData].forEach((row) => {
+        recountById.set(row.id, row);
+      });
+      const recountData = Array.from(recountById.values());
+      setRecountDocs(recountData);
       setSeparatedOrders(separatedOrdersData);
       setSaleAdjustmentsById(adjustmentsBySaleId);
       const docsList = mappedDocuments(
@@ -932,7 +1085,9 @@ export default function DocumentsExplorer({
         changesData,
         closuresData,
         separatedOrdersData,
-        receivingDocsData
+        receivingDocsData,
+        manualMovementDocsData,
+        recountData
       );
       setSelectedDoc((prev) => {
         if (prev) {
@@ -1338,6 +1493,41 @@ export default function DocumentsExplorer({
   }, []);
 
   useEffect(() => {
+    const fromMovements = searchParams.get("fromMovements");
+    if (fromMovements !== "1") return;
+
+    const term = (searchParams.get("term") || "").trim();
+    const type = (searchParams.get("type") || "all").trim().toLowerCase();
+    const allowed = new Set([
+      "all",
+      "venta",
+      "devolucion",
+      "cambio",
+      "cierre",
+      "abono",
+      "recepcion",
+      "movimiento_manual",
+      "mov_salida_manual",
+      "mov_venta_manual",
+      "mov_ajuste",
+      "mov_perdida_dano",
+      "recuento",
+      "anulacion",
+    ]);
+
+    setFilterType(allowed.has(type) ? type : "all");
+    setFilterTerm(term);
+    setFilterFrom("");
+    setFilterTo("");
+    setFilterPayment("");
+    setFilterCustomer("");
+    setFilterPos("");
+    setFilterVendor("");
+    setSelectedDoc(null);
+    setPersistedSelectedId(null);
+  }, [searchParams]);
+
+  useEffect(() => {
     if (typeof window === "undefined" || !filtersReady) return;
     const payload = {
       filterType,
@@ -1377,14 +1567,23 @@ export default function DocumentsExplorer({
     changesList: ChangeRecord[],
     closuresList: ClosureRecord[],
     separatedOrdersList: SeparatedOrder[],
-    receivingList: ReceivingDocumentRecord[]
+    receivingList: ReceivingDocumentRecord[],
+    manualMovementsList: ManualMovementDocumentRecord[],
+    recountList: InventoryRecountDocumentRecord[]
   ): DocumentRow[] {
     const salesById = new Map<number, SaleRecord>();
     salesList.forEach((sale) => {
       salesById.set(sale.id, sale);
     });
+    const manualBySaleId = new Map<number, ManualMovementDocumentRecord>();
+    manualMovementsList.forEach((doc) => {
+      if (doc.external_reference_type !== "sale") return;
+      if (typeof doc.external_reference_id !== "number") return;
+      manualBySaleId.set(doc.external_reference_id, doc);
+    });
     const saleDocs: DocumentRow[] = salesList.map((sale) => {
       const { netTotal, refundAmount } = computeSaleTotals(sale);
+      const linkedManual = manualBySaleId.get(sale.id);
       const firstItem = sale.items && sale.items.length ? sale.items[0] : undefined;
       const detail = firstItem
         ? `${firstItem.product_name ?? firstItem.name ?? "Producto"} x${firstItem.quantity ?? 1}`
@@ -1413,6 +1612,9 @@ export default function DocumentsExplorer({
         customer: sale.customer_name ?? undefined,
         pos: sale.pos_name ?? undefined,
         vendor: sale.vendor_name ?? undefined,
+        linkedDocumentId: linkedManual ? `manual-movement-${linkedManual.id}` : undefined,
+        linkedDocumentNumber: linkedManual?.document_number,
+        linkedDocumentType: linkedManual ? "Movimiento manual" : undefined,
         status: sale.status,
         closureId: sale.closure_id ?? null,
         data: sale,
@@ -1587,6 +1789,86 @@ export default function DocumentsExplorer({
         };
       });
 
+    const manualMovementKindLabel: Record<ManualMovementDocumentRecord["kind"], string> = {
+      salida_manual: "Salida manual",
+      venta_manual: "Venta manual",
+      ajuste: "Ajuste",
+      perdida_dano: "Pérdida / daño",
+    };
+
+    const manualMovementDocs: DocumentRow[] = manualMovementsList
+      .filter((doc) => doc.status === "closed")
+      .map((doc) => {
+        const linkedSale =
+          doc.external_reference_type === "sale" &&
+          typeof doc.external_reference_id === "number"
+            ? salesById.get(doc.external_reference_id)
+            : undefined;
+        return {
+          id: `manual-movement-${doc.id}`,
+          type: "movimiento_manual",
+          recordId: doc.id,
+          createdAt: doc.closed_at ?? doc.updated_at ?? doc.created_at,
+          documentNumber: doc.document_number,
+          reference: `${manualMovementKindLabel[doc.kind]} - ${doc.origin_name || "Metrik web"}`,
+          detail: `${doc.lines_count} líneas · ${doc.units_total} unidades${doc.notes ? ` · Obs: ${doc.notes}` : ""}`,
+          total: 0,
+          paymentMethod: "movimiento_manual",
+          customer: undefined,
+          pos: doc.origin_name || undefined,
+          vendor: doc.closed_by_user_name ?? doc.created_by_user_name ?? undefined,
+          linkedDocumentId:
+            doc.external_reference_type === "sale" && typeof doc.external_reference_id === "number"
+              ? `sale-${doc.external_reference_id}`
+              : undefined,
+          linkedDocumentNumber:
+            linkedSale?.document_number ??
+            (doc.external_reference_type === "sale" && typeof doc.external_reference_id === "number"
+              ? `V-${doc.external_reference_id.toString().padStart(6, "0")}`
+              : undefined),
+          linkedDocumentType:
+            doc.external_reference_type === "sale" && typeof doc.external_reference_id === "number"
+              ? "Venta"
+              : undefined,
+          status: doc.status,
+          closureId: null,
+          data: doc,
+        };
+      });
+
+    const recountDocs: DocumentRow[] = recountList
+      .filter((row) => row.status === "closed" || row.status === "applied")
+      .map((row) => {
+        const statusLabel = row.status === "applied" ? "Aplicado" : "Cerrado";
+        const scopeLabel =
+          row.scope_type === "group" && row.scope_value
+            ? `Categoría: ${row.scope_value}`
+            : "Inventario completo";
+        const sourceLabel = row.source === "app" ? "Metrik Stock App" : "Metrik Web";
+        const operationDate = row.applied_at ?? row.closed_at ?? row.created_at;
+        return {
+          id: `recount-${row.id}`,
+          type: "recuento",
+          recordId: row.id,
+          createdAt: operationDate,
+          documentNumber: row.code || `RCN-${row.id.toString().padStart(6, "0")}`,
+          reference: `Recuento - ${statusLabel} - ${sourceLabel}`,
+          detail: `${row.summary.counted_lines}/${row.summary.total_lines} líneas · Dif: ${row.summary.total_diff_units} · ${scopeLabel}`,
+          total: 0,
+          paymentMethod: undefined,
+          customer: undefined,
+          pos: sourceLabel,
+          vendor:
+            row.applied_by_user_name ??
+            row.closed_by_user_name ??
+            row.created_by_user_name ??
+            undefined,
+          status: row.status,
+          closureId: null,
+          data: row,
+        };
+      });
+
     return [
       ...saleDocs,
       ...returnDocs,
@@ -1594,6 +1876,8 @@ export default function DocumentsExplorer({
       ...abonoDocs,
       ...closureDocs,
       ...receivingLotDocs,
+      ...manualMovementDocs,
+      ...recountDocs,
     ].sort(
       (a, b) =>
         (parseDateInput(b.createdAt)?.getTime() ?? 0) -
@@ -1602,8 +1886,18 @@ export default function DocumentsExplorer({
   }
 
   const documents = useMemo(
-    () => mappedDocuments(sales, returns, changes, closures, separatedOrders, receivingDocs),
-    [sales, returns, changes, closures, separatedOrders, receivingDocs]
+    () =>
+      mappedDocuments(
+        sales,
+        returns,
+        changes,
+        closures,
+        separatedOrders,
+        receivingDocs,
+        manualMovementDocs,
+        recountDocs
+      ),
+    [sales, returns, changes, closures, separatedOrders, receivingDocs, manualMovementDocs, recountDocs]
   );
 
   const canAdjustDocuments = canDoDocumentAction("documents.sales.adjust");
@@ -1613,6 +1907,9 @@ export default function DocumentsExplorer({
     if (status === "voided") return "Anulado";
     if (status === "adjusted") return "Ajustado";
     if (status === "adjustment") return "Ajuste";
+    if (status === "draft") return "Borrador";
+    if (status === "counting") return "En conteo";
+    if (status === "applied") return "Aplicado";
     if (status === "closed") return "Cerrado";
     if (status === "open") return "Abierto";
     if (status === "cancelled") return "Cancelado";
@@ -1683,6 +1980,21 @@ export default function DocumentsExplorer({
       const isAnnulationDoc = isAnnulationDocument(doc);
       if (filterType === "anulacion") {
         if (!isAnnulationDoc) return false;
+      } else if (
+        filterType === "mov_salida_manual" ||
+        filterType === "mov_venta_manual" ||
+        filterType === "mov_ajuste" ||
+        filterType === "mov_perdida_dano"
+      ) {
+        if (doc.type !== "movimiento_manual") return false;
+        const movement = doc.data as ManualMovementDocumentRecord;
+        const kindByFilter: Record<string, ManualMovementDocumentRecord["kind"]> = {
+          mov_salida_manual: "salida_manual",
+          mov_venta_manual: "venta_manual",
+          mov_ajuste: "ajuste",
+          mov_perdida_dano: "perdida_dano",
+        };
+        if (movement.kind !== kindByFilter[filterType]) return false;
       } else if (filterType !== "all" && doc.type !== filterType) {
         return false;
       }
@@ -1922,6 +2234,10 @@ const selectedDetails = selectedDoc?.data;
           ? "Abono"
           : doc.type === "recepcion"
           ? "Recepción"
+          : doc.type === "movimiento_manual"
+          ? "Movimiento manual"
+          : doc.type === "recuento"
+          ? "Recuento"
           : "Cierre";
       const statusLabel = getStatusLabel(doc.status) ?? "";
       const methodLabel = doc.isSeparated
@@ -2011,6 +2327,7 @@ const selectedDocCanShowVoidButton =
   selectedDoc.type !== "cierre" &&
   selectedDoc.type !== "abono" &&
   selectedDoc.type !== "recepcion" &&
+  selectedDoc.type !== "recuento" &&
   !selectedDocIsVoided;
 const selectedDocCanVoid =
   !!selectedDoc &&
@@ -2018,6 +2335,7 @@ const selectedDocCanVoid =
   selectedDoc.type !== "cierre" &&
   selectedDoc.type !== "abono" &&
   selectedDoc.type !== "recepcion" &&
+  selectedDoc.type !== "recuento" &&
   !selectedDocIsVoided &&
   (selectedDoc.type === "venta" || selectedDoc.closureId == null);
 const voidActionLabel = "Anular";
@@ -2765,7 +3083,10 @@ useEffect(() => {
     ? "Selecciona un documento"
     : !canVoidDocuments
     ? "No tienes permisos"
-    : selectedDoc.type === "cierre" || selectedDoc.type === "abono" || selectedDoc.type === "recepcion"
+    : selectedDoc.type === "cierre" ||
+      selectedDoc.type === "abono" ||
+      selectedDoc.type === "recepcion" ||
+      selectedDoc.type === "recuento"
     ? "No disponible para este documento"
     : selectedDocIsVoided
     ? "Documento ya anulado"
@@ -2901,6 +3222,12 @@ useEffect(() => {
               <option value="anulacion">Anulaciones</option>
               <option value="abono">Abonos</option>
               <option value="recepcion">Recepciones</option>
+              <option value="movimiento_manual">Movimientos manuales</option>
+              <option value="mov_salida_manual">Salidas manuales</option>
+              <option value="mov_venta_manual">Ventas manuales</option>
+              <option value="mov_ajuste">Ajustes de stock</option>
+              <option value="mov_perdida_dano">Pérdida / daño</option>
+              <option value="recuento">Recuentos</option>
               <option value="cierre">Cierres de caja</option>
             </select>
           </label>
@@ -3223,6 +3550,10 @@ useEffect(() => {
                         ? "Abono"
                         : doc.type === "recepcion"
                         ? "Recepción"
+                        : doc.type === "movimiento_manual"
+                        ? "Movimiento manual"
+                        : doc.type === "recuento"
+                        ? "Recuento"
                         : "Cierre";
                     const statusLabel = getStatusLabel(doc.status);
                     const docIsSeparated = !!doc.isSeparated;
@@ -3288,6 +3619,8 @@ useEffect(() => {
                                   ? "border-cyan-300/80 bg-cyan-50 text-cyan-700"
                                   : doc.type === "recepcion"
                                   ? "border-violet-300/80 bg-violet-50 text-violet-700"
+                                  : doc.type === "recuento"
+                                  ? "border-amber-300/80 bg-amber-50 text-amber-700"
                                   : "border-sky-300/80 bg-sky-50 text-sky-700"
                               }`}
                             >
@@ -3393,6 +3726,10 @@ useEffect(() => {
                       ? "Abono"
                       : selectedDoc.type === "recepcion"
                       ? "Recepción"
+                      : selectedDoc.type === "movimiento_manual"
+                      ? "Movimiento manual"
+                      : selectedDoc.type === "recuento"
+                      ? "Recuento"
                       : "Cierre de caja"}
                   </span>
                 </div>
@@ -3416,6 +3753,24 @@ useEffect(() => {
                     {selectedDoc.reference}
                   </span>
                 </div>
+                {selectedDoc.linkedDocumentNumber && selectedDoc.linkedDocumentType && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-slate-400">Documento vinculado</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!selectedDoc.linkedDocumentId) return;
+                        const linkedDoc = documents.find(
+                          (doc) => doc.id === selectedDoc.linkedDocumentId
+                        );
+                        if (linkedDoc) setSelectedDoc(linkedDoc);
+                      }}
+                      className="text-right text-sky-300 underline underline-offset-2 hover:text-sky-200"
+                    >
+                      {selectedDoc.linkedDocumentType}: {selectedDoc.linkedDocumentNumber}
+                    </button>
+                  </div>
+                )}
                 <div className="flex justify-between gap-3">
                   <span className="text-slate-400">Total</span>
                   <span className="text-right text-slate-100">

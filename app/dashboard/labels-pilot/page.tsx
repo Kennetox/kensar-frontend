@@ -1,9 +1,19 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../providers/AuthProvider";
 import type { Product as PosProduct } from "../../pos/poscontext";
 import { getApiBase } from "@/lib/api/base";
+import {
+  LABEL_AGENT_DEFAULT_FORMAT,
+  LABEL_AGENT_DEFAULT_PRINT_URL,
+  LABEL_AGENT_FORMAT_STORAGE_KEY,
+  LABEL_AGENT_HEALTH_URL,
+  LABEL_AGENT_UI_URL,
+  LABEL_AGENT_WINDOWS_DOWNLOAD_URL,
+} from "@/lib/printing/labelAgentConfig";
 
 type ProductSearchResult = Pick<
   PosProduct,
@@ -30,22 +40,13 @@ type LabelItem = {
   quantity: number;
 };
 
-const LOCAL_STORAGE_FORMAT = "kensar_labels_pilot_format";
 const SESSION_STORAGE_STATE_KEY = "kensar_labels_pilot_session_state";
-
-const AGENT_BASE_URL = "http://127.0.0.1:5177";
-const AGENT_HEALTH_URL = `${AGENT_BASE_URL}/health`;
-const AGENT_UI_URL = `${AGENT_BASE_URL}/ui`;
-const AGENT_WINDOWS_DOWNLOAD_URL =
-  "https://github.com/Kennetox/Kensar-print-agent-tray/releases/latest/download/KensarPrintAgent-Setup-0.1.0.exe";
-const DEFAULT_AGENT_URL = "http://127.0.0.1:5177/print";
-const DEFAULT_FORMAT = "Kensar";
 const TEST_LABEL: PrintPayload = {
   CODIGO: "3519",
   BARRAS: "3519",
   NOMBRE: "Microfono Condensador TCM-304",
   PRECIO: "$22.000",
-  format: DEFAULT_FORMAT,
+  format: LABEL_AGENT_DEFAULT_FORMAT,
   copies: 1,
 };
 
@@ -87,6 +88,8 @@ async function printLabelDirect(
 }
 
 export default function LabelsPilotPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { token } = useAuth();
   const apiBase = getApiBase();
 
@@ -95,7 +98,7 @@ export default function LabelsPilotPage() {
     [token]
   );
 
-  const [format, setFormat] = useState(DEFAULT_FORMAT);
+  const [format, setFormat] = useState(LABEL_AGENT_DEFAULT_FORMAT);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
   const [agentHealth, setAgentHealth] = useState<"checking" | "online" | "offline">(
@@ -126,7 +129,7 @@ export default function LabelsPilotPage() {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 2000);
     try {
-      const res = await fetch(AGENT_HEALTH_URL, {
+      const res = await fetch(LABEL_AGENT_HEALTH_URL, {
         method: "GET",
         signal: controller.signal,
       });
@@ -146,16 +149,23 @@ export default function LabelsPilotPage() {
     if (!settingsOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        const returnTo = searchParams.get("returnTo");
+        if (returnTo) {
+          router.push(returnTo);
+          return;
+        }
         setSettingsOpen(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [settingsOpen]);
+  }, [router, searchParams, settingsOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedFormat = window.localStorage.getItem(LOCAL_STORAGE_FORMAT);
+    const storedFormat = window.localStorage.getItem(
+      LABEL_AGENT_FORMAT_STORAGE_KEY
+    );
     if (storedFormat) setFormat(storedFormat);
     setSettingsReady(true);
   }, []);
@@ -199,8 +209,14 @@ export default function LabelsPilotPage() {
 
   useEffect(() => {
     if (typeof window === "undefined" || !settingsReady) return;
-    window.localStorage.setItem(LOCAL_STORAGE_FORMAT, format);
+    window.localStorage.setItem(LABEL_AGENT_FORMAT_STORAGE_KEY, format);
   }, [format, settingsReady]);
+
+  useEffect(() => {
+    if (searchParams.get("openSettings") === "1") {
+      setSettingsOpen(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!sessionReady) return;
@@ -407,18 +423,18 @@ export default function LabelsPilotPage() {
     })}`;
   };
 
-  const resolvedTargetUrl = DEFAULT_AGENT_URL;
+  const resolvedTargetUrl = LABEL_AGENT_DEFAULT_PRINT_URL;
   const validateTarget = useCallback(() => {}, []);
 
   const sendPrint = useCallback(
     async (payload: PrintPayload) => {
-      await printLabelDirect(DEFAULT_AGENT_URL, payload);
+      await printLabelDirect(LABEL_AGENT_DEFAULT_PRINT_URL, payload);
     },
     []
   );
 
   const handleOpenAgentUi = useCallback(() => {
-    window.open(AGENT_UI_URL, "_blank", "noopener,noreferrer");
+    window.open(LABEL_AGENT_UI_URL, "_blank", "noopener,noreferrer");
   }, []);
 
   const buildPayload = useCallback(
@@ -430,7 +446,7 @@ export default function LabelsPilotPage() {
         BARRAS: barras,
         NOMBRE: item.name,
         PRECIO: formatPriceForPayload(item.price),
-        format: format.trim() || DEFAULT_FORMAT,
+        format: format.trim() || LABEL_AGENT_DEFAULT_FORMAT,
         copies: item.quantity > 0 ? item.quantity : 1,
       };
     },
@@ -498,7 +514,7 @@ export default function LabelsPilotPage() {
       setProbeMessage(null);
       await sendPrint({
         ...TEST_LABEL,
-        format: format.trim() || DEFAULT_FORMAT,
+        format: format.trim() || LABEL_AGENT_DEFAULT_FORMAT,
       });
       setProbeStatus("success");
       setProbeMessage("Impresion de prueba enviada.");
@@ -513,17 +529,36 @@ export default function LabelsPilotPage() {
     }
   }, [format, sendPrint, validateTarget]);
 
+  const closeSettings = useCallback(() => {
+    const returnTo = searchParams.get("returnTo");
+    if (returnTo) {
+      router.push(returnTo);
+      return;
+    }
+    setSettingsOpen(false);
+  }, [router, searchParams]);
+
   return (
     <main className="flex-1 px-6 py-6 dashboard-theme text-slate-900">
       <div className="w-full max-w-7xl mx-auto space-y-6">
-        <header className="space-y-1">
-          <h1 className="text-2xl md:text-[2rem] font-bold text-slate-900 leading-tight">
-            Impresion directa SATO
-          </h1>
-          <p className="text-sm text-slate-600 max-w-2xl">
-            Piloto temporal para imprimir etiquetas con SATO FX3-LX usando un
-            agente local en este equipo.
-          </p>
+        <header className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="text-2xl md:text-[2rem] font-bold text-slate-900 leading-tight">
+              Impresion directa SATO
+            </h1>
+            <p className="text-sm text-slate-600 max-w-2xl">
+              Piloto temporal para imprimir etiquetas con SATO FX3-LX usando un
+              agente local en este equipo.
+            </p>
+          </div>
+          {searchParams.get("returnTo") ? (
+            <Link
+              href={searchParams.get("returnTo") || "/dashboard/movements?tab=movements"}
+              className="inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Volver
+            </Link>
+          ) : null}
         </header>
 
         <section className="rounded-3xl ui-surface p-5 md:p-6 space-y-4">
@@ -562,7 +597,7 @@ export default function LabelsPilotPage() {
         {settingsOpen && (
           <div
             className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-[2px] p-4 md:p-8"
-            onClick={() => setSettingsOpen(false)}
+            onClick={closeSettings}
           >
             <div
               className="mx-auto mt-4 md:mt-10 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl"
@@ -579,7 +614,7 @@ export default function LabelsPilotPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSettingsOpen(false)}
+                  onClick={closeSettings}
                   className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50"
                 >
                   Cerrar
@@ -593,7 +628,7 @@ export default function LabelsPilotPage() {
                   </span>
                   <div className="flex items-center gap-2">
                     <a
-                      href={AGENT_WINDOWS_DOWNLOAD_URL}
+                      href={LABEL_AGENT_WINDOWS_DOWNLOAD_URL}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-1.5 rounded-md border border-blue-300 bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100"
@@ -637,7 +672,7 @@ export default function LabelsPilotPage() {
                       <input
                         className="ui-input w-full px-3 py-2 text-sm bg-white"
                         value={resolvedTargetUrl}
-                        placeholder={DEFAULT_AGENT_URL}
+                        placeholder={LABEL_AGENT_DEFAULT_PRINT_URL}
                         disabled
                       />
                     </div>

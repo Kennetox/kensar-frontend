@@ -109,6 +109,26 @@ export type PosStationNotice = {
   created_by_user_name?: string | null;
 };
 
+export type StockDeviceRecord = {
+  id: string;
+  name: string;
+  is_active: boolean;
+  bound_device_id?: string | null;
+  bound_device_label?: string | null;
+  created_by_user_id?: number | null;
+  created_by_user_name?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_seen_at?: string | null;
+};
+
+type StockDevicePageResponse = {
+  items: StockDeviceRecord[];
+  total: number;
+  skip: number;
+  limit: number;
+};
+
 export type SmtpTestEmailPayload = {
   recipients: string[];
   smtp_host?: string | null;
@@ -885,6 +905,38 @@ export async function unbindPosStation(
     `/pos/stations/${stationId}/unbind`,
     {
       method: "POST",
+    },
+    undefined,
+    token
+  );
+}
+
+export async function fetchStockDevices(
+  token?: string | null
+): Promise<StockDeviceRecord[]> {
+  const page = await request<StockDevicePageResponse>(
+    "/stock/devices?skip=0&limit=200",
+    undefined,
+    { items: [], total: 0, skip: 0, limit: 200 },
+    token
+  );
+  return page.items ?? [];
+}
+
+export async function updateStockDevice(
+  stockDeviceId: string,
+  payload: {
+    name?: string;
+    is_active?: boolean;
+    touch_seen?: boolean;
+  },
+  token?: string | null
+): Promise<StockDeviceRecord> {
+  return request<StockDeviceRecord>(
+    `/stock/devices/${stockDeviceId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
     },
     undefined,
     token
