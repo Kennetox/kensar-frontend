@@ -746,6 +746,7 @@ export type ReceivingLotItem = {
   qty_received: number;
   unit_cost_snapshot: number;
   unit_price_snapshot: number;
+  labels_printed_qty?: number;
   is_new_product: boolean;
   notes?: string | null;
   created_at: string;
@@ -924,6 +925,29 @@ export async function fetchReceivingLotDetail(
     throw new Error(detail?.detail ?? `Error ${res.status}`);
   }
   return (await res.json()) as ReceivingLotDetail;
+}
+
+export async function markReceivingLotItemLabelsPrinted(
+  token: string,
+  lotId: number,
+  itemId: number,
+  copies: number
+): Promise<ReceivingLotItem> {
+  const apiBase = getApiBase();
+  const params = new URLSearchParams();
+  params.set("copies", String(Math.max(1, Math.round(Number(copies) || 1))));
+  const res = await fetch(
+    `${apiBase}/receiving/lots/${lotId}/items/${itemId}/labels/mark-printed?${params.toString()}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `Error ${res.status}`);
+  }
+  return (await res.json()) as ReceivingLotItem;
 }
 
 export async function downloadReceivingSupportFile(

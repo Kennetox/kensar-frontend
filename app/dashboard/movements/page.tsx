@@ -150,6 +150,10 @@ export default function MovementsPage() {
   const [inventoryPage, setInventoryPage] = useState<InventoryProductPage | null>(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryError, setInventoryError] = useState<string | null>(null);
+  const [summaryInventoryTotals, setSummaryInventoryTotals] = useState<{
+    totalCostValue: number;
+    totalPriceValue: number;
+  }>({ totalCostValue: 0, totalPriceValue: 0 });
   const [inventoryPageNo, setInventoryPageNo] = useState(1);
   const [inventoryPageSize, setInventoryPageSize] = useState(100);
   const [inventorySearch, setInventorySearch] = useState("");
@@ -458,7 +462,7 @@ export default function MovementsPage() {
 
   useEffect(() => {
     if (!token) return;
-    if (activeTab !== "inventory" && activeTab !== "summary") return;
+    if (activeTab !== "inventory") return;
     let cancelled = false;
     setInventoryLoading(true);
     setInventoryError(null);
@@ -499,6 +503,33 @@ export default function MovementsPage() {
     inventoryGroupFilter,
     refreshNonce,
   ]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (activeTab !== "summary") return;
+    let cancelled = false;
+
+    fetchInventoryProducts(token, {
+      skip: 0,
+      limit: 1,
+      sort: "sku_asc",
+    })
+      .then((data) => {
+        if (cancelled) return;
+        setSummaryInventoryTotals({
+          totalCostValue: data.total_cost_value ?? 0,
+          totalPriceValue: data.total_price_value ?? 0,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSummaryInventoryTotals({ totalCostValue: 0, totalPriceValue: 0 });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, activeTab, refreshNonce]);
 
   useEffect(() => {
     if (!token || activeTab !== "receptions") return;
@@ -691,8 +722,8 @@ export default function MovementsPage() {
   const summaryCards = useMemo(() => {
     const summary = overview?.summary;
     const totalQty = summary?.total_qty ?? 0;
-    const totalCostValue = inventoryPage?.total_cost_value ?? 0;
-    const totalPriceValue = inventoryPage?.total_price_value ?? 0;
+    const totalCostValue = summaryInventoryTotals.totalCostValue;
+    const totalPriceValue = summaryInventoryTotals.totalPriceValue;
     const lowStockCount = summary?.low_stock_count ?? 0;
     const criticalCount = summary?.critical_count ?? 0;
     const recentMovementsCount = overview?.recent_movements?.length ?? 0;
@@ -728,7 +759,7 @@ export default function MovementsPage() {
         isNegative: recentMovementsCount < 0,
       },
     ];
-  }, [overview, inventoryPage]);
+  }, [overview, summaryInventoryTotals]);
 
   const latestEntriesVisible = useMemo(() => {
     const filtered =

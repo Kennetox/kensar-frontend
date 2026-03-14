@@ -20,6 +20,7 @@ import {
   fetchPosCustomers,
   fetchReceivingLots,
   fetchReceivingLotDetail,
+  markReceivingLotItemLabelsPrinted,
   replaceManualMovementDocumentLines,
   updateManualMovementDocumentHeader,
   type ManualSaleCreatePayload,
@@ -721,6 +722,7 @@ function EntryReceptionForm() {
 
   const handlePrintLabel = useCallback(
     async (item: ReceivingLotDetail["items"][number]) => {
+      if (!token || !lot) return;
       const sku = item.sku_snapshot?.trim();
       const barcode = item.barcode_snapshot?.trim();
       const codigo = sku && sku.length > 0 ? sku : String(item.product_id);
@@ -739,6 +741,8 @@ function EntryReceptionForm() {
       try {
         setPrintingItemId(item.id);
         await printLabelDirect(LABEL_AGENT_DEFAULT_PRINT_URL, payload);
+        await markReceivingLotItemLabelsPrinted(token, lot.id, item.id, copies);
+        await loadDetail(lot.id);
         setFeedback(
           copies === 1
             ? "Etiqueta enviada a impresión."
@@ -752,7 +756,7 @@ function EntryReceptionForm() {
         setPrintingItemId(null);
       }
     },
-    [agentFormat]
+    [agentFormat, loadDetail, lot, token]
   );
 
   return (
