@@ -9,6 +9,7 @@ import { getApiBase } from "@/lib/api/base";
 import {
   LABEL_AGENT_DEFAULT_FORMAT,
   LABEL_AGENT_DEFAULT_PRINT_URL,
+  LABEL_AGENT_FORMAT_PRESETS,
   LABEL_AGENT_FORMAT_STORAGE_KEY,
   LABEL_AGENT_HEALTH_URL,
   LABEL_AGENT_UI_URL,
@@ -122,6 +123,9 @@ export default function LabelsPilotPage() {
     {}
   );
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const isCustomFormat = !LABEL_AGENT_FORMAT_PRESETS.includes(
+    format as (typeof LABEL_AGENT_FORMAT_PRESETS)[number]
+  );
 
   const canUseApi = !!authHeaders;
 
@@ -699,13 +703,62 @@ export default function LabelsPilotPage() {
                       <label className="text-sm font-semibold text-slate-700">
                         Format
                       </label>
-                      <input
+                      <select
                         className="ui-input w-full px-3 py-2 text-sm bg-white"
-                        value={format}
-                        onChange={(e) => setFormat(e.target.value)}
-                        placeholder="Kensar"
-                      />
+                        value={isCustomFormat ? "__custom__" : format}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          if (next === "__custom__") return;
+                          setFormat(next);
+                        }}
+                      >
+                        {LABEL_AGENT_FORMAT_PRESETS.map((preset) => (
+                          <option key={preset} value={preset}>
+                            {preset}
+                          </option>
+                        ))}
+                        <option value="__custom__">Personalizado</option>
+                      </select>
                     </div>
+                    {isCustomFormat ? (
+                      <div className="space-y-2 md:col-span-2">
+                        <label className="text-sm font-semibold text-slate-700">
+                          Formato personalizado
+                        </label>
+                        <input
+                          className="ui-input w-full px-3 py-2 text-sm bg-white"
+                          value={format}
+                          onChange={(e) => setFormat(e.target.value)}
+                          placeholder="Nombre exacto en impresora"
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {LABEL_AGENT_FORMAT_PRESETS.map((preset) => {
+                      const active = format === preset;
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setFormat(preset)}
+                          className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
+                            active
+                              ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setFormat(LABEL_AGENT_DEFAULT_FORMAT)}
+                      className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      Restablecer
+                    </button>
                   </div>
                 </div>
 

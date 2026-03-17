@@ -39,6 +39,7 @@ import {
 import {
   LABEL_AGENT_DEFAULT_FORMAT,
   LABEL_AGENT_DEFAULT_PRINT_URL,
+  LABEL_AGENT_FORMAT_PRESETS,
   LABEL_AGENT_FORMAT_STORAGE_KEY,
   LABEL_AGENT_HEALTH_URL,
 } from "@/lib/printing/labelAgentConfig";
@@ -223,6 +224,12 @@ function EntryReceptionForm() {
 
   const items = detail?.items ?? [];
   const lotIsOpen = lot?.status === "open";
+  const agentFormatOptions = useMemo(() => {
+    if (LABEL_AGENT_FORMAT_PRESETS.includes(agentFormat as (typeof LABEL_AGENT_FORMAT_PRESETS)[number])) {
+      return [...LABEL_AGENT_FORMAT_PRESETS];
+    }
+    return [agentFormat, ...LABEL_AGENT_FORMAT_PRESETS];
+  }, [agentFormat]);
 
   useEffect(() => {
     if (!lot || lot.status !== "open") return;
@@ -283,6 +290,14 @@ function EntryReceptionForm() {
     );
     if (storedFormat?.trim()) {
       setAgentFormat(storedFormat.trim());
+    }
+  }, []);
+
+  const handleAgentFormatChange = useCallback((nextFormat: string) => {
+    const normalized = nextFormat.trim() || LABEL_AGENT_DEFAULT_FORMAT;
+    setAgentFormat(normalized);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(LABEL_AGENT_FORMAT_STORAGE_KEY, normalized);
     }
   }, []);
 
@@ -793,6 +808,20 @@ function EntryReceptionForm() {
               <span className="font-semibold">Format:</span> {agentFormat}
             </span>
           </div>
+          <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700">
+            <span className="font-semibold">Formato:</span>
+            <select
+              value={agentFormat}
+              onChange={(e) => handleAgentFormatChange(e.target.value)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+            >
+              {agentFormatOptions.map((preset) => (
+                <option key={preset} value={preset}>
+                  {preset}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
             onClick={openSharedPrinterSettings}
