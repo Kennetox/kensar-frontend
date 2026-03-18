@@ -25,6 +25,7 @@ export type Product = {
   price: number;
   cost: number;
   barcode: string | null;
+  label_format: string | null;
   unit: string | null;
   stock_min: number;
   active: boolean;

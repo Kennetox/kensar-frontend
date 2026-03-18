@@ -9,8 +9,6 @@ import { getApiBase } from "@/lib/api/base";
 import {
   LABEL_AGENT_DEFAULT_FORMAT,
   LABEL_AGENT_DEFAULT_PRINT_URL,
-  LABEL_AGENT_FORMAT_PRESETS,
-  LABEL_AGENT_FORMAT_STORAGE_KEY,
   LABEL_AGENT_HEALTH_URL,
   LABEL_AGENT_UI_URL,
   LABEL_AGENT_WINDOWS_DOWNLOAD_URL,
@@ -18,7 +16,7 @@ import {
 
 type ProductSearchResult = Pick<
   PosProduct,
-  "id" | "sku" | "name" | "price" | "barcode"
+  "id" | "sku" | "name" | "price" | "barcode" | "label_format"
 >;
 
 type PrintPayload = {
@@ -38,6 +36,7 @@ type LabelItem = {
   name: string;
   barcode: string | null;
   price: number;
+  label_format: string | null;
   quantity: number;
 };
 
@@ -99,9 +98,7 @@ export default function LabelsPilotPage() {
     [token]
   );
 
-  const [format, setFormat] = useState(LABEL_AGENT_DEFAULT_FORMAT);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsReady, setSettingsReady] = useState(false);
   const [agentHealth, setAgentHealth] = useState<"checking" | "online" | "offline">(
     "checking"
   );
@@ -123,9 +120,6 @@ export default function LabelsPilotPage() {
     {}
   );
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const isCustomFormat = !LABEL_AGENT_FORMAT_PRESETS.includes(
-    format as (typeof LABEL_AGENT_FORMAT_PRESETS)[number]
-  );
 
   const canUseApi = !!authHeaders;
 
@@ -167,15 +161,6 @@ export default function LabelsPilotPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedFormat = window.localStorage.getItem(
-      LABEL_AGENT_FORMAT_STORAGE_KEY
-    );
-    if (storedFormat) setFormat(storedFormat);
-    setSettingsReady(true);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
     const raw = window.sessionStorage.getItem(SESSION_STORAGE_STATE_KEY);
     if (raw) {
       try {
@@ -210,11 +195,6 @@ export default function LabelsPilotPage() {
     searchQuery,
     sessionReady,
   ]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !settingsReady) return;
-    window.localStorage.setItem(LABEL_AGENT_FORMAT_STORAGE_KEY, format);
-  }, [format, settingsReady]);
 
   useEffect(() => {
     if (searchParams.get("openSettings") === "1") {
@@ -305,6 +285,10 @@ export default function LabelsPilotPage() {
             name: product.name,
             barcode: product.barcode,
             price: product.price,
+            label_format:
+              typeof product.label_format === "string"
+                ? product.label_format
+                : null,
           }));
         setSearchResults(filtered);
       } catch (err) {
@@ -346,6 +330,7 @@ export default function LabelsPilotPage() {
             name: product.name,
             barcode: product.barcode ?? null,
             price: product.price,
+            label_format: product.label_format ?? null,
             quantity: 1,
           },
         ];
@@ -450,11 +435,11 @@ export default function LabelsPilotPage() {
         BARRAS: barras,
         NOMBRE: item.name,
         PRECIO: formatPriceForPayload(item.price),
-        format: format.trim() || LABEL_AGENT_DEFAULT_FORMAT,
+        format: item.label_format?.trim() || LABEL_AGENT_DEFAULT_FORMAT,
         copies: item.quantity > 0 ? item.quantity : 1,
       };
     },
-    [format]
+    []
   );
 
   const handlePrint = useCallback(
@@ -518,7 +503,7 @@ export default function LabelsPilotPage() {
       setProbeMessage(null);
       await sendPrint({
         ...TEST_LABEL,
-        format: format.trim() || LABEL_AGENT_DEFAULT_FORMAT,
+        format: LABEL_AGENT_DEFAULT_FORMAT,
       });
       setProbeStatus("success");
       setProbeMessage("Impresion de prueba enviada.");
@@ -531,7 +516,7 @@ export default function LabelsPilotPage() {
           : "No pudimos enviar la impresion de prueba."
       );
     }
-  }, [format, sendPrint, validateTarget]);
+  }, [sendPrint, validateTarget]);
 
   const closeSettings = useCallback(() => {
     const returnTo = searchParams.get("returnTo");
@@ -569,8 +554,7 @@ export default function LabelsPilotPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
               <span>
-                <span className="font-semibold">Modo:</span> Agente local ·{" "}
-                <span className="font-semibold">Format:</span> {format}
+                <span className="font-semibold">Modo:</span> Agente local
               </span>
               <span
                 className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
@@ -686,79 +670,6 @@ export default function LabelsPilotPage() {
                     <span className="font-mono">
                       {resolvedTargetUrl || "sin definir"}
                     </span>
-                  </div>
-                </div>
-
-                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div>
-                    <h4 className="text-sm font-semibold text-slate-900">
-                      Plantilla de etiqueta
-                    </h4>
-                    <p className="text-xs text-slate-600">
-                      Nombre del formato cargado en la impresora (ej: Kensar).
-                    </p>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <label className="text-sm font-semibold text-slate-700">
-                        Format
-                      </label>
-                      <select
-                        className="ui-input w-full px-3 py-2 text-sm bg-white"
-                        value={isCustomFormat ? "__custom__" : format}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          if (next === "__custom__") return;
-                          setFormat(next);
-                        }}
-                      >
-                        {LABEL_AGENT_FORMAT_PRESETS.map((preset) => (
-                          <option key={preset} value={preset}>
-                            {preset}
-                          </option>
-                        ))}
-                        <option value="__custom__">Personalizado</option>
-                      </select>
-                    </div>
-                    {isCustomFormat ? (
-                      <div className="space-y-2 md:col-span-2">
-                        <label className="text-sm font-semibold text-slate-700">
-                          Formato personalizado
-                        </label>
-                        <input
-                          className="ui-input w-full px-3 py-2 text-sm bg-white"
-                          value={format}
-                          onChange={(e) => setFormat(e.target.value)}
-                          placeholder="Nombre exacto en impresora"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {LABEL_AGENT_FORMAT_PRESETS.map((preset) => {
-                      const active = format === preset;
-                      return (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => setFormat(preset)}
-                          className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
-                            active
-                              ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                              : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                          }`}
-                        >
-                          {preset}
-                        </button>
-                      );
-                    })}
-                    <button
-                      type="button"
-                      onClick={() => setFormat(LABEL_AGENT_DEFAULT_FORMAT)}
-                      className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      Restablecer
-                    </button>
                   </div>
                 </div>
 

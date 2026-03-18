@@ -39,8 +39,6 @@ import {
 import {
   LABEL_AGENT_DEFAULT_FORMAT,
   LABEL_AGENT_DEFAULT_PRINT_URL,
-  LABEL_AGENT_FORMAT_PRESETS,
-  LABEL_AGENT_FORMAT_STORAGE_KEY,
   LABEL_AGENT_HEALTH_URL,
 } from "@/lib/printing/labelAgentConfig";
 
@@ -208,7 +206,6 @@ function EntryReceptionForm() {
   const [editingCost, setEditingCost] = useState("");
   const [editingNotes, setEditingNotes] = useState("");
 
-  const [agentFormat, setAgentFormat] = useState(LABEL_AGENT_DEFAULT_FORMAT);
   const [agentHealth, setAgentHealth] = useState<"checking" | "online" | "offline">(
     "checking"
   );
@@ -224,12 +221,6 @@ function EntryReceptionForm() {
 
   const items = detail?.items ?? [];
   const lotIsOpen = lot?.status === "open";
-  const agentFormatOptions = useMemo(() => {
-    if (LABEL_AGENT_FORMAT_PRESETS.includes(agentFormat as (typeof LABEL_AGENT_FORMAT_PRESETS)[number])) {
-      return [...LABEL_AGENT_FORMAT_PRESETS];
-    }
-    return [agentFormat, ...LABEL_AGENT_FORMAT_PRESETS];
-  }, [agentFormat]);
 
   useEffect(() => {
     if (!lot || lot.status !== "open") return;
@@ -282,24 +273,6 @@ function EntryReceptionForm() {
     showToast(feedback, "success");
     setFeedback(null);
   }, [feedback, showToast]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storedFormat = window.localStorage.getItem(
-      LABEL_AGENT_FORMAT_STORAGE_KEY
-    );
-    if (storedFormat?.trim()) {
-      setAgentFormat(storedFormat.trim());
-    }
-  }, []);
-
-  const handleAgentFormatChange = useCallback((nextFormat: string) => {
-    const normalized = nextFormat.trim() || LABEL_AGENT_DEFAULT_FORMAT;
-    setAgentFormat(normalized);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(LABEL_AGENT_FORMAT_STORAGE_KEY, normalized);
-    }
-  }, []);
 
   const checkAgentHealth = useCallback(async () => {
     if (typeof window === "undefined") return;
@@ -749,7 +722,9 @@ function EntryReceptionForm() {
         BARRAS: barras,
         NOMBRE: item.product_name_snapshot,
         PRECIO: formatMoney(item.unit_price_snapshot ?? 0),
-        format: agentFormat.trim() || LABEL_AGENT_DEFAULT_FORMAT,
+        format:
+          item.label_format_snapshot?.trim() ||
+          LABEL_AGENT_DEFAULT_FORMAT,
         copies,
       };
 
@@ -771,7 +746,7 @@ function EntryReceptionForm() {
         setPrintingItemId(null);
       }
     },
-    [agentFormat, loadDetail, lot, token]
+    [loadDetail, lot, token]
   );
 
   return (
@@ -803,25 +778,7 @@ function EntryReceptionForm() {
                 ? "offline"
                 : "verificando"}
             </span>
-            <span className="text-slate-400">·</span>
-            <span>
-              <span className="font-semibold">Format:</span> {agentFormat}
-            </span>
           </div>
-          <label className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700">
-            <span className="font-semibold">Formato:</span>
-            <select
-              value={agentFormat}
-              onChange={(e) => handleAgentFormatChange(e.target.value)}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
-            >
-              {agentFormatOptions.map((preset) => (
-                <option key={preset} value={preset}>
-                  {preset}
-                </option>
-              ))}
-            </select>
-          </label>
           <button
             type="button"
             onClick={openSharedPrinterSettings}

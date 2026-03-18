@@ -20,11 +20,13 @@ type Product = {
   price: number;
   cost: number;
   barcode: string | null;
+  label_format: string | null;
   unit: string | null;
   stock_min: number;
   active: boolean;
   service: boolean;
   includes_tax: boolean;
+  is_investment: boolean;
   // nuevos
   group_name: string | null;
   brand: string | null;
@@ -54,11 +56,13 @@ type ProductForm = {
   price: string;
   cost: string;
   barcode: string;
+  label_format: string;
   unit: string;
   stock_min: string;
   active: boolean;
   service: boolean;
   includes_tax: boolean;
+  is_investment: boolean;
   // nuevos
   group_name: string;
   brand: string;
@@ -75,11 +79,13 @@ const emptyForm: ProductForm = {
   price: "",
   cost: "",
   barcode: "",
+  label_format: "Kensar1",
   unit: "",
   stock_min: "0",
   active: true,
   service: false,
   includes_tax: false,
+  is_investment: false,
   group_name: "",
   brand: "",
   supplier: "",
@@ -107,6 +113,8 @@ type ProductAuditEntry = {
 
 const API_BASE = getApiBase();
 const DEFAULT_TILE_COLOR = "#1f2937";
+const DEFAULT_LABEL_FORMAT = "Kensar1";
+const CABLES_LABEL_FORMAT = "Cables_1";
 
 function resolveImageUrl(url: string | null): string | null {
   if (!url) return null;
@@ -160,6 +168,7 @@ function formatAuditFieldLabel(field: string): string {
     price: "precio",
     cost: "costo",
     barcode: "código de barras",
+    label_format: "formato de etiqueta",
     unit: "unidad",
     stock_min: "stock mínimo",
     preferred_qty: "cantidad preferida",
@@ -169,6 +178,7 @@ function formatAuditFieldLabel(field: string): string {
     active: "estado activo",
     service: "servicio",
     includes_tax: "IVA incluido",
+    is_investment: "producto de inversión",
     group_name: "grupo",
     brand: "marca",
     supplier: "proveedor",
@@ -192,6 +202,14 @@ function isAuditEmptyValue(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   if (typeof value === "string") return value.trim() === "";
   return false;
+}
+
+function isCablesGroup(groupName: string): boolean {
+  return groupName.toLowerCase().includes("cables");
+}
+
+function resolveLabelFormatByGroup(groupName: string): string {
+  return isCablesGroup(groupName.trim()) ? CABLES_LABEL_FORMAT : DEFAULT_LABEL_FORMAT;
 }
 
 function getAuditSourceLabel(entry: ProductAuditEntry): string | null {
@@ -292,6 +310,7 @@ export default function ProductsPage() {
   const [savingCreate, setSavingCreate] = useState(false);
   const [createSkuLocked, setCreateSkuLocked] = useState(true);
   const [createBarcodeLocked, setCreateBarcodeLocked] = useState(true);
+  const [createLabelFormatLocked, setCreateLabelFormatLocked] = useState(true);
 
   // edición
   const [editOpen, setEditOpen] = useState(false);
@@ -304,6 +323,7 @@ export default function ProductsPage() {
   const [deleteCloseOnSuccess, setDeleteCloseOnSuccess] = useState(false);
   const [editSkuLocked, setEditSkuLocked] = useState(true);
   const [editBarcodeLocked, setEditBarcodeLocked] = useState(true);
+  const [editLabelFormatLocked, setEditLabelFormatLocked] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -400,6 +420,7 @@ export default function ProductsPage() {
       { key: "price", label: "Precio" },
       { key: "cost", label: "Costo" },
       { key: "barcode", label: "Código barras" },
+      { key: "label_format", label: "Formato etiquetas" },
       { key: "unit", label: "Unidad" },
       { key: "preferred_qty", label: "Cant. preferida" },
       { key: "reorder_point", label: "Punto pedido" },
@@ -409,6 +430,7 @@ export default function ProductsPage() {
       { key: "active", label: "Activo" },
       { key: "service", label: "Servicio" },
       { key: "includes_tax", label: "IVA incl." },
+      { key: "is_investment", label: "Es inversión" },
       { key: "history", label: "Historial (creación + última mod.)" },
     ],
     []
@@ -634,12 +656,61 @@ export default function ProductsPage() {
     });
     setCreateSkuLocked(true);
     setCreateBarcodeLocked(true);
+    setCreateLabelFormatLocked(true);
   }
+
+  function handleCreateGroupInput(nextGroupName: string) {
+    setCreateForm((prev) => ({
+      ...prev,
+      group_name: nextGroupName,
+      label_format: createLabelFormatLocked
+        ? resolveLabelFormatByGroup(nextGroupName)
+        : prev.label_format,
+    }));
+  }
+
+  function handleEditGroupInput(nextGroupName: string) {
+    setEditForm((prev) => ({
+      ...prev,
+      group_name: nextGroupName,
+      label_format: editLabelFormatLocked
+        ? resolveLabelFormatByGroup(nextGroupName)
+        : prev.label_format,
+    }));
+  }
+
+  function toggleCreateLabelFormatLock() {
+    setCreateLabelFormatLocked((prev) => {
+      const nextLocked = !prev;
+      if (nextLocked) {
+        setCreateForm((current) => ({
+          ...current,
+          label_format: resolveLabelFormatByGroup(current.group_name),
+        }));
+      }
+      return nextLocked;
+    });
+  }
+
+  function toggleEditLabelFormatLock() {
+    setEditLabelFormatLocked((prev) => {
+      const nextLocked = !prev;
+      if (nextLocked) {
+        setEditForm((current) => ({
+          ...current,
+          label_format: resolveLabelFormatByGroup(current.group_name),
+        }));
+      }
+      return nextLocked;
+    });
+  }
+
   function handleCloseCreateModal() {
     setCreateOpen(false);
     setCreateForm(emptyForm);
     setCreateSkuLocked(true);
     setCreateBarcodeLocked(true);
+    setCreateLabelFormatLocked(true);
   }
 
   function handleCloseEditModal() {
@@ -657,6 +728,7 @@ export default function ProductsPage() {
     setDeleteCloseOnSuccess(false);
     setEditSkuLocked(true);
     setEditBarcodeLocked(true);
+    setEditLabelFormatLocked(true);
     if (productImageInputRef.current) {
       productImageInputRef.current.value = "";
     }
@@ -1390,11 +1462,13 @@ export default function ProductsPage() {
         price: parseMoneyValue(createForm.price),
         cost: parseMoneyValue(createForm.cost),
         barcode: createForm.barcode || null,
+        label_format: createForm.label_format || null,
         unit: createForm.unit || null,
         stock_min: parseInt(createForm.stock_min || "0", 10),
         active: createForm.active,
         service: createForm.service,
         includes_tax: createForm.includes_tax,
+        is_investment: createForm.is_investment,
         group_name: createForm.group_name || null,
         brand: createForm.brand || null,
         supplier: createForm.supplier || null,
@@ -1446,11 +1520,14 @@ export default function ProductsPage() {
       price: formatMoneyFromNumber(product.price),
       cost: formatMoneyFromNumber(product.cost),
       barcode: product.barcode ?? "",
+      label_format:
+        product.label_format ?? resolveLabelFormatByGroup(product.group_name ?? ""),
       unit: product.unit ?? "",
       stock_min: product.stock_min.toString(),
       active: product.active,
       service: product.service,
       includes_tax: product.includes_tax,
+      is_investment: product.is_investment,
       group_name: product.group_name ?? "",
       brand: product.brand ?? "",
       supplier: product.supplier ?? "",
@@ -1462,6 +1539,7 @@ export default function ProductsPage() {
     });
     setEditSkuLocked(true);
     setEditBarcodeLocked(true);
+    setEditLabelFormatLocked(true);
     setEditOpen(true);
   }
 
@@ -1580,10 +1658,12 @@ export default function ProductsPage() {
         payload.reorder_point = parseInt(editForm.reorder_point || "0", 10);
 
       payload.barcode = editForm.barcode || null;
+      payload.label_format = editForm.label_format || null;
       payload.unit = editForm.unit || null;
       payload.active = editForm.active;
       payload.service = editForm.service;
       payload.includes_tax = editForm.includes_tax;
+      payload.is_investment = editForm.is_investment;
       payload.group_name = editForm.group_name || null;
       payload.brand = editForm.brand || null;
       payload.supplier = editForm.supplier || null;
@@ -1836,6 +1916,7 @@ export default function ProductsPage() {
         (p.name && p.name.toLowerCase().includes(term)) ||
         (p.sku && p.sku.toLowerCase().includes(term)) ||
         (p.barcode && p.barcode.toLowerCase().includes(term)) ||
+        (p.label_format && p.label_format.toLowerCase().includes(term)) ||
         (p.group_name && p.group_name.toLowerCase().includes(term)) ||
         (p.brand && p.brand.toLowerCase().includes(term)) ||
         (p.supplier && p.supplier.toLowerCase().includes(term));
@@ -2315,6 +2396,9 @@ export default function ProductsPage() {
                     Código barras
                   </th>
                   <th className="px-4 py-3 text-left font-semibold">
+                    Formato etiquetas
+                  </th>
+                  <th className="px-4 py-3 text-left font-semibold">
                     Unidad
                   </th>
                   <th className="px-4 py-3 text-right font-semibold">
@@ -2340,6 +2424,9 @@ export default function ProductsPage() {
                   </th>
                   <th className="px-4 py-3 text-center font-semibold">
                     IVA incl.
+                  </th>
+                  <th className="px-4 py-3 text-center font-semibold">
+                    Inversión
                   </th>
                   <th className="px-4 py-3 text-center font-semibold min-w-[190px]">
                     Acciones
@@ -2380,6 +2467,7 @@ export default function ProductsPage() {
                       })}
                     </td>
                     <td className="px-4 py-3">{p.barcode}</td>
+                    <td className="px-4 py-3">{p.label_format ?? DEFAULT_LABEL_FORMAT}</td>
                     <td className="px-4 py-3">{p.unit}</td>
                     <td className="px-4 py-3 text-right">
                       {p.preferred_qty}
@@ -2404,6 +2492,9 @@ export default function ProductsPage() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       {p.includes_tax ? "✔️" : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {p.is_investment ? "💼" : "—"}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-2 whitespace-nowrap">
@@ -2447,7 +2538,7 @@ export default function ProductsPage() {
                 {paginatedProducts.length === 0 && (
                   <tr>
                     <td
-                      colSpan={17}
+                      colSpan={21}
                       className="px-4 py-6 text-center text-slate-500"
                     >
                       No hay productos que coincidan con la búsqueda.
@@ -2642,7 +2733,7 @@ export default function ProductsPage() {
                   <input
                     name="group_name"
                     value={createForm.group_name}
-                    onChange={(e) => handleFormChange(e, setCreateForm)}
+                    onChange={(e) => handleCreateGroupInput(e.target.value)}
                     onFocus={() => setCreateGroupFocused(true)}
                     onBlur={() => {
                       // pequeño retardo para permitir click en la sugerencia
@@ -2664,7 +2755,7 @@ export default function ProductsPage() {
                             type="button"
                             onMouseDown={(e) => {
                               e.preventDefault();
-                              setCreateForm((prev) => ({ ...prev, group_name: g }));
+                              handleCreateGroupInput(g);
                               setCreateGroupFocused(false);
                             }}
                             className="block w-full text-left px-3 py-1.5 hover:bg-slate-800"
@@ -2809,6 +2900,32 @@ export default function ProductsPage() {
               </div>
 
               <div className="space-y-1">
+                <label className="block text-slate-300">Formato etiqueta</label>
+                <div className="relative">
+                  <input
+                    name="label_format"
+                    value={createForm.label_format}
+                    onChange={(e) => handleFormChange(e, setCreateForm)}
+                    disabled={createLabelFormatLocked}
+                    className={`w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 pr-10 outline-none focus:border-emerald-400 ${createLabelFormatLocked ? "text-slate-400" : ""}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={toggleCreateLabelFormatLock}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                    aria-pressed={!createLabelFormatLocked}
+                    aria-label={
+                      createLabelFormatLocked
+                        ? "Desbloquear formato de etiqueta"
+                        : "Bloquear formato de etiqueta"
+                    }
+                  >
+                    {createLabelFormatLocked ? "🔒" : "🔓"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
                 <label className="block text-slate-300">Unidad</label>
                 <input
                   name="unit"
@@ -2848,6 +2965,16 @@ export default function ProductsPage() {
                     className="rounded border-slate-600 bg-slate-900"
                   />
                   Precio incluye impuestos
+                </label>
+                <label className="inline-flex items-center gap-2 text-slate-300">
+                  <input
+                    type="checkbox"
+                    name="is_investment"
+                    checked={createForm.is_investment}
+                    onChange={(e) => handleFormChange(e, setCreateForm)}
+                    className="rounded border-slate-600 bg-slate-900"
+                  />
+                  Es inversión
                 </label>
               </div>
 
@@ -2935,7 +3062,7 @@ export default function ProductsPage() {
                   <input
                     name="group_name"
                     value={editForm.group_name}
-                    onChange={(e) => handleFormChange(e, setEditForm)}
+                    onChange={(e) => handleEditGroupInput(e.target.value)}
                     onFocus={() => setEditGroupFocused(true)}
                     onBlur={() => {
                       setTimeout(() => setEditGroupFocused(false), 100);
@@ -2956,7 +3083,7 @@ export default function ProductsPage() {
                             type="button"
                             onMouseDown={(e) => {
                               e.preventDefault();
-                              setEditForm((prev) => ({ ...prev, group_name: g }));
+                              handleEditGroupInput(g);
                               setEditGroupFocused(false);
                             }}
                             className="block w-full text-left px-3 py-1.5 hover:bg-slate-800"
@@ -3101,6 +3228,32 @@ export default function ProductsPage() {
               </div>
 
               <div className="space-y-1">
+                <label className="block text-slate-300">Formato etiqueta</label>
+                <div className="relative">
+                  <input
+                    name="label_format"
+                    value={editForm.label_format}
+                    onChange={(e) => handleFormChange(e, setEditForm)}
+                    disabled={editLabelFormatLocked}
+                    className={`w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 pr-10 outline-none focus:border-emerald-400 ${editLabelFormatLocked ? "text-slate-400" : ""}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={toggleEditLabelFormatLock}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                    aria-pressed={!editLabelFormatLocked}
+                    aria-label={
+                      editLabelFormatLocked
+                        ? "Desbloquear formato de etiqueta"
+                        : "Bloquear formato de etiqueta"
+                    }
+                  >
+                    {editLabelFormatLocked ? "🔒" : "🔓"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
                 <label className="block text-slate-300">Unidad</label>
                 <input
                   name="unit"
@@ -3140,6 +3293,16 @@ export default function ProductsPage() {
                     className="rounded border-slate-600 bg-slate-900"
                   />
                   Precio incluye impuestos
+                </label>
+                <label className="inline-flex items-center gap-2 text-slate-300">
+                  <input
+                    type="checkbox"
+                    name="is_investment"
+                    checked={editForm.is_investment}
+                    onChange={(e) => handleFormChange(e, setEditForm)}
+                    className="rounded border-slate-600 bg-slate-900"
+                  />
+                  Es inversión
                 </label>
               </div>
 
