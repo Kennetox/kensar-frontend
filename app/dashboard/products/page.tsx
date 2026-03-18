@@ -115,6 +115,7 @@ const API_BASE = getApiBase();
 const DEFAULT_TILE_COLOR = "#1f2937";
 const DEFAULT_LABEL_FORMAT = "Kensar1";
 const CABLES_LABEL_FORMAT = "Cables_1";
+const LABEL_FORMAT_OPTIONS = [DEFAULT_LABEL_FORMAT, CABLES_LABEL_FORMAT] as const;
 
 function resolveImageUrl(url: string | null): string | null {
   if (!url) return null;
@@ -210,6 +211,14 @@ function isCablesGroup(groupName: string): boolean {
 
 function resolveLabelFormatByGroup(groupName: string): string {
   return isCablesGroup(groupName.trim()) ? CABLES_LABEL_FORMAT : DEFAULT_LABEL_FORMAT;
+}
+
+function normalizeLabelFormat(value: string | null | undefined, groupName: string): string {
+  const trimmed = (value ?? "").trim();
+  if (LABEL_FORMAT_OPTIONS.includes(trimmed as (typeof LABEL_FORMAT_OPTIONS)[number])) {
+    return trimmed;
+  }
+  return resolveLabelFormatByGroup(groupName);
 }
 
 function getAuditSourceLabel(entry: ProductAuditEntry): string | null {
@@ -552,13 +561,16 @@ export default function ProductsPage() {
 
   // utilidades
   function handleFormChange(
-    e: ChangeEvent<HTMLInputElement>,
+    e: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
     setState: React.Dispatch<React.SetStateAction<ProductForm>>,
   ) {
-    const { name, value, type, checked } = e.target;
+    const { name, value, type } = e.target;
     setState((prev) => ({
       ...prev,
-      [name]: type === "checkbox" ? checked : value,
+      [name]:
+        type === "checkbox"
+          ? (e.target as HTMLInputElement).checked
+          : value,
     }));
   }
 
@@ -1521,7 +1533,7 @@ export default function ProductsPage() {
       cost: formatMoneyFromNumber(product.cost),
       barcode: product.barcode ?? "",
       label_format:
-        product.label_format ?? resolveLabelFormatByGroup(product.group_name ?? ""),
+        normalizeLabelFormat(product.label_format, product.group_name ?? ""),
       unit: product.unit ?? "",
       stock_min: product.stock_min.toString(),
       active: product.active,
@@ -2902,13 +2914,19 @@ export default function ProductsPage() {
               <div className="space-y-1">
                 <label className="block text-slate-300">Formato etiqueta</label>
                 <div className="relative">
-                  <input
+                  <select
                     name="label_format"
-                    value={createForm.label_format}
+                    value={normalizeLabelFormat(createForm.label_format, createForm.group_name)}
                     onChange={(e) => handleFormChange(e, setCreateForm)}
                     disabled={createLabelFormatLocked}
                     className={`w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 pr-10 outline-none focus:border-emerald-400 ${createLabelFormatLocked ? "text-slate-400" : ""}`}
-                  />
+                  >
+                    {LABEL_FORMAT_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
                     onClick={toggleCreateLabelFormatLock}
@@ -3230,13 +3248,19 @@ export default function ProductsPage() {
               <div className="space-y-1">
                 <label className="block text-slate-300">Formato etiqueta</label>
                 <div className="relative">
-                  <input
+                  <select
                     name="label_format"
-                    value={editForm.label_format}
+                    value={normalizeLabelFormat(editForm.label_format, editForm.group_name)}
                     onChange={(e) => handleFormChange(e, setEditForm)}
                     disabled={editLabelFormatLocked}
                     className={`w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 pr-10 outline-none focus:border-emerald-400 ${editLabelFormatLocked ? "text-slate-400" : ""}`}
-                  />
+                  >
+                    {LABEL_FORMAT_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
                     onClick={toggleEditLabelFormatLock}
