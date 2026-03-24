@@ -42,6 +42,7 @@ type AuthTenant = {
   trial_ends_at?: string | null;
   trial_days_remaining?: number | null;
   enabled_modules?: string[];
+  module_access?: Record<string, boolean>;
 };
 
 type AuthContextValue = {

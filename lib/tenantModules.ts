@@ -9,6 +9,7 @@ export type TenantModuleId =
   | "labels"
   | "labels_pilot"
   | "hr"
+  | "investment"
   | "sales_history"
   | "users"
   | "schedule";
@@ -33,6 +34,7 @@ export const TENANT_MODULE_CATALOG: TenantModuleCatalogItem[] = [
   { id: "labels", label: "Etiquetas", description: "Generacion e impresion de etiquetas.", required: false, platform_visible: true, enabled_by_default: true },
   { id: "labels_pilot", label: "Etiquetado (beta)", description: "Flujo beta de etiquetado avanzado.", required: false, platform_visible: true, enabled_by_default: true },
   { id: "hr", label: "Recursos Humanos", description: "Gestion de empleados y datos laborales.", required: false, platform_visible: true, enabled_by_default: true },
+  { id: "investment", label: "Inversion", description: "Seguimiento privado de inversion familiar.", required: false, platform_visible: true, enabled_by_default: false },
   { id: "sales_history", label: "Historial de ventas", description: "Lectura historica de ventas y seguimiento.", required: true, platform_visible: false, enabled_by_default: true },
   { id: "users", label: "Usuarios", description: "Gestion interna de usuarios POS.", required: true, platform_visible: false, enabled_by_default: true },
   { id: "schedule", label: "Agenda", description: "Horarios y turnos del personal.", required: false, platform_visible: false, enabled_by_default: false },

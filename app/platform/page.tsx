@@ -8,7 +8,9 @@ import {
   createPlatformTenant,
   extendPlatformTenantTrial,
   listPlatformTenants,
+  listPlatformTenantUsers,
   PlatformTenant,
+  PlatformTenantUser,
   sendPlatformTenantRecovery,
   updatePlatformTenant,
 } from "@/lib/api/platform";
@@ -93,6 +95,8 @@ export default function PlatformPage() {
   const [tenantFeedback, setTenantFeedback] = useState<
     Record<number, { kind: "success" | "error"; text: string }>
   >({});
+  const [tenantUsers, setTenantUsers] = useState<Record<number, PlatformTenantUser[]>>({});
+  const [loadingTenantUsersId, setLoadingTenantUsersId] = useState<number | null>(null);
   const [form, setForm] = useState({
     slug: "",
     name: "",
@@ -160,6 +164,40 @@ export default function PlatformPage() {
       cancelled = true;
     };
   }, [router, token]);
+
+  useEffect(() => {
+    if (!token || expandedTenantId == null) return;
+    const tenant = tenants.find((row) => row.id === expandedTenantId);
+    if (!tenant) return;
+    if (tenantUsers[tenant.id]) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        setLoadingTenantUsersId(tenant.id);
+        const rows = await listPlatformTenantUsers(tenant.id, token);
+        if (cancelled) return;
+        setTenantUsers((prev) => ({ ...prev, [tenant.id]: rows }));
+      } catch (err) {
+        if (cancelled) return;
+        setTenantFeedback((prev) => ({
+          ...prev,
+          [tenant.id]: {
+            kind: "error",
+            text:
+              err instanceof Error
+                ? err.message
+                : "No se pudieron cargar los usuarios del tenant.",
+          },
+        }));
+      } finally {
+        if (!cancelled) setLoadingTenantUsersId(null);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, expandedTenantId, tenantUsers, tenants]);
 
   const canSubmit = useMemo(() => {
     return (
@@ -403,6 +441,53 @@ export default function PlatformPage() {
             err instanceof Error
               ? err.message
               : "No se pudieron actualizar los modulos de la empresa",
+        },
+      }));
+    } finally {
+      setUpdatingTenantId(null);
+    }
+  }
+
+  async function handleToggleTenantModuleUserAccess(
+    tenant: PlatformTenant,
+    moduleId: string,
+    userId: number
+  ) {
+    if (!token) return;
+    const currentMap = tenant.module_user_access ?? {};
+    const currentUsers = Array.isArray(currentMap[moduleId]) ? currentMap[moduleId] : [];
+    const alreadyIncluded = currentUsers.includes(userId);
+    const nextUsers = alreadyIncluded
+      ? currentUsers.filter((id) => id !== userId)
+      : [...currentUsers, userId];
+    const nextMap: Record<string, number[]> = {
+      ...currentMap,
+      [moduleId]: nextUsers,
+    };
+    try {
+      setUpdatingTenantId(tenant.id);
+      const updated = await updatePlatformTenant(
+        tenant.id,
+        { module_user_access: nextMap },
+        token
+      );
+      setTenants((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      setTenantFeedback((prev) => ({
+        ...prev,
+        [tenant.id]: {
+          kind: "success",
+          text: "Acceso privado de inversión actualizado.",
+        },
+      }));
+    } catch (err) {
+      setTenantFeedback((prev) => ({
+        ...prev,
+        [tenant.id]: {
+          kind: "error",
+          text:
+            err instanceof Error
+              ? err.message
+              : "No se pudo actualizar el acceso privado.",
         },
       }));
     } finally {
@@ -817,6 +902,7 @@ export default function PlatformPage() {
                               moduleDef.id,
                               tenant.module_catalog
                             );
+                            const allowedUserIds = tenant.module_user_access?.[moduleDef.id] ?? [];
                             const locked = moduleDef.required;
                             return (
                               <div
@@ -864,6 +950,50 @@ export default function PlatformPage() {
                                     ? "Desactivar módulo"
                                     : "Activar módulo"}
                                 </button>
+                                {moduleDef.id === "investment" && enabled && (
+                                  <div className="mt-4 space-y-2 rounded-lg border border-slate-800 bg-slate-900/50 p-3">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                                      Acceso privado (sin roles)
+                                    </p>
+                                    <p className="text-xs text-slate-400">
+                                      Selecciona los usuarios que verán este módulo.
+                                    </p>
+                                    {loadingTenantUsersId === tenant.id ? (
+                                      <p className="text-xs text-slate-500">Cargando usuarios...</p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {(tenantUsers[tenant.id] ?? []).map((tenantUser) => (
+                                          <label
+                                            key={`${tenant.id}-${moduleDef.id}-${tenantUser.id}`}
+                                            className="flex items-center gap-2 text-xs text-slate-200"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={allowedUserIds.includes(tenantUser.id)}
+                                              onChange={() =>
+                                                void handleToggleTenantModuleUserAccess(
+                                                  tenant,
+                                                  moduleDef.id,
+                                                  tenantUser.id
+                                                )
+                                              }
+                                              disabled={updatingTenantId === tenant.id}
+                                              className="rounded border-slate-600 bg-slate-900"
+                                            />
+                                            <span>
+                                              {tenantUser.name} ({tenantUser.email})
+                                            </span>
+                                          </label>
+                                        ))}
+                                        {(tenantUsers[tenant.id] ?? []).length === 0 && (
+                                          <p className="text-xs text-slate-500">
+                                            Este tenant no tiene usuarios registrados.
+                                          </p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}

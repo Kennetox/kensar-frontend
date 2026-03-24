@@ -236,6 +236,23 @@ const navItems: Array<{
     ),
   },
   {
+    href: "/dashboard/investment",
+    label: "Inversión",
+    moduleId: "investment",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M4 19h16M6 16l4-4 3 2 5-6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/dashboard/hr",
     label: "Recursos Humanos",
     moduleId: "hr",
@@ -341,6 +358,7 @@ const routePermissions: Array<{
   { prefix: "/dashboard/pos", moduleId: "pos" },
   { prefix: "/dashboard/labels", moduleId: "labels" },
   { prefix: "/dashboard/reports", moduleId: "reports" },
+  { prefix: "/dashboard/investment", moduleId: "investment" },
   { prefix: "/dashboard/hr", moduleId: "hr" },
   { prefix: "/dashboard/schedule", moduleId: "schedule" },
   { prefix: "/dashboard/settings", moduleId: "settings" },
@@ -362,7 +380,8 @@ function isPathAllowed(
   pathname: string,
   role: string | null | undefined,
   modules: typeof defaultRolePermissions,
-  enabledModules: string[] | null | undefined
+  enabledModules: string[] | null | undefined,
+  moduleAccess: Record<string, boolean> | null | undefined
 ) {
   if (!SCHEDULE_MODULE_ENABLED) {
     if (
@@ -380,6 +399,14 @@ function isPathAllowed(
     permissionId: string | undefined
   ) => {
     if (moduleId && !isTenantModuleEnabled(enabledModules, moduleId)) {
+      return false;
+    }
+    if (
+      moduleId &&
+      moduleAccess &&
+      Object.prototype.hasOwnProperty.call(moduleAccess, moduleId) &&
+      moduleAccess[moduleId] === false
+    ) {
       return false;
     }
     const moduleEntry = moduleId
@@ -533,8 +560,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           pathname === prefix || pathname.startsWith(`${prefix}/`)
       );
     }
-    return isPathAllowed(pathname, user?.role, roleModules, tenant?.enabled_modules);
-  }, [pathname, tenant?.enabled_modules, user?.role, posPreview, roleModules, permissionsResolved]);
+    return isPathAllowed(
+      pathname,
+      user?.role,
+      roleModules,
+      tenant?.enabled_modules,
+      tenant?.module_access
+    );
+  }, [pathname, tenant?.enabled_modules, tenant?.module_access, user?.role, posPreview, roleModules, permissionsResolved]);
 
   const currentBreadcrumbs = useMemo(() => {
     if (posPreview) return ["Inicio"];
@@ -624,6 +657,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       ? roleModules.find((row) => row.id === item.moduleId)
       : undefined;
     if (item.moduleId && !isTenantModuleEnabled(tenant?.enabled_modules, item.moduleId)) {
+      return false;
+    }
+    if (
+      item.moduleId &&
+      tenant?.module_access &&
+      Object.prototype.hasOwnProperty.call(tenant.module_access, item.moduleId) &&
+      tenant.module_access[item.moduleId] === false
+    ) {
       return false;
     }
     if (!moduleEntry) return true;

@@ -11,6 +11,7 @@ export type PlatformTenant = {
   trial_ends_at: string | null;
   converted_at: string | null;
   enabled_modules: string[];
+  module_user_access: Record<string, number[]>;
   trial_days_remaining: number | null;
   created_at: string;
   updated_at: string;
@@ -59,6 +60,16 @@ export type PlatformTenantRecoveryResponse = {
   expires_in: number;
 };
 
+export type PlatformTenantUser = {
+  id: number;
+  name: string;
+  email: string;
+  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
+  status: "Activo" | "Inactivo";
+  is_active: boolean;
+  created_at: string;
+};
+
 function buildHeaders(token: string): HeadersInit {
   return {
     "Content-Type": "application/json",
@@ -104,6 +115,7 @@ export async function updatePlatformTenant(
     name?: string;
     is_active?: boolean;
     enabled_modules?: string[];
+    module_user_access?: Record<string, number[]>;
     lifecycle_stage?: "demo" | "active" | "inactive" | "suspended" | "archived";
   },
   token: string
@@ -116,6 +128,18 @@ export async function updatePlatformTenant(
   });
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as PlatformTenant;
+}
+
+export async function listPlatformTenantUsers(
+  tenantId: number,
+  token: string
+): Promise<PlatformTenantUser[]> {
+  const res = await fetch(`${getApiBase()}/platform/tenants/${tenantId}/users`, {
+    headers: buildHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as PlatformTenantUser[];
 }
 
 export async function sendPlatformTenantRecovery(
