@@ -17,6 +17,7 @@ import {
   previewInvestmentCut,
   reconcileInvestmentCut,
   removeInvestmentProduct,
+  updateInvestmentProductStatus,
   replaceInvestmentParticipants,
   type InvestmentRecentActivity,
   type InvestmentSaleLinePage,
@@ -271,6 +272,7 @@ export default function InvestmentPage() {
   const [exportingRecords, setExportingRecords] = useState<null | "pdf" | "xlsx">(null);
   const [exportingPayouts, setExportingPayouts] = useState<null | "pdf" | "xlsx">(null);
   const [removingProductId, setRemovingProductId] = useState<number | null>(null);
+  const [updatingProductId, setUpdatingProductId] = useState<number | null>(null);
   const recordsLimit = 50;
 
   function mapParticipantToPayload(row: InvestmentParticipant) {
@@ -1162,6 +1164,43 @@ export default function InvestmentPage() {
     }
   }
 
+  async function handleUpdateInvestmentProductStatus(
+    productId: number,
+    productName: string,
+    status: "active" | "paused" | "archived"
+  ) {
+    if (!token) return;
+    try {
+      setError(null);
+      setSuccess(null);
+      setUpdatingProductId(productId);
+      await updateInvestmentProductStatus(token, productId, status);
+      const [productRows, summaryData, recentActivityData, salesLinesData] = await Promise.all([
+        fetchInvestmentProducts(token, { limit: 500 }),
+        fetchInvestmentSummary(token),
+        fetchInvestmentRecentActivity(token),
+        fetchInvestmentSalesLines(token, {
+          period_start: recordsPeriodStart,
+          period_end: recordsPeriodEnd,
+          search: recordsSearch.trim() || undefined,
+          skip: recordsSkip,
+          limit: recordsLimit,
+        }),
+      ]);
+      setProducts(productRows);
+      setSummary(summaryData);
+      setRecentActivity(recentActivityData);
+      setSalesLinesPage(salesLinesData);
+      const label =
+        status === "active" ? "Activo" : status === "paused" ? "Pausado" : "Archivado";
+      setSuccess(`Producto "${productName}" actualizado a ${label}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo actualizar estado del producto.");
+    } finally {
+      setUpdatingProductId(null);
+    }
+  }
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -1693,7 +1732,8 @@ export default function InvestmentPage() {
                   <th className="px-3 py-2 text-right">Stock</th>
                   <th className="px-3 py-2 text-right">Costo</th>
                   <th className="px-3 py-2 text-right">Precio</th>
-                  <th className="px-3 py-2 text-center">Estado</th>
+                  <th className="px-3 py-2 text-center">Estado stock</th>
+                  <th className="px-3 py-2 text-center">Inversión</th>
                   <th className="px-3 py-2 text-right">Acción</th>
                 </tr>
               </thead>
@@ -1715,23 +1755,89 @@ export default function InvestmentPage() {
                         ? "Bajo"
                         : "Crítico"}
                     </td>
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleRemoveInvestmentProduct(item.product_id, item.product_name)
-                        }
-                        disabled={removingProductId === item.product_id}
-                        className="rounded-md border border-rose-200 px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                    <td className="px-3 py-2 text-center">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                          item.investment_status === "active"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : item.investment_status === "paused"
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-slate-200 text-slate-700"
+                        }`}
                       >
-                        {removingProductId === item.product_id ? "Quitando..." : "Quitar"}
-                      </button>
+                        {item.investment_status === "active"
+                          ? "Activo"
+                          : item.investment_status === "paused"
+                          ? "Pausado"
+                          : "Archivado"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex justify-end gap-1">
+                        {item.investment_status === "active" ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleUpdateInvestmentProductStatus(
+                                item.product_id,
+                                item.product_name,
+                                "paused"
+                              )
+                            }
+                            disabled={updatingProductId === item.product_id}
+                            className="rounded-md border border-amber-200 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-60"
+                          >
+                            Pausar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleUpdateInvestmentProductStatus(
+                                item.product_id,
+                                item.product_name,
+                                "active"
+                              )
+                            }
+                            disabled={updatingProductId === item.product_id}
+                            className="rounded-md border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                          >
+                            Activar
+                          </button>
+                        )}
+                        {item.investment_status !== "archived" ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleUpdateInvestmentProductStatus(
+                                item.product_id,
+                                item.product_name,
+                                "archived"
+                              )
+                            }
+                            disabled={updatingProductId === item.product_id}
+                            className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                          >
+                            Archivar
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleRemoveInvestmentProduct(item.product_id, item.product_name)
+                          }
+                          disabled={removingProductId === item.product_id}
+                          className="rounded-md border border-rose-200 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                        >
+                          {removingProductId === item.product_id ? "Quitando..." : "Quitar"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
                 {filteredProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 py-5 text-center text-slate-500">
+                    <td colSpan={9} className="px-3 py-5 text-center text-slate-500">
                       No hay productos de inversión para mostrar.
                     </td>
                   </tr>

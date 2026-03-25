@@ -70,6 +70,9 @@ export type InvestmentProduct = {
   status: "ok" | "low" | "critical";
   cost: number;
   price: number;
+  investment_status: "active" | "paused" | "archived";
+  investment_enabled_at?: string | null;
+  investment_disabled_at?: string | null;
   last_movement_at?: string | null;
 };
 
@@ -361,6 +364,26 @@ export async function removeInvestmentProduct(
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     credentials: "include",
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `Error ${res.status}`);
+  }
+}
+
+export async function updateInvestmentProductStatus(
+  token: string,
+  productId: number,
+  status: "active" | "paused" | "archived"
+): Promise<void> {
+  const res = await fetch(`${getApiBase()}/investment/products/${productId}/status`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify({ status }),
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
