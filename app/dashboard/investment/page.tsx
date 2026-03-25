@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/app/providers/AuthProvider";
 import {
   createInvestmentPayout,
@@ -241,6 +241,9 @@ export default function InvestmentPage() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ id: number; message: string; tone: "info" | "error" } | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const [showCreateParticipantForm, setShowCreateParticipantForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingParticipants, setSavingParticipants] = useState(false);
@@ -274,6 +277,20 @@ export default function InvestmentPage() {
   const [removingProductId, setRemovingProductId] = useState<number | null>(null);
   const [updatingProductId, setUpdatingProductId] = useState<number | null>(null);
   const recordsLimit = 50;
+
+  const showToast = useCallback((message: string, tone: "info" | "error" = "info") => {
+    if (toastTimerRef.current.hide) {
+      window.clearTimeout(toastTimerRef.current.hide);
+    }
+    if (toastTimerRef.current.remove) {
+      window.clearTimeout(toastTimerRef.current.remove);
+    }
+    setToast({ id: Date.now(), message, tone });
+    setToastVisible(false);
+    requestAnimationFrame(() => setToastVisible(true));
+    toastTimerRef.current.hide = window.setTimeout(() => setToastVisible(false), 3600);
+    toastTimerRef.current.remove = window.setTimeout(() => setToast(null), 3860);
+  }, []);
 
   function mapParticipantToPayload(row: InvestmentParticipant) {
     return {
@@ -1222,6 +1239,23 @@ export default function InvestmentPage() {
     };
   }, [periodEnd, periodStart, token]);
 
+  useEffect(() => {
+    if (error) showToast(error, "error");
+  }, [error, showToast]);
+
+  useEffect(() => {
+    if (success) showToast(success, "info");
+  }, [showToast, success]);
+
+  useEffect(() => {
+    const hideTimer = toastTimerRef.current.hide;
+    const removeTimer = toastTimerRef.current.remove;
+    return () => {
+      if (hideTimer) window.clearTimeout(hideTimer);
+      if (removeTimer) window.clearTimeout(removeTimer);
+    };
+  }, []);
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -1239,17 +1273,6 @@ export default function InvestmentPage() {
           Módulo simple para seguimiento de productos, cortes y pagos.
         </p>
       </header>
-
-      {error ? (
-        <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          {error}
-        </div>
-      ) : null}
-      {success ? (
-        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          {success}
-        </div>
-      ) : null}
 
       <nav className="overflow-auto">
         <div className="inline-flex min-w-full gap-2 rounded-xl border border-slate-200 bg-white p-2">
@@ -2804,6 +2827,25 @@ export default function InvestmentPage() {
             </article>
           ) : null}
         </section>
+      ) : null}
+      {toast ? (
+        <div className="fixed right-6 top-24 z-[70] w-[340px] max-w-[90vw]">
+          <div
+            className={
+              "rounded-2xl border px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.35)] transition-all duration-300 " +
+              (toast.tone === "info"
+                ? "border-sky-400 bg-white text-sky-700 shadow-[0_18px_40px_rgba(14,116,144,0.15)] ring-1 ring-sky-200"
+                : "border-rose-400 bg-white text-rose-600 shadow-[0_18px_40px_rgba(225,29,72,0.15)] ring-1 ring-rose-200") +
+              " " +
+              (toastVisible ? "translate-x-0 opacity-100" : "translate-x-4 opacity-0")
+            }
+          >
+            <div className="text-sm font-semibold">
+              {toast.tone === "info" ? "Aviso" : "Error"}
+            </div>
+            <p className="mt-1 text-sm text-slate-700">{toast.message}</p>
+          </div>
+        </div>
       ) : null}
     </div>
   );

@@ -1466,6 +1466,9 @@ export default function DashboardHomePage() {
                         month: "short",
                       })
                     : formatBogotaDate(point.date, { year: "numeric" });
+                  const monthHoverTitle = !isWeekMode
+                    ? `Tickets del mes: ${point.tickets}\nTotal del mes: ${formatMoney(point.total)}`
+                    : undefined;
 
                   const rawHeight =
                     chartHasSales && maxTrendValue > 0
@@ -1482,6 +1485,7 @@ export default function DashboardHomePage() {
                       className={`flex flex-col items-center justify-end gap-1 ${
                         isWeekMode ? "flex-1" : "w-14 sm:flex-1 shrink-0"
                       }`}
+                      title={monthHoverTitle}
                     >
                       <div className="flex flex-col items-center gap-1 mb-2 min-h-[34px]">
                         {isWeekMode ? (
@@ -1501,6 +1505,11 @@ export default function DashboardHomePage() {
                             ? formatMoney(point.total)
                             : formatMoneyCompact(point.total)}
                         </div>
+                        {!isWeekMode ? (
+                          <div className="text-[11px] dashboard-chart-ticket">
+                            {point.tickets}
+                          </div>
+                        ) : null}
                       </div>
 
                       <div
