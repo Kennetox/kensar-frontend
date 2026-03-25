@@ -16,6 +16,7 @@ import {
   fetchInvestmentSummary,
   previewInvestmentCut,
   reconcileInvestmentCut,
+  removeInvestmentProduct,
   replaceInvestmentParticipants,
   type InvestmentRecentActivity,
   type InvestmentSaleLinePage,
@@ -269,6 +270,7 @@ export default function InvestmentPage() {
   const [payoutsExportOpen, setPayoutsExportOpen] = useState(false);
   const [exportingRecords, setExportingRecords] = useState<null | "pdf" | "xlsx">(null);
   const [exportingPayouts, setExportingPayouts] = useState<null | "pdf" | "xlsx">(null);
+  const [removingProductId, setRemovingProductId] = useState<number | null>(null);
   const recordsLimit = 50;
 
   function mapParticipantToPayload(row: InvestmentParticipant) {
@@ -347,6 +349,22 @@ export default function InvestmentPage() {
       );
     });
   }, [products, search]);
+  const filteredProductsStockCostTotal = useMemo(
+    () =>
+      filteredProducts.reduce(
+        (acc, item) => acc + Number(item.qty_on_hand || 0) * Number(item.cost || 0),
+        0
+      ),
+    [filteredProducts]
+  );
+  const filteredProductsStockSaleTotal = useMemo(
+    () =>
+      filteredProducts.reduce(
+        (acc, item) => acc + Number(item.qty_on_hand || 0) * Number(item.price || 0),
+        0
+      ),
+    [filteredProducts]
+  );
 
   const activeParticipants = useMemo(
     () => participants.filter((item) => item.is_active),
@@ -1109,6 +1127,41 @@ export default function InvestmentPage() {
     }
   }
 
+  async function handleRemoveInvestmentProduct(productId: number, productName: string) {
+    if (!token) return;
+    const confirmed = window.confirm(
+      `¿Quitar "${productName}" de productos de inversión?`
+    );
+    if (!confirmed) return;
+    try {
+      setError(null);
+      setSuccess(null);
+      setRemovingProductId(productId);
+      await removeInvestmentProduct(token, productId);
+      const [productRows, summaryData, recentActivityData, salesLinesData] = await Promise.all([
+        fetchInvestmentProducts(token, { limit: 500 }),
+        fetchInvestmentSummary(token),
+        fetchInvestmentRecentActivity(token),
+        fetchInvestmentSalesLines(token, {
+          period_start: recordsPeriodStart,
+          period_end: recordsPeriodEnd,
+          search: recordsSearch.trim() || undefined,
+          skip: recordsSkip,
+          limit: recordsLimit,
+        }),
+      ]);
+      setProducts(productRows);
+      setSummary(summaryData);
+      setRecentActivity(recentActivityData);
+      setSalesLinesPage(salesLinesData);
+      setSuccess(`Producto quitado de inversión: ${productName}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo quitar el producto de inversión.");
+    } finally {
+      setRemovingProductId(null);
+    }
+  }
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -1620,6 +1673,16 @@ export default function InvestmentPage() {
               className="w-full max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <article className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Valor stock costo</p>
+              <p className="mt-1 text-xl font-semibold">{formatMoney(filteredProductsStockCostTotal)}</p>
+            </article>
+            <article className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Valor stock venta</p>
+              <p className="mt-1 text-xl font-semibold">{formatMoney(filteredProductsStockSaleTotal)}</p>
+            </article>
+          </div>
           <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">
@@ -1631,6 +1694,7 @@ export default function InvestmentPage() {
                   <th className="px-3 py-2 text-right">Costo</th>
                   <th className="px-3 py-2 text-right">Precio</th>
                   <th className="px-3 py-2 text-center">Estado</th>
+                  <th className="px-3 py-2 text-right">Acción</th>
                 </tr>
               </thead>
               <tbody>
@@ -1651,11 +1715,23 @@ export default function InvestmentPage() {
                         ? "Bajo"
                         : "Crítico"}
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleRemoveInvestmentProduct(item.product_id, item.product_name)
+                        }
+                        disabled={removingProductId === item.product_id}
+                        className="rounded-md border border-rose-200 px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                      >
+                        {removingProductId === item.product_id ? "Quitando..." : "Quitar"}
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {filteredProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-5 text-center text-slate-500">
+                    <td colSpan={8} className="px-3 py-5 text-center text-slate-500">
                       No hay productos de inversión para mostrar.
                     </td>
                   </tr>

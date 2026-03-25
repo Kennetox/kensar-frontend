@@ -353,6 +353,21 @@ export async function fetchInvestmentProducts(
   return (await res.json()) as InvestmentProduct[];
 }
 
+export async function removeInvestmentProduct(
+  token: string,
+  productId: number
+): Promise<void> {
+  const res = await fetch(`${getApiBase()}/investment/products/${productId}/remove`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `Error ${res.status}`);
+  }
+}
+
 export async function fetchInvestmentSalesLines(
   token: string,
   options?: {
