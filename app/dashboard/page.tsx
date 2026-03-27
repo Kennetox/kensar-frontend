@@ -1011,6 +1011,22 @@ export default function DashboardHomePage() {
     getPaymentLabel,
   ]);
 
+  const navigateToSaleHistory = useCallback(
+    (sale: RecentSale) => {
+      const params = new URLSearchParams();
+      const saleDateKey = getBogotaDateKey(sale.created_at);
+      params.set("saleId", sale.id.toString());
+      if (saleDateKey) {
+        params.set("saleDate", saleDateKey);
+      }
+      if (posPreview) {
+        params.set("posPreview", "1");
+      }
+      router.push(`/dashboard/sales?${params.toString()}`);
+    },
+    [posPreview, router]
+  );
+
   const paymentMethodCalc = useMemo(() => {
     const dayStart = buildBogotaDateFromKey(todayDateKey);
     const end = new Date(dayStart);
@@ -1814,7 +1830,9 @@ export default function DashboardHomePage() {
                     return (
                       <div
                         key={`${sale.id}-${rowIndex}`}
-                        className={`${baseRow} ${zebra}`}
+                        className={`${baseRow} ${zebra} cursor-pointer`}
+                        onDoubleClick={() => navigateToSaleHistory(sale)}
+                        title="Doble click para abrir esta venta en el historial"
                       >
                         {/* Nº venta */}
                         <div className="font-mono text-slate-200">

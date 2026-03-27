@@ -563,6 +563,8 @@ type SalesHistoryContentProps = {
   returnPath?: string;
   returnBackPath?: string;
   autoReturnOnSelect?: boolean;
+  initialSaleId?: number | null;
+  initialDateKey?: string | null;
   variant?: "dashboard" | "pos";
 };
 
@@ -572,6 +574,8 @@ export default function SalesHistoryContent({
   returnPath,
   returnBackPath,
   autoReturnOnSelect = false,
+  initialSaleId = null,
+  initialDateKey = null,
   variant = "dashboard",
 }: SalesHistoryContentProps) {
   const router = useRouter();
@@ -588,18 +592,23 @@ export default function SalesHistoryContent({
 
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const saleRowRefs = useRef(new Map<number, HTMLDivElement>());
+  const initialSaleIdRef = useRef<number | null>(initialSaleId);
 
   const PAGE_SIZE = 100;
   const today = formatDateInputValue(new Date());
-  const [filterFrom, setFilterFrom] = useState(today);
-  const [filterTo, setFilterTo] = useState(today);
+  const initialRangeDate =
+    initialDateKey && /^\d{4}-\d{2}-\d{2}$/.test(initialDateKey)
+      ? initialDateKey
+      : today;
+  const [filterFrom, setFilterFrom] = useState(initialRangeDate);
+  const [filterTo, setFilterTo] = useState(initialRangeDate);
   const [filterTerm, setFilterTerm] = useState("");
   const [filterClient, setFilterClient] = useState("");
   const [filterPayment, setFilterPayment] = useState("");
   const [filterPos, setFilterPos] = useState("");
   const [posStations, setPosStations] = useState<PosStationRecord[]>([]);
   const [activeQuickRange, setActiveQuickRange] =
-    useState<QuickRange | null>("today");
+    useState<QuickRange | null>(initialRangeDate === today ? "today" : null);
   const [currentPage, setCurrentPage] = useState(1);
   type SeparatedPaymentInfo = {
     paid_at: string;
@@ -1051,7 +1060,23 @@ export default function SalesHistoryContent({
         setSalesAdjustments({});
       }
 
-      setSelectedSale((prev) => prev ?? ordered[0] ?? null);
+      setSelectedSale((prev) => {
+        const requestedSaleId = initialSaleIdRef.current;
+        if (requestedSaleId != null) {
+          const requestedSale =
+            ordered.find((sale) => sale.id === requestedSaleId) ?? null;
+          if (requestedSale) {
+            initialSaleIdRef.current = null;
+            return requestedSale;
+          }
+        }
+        if (prev) {
+          const preservedSale =
+            ordered.find((sale) => sale.id === prev.id) ?? null;
+          if (preservedSale) return preservedSale;
+        }
+        return ordered[0] ?? null;
+      });
     } catch (err) {
       console.error(err);
       setError(
