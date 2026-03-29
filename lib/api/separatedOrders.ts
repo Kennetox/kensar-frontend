@@ -66,6 +66,8 @@ type FetchSeparatedParams = {
   saleNumber?: number;
   customer?: string;
   status?: string;
+  dateFrom?: string;
+  dateTo?: string;
   skip?: number;
   limit?: number;
 };
@@ -80,6 +82,8 @@ export async function fetchSeparatedOrders(
     searchParams.set("sale_number", String(params.saleNumber));
   if (params.customer) searchParams.set("customer", params.customer);
   if (params.status) searchParams.set("status", params.status);
+  if (params.dateFrom) searchParams.set("date_from", params.dateFrom);
+  if (params.dateTo) searchParams.set("date_to", params.dateTo);
   if (params.skip != null) searchParams.set("skip", String(params.skip));
   if (params.limit != null) searchParams.set("limit", String(params.limit));
   const query = searchParams.toString();

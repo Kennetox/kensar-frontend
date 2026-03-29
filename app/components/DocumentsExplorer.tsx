@@ -40,6 +40,8 @@ import {
 } from "@/lib/time/bogota";
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
+const DOCUMENTS_CACHE_PREFIX = "kensar_documents_cache:";
+const DOCUMENTS_CACHE_TTL_MS = 2 * 60 * 1000;
 
 type DashboardRole = PosUserRecord["role"];
 
@@ -374,6 +376,19 @@ type DocumentAdjustmentRecord = {
   original_closure_id?: number | null;
   created_by_user_name?: string | null;
   created_at: string;
+};
+
+type DocumentsCachePayload = {
+  savedAt: number;
+  sales: SaleRecord[];
+  returns: ReturnRecord[];
+  changes: ChangeRecord[];
+  closures: ClosureRecord[];
+  receivingDocs: ReceivingDocumentRecord[];
+  manualMovementDocs: ManualMovementDocumentRecord[];
+  recountDocs: InventoryRecountDocumentRecord[];
+  separatedOrders: SeparatedOrder[];
+  saleAdjustmentsById: Record<number, DocumentAdjustmentRecord[]>;
 };
 
 function formatMoney(value: number | string | undefined | null): string {
@@ -855,13 +870,112 @@ export default function DocumentsExplorer({
     setFilterTo(formatDateInput(end));
   };
 
-  async function loadDocuments() {
+  async function loadDocuments(options?: { force?: boolean }) {
     try {
       setLoading(true);
       setError(null);
       if (!authHeaders) throw new Error("Sin sesión activa");
       const apiBase = getApiBase();
       const PAGE_SIZE = 200;
+      const force = options?.force === true;
+      const fromKey = filterFrom || "";
+      const toKey = filterTo || "";
+      const cacheKey = `${DOCUMENTS_CACHE_PREFIX}${filterType}:${fromKey}:${toKey}`;
+      const buildRangeParams = () => {
+        const params = new URLSearchParams();
+        if (fromKey) {
+          params.set(
+            "date_from",
+            buildBogotaDateFromKey(fromKey).toISOString()
+          );
+        }
+        if (toKey) {
+          const endExclusive = buildBogotaDateFromKey(toKey);
+          endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+          params.set("date_to", endExclusive.toISOString());
+        }
+        return params;
+      };
+      const needsSales =
+        filterType === "all" ||
+        filterType === "venta" ||
+        filterType === "anulacion" ||
+        filterType === "abono";
+      const needsReturns =
+        filterType === "all" ||
+        filterType === "devolucion" ||
+        filterType === "anulacion";
+      const needsChanges = filterType === "all" || filterType === "cambio";
+      const needsClosures = filterType === "all" || filterType === "cierre";
+      const needsSeparatedOrders =
+        filterType === "all" || filterType === "abono";
+      const needsReceiving =
+        filterType === "all" || filterType === "recepcion";
+      const needsManualMovements =
+        filterType === "all" ||
+        filterType === "movimiento_manual" ||
+        filterType === "mov_salida_manual" ||
+        filterType === "mov_venta_manual" ||
+        filterType === "mov_ajuste" ||
+        filterType === "mov_perdida_dano";
+      const needsRecounts =
+        filterType === "all" || filterType === "recuento";
+
+      const applyLoadedState = (payload: DocumentsCachePayload) => {
+        setSales(payload.sales);
+        setReturns(payload.returns);
+        setChanges(payload.changes);
+        setClosures(payload.closures);
+        setReceivingDocs(payload.receivingDocs);
+        setManualMovementDocs(payload.manualMovementDocs);
+        setRecountDocs(payload.recountDocs);
+        setSeparatedOrders(payload.separatedOrders);
+        setSaleAdjustmentsById(payload.saleAdjustmentsById);
+        const docsList = mappedDocuments(
+          payload.sales,
+          payload.returns,
+          payload.changes,
+          payload.closures,
+          payload.separatedOrders,
+          payload.receivingDocs,
+          payload.manualMovementDocs,
+          payload.recountDocs
+        );
+        setSelectedDoc((prev) => {
+          if (prev) {
+            const prevMatch = docsList.find((doc) => doc.id === prev.id);
+            if (prevMatch) return prevMatch;
+          }
+          if (persistedSelectedId) {
+            const savedMatch = docsList.find(
+              (doc) => doc.id === persistedSelectedId
+            );
+            if (savedMatch) {
+              setPersistedSelectedId(null);
+              return savedMatch;
+            }
+          }
+          return docsList[0] ?? null;
+        });
+      };
+
+      if (!force && typeof window !== "undefined") {
+        try {
+          const cachedRaw = window.sessionStorage.getItem(cacheKey);
+          if (cachedRaw) {
+            const cached = JSON.parse(cachedRaw) as DocumentsCachePayload;
+            if (
+              cached.savedAt &&
+              Date.now() - cached.savedAt <= DOCUMENTS_CACHE_TTL_MS
+            ) {
+              applyLoadedState(cached);
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn("No se pudo restaurar la caché de documentos", err);
+        }
+      }
 
       const fetchAllPages = async <T,>(
         path: string,
@@ -894,12 +1008,16 @@ export default function DocumentsExplorer({
         return rows;
       };
 
-      const fetchAllSeparatedOrders = async (): Promise<SeparatedOrder[]> => {
+      const fetchAllSeparatedOrders = async (
+        rangeParams?: URLSearchParams
+      ): Promise<SeparatedOrder[]> => {
         const rows: SeparatedOrder[] = [];
         let skip = 0;
         for (;;) {
+          const dateFrom = rangeParams?.get("date_from") ?? undefined;
+          const dateTo = rangeParams?.get("date_to") ?? undefined;
           const page = await fetchSeparatedOrders(
-            { skip, limit: PAGE_SIZE },
+            { skip, limit: PAGE_SIZE, dateFrom, dateTo },
             token
           );
           rows.push(...page);
@@ -909,11 +1027,13 @@ export default function DocumentsExplorer({
         return rows;
       };
 
-      const fetchAllReceivingDocuments = async (): Promise<ReceivingDocumentRecord[]> => {
+      const fetchAllReceivingDocuments = async (
+        rangeParams?: URLSearchParams
+      ): Promise<ReceivingDocumentRecord[]> => {
         const rows: ReceivingDocumentRecord[] = [];
         let skip = 0;
         for (;;) {
-          const params = new URLSearchParams();
+          const params = new URLSearchParams(rangeParams ?? undefined);
           params.set("skip", String(skip));
           params.set("limit", String(PAGE_SIZE));
           const res = await fetch(
@@ -946,11 +1066,13 @@ export default function DocumentsExplorer({
         return rows;
       };
 
-      const fetchAllManualMovementDocuments = async (): Promise<ManualMovementDocumentRecord[]> => {
+      const fetchAllManualMovementDocuments = async (
+        rangeParams?: URLSearchParams
+      ): Promise<ManualMovementDocumentRecord[]> => {
         const rows: ManualMovementDocumentRecord[] = [];
         let skip = 0;
         for (;;) {
-          const params = new URLSearchParams();
+          const params = new URLSearchParams(rangeParams ?? undefined);
           params.set("status", "closed");
           params.set("skip", String(skip));
           params.set("limit", String(PAGE_SIZE));
@@ -985,13 +1107,14 @@ export default function DocumentsExplorer({
       };
 
       const fetchAllRecountsByStatus = async (
-        recountStatus: "closed" | "applied"
+        recountStatus: "closed" | "applied",
+        rangeParams?: URLSearchParams
       ): Promise<InventoryRecountDocumentRecord[]> => {
         const rows: InventoryRecountDocumentRecord[] = [];
         let skip = 0;
         const RECOUNTS_PAGE_SIZE = 100;
         for (;;) {
-          const params = new URLSearchParams();
+          const params = new URLSearchParams(rangeParams ?? undefined);
           params.set("status", recountStatus);
           params.set("skip", String(skip));
           params.set("limit", String(RECOUNTS_PAGE_SIZE));
@@ -1025,6 +1148,7 @@ export default function DocumentsExplorer({
         return rows;
       };
 
+      const rangeParams = buildRangeParams();
       const [
         salesData,
         returnsData,
@@ -1037,15 +1161,33 @@ export default function DocumentsExplorer({
         recountAppliedData,
       ] =
         await Promise.all([
-          fetchAllPages<SaleRecord>("/pos/sales"),
-          fetchAllPages<ReturnRecord>("/pos/returns"),
-          fetchAllPages<ChangeRecord>("/pos/changes"),
-          fetchAllPages<ClosureRecord>("/pos/closures"),
-          fetchAllSeparatedOrders(),
-          fetchAllReceivingDocuments(),
-          fetchAllManualMovementDocuments(),
-          fetchAllRecountsByStatus("closed"),
-          fetchAllRecountsByStatus("applied"),
+          needsSales
+            ? fetchAllPages<SaleRecord>("/pos/sales", rangeParams)
+            : Promise.resolve([]),
+          needsReturns
+            ? fetchAllPages<ReturnRecord>("/pos/returns", rangeParams)
+            : Promise.resolve([]),
+          needsChanges
+            ? fetchAllPages<ChangeRecord>("/pos/changes", rangeParams)
+            : Promise.resolve([]),
+          needsClosures
+            ? fetchAllPages<ClosureRecord>("/pos/closures", rangeParams)
+            : Promise.resolve([]),
+          needsSeparatedOrders
+            ? fetchAllSeparatedOrders(rangeParams)
+            : Promise.resolve([]),
+          needsReceiving
+            ? fetchAllReceivingDocuments(rangeParams)
+            : Promise.resolve([]),
+          needsManualMovements
+            ? fetchAllManualMovementDocuments(rangeParams)
+            : Promise.resolve([]),
+          needsRecounts
+            ? fetchAllRecountsByStatus("closed", rangeParams)
+            : Promise.resolve([]),
+          needsRecounts
+            ? fetchAllRecountsByStatus("applied", rangeParams)
+            : Promise.resolve([]),
         ]);
       const adjustmentsBySaleId: Record<number, DocumentAdjustmentRecord[]> = {};
       if (salesData.length > 0) {
@@ -1073,46 +1215,31 @@ export default function DocumentsExplorer({
           });
         }
       }
-      setSales(salesData);
-      setReturns(returnsData);
-      setChanges(changesData);
-      setClosures(closuresData);
-      setReceivingDocs(receivingDocsData);
-      setManualMovementDocs(manualMovementDocsData);
       const recountById = new Map<number, InventoryRecountDocumentRecord>();
       [...recountClosedData, ...recountAppliedData].forEach((row) => {
         recountById.set(row.id, row);
       });
       const recountData = Array.from(recountById.values());
-      setRecountDocs(recountData);
-      setSeparatedOrders(separatedOrdersData);
-      setSaleAdjustmentsById(adjustmentsBySaleId);
-      const docsList = mappedDocuments(
-        salesData,
-        returnsData,
-        changesData,
-        closuresData,
-        separatedOrdersData,
-        receivingDocsData,
-        manualMovementDocsData,
-        recountData
-      );
-      setSelectedDoc((prev) => {
-        if (prev) {
-          const prevMatch = docsList.find((doc) => doc.id === prev.id);
-          if (prevMatch) return prevMatch;
+      const payload: DocumentsCachePayload = {
+        savedAt: Date.now(),
+        sales: salesData,
+        returns: returnsData,
+        changes: changesData,
+        closures: closuresData,
+        receivingDocs: receivingDocsData,
+        manualMovementDocs: manualMovementDocsData,
+        recountDocs: recountData,
+        separatedOrders: separatedOrdersData,
+        saleAdjustmentsById: adjustmentsBySaleId,
+      };
+      applyLoadedState(payload);
+      if (typeof window !== "undefined") {
+        try {
+          window.sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+        } catch (err) {
+          console.warn("No se pudo guardar la caché de documentos", err);
         }
-        if (persistedSelectedId) {
-          const savedMatch = docsList.find(
-            (doc) => doc.id === persistedSelectedId
-          );
-          if (savedMatch) {
-            setPersistedSelectedId(null);
-            return savedMatch;
-          }
-        }
-        return docsList[0] ?? null;
-      });
+      }
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Error al cargar documentos");
@@ -1290,7 +1417,7 @@ export default function DocumentsExplorer({
       }
       closeVoidModal();
       showToast("Documento anulado correctamente.", "info");
-      await loadDocuments();
+      await loadDocuments({ force: true });
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "Error al anular",
@@ -1412,7 +1539,7 @@ export default function DocumentsExplorer({
       }
       closeAdjustModal();
       showToast("Ajuste registrado correctamente.", "info");
-      await loadDocuments();
+      await loadDocuments({ force: true });
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "Error al ajustar",
@@ -1459,7 +1586,7 @@ export default function DocumentsExplorer({
     if (!authHeaders || !filtersReady) return;
     void loadDocuments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authHeaders, filtersReady, filterFrom, filterTo]);
+  }, [authHeaders, filtersReady, filterFrom, filterTo, filterType]);
 
   useEffect(() => {
     let active = true;
@@ -3490,7 +3617,7 @@ useEffect(() => {
               </button>
               <button
                 type="button"
-                onClick={() => void loadDocuments()}
+                onClick={() => void loadDocuments({ force: true })}
                 disabled={loading}
                 className="px-3 py-1 rounded-md border border-emerald-400/60 text-emerald-200 text-[11px] hover:bg-emerald-500/10"
               >

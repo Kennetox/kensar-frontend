@@ -28,6 +28,14 @@ import {
   parseDateInput,
 } from "@/lib/time/bogota";
 
+const DASHBOARD_CACHE_PREFIX = "kensar_dashboard_cache:";
+const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
+
+type DashboardCacheEntry<T> = {
+  savedAt: number;
+  data: T;
+};
+
 
 /* ================= TIPOS ================= */
 
@@ -400,6 +408,34 @@ export default function DashboardHomePage() {
     return Boolean(settingsAction.roles[user.role]);
   }, [user?.role]);
 
+  const readDashboardCache = useCallback(<T,>(key: string) => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.sessionStorage.getItem(`${DASHBOARD_CACHE_PREFIX}${key}`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as DashboardCacheEntry<T>;
+      if (!parsed?.savedAt || Date.now() - parsed.savedAt > DASHBOARD_CACHE_TTL_MS) {
+        return null;
+      }
+      return parsed.data;
+    } catch (err) {
+      console.warn("No se pudo leer caché del dashboard", err);
+      return null;
+    }
+  }, []);
+
+  const writeDashboardCache = useCallback(<T,>(key: string, data: T) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(
+        `${DASHBOARD_CACHE_PREFIX}${key}`,
+        JSON.stringify({ savedAt: Date.now(), data } satisfies DashboardCacheEntry<T>)
+      );
+    } catch (err) {
+      console.warn("No se pudo guardar caché del dashboard", err);
+    }
+  }, []);
+
   useEffect(() => {
     if (!token) return;
     if (!canLoadRolePermissions) {
@@ -465,10 +501,19 @@ export default function DashboardHomePage() {
 
   /* --------- Loaders reutilizables --------- */
 
-  const loadSummary = useCallback(async () => {
+  const loadSummary = useCallback(async (options?: { force?: boolean }) => {
     if (!authHeaders) return;
+    const force = options?.force === true;
     try {
       setLoading(true);
+      if (!force) {
+        const cached = readDashboardCache<DashboardSummary>("summary");
+        if (cached) {
+          setData(cached);
+          setError(null);
+          return;
+        }
+      }
       const apiBase = getApiBase();
       const res = await fetch(`${apiBase}/dashboard/summary`, {
         headers: authHeaders,
@@ -479,6 +524,7 @@ export default function DashboardHomePage() {
       }
       const json: DashboardSummary = await res.json();
       setData(json);
+      writeDashboardCache("summary", json);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -490,9 +536,9 @@ export default function DashboardHomePage() {
     } finally {
       setLoading(false);
     }
-  }, [authHeaders]);
+  }, [authHeaders, readDashboardCache, writeDashboardCache]);
 
-  const loadRecentSales = useCallback(async () => {
+  const loadRecentSales = useCallback(async (options?: { force?: boolean }) => {
     if (!canViewOperationalSales) {
       setRecentSales([]);
       setRecentChanges({});
@@ -502,9 +548,23 @@ export default function DashboardHomePage() {
       return;
     }
     if (!authHeaders) return;
+    const force = options?.force === true;
     try {
       setRecentLoading(true);
       setRecentError(null);
+      if (!force) {
+        const cached = readDashboardCache<{
+          recentSales: RecentSale[];
+          recentChanges: Record<number, RecentChange[]>;
+          recentAdjustments: Record<number, DocumentAdjustmentRecord[]>;
+        }>("recent-sales");
+        if (cached) {
+          setRecentSales(cached.recentSales);
+          setRecentChanges(cached.recentChanges);
+          setRecentAdjustments(cached.recentAdjustments);
+          return;
+        }
+      }
 
       const apiBase = getApiBase();
       const [salesResult, changesResult] = await Promise.allSettled([
@@ -526,6 +586,7 @@ export default function DashboardHomePage() {
       }
       const sales: RecentSale[] = await res.json();
       setRecentSales(sales);
+      let changesMap: Record<number, RecentChange[]> = {};
       if (changesResult.status === "fulfilled" && changesResult.value.ok) {
         const changes: RecentChange[] = await changesResult.value.json();
         if (sales.length) {
@@ -537,6 +598,7 @@ export default function DashboardHomePage() {
             list.push(change);
             map[change.sale_id] = list;
           });
+          changesMap = map;
           setRecentChanges(map);
         } else {
           setRecentChanges({});
@@ -544,6 +606,7 @@ export default function DashboardHomePage() {
       } else {
         setRecentChanges({});
       }
+      let adjustmentsMap: Record<number, DocumentAdjustmentRecord[]> = {};
       if (sales.length) {
         const ids = sales.map((sale) => sale.id);
         const adjustmentsRes = await fetch(
@@ -561,6 +624,7 @@ export default function DashboardHomePage() {
             list.push(adjustment);
             map[adjustment.doc_id] = list;
           });
+          adjustmentsMap = map;
           setRecentAdjustments(map);
         } else {
           setRecentAdjustments({});
@@ -568,6 +632,11 @@ export default function DashboardHomePage() {
       } else {
         setRecentAdjustments({});
       }
+      writeDashboardCache("recent-sales", {
+        recentSales: sales,
+        recentChanges: changesMap,
+        recentAdjustments: adjustmentsMap,
+      });
     } catch (err) {
       console.error(err);
       setRecentError(
@@ -578,13 +647,21 @@ export default function DashboardHomePage() {
     } finally {
       setRecentLoading(false);
     }
-  }, [authHeaders, canViewOperationalSales]);
+  }, [authHeaders, canViewOperationalSales, readDashboardCache, writeDashboardCache]);
 
-  const loadYearlySales = useCallback(async () => {
+  const loadYearlySales = useCallback(async (options?: { force?: boolean }) => {
     if (!authHeaders) return;
+    const force = options?.force === true;
     try {
       setYearTrendLoading(true);
       setYearTrendError(null);
+      if (!force) {
+        const cached = readDashboardCache<SalesTrendPoint[]>(`yearly-sales:${selectedYear}`);
+        if (cached) {
+          setYearTrend(cached);
+          return;
+        }
+      }
       const apiBase = getApiBase();
       const res = await fetch(
         `${apiBase}/dashboard/monthly-sales?year=${selectedYear}`,
@@ -623,6 +700,7 @@ export default function DashboardHomePage() {
         }
       );
       setYearTrend(normalized);
+      writeDashboardCache(`yearly-sales:${selectedYear}`, normalized);
     } catch (err) {
       console.error(err);
       setYearTrendError(
@@ -633,9 +711,9 @@ export default function DashboardHomePage() {
     } finally {
       setYearTrendLoading(false);
     }
-  }, [authHeaders, selectedYear]);
+  }, [authHeaders, readDashboardCache, selectedYear, writeDashboardCache]);
 
-  const loadSeparatedOrders = useCallback(async () => {
+  const loadSeparatedOrders = useCallback(async (options?: { force?: boolean }) => {
     if (!canViewOperationalSales) {
       setSeparatedOrders([]);
       setSeparatedError(null);
@@ -643,14 +721,23 @@ export default function DashboardHomePage() {
       return;
     }
     if (!token) return;
+    const force = options?.force === true;
     try {
       setSeparatedLoading(true);
       setSeparatedError(null);
+      if (!force) {
+        const cached = readDashboardCache<SeparatedOrder[]>("separated-orders");
+        if (cached) {
+          setSeparatedOrders(cached);
+          return;
+        }
+      }
       const records = await fetchSeparatedOrders(
         { limit: 500 },
         token
       );
       setSeparatedOrders(records);
+      writeDashboardCache("separated-orders", records);
     } catch (err) {
       console.error(err);
       setSeparatedError(
@@ -661,13 +748,26 @@ export default function DashboardHomePage() {
     } finally {
       setSeparatedLoading(false);
     }
-  }, [canViewOperationalSales, token]);
+  }, [canViewOperationalSales, readDashboardCache, token, writeDashboardCache]);
   const loadPaymentMethods = useCallback(
-    async (range: "day" | "week" | "month", startDate: string | null) => {
+    async (
+      range: "day" | "week" | "month",
+      startDate: string | null,
+      options?: { force?: boolean }
+    ) => {
       if (!authHeaders) return;
+      const force = options?.force === true;
       try {
         setPaymentMethodsLoading(true);
         setPaymentMethodsError(null);
+        const cacheKey = `payment-methods:${range}:${startDate ?? "none"}`;
+        if (!force) {
+          const cached = readDashboardCache<PaymentMethodSummary[]>(cacheKey);
+          if (cached) {
+            setPaymentMethodEntries(cached);
+            return;
+          }
+        }
         const apiBase = getApiBase();
         const params = new URLSearchParams({ range });
         if (startDate) {
@@ -685,6 +785,7 @@ export default function DashboardHomePage() {
         }
         const json = (await res.json()) as { methods: PaymentMethodSummary[] };
         setPaymentMethodEntries(json.methods ?? []);
+        writeDashboardCache(cacheKey, json.methods ?? []);
       } catch (err) {
         console.error(err);
         setPaymentMethodsError(
@@ -697,7 +798,7 @@ export default function DashboardHomePage() {
         setPaymentMethodsLoading(false);
       }
     },
-    [authHeaders]
+    [authHeaders, readDashboardCache, writeDashboardCache]
   );
 
   // Cargar al entrar
@@ -1157,11 +1258,11 @@ export default function DashboardHomePage() {
                     : paymentRange === "week"
                     ? getBogotaDateKey(currentWeekStart)
                     : monthStartKey;
-                void loadSummary();
-                void loadRecentSales();
-                void loadYearlySales();
-                void loadSeparatedOrders();
-                void loadPaymentMethods(paymentRange, startKey);
+                void loadSummary({ force: true });
+                void loadRecentSales({ force: true });
+                void loadYearlySales({ force: true });
+                void loadSeparatedOrders({ force: true });
+                void loadPaymentMethods(paymentRange, startKey, { force: true });
               }}
               disabled={refreshing}
               className="px-3 py-1.5 rounded-md border border-emerald-500 text-emerald-700 text-xs font-semibold bg-emerald-50 shadow-[0_1px_0_rgba(16,185,129,0.25)] hover:bg-emerald-100 hover:border-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"

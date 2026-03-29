@@ -12,6 +12,9 @@ import {
 import { getApiBase } from "@/lib/api/base";
 import { getBogotaDateKey, parseDateInput } from "@/lib/time/bogota";
 
+const REPORTS_CACHE_KEY = "kensar_reports_dataset";
+const REPORTS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 export {
   REPORT_PRESETS,
   buildDocumentHtml,
@@ -116,6 +119,17 @@ type ProductGroupLookup = {
   byId: Map<string, string>;
   bySku: Map<string, string>;
   byName: Map<string, string>;
+};
+
+type ReportsCachePayload = {
+  savedAt: number;
+  sales: EnrichedSale[];
+  changes: ReportChange[];
+  productGroupLookup: {
+    byId: Array<[string, string]>;
+    bySku: Array<[string, string]>;
+    byName: Array<[string, string]>;
+  };
 };
 
 const REPORT_PAGE_SIZE = 500;
@@ -679,6 +693,31 @@ export default function ReportsPage() {
   const [annualTransitionActive, setAnnualTransitionActive] = useState(true);
   const [monthlyTransitionActive, setMonthlyTransitionActive] = useState(true);
 
+  const readReportsCache = useCallback(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.sessionStorage.getItem(REPORTS_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as ReportsCachePayload;
+      if (!parsed?.savedAt || Date.now() - parsed.savedAt > REPORTS_CACHE_TTL_MS) {
+        return null;
+      }
+      return parsed;
+    } catch (err) {
+      console.warn("No se pudo leer caché de reportes", err);
+      return null;
+    }
+  }, []);
+
+  const writeReportsCache = useCallback((payload: ReportsCachePayload) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(REPORTS_CACHE_KEY, JSON.stringify(payload));
+    } catch (err) {
+      console.warn("No se pudo guardar caché de reportes", err);
+    }
+  }, []);
+
   const canLoadRolePermissions = useMemo(() => {
     if (!isDashboardRole(user?.role)) return false;
     const settingsModule = defaultRolePermissions.find(
@@ -747,6 +786,19 @@ export default function ReportsPage() {
       try {
         setLoading(true);
         setError(null);
+        const cached = readReportsCache();
+        if (cached) {
+          if (!cancelled) {
+            setSales(cached.sales);
+            setChanges(cached.changes);
+            setProductGroupLookup({
+              byId: new Map(cached.productGroupLookup.byId),
+              bySku: new Map(cached.productGroupLookup.bySku),
+              byName: new Map(cached.productGroupLookup.byName),
+            });
+          }
+          return;
+        }
         const apiBase = getApiBase();
 
         const fetchAllPages = async <T,>(path: string): Promise<T[]> => {
@@ -792,7 +844,8 @@ export default function ReportsPage() {
         }
 
         if (!cancelled) {
-          setSales(buildAdjustedSales(rawSales, adjustments));
+          const adjustedSales = buildAdjustedSales(rawSales, adjustments);
+          setSales(adjustedSales);
           setChanges(rawChanges);
           const byId = new Map<string, string>();
           const bySku = new Map<string, string>();
@@ -816,6 +869,16 @@ export default function ReportsPage() {
           });
 
           setProductGroupLookup({ byId, bySku, byName });
+          writeReportsCache({
+            savedAt: Date.now(),
+            sales: adjustedSales,
+            changes: rawChanges,
+            productGroupLookup: {
+              byId: Array.from(byId.entries()),
+              bySku: Array.from(bySku.entries()),
+              byName: Array.from(byName.entries()),
+            },
+          });
         }
       } catch (err) {
         console.error(err);
@@ -835,7 +898,7 @@ export default function ReportsPage() {
     return () => {
       cancelled = true;
     };
-  }, [authHeaders, canViewReportDataset]);
+  }, [authHeaders, canViewReportDataset, readReportsCache, writeReportsCache]);
 
   const availableYears = useMemo(() => {
     const years = new Set<string>([todayYear]);
