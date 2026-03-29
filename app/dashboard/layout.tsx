@@ -493,6 +493,59 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const permissionsResolved = rolePermissionsReady || !canLoadRolePermissions;
 
   useEffect(() => {
+    if (searchParams.get("debugScale") !== "1") return;
+    if (typeof window === "undefined") return;
+
+    const logScaleSnapshot = () => {
+      const html = document.documentElement;
+      const body = document.body;
+      const main = document.querySelector("main");
+      const heading = document.querySelector("h1");
+      const breadcrumb = document.querySelector(".dashboard-breadcrumb-pill");
+      const sidebarLink = document.querySelector("aside nav a");
+      const viewport = window.visualViewport;
+      const readNode = (node: Element | null) => {
+        if (!(node instanceof HTMLElement)) return null;
+        const style = window.getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return {
+          fontFamily: style.fontFamily,
+          fontSize: style.fontSize,
+          lineHeight: style.lineHeight,
+          zoom: style.zoom || "normal",
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        };
+      };
+
+      console.groupCollapsed(`[debugScale] ${window.location.pathname}`);
+      console.table({
+        viewport: {
+          innerWidth: window.innerWidth,
+          innerHeight: window.innerHeight,
+          outerWidth: window.outerWidth,
+          outerHeight: window.outerHeight,
+          devicePixelRatio: window.devicePixelRatio,
+          visualViewportWidth: viewport ? Number(viewport.width.toFixed(2)) : null,
+          visualViewportHeight: viewport ? Number(viewport.height.toFixed(2)) : null,
+          visualViewportScale: viewport ? Number(viewport.scale.toFixed(4)) : null,
+        },
+        html: readNode(html),
+        body: readNode(body),
+        main: readNode(main),
+        h1: readNode(heading),
+        breadcrumb: readNode(breadcrumb),
+        sidebarLink: readNode(sidebarLink),
+      });
+      console.groupEnd();
+    };
+
+    const frame = window.requestAnimationFrame(logScaleSnapshot);
+    window.setTimeout(logScaleSnapshot, 600);
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname, searchParams]);
+
+  useEffect(() => {
     if (!token) return;
     if (!canLoadRolePermissions) return;
     let cancelled = false;
