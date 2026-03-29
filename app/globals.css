@@ -75,6 +75,11 @@ body {
   scrollbar-width: thin;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 [class*="overflow-y-auto"],
 [class*="overflow-auto"] {
   scrollbar-gutter: stable;
