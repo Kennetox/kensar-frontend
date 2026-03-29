@@ -236,6 +236,31 @@ const navItems: Array<{
     ),
   },
   {
+    href: "/dashboard/comercio-web",
+    label: "Comercio Web",
+    moduleId: "commerce_web",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M5 6.5h14l-1.2 7.2a2 2 0 0 1-2 1.7H8.2a2 2 0 0 1-2-1.7L5 6.5z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M8 6.5V5a4 4 0 0 1 8 0v1.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <circle cx="9" cy="19" r="1.4" fill="currentColor" />
+        <circle cx="16" cy="19" r="1.4" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
     href: "/dashboard/investment",
     label: "Inversión",
     moduleId: "investment",
@@ -358,6 +383,7 @@ const routePermissions: Array<{
   { prefix: "/dashboard/pos", moduleId: "pos" },
   { prefix: "/dashboard/labels", moduleId: "labels" },
   { prefix: "/dashboard/reports", moduleId: "reports" },
+  { prefix: "/dashboard/comercio-web", moduleId: "commerce_web" },
   { prefix: "/dashboard/investment", moduleId: "investment" },
   { prefix: "/dashboard/hr", moduleId: "hr" },
   { prefix: "/dashboard/schedule", moduleId: "schedule" },

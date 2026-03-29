@@ -1,36 +1,30 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { STORAGE_KEY, useAuth } from "../../providers/AuthProvider";
-import { getApiBase } from "@/lib/api/base";
-import { exportReportExcel, exportReportPdf } from "@/lib/api/reports";
+import { useAuth } from "../../providers/AuthProvider";
 import {
   defaultRolePermissions,
-  fetchPosSettings,
   fetchRolePermissions,
-  PosUserRecord,
-  PosSettingsPayload,
-  RolePermissionModule,
+  type PosUserRecord,
+  type RolePermissionModule,
 } from "@/lib/api/settings";
-import { SHOW_FREE_SALE_TRACEABILITY_REPORT } from "@/lib/config/featureFlags";
-import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
-import {
-  buildBogotaDateFromKey,
-  formatBogotaDate,
-  getBogotaDateKey,
-  getBogotaDateParts,
-  parseDateInput,
-} from "@/lib/time/bogota";
+import { getApiBase } from "@/lib/api/base";
+import { getBogotaDateKey, parseDateInput } from "@/lib/time/bogota";
 
-type QuickRange = "today" | "yesterday" | "week" | "month" | "year";
+export {
+  REPORT_PRESETS,
+  buildDocumentHtml,
+  buildReportResult,
+} from "./detailed/page";
+export type {
+  CompanyInfo,
+  FilterMeta,
+  ReportChange,
+  ReportSale,
+} from "./detailed/page";
 
-export type ReportPreset = {
-  id: string;
-  title: string;
-  description: string;
-  scope: string;
-  highlights: string[];
-};
+type DashboardRole = PosUserRecord["role"];
 
 type ReportSaleItem = {
   product_id?: number;
@@ -41,7 +35,6 @@ type ReportSaleItem = {
   product_category?: string | null;
   quantity: number;
   unit_price?: number;
-  line_discount_value?: number;
 };
 
 type ReportSaleReturnItem = {
@@ -73,7 +66,7 @@ type ReportChangeNewItem = {
   unit_price: number;
 };
 
-export type ReportChange = {
+type ReportChange = {
   sale_id: number;
   status: string;
   voided_at?: string | null;
@@ -81,81 +74,101 @@ export type ReportChange = {
   items_new: ReportChangeNewItem[];
 };
 
-export type ReportSale = {
+type ReportSale = {
   id: number;
-  sale_number?: number;
-  document_number?: string;
   created_at: string;
   status?: string | null;
-  voided_at?: string | null;
   total?: number;
   paid_amount?: number;
-  payment_method?: string;
+  payment_method?: string | null;
   payments?: Array<{ method?: string | null; amount?: number | null }>;
-  pos_name?: string | null;
-  vendor_name?: string | null;
-  customer_name?: string | null;
-  customer_phone?: string | null;
-  customer_email?: string | null;
-  notes?: string | null;
   cart_discount_value?: number | null;
-  cart_discount_percent?: number | null;
   items?: ReportSaleItem[];
   returns?: ReportSaleReturn[];
-  surcharge_amount?: number | null;
-  surcharge_label?: string | null;
 };
 
 type ReportDocumentAdjustment = {
   id: number;
   doc_id: number;
-  payload?: Record<string, unknown> | null;
   total_delta?: number | null;
   created_at?: string;
 };
 
-type ReportSummaryItem = {
-  label: string;
-  value: string;
+type EnrichedSale = {
+  id: number;
+  dateKey: string;
+  total: number;
+  cart_discount_value: number | null;
+  returns: ReportSaleReturn[];
+  paymentMethod: string | null;
+  payments: Array<{ method?: string | null; amount?: number | null }>;
+  items: ReportSaleItem[];
 };
 
-type ReportTable = {
-  columns: string[];
-  rows: Array<Array<string>>;
-  emptyMessage?: string;
+type ProductCatalogRow = {
+  id: number | string;
+  sku?: string | null;
+  name?: string | null;
+  group_name?: string | null;
 };
 
-export type ReportResult = {
-  summary: ReportSummaryItem[];
-  table?: ReportTable;
-  note?: string;
-  surchargeTotal?: number;
+type ProductGroupLookup = {
+  byId: Map<string, string>;
+  bySku: Map<string, string>;
+  byName: Map<string, string>;
 };
 
-export type CompanyInfo = {
-  name: string;
-  address: string;
-  email: string;
-  phone: string;
-  logoUrl?: string | null;
-};
+const REPORT_PAGE_SIZE = 500;
+const ADJUSTMENTS_CHUNK_SIZE = 200;
+const MONTHS = [
+  { key: "01", label: "Ene" },
+  { key: "02", label: "Feb" },
+  { key: "03", label: "Mar" },
+  { key: "04", label: "Abr" },
+  { key: "05", label: "May" },
+  { key: "06", label: "Jun" },
+  { key: "07", label: "Jul" },
+  { key: "08", label: "Ago" },
+  { key: "09", label: "Sep" },
+  { key: "10", label: "Oct" },
+  { key: "11", label: "Nov" },
+  { key: "12", label: "Dic" },
+];
+const WEEKDAY_SHORT = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
 
-export type FilterMeta = {
-  fromDate: string;
-  toDate: string;
-  posFilter: string;
-  methodFilter: string;
-  sellerFilter: string;
-};
+function capitalize(value: string) {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
-type OpenReportTab = {
-  id: string;
-  presetId: string;
-  filterMeta: FilterMeta;
-  createdAt: string;
-};
+function formatMonthTitle(monthKey: string) {
+  const [year, month] = monthKey.split("-");
+  const monthLabel =
+    new Intl.DateTimeFormat("es-CO", {
+      month: "long",
+      timeZone: "America/Bogota",
+    }).format(new Date(`${monthKey}-01T12:00:00-05:00`)) ?? month;
+  return `${capitalize(monthLabel)} ${year}`;
+}
 
-type DashboardRole = PosUserRecord["role"];
+function shiftMonthKey(monthKey: string, offset: number) {
+  const [yearRaw, monthRaw] = monthKey.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (Number.isNaN(year) || Number.isNaN(month)) return monthKey;
+  const next = new Date(Date.UTC(year, month - 1 + offset, 1, 12, 0, 0));
+  const nextYear = next.getUTCFullYear();
+  const nextMonth = String(next.getUTCMonth() + 1).padStart(2, "0");
+  return `${nextYear}-${nextMonth}`;
+}
+
+function getMonthDayCount(monthKey: string) {
+  const [yearRaw, monthRaw] = monthKey.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return 31;
+  return new Date(year, month, 0).getDate();
+}
 
 function isDashboardRole(role?: string | null): role is DashboardRole {
   return (
@@ -166,2237 +179,159 @@ function isDashboardRole(role?: string | null): role is DashboardRole {
   );
 }
 
-const isValidFilterMeta = (value: unknown): value is FilterMeta => {
-  if (!value || typeof value !== "object") return false;
-  const meta = value as Record<string, unknown>;
-  return (
-    typeof meta.fromDate === "string" &&
-    typeof meta.toDate === "string" &&
-    typeof meta.posFilter === "string" &&
-    typeof meta.methodFilter === "string" &&
-    typeof meta.sellerFilter === "string"
-  );
-};
-
-const isValidOpenReportTab = (value: unknown): value is OpenReportTab => {
-  if (!value || typeof value !== "object") return false;
-  const tab = value as Partial<OpenReportTab>;
-  return (
-    typeof tab.id === "string" &&
-    typeof tab.presetId === "string" &&
-    typeof tab.createdAt === "string" &&
-    tab.filterMeta !== undefined &&
-    isValidFilterMeta(tab.filterMeta)
-  );
-};
-
-const REPORT_PAGE_SIZE = 500;
-const ADJUSTMENTS_CHUNK_SIZE = 200;
-const TABLE_ROWS_PER_PAGE = 18;
-const MONTH_DAILY_ROWS_PER_PAGE = 28;
-const PAPER_WIDTH_MM = 210; // A4
-const PAPER_HEIGHT_MM = 297; // A4
-const PAGE_MARGIN_MM = 2.5;
-// Compensa diferencias entre preview y motor de impresion del navegador.
-const PAGE_CONTENT_SLACK_MM = 1;
-const PAGE_WIDTH_MM =
-  PAPER_WIDTH_MM - PAGE_MARGIN_MM * 2 - PAGE_CONTENT_SLACK_MM;
-const PAGE_HEIGHT_MM =
-  PAPER_HEIGHT_MM - PAGE_MARGIN_MM * 2 - PAGE_CONTENT_SLACK_MM;
-const MM_TO_PX = 96 / 25.4;
-
-const getDefaultDates = () => {
-  const todayKey = getBogotaDateKey();
-  return {
-    fromDate: todayKey,
-    toDate: todayKey,
-  };
-};
-
-const getMonthRangeFromKey = (referenceDateKey: string) => {
-  const [yearRaw, monthRaw] = referenceDateKey.split("-");
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  const todayKey = getBogotaDateKey();
-  const { year: currentYear, month: currentMonth } = getBogotaDateParts();
-
-  if (
-    Number.isNaN(year) ||
-    Number.isNaN(month) ||
-    month < 1 ||
-    month > 12 ||
-    !yearRaw ||
-    !monthRaw
-  ) {
-    return { fromDate: todayKey, toDate: todayKey };
-  }
-
-  const monthText = String(month).padStart(2, "0");
-  const fromDate = `${yearRaw}-${monthText}-01`;
-
-  if (yearRaw === currentYear && monthText === currentMonth) {
-    return { fromDate, toDate: todayKey };
-  }
-
-  const monthEnd = new Date(Date.UTC(year, month, 0, 5, 0, 0));
-  const { day: lastDay } = getBogotaDateParts(monthEnd);
-  const toDate = `${yearRaw}-${monthText}-${lastDay}`;
-  return { fromDate, toDate };
-};
-const REPORT_STORAGE_PREFIX = "kensar_report";
-const HOURLY_CHART_BAR_MAX_HEIGHT = 260; // px for chart bars height
-const LINE_CHART_WIDTH = 980;
-const LINE_CHART_HEIGHT = 420;
-const LINE_CHART_PADDING = {
-  top: 26,
-  right: 28,
-  bottom: 126,
-  left: 90,
-};
-const LINE_CHART_TICKS = 5;
-const resolveReportStorageScope = () => {
-  if (typeof window === "undefined") return "anon";
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return "anon";
-    const parsed = JSON.parse(raw) as {
-      user?: { id?: number; email?: string | null };
-    };
-    if (typeof parsed.user?.id === "number") {
-      return `u${parsed.user.id}`;
-    }
-    const email = parsed.user?.email?.trim().toLowerCase();
-    if (email) return email;
-  } catch {
-    // ignore and fallback
-  }
-  return "anon";
-};
-
-const buildReportStorageKey = (suffix: string) =>
-  `${REPORT_STORAGE_PREFIX}_${resolveReportStorageScope()}_${suffix}`;
-
-const cx = (...classes: Array<string | false | null | undefined>) =>
-  classes.filter(Boolean).join(" ");
-
-export type PaymentLabelResolver = (method: string) => string;
-
-
-const getReportDocumentTitle = (preset: ReportPreset, meta: FilterMeta) =>
-  `${preset.title} ${meta.fromDate} – ${meta.toDate}`;
-
-type ColumnPresentation = {
-  align: "left" | "right" | "center";
-  noWrap: boolean;
-  isDateValue: boolean;
-  clampLines?: number;
-  maxWidth?: number;
-  width?: number;
-};
-
-const getColumnPresentation = (
-  reportId: string,
-  column: string
-): ColumnPresentation => {
-  const normalized = column.toLowerCase().trim();
-  const presentation: ColumnPresentation = {
-    align: "left",
-    noWrap: false,
-    isDateValue: false,
-  };
-
-  if (reportId === "free-sales-traceability") {
-    if (normalized === "motivo") {
-      presentation.width = 320;
-      presentation.maxWidth = 320;
-      presentation.clampLines = 4;
-      return presentation;
-    }
-    if (normalized === "fecha") {
-      presentation.width = 155;
-      presentation.maxWidth = 155;
-      presentation.noWrap = true;
-      presentation.isDateValue = true;
-      return presentation;
-    }
-    if (normalized === "precio") {
-      presentation.width = 95;
-      presentation.maxWidth = 95;
-      presentation.align = "right";
-      presentation.noWrap = true;
-      return presentation;
-    }
-    if (normalized === "ticket") {
-      presentation.width = 110;
-      presentation.maxWidth = 110;
-      presentation.noWrap = true;
-      return presentation;
-    }
-  }
-
-  if (
-    normalized.includes("código") ||
-    normalized.includes("codigo") ||
-    normalized.includes("sku")
-  ) {
-    presentation.align = "center";
-    presentation.noWrap = true;
-  }
-
-  if (normalized.includes("producto")) {
-    presentation.clampLines = 1;
-    presentation.maxWidth = 260;
-    presentation.width = 260;
-  }
-
-  if (
-    normalized.includes("precio unitario") ||
-    normalized.includes("cantidad") ||
-    normalized.includes("total") ||
-    normalized.includes("valor") ||
-    normalized.includes("monto")
-  ) {
-    presentation.align = "right";
-  }
-
-  if (normalized.startsWith("fecha")) {
-    presentation.noWrap = true;
-    presentation.isDateValue = true;
-  }
-
-  if (normalized.includes("ticket")) {
-    presentation.noWrap = true;
-  }
-
-  return presentation;
-};
-
-
-const FALLBACK_COMPANY: CompanyInfo = {
-  name: "",
-  address: "",
-  email: "",
-  phone: "",
-  logoUrl: "",
-};
-
-const formatMoney = (value: number | undefined | null) => {
-  if (value == null || Number.isNaN(value)) return "$0";
-  return `$${value.toLocaleString("es-CO", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  })}`;
-};
-
-const normalizeText = (value: string | null | undefined) =>
-  value?.toLowerCase().trim() ?? "";
-
-const toNumber = (value: unknown): number => {
+function toNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed;
   }
   return 0;
-};
-
-const parseAdjustmentPayments = (
-  payload: Record<string, unknown> | null | undefined
-): Array<{ method: string; amount: number }> => {
-  if (!payload || typeof payload !== "object") return [];
-  const rawPayments = payload.payments;
-  if (!Array.isArray(rawPayments)) return [];
-  return rawPayments
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const row = entry as Record<string, unknown>;
-      const method = typeof row.method === "string" ? row.method.trim() : "";
-      if (!method) return null;
-      const amount = toNumber(row.amount);
-      return { method, amount };
-    })
-    .filter((entry): entry is { method: string; amount: number } => !!entry);
-};
-
-const applyDocumentAdjustmentsToSales = (
-  sales: ReportSale[],
-  adjustments: ReportDocumentAdjustment[]
-): ReportSale[] => {
-  if (!sales.length || !adjustments.length) return sales;
-  const bySaleId = new Map<number, ReportDocumentAdjustment[]>();
-  adjustments.forEach((adjustment) => {
-    const docId = Number(adjustment.doc_id);
-    if (!Number.isFinite(docId)) return;
-    const current = bySaleId.get(docId) ?? [];
-    current.push(adjustment);
-    bySaleId.set(docId, current);
-  });
-
-  return sales.map((sale) => {
-    const saleAdjustments = bySaleId.get(sale.id);
-    if (!saleAdjustments?.length) return sale;
-
-    const sortedByRecent = [...saleAdjustments].sort((a, b) => {
-      const timeA = a.created_at ? Date.parse(a.created_at) : 0;
-      const timeB = b.created_at ? Date.parse(b.created_at) : 0;
-      if (timeA === timeB) return b.id - a.id;
-      return timeB - timeA;
-    });
-
-    let adjustedPayments: Array<{ method?: string | null; amount?: number | null }> | null =
-      null;
-    for (const adjustment of sortedByRecent) {
-      const parsed = parseAdjustmentPayments(adjustment.payload);
-      if (parsed.length) {
-        adjustedPayments = parsed;
-        break;
-      }
-    }
-
-    const totalDelta = saleAdjustments.reduce(
-      (sum, entry) => sum + toNumber(entry.total_delta),
-      0
-    );
-    const baseTotal = toNumber(sale.total ?? sale.paid_amount);
-    const nextTotal = Math.max(0, baseTotal + totalDelta);
-
-    if (!adjustedPayments) {
-      return {
-        ...sale,
-        total: nextTotal,
-      };
-    }
-
-    const adjustedPaidAmount = adjustedPayments.reduce(
-      (sum, entry) => sum + toNumber(entry.amount),
-      0
-    );
-
-    return {
-      ...sale,
-      total: nextTotal,
-      paid_amount: adjustedPaidAmount,
-      payment_method: adjustedPayments[0]?.method ?? sale.payment_method,
-      payments: adjustedPayments,
-    };
-  });
-};
-
-const normalizeComparableText = (value: string | null | undefined) =>
-  value
-    ? value
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .trim()
-    : "";
-
-const FREE_SALE_NAME_FRAGMENT = "venta libre";
-
-const isFreeSaleItem = (item: ReportSaleItem) => {
-  const productName = normalizeComparableText(item.product_name ?? item.name);
-  const sku = normalizeComparableText(item.product_sku);
-  return (
-    productName.includes(FREE_SALE_NAME_FRAGMENT) ||
-    sku.includes("venta-libre") ||
-    sku.includes(FREE_SALE_NAME_FRAGMENT)
-  );
-};
-
-const extractFreeSaleReasonsFromNotes = (notes?: string | null): string[] => {
-  const source = notes?.trim();
-  if (!source) return [];
-  const labelMatch = source.match(/motivo venta libre/i);
-  if (!labelMatch || labelMatch.index == null) return [];
-  const tail = source
-    .slice(labelMatch.index + labelMatch[0].length)
-    .replace(/^[\s:\-\n\r]+/, "");
-  const firstBlock = tail.split(/\r?\n\r?\n/)[0] ?? "";
-  const lines = firstBlock
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  if (!lines.length) return [];
-  const numbered = lines
-    .map((line) => line.replace(/^\d+\.\s*/, "").trim())
-    .filter((line) => line.length > 0);
-  return numbered;
-};
-
-const chunkArray = <T,>(items: T[], size: number): T[][] => {
-  if (size <= 0) return [items.length ? items : []];
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  if (!chunks.length) chunks.push([]);
-  return chunks;
-};
-
-const buildRowChunks = (
-  presetId: string,
-  rows: string[][],
-  defaultSize: number
-): string[][][] => {
-  if (!rows.length) {
-    return chunkArray(rows, defaultSize);
-  }
-  if (presetId === "products-sold") {
-    // Reparto por capacidad real: primera pagina (con resumen),
-    // paginas intermedias mas densas y ultima con reserva para nota/componentes.
-    const firstPageSize = 30;
-    const middlePageSize = 35;
-    const lastPageSize = 28;
-    // Reservamos espacio visual para nota + componentes en ultima pagina,
-    // pero priorizamos llenar la penultima al maximo posible.
-    const minLastPageRows = 8;
-    const chunks: string[][][] = [];
-    let startIndex = 0;
-    if (rows.length) {
-      const firstChunk = rows.slice(0, firstPageSize);
-      if (firstChunk.length) {
-        chunks.push(firstChunk);
-      }
-      startIndex = firstChunk.length;
-    }
-
-    const remainingRows = rows.slice(startIndex);
-    if (remainingRows.length <= middlePageSize) {
-      if (remainingRows.length) chunks.push(remainingRows);
-      return chunks.length ? chunks : ([[]] as string[][][]);
-    }
-
-    let cursor = 0;
-    while (remainingRows.length - cursor > middlePageSize + lastPageSize) {
-      chunks.push(remainingRows.slice(cursor, cursor + middlePageSize));
-      cursor += middlePageSize;
-    }
-
-    const finalBlock = remainingRows.slice(cursor);
-    if (finalBlock.length <= middlePageSize) {
-      chunks.push(finalBlock);
-      return chunks;
-    }
-    if (finalBlock.length <= middlePageSize + minLastPageRows) {
-      // Si el bloque final es apenas un poco mayor al limite intermedio,
-      // evitamos crear una ultima pagina casi vacia.
-      chunks.push(finalBlock);
-      return chunks;
-    }
-
-    // Reparto "penultima llena": dejamos en la ultima solo lo necesario.
-    // Ejemplo 41 filas => 29 + 12 (en vez de 23 + 18).
-    let firstPageSizeAdjusted = Math.min(
-      middlePageSize,
-      Math.max(1, finalBlock.length - minLastPageRows)
-    );
-    let secondPageSize = finalBlock.length - firstPageSizeAdjusted;
-    if (secondPageSize > lastPageSize) {
-      secondPageSize = lastPageSize;
-      firstPageSizeAdjusted = finalBlock.length - secondPageSize;
-    }
-
-    chunks.push(finalBlock.slice(0, firstPageSizeAdjusted));
-    chunks.push(finalBlock.slice(firstPageSizeAdjusted));
-
-    if (!chunks.length) {
-      return [[]] as string[][][];
-    }
-    return chunks;
-  }
-  return chunkArray(rows, defaultSize);
-};
-
-type HourlyChartPoint = {
-  label: string;
-  total: number;
-  tickets: number;
-  percent: string;
-};
-
-type LineChartPoint = {
-  label: string;
-  value: number;
-};
-
-type ReportChartConfig =
-  | {
-      type: "hourly-bars";
-      title: string;
-      description: string;
-      bars: HourlyChartPoint[];
-      maxValue: number;
-    }
-  | {
-      type: "month-line";
-      title: string;
-      description: string;
-      points: LineChartPoint[];
-      maxValue: number;
-    }
-  | {
-      type: "payment-bars";
-      title: string;
-      description: string;
-      items: PaymentBarPoint[];
-      maxValue: number;
-    };
-
-const parseInteger = (value: string | undefined) => {
-  if (!value) return 0;
-  const cleaned = value.replace(/[^\d-]/g, "");
-  const parsed = parseInt(cleaned, 10);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const parseMoney = (value: string | undefined) => {
-  if (!value) return 0;
-  const cleaned = value
-    .replace(/[^\d,-]/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
-  const parsed = parseFloat(cleaned);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const applyCartDiscountToItems = (
-  sale: ReportSale,
-  items: ReportSaleItem[]
-): ReportSaleItem[] => {
-  const cartDiscount = Math.max(0, Number(sale.cart_discount_value ?? 0));
-  if (cartDiscount <= 0 || items.length === 0) return items;
-
-  const totals = items.map((item) => {
-    const quantity = Math.max(0, Number(item.quantity ?? 0));
-    const unitPrice = Math.max(0, Number(item.unit_price ?? 0));
-    return { quantity, lineTotal: unitPrice * quantity };
-  });
-  const subtotal = totals.reduce((sum, entry) => sum + entry.lineTotal, 0);
-  if (subtotal <= 0) return items;
-
-  let remainingDiscount = Math.min(cartDiscount, subtotal);
-  return items.map((item, index) => {
-    const { quantity, lineTotal } = totals[index];
-    if (quantity <= 0 || lineTotal <= 0) {
-      return item;
-    }
-    const rawShare =
-      index === items.length - 1
-        ? remainingDiscount
-        : (lineTotal / subtotal) * cartDiscount;
-    const discountShare = Math.max(0, Math.min(rawShare, remainingDiscount));
-    remainingDiscount -= discountShare;
-    const netLineTotal = Math.max(0, lineTotal - discountShare);
-    const unitPriceNet = netLineTotal / quantity;
-    return {
-      ...item,
-      unit_price: unitPriceNet,
-    };
-  });
-};
-
-const buildHourlyChartData = (rows: string[][]): HourlyChartPoint[] =>
-  rows
-    .map((row) => ({
-      label: row[0] ?? "",
-      tickets: parseInteger(row[1]),
-      total: parseMoney(row[2]),
-      percent: row[3] ?? "",
-    }))
-    .filter((entry) => entry.label);
-
-const formatChartHourLabel = (label: string) => {
-  const [first] = label.split(/–|-/);
-  return first ? first.trim() : label;
-};
-
-const buildMonthDailyChartData = (rows: string[][]): LineChartPoint[] =>
-  rows
-    .map((row) => ({
-      label: row[0] ?? "",
-      value: parseMoney(row[1]),
-    }))
-    .filter((entry) => entry.label);
-
-type PaymentBarPoint = {
-  label: string;
-  total: number;
-  percent?: string;
-};
-
-const buildPaymentMethodChartData = (rows: string[][]): PaymentBarPoint[] =>
-  rows
-    .map((row) => ({
-      label: row[0] ?? "",
-      total: parseMoney(row[1]),
-      percent: row[3] ?? undefined,
-    }))
-    .filter((entry) => entry.label && entry.total > 0);
-
-const getChartConfig = (
-  presetId: string,
-  tableRows: string[][]
-): ReportChartConfig | null => {
-  switch (presetId) {
-    case "hourly-sales": {
-      const bars = buildHourlyChartData(tableRows);
-      if (!bars.length) return null;
-      const maxValue = bars.reduce(
-        (max, entry) => Math.max(max, entry.total),
-        0
-      );
-      return {
-        type: "hourly-bars",
-        bars,
-        maxValue,
-        title: "Comportamiento por hora",
-        description:
-          "Barras verticales que representan las ventas por cada hora incluida en el reporte.",
-      };
-    }
-    case "month-daily": {
-      const points = buildMonthDailyChartData(tableRows);
-      if (!points.length) return null;
-      const maxValue = points.reduce(
-        (max, entry) => Math.max(max, entry.value),
-        0
-      );
-      return {
-        type: "month-line",
-        points,
-        maxValue,
-        title: "Comportamiento por día",
-        description:
-          "Tendencia diaria del mes para identificar picos y caídas de venta.",
-      };
-    }
-    case "payment-methods": {
-      const items = buildPaymentMethodChartData(tableRows);
-      if (!items.length) return null;
-      const maxValue = items.reduce(
-        (max, entry) => Math.max(max, entry.total),
-        0
-      );
-      return {
-        type: "payment-bars",
-        items,
-        maxValue,
-        title: "Distribución por método",
-        description:
-          "Comparativa horizontal del aporte de cada método de pago.",
-      };
-    }
-    case "category-sales": {
-      const items = tableRows
-        .map((row) => ({
-          label: row[0] ?? "",
-          total: parseMoney(row[1]),
-          percent: row[4] ?? undefined,
-        }))
-        .filter((entry) => entry.label && entry.total > 0)
-        .slice(0, 12);
-      if (!items.length) return null;
-      const maxValue = items.reduce(
-        (max, entry) => Math.max(max, entry.total),
-        0
-      );
-      return {
-        type: "payment-bars",
-        items,
-        maxValue,
-        title: "Participación por categoría",
-        description:
-          "Comparativa horizontal del aporte de cada categoría a las ventas del periodo.",
-      };
-    }
-    default:
-      return null;
-  }
-};
-
-export const REPORT_PRESETS: ReportPreset[] = [
-  {
-    id: "daily-sales",
-    title: "Ventas del día",
-    description:
-      "Valor total, número de tickets, promedio y comparativo contra el día anterior.",
-    scope: "Ventas",
-    highlights: ["Tickets por POS", "Top métodos de pago", "Descuentos"],
-  },
-  {
-    id: "month-daily",
-    title: "Ventas del mes (por día)",
-    description:
-      "Detalle diario del mes actual con acumulado, devoluciones y ticket promedio.",
-    scope: "Ventas",
-    highlights: ["Tendencia diaria", "Alertas de caída", "Ticket promedio"],
-  },
-  {
-    id: "category-sales",
-    title: "Ventas por categoría",
-    description:
-      "Distribución por familias de productos y aporte porcentual a la venta total.",
-    scope: "Catálogos",
-    highlights: ["Top categorías", "Portafolio rezagado", "Margen estimado"],
-  },
-  {
-    id: "profit-margin",
-    title: "Margen de beneficio",
-    description:
-      "Resumen de costos vs. ventas para estimar el margen bruto por línea.",
-    scope: "Finanzas",
-    highlights: ["Margen (%)", "Top SKU rentables", "Alertas de margen bajo"],
-  },
-  {
-    id: "stock-preview",
-    title: "Reporte de stock",
-    description:
-      "Próximamente: niveles de inventario, rotación y alertas de reposición.",
-    scope: "Inventarios",
-    highlights: ["Stock crítico", "Días de cobertura", "Rotación mensual"],
-  },
-  {
-    id: "pos-performance",
-    title: "Ventas por POS / sucursal",
-    description:
-      "Comparativo lado a lado para cada terminal con ventas, tickets y ticket promedio.",
-    scope: "Ventas",
-    highlights: ["Ranking POS", "Tickets por POS", "Ticket promedio"],
-  },
-  {
-    id: "seller-performance",
-    title: "Rendimiento por vendedor",
-    description:
-      "Ventas, tickets, ticket promedio y cumplimiento de meta para cada colaborador.",
-    scope: "Ventas",
-    highlights: ["Meta vs. real", "Ticket promedio", "Comisión estimada"],
-  },
-  {
-    id: "payment-methods",
-    title: "Ventas por método de pago",
-    description:
-      "Distribución de ventas y tickets según cada método de pago utilizado.",
-    scope: "Ventas",
-    highlights: ["Participación por método", "Tickets por método", "Venta neta"],
-  },
-  {
-    id: "hourly-sales",
-    title: "Ventas por hora",
-    description:
-      "Detalle de tickets y valor vendido para cada hora del día y detectar picos de actividad.",
-    scope: "Ventas",
-    highlights: ["Hora pico", "Tickets por hora", "Participación"],
-  },
-  {
-    id: "client-segmentation",
-    title: "Ventas por cliente / segmento",
-    description:
-      "Identifica los clientes con mayor valor, frecuencia y crecimiento mensual.",
-    scope: "Clientes",
-    highlights: ["Top clientes", "Frecuencia", "Valor acumulado"],
-  },
-  {
-    id: "loyalty-repeat",
-    title: "Recurrencia y nuevos clientes",
-    description:
-      "Seguimiento de clientes nuevos vs. recurrentes, CLV y tasa de retención.",
-    scope: "Clientes",
-    highlights: ["Nuevos vs. recurrentes", "CLV estimado", "Retención"],
-  },
-  {
-    id: "discounts-report",
-    title: "Descuentos y promociones",
-    description:
-      "Cuánta venta llega por promociones, quién aplica los descuentos y su impacto.",
-    scope: "Finanzas",
-    highlights: ["Venta con promo", "Top cajeros", "Margen afectado"],
-  },
-  {
-    id: "supplier-brands",
-    title: "Ventas por proveedor / marca",
-    description:
-      "Distribución de ventas por proveedor para apoyar negociaciones y compras.",
-    scope: "Catálogos",
-    highlights: ["Ranking proveedores", "Participación", "Crecimiento"],
-  },
-  {
-    id: "returns-breakdown",
-    title: "Devoluciones por categoría / SKU",
-    description:
-      "Motivos y frecuencia de devoluciones para identificar productos problemáticos.",
-    scope: "Ventas",
-    highlights: ["Tasa devolución", "Motivos", "Alertas calidad"],
-  },
-  {
-    id: "combos-services",
-    title: "Tendencia de combos o servicios",
-    description:
-      "Evaluación de combos o servicios: margen, éxito de upselling y cross selling.",
-    scope: "Ventas",
-    highlights: ["Margen combos", "Upselling", "SKUs asociados"],
-  },
-  {
-    id: "payments-reconciliation",
-    title: "Conciliación métodos de pago",
-    description:
-      "Comparativo del POS contra plataformas externas para revisar inconsistencias.",
-    scope: "Finanzas",
-    highlights: ["Cuadre diario", "Comisiones", "Alertas de diferencia"],
-  },
-  {
-    id: "cash-flow",
-    title: "Flujo de caja",
-    description:
-      "Entradas vs. salidas por día/semana para rastrear diferencias y reposiciones.",
-    scope: "Finanzas",
-    highlights: ["Entradas", "Salidas", "Diferencias detectadas"],
-  },
-  {
-    id: "credit-balance",
-    title: "Anticipos y créditos pendientes",
-    description:
-      "Listado de clientes con saldo por cerrar (pagos parciales, apartados, separaciones).",
-    scope: "Finanzas",
-    highlights: ["Saldo cliente", "Último pago", "Alertas de vencimiento"],
-  },
-  {
-    id: "pos-user-conciliation",
-    title: "Conciliación por cajero",
-    description:
-      "Detalle de ventas, devoluciones y efectivo entregado por cada turno/cajero.",
-    scope: "Finanzas",
-    highlights: ["Efectivo esperado", "Devoluciones", "Diferencias"],
-  },
-  {
-    id: "products-top",
-    title: "Top productos vendidos",
-    description:
-      "Ranking de los artículos con mayor aporte en unidades y valor durante el periodo filtrado.",
-    scope: "Productos",
-    highlights: ["Ranking SKU", "Participación", "Última venta"],
-  },
-  {
-    id: "products-sold",
-    title: "Productos vendidos (detalle)",
-    description:
-      "Detalle de cada artículo vendido con fecha, ticket, código y precio aplicado.",
-    scope: "Productos",
-    highlights: ["Ticket / POS", "Precio aplicado", "Cantidad"],
-  },
-  ...(SHOW_FREE_SALE_TRACEABILITY_REPORT
-    ? [
-        {
-          id: "free-sales-traceability",
-          title: "Trazabilidad venta libre",
-          description:
-            "Listado de ventas libres con fecha, motivo registrado, precio y número de ticket.",
-          scope: "Productos",
-          highlights: ["Motivo", "Precio", "Ticket"],
-        } satisfies ReportPreset,
-      ]
-    : []),
-  {
-    id: "products-returns",
-    title: "Devoluciones por producto",
-    description:
-      "Seguimiento de devoluciones, garantías y productos con incidencias recurrentes.",
-    scope: "Productos",
-    highlights: ["Motivos", "SKU afectado", "Alertas de calidad"],
-  },
-  {
-    id: "surcharge-summary",
-    title: "Incrementos por periodo",
-    description:
-      "Resumen de los recargos aplicados en ventas Addi/Sistecrédito o manuales.",
-    scope: "Ventas",
-    highlights: ["Ticket", "Método", "Valor agregado"],
-  },
-  {
-    id: "products-margin",
-    title: "Margen y rotación por producto",
-    description:
-      "Próximamente: margen estimado, rotación y roturas de stock por SKU.",
-    scope: "Productos",
-    highlights: ["Margen bruto", "Rotación", "Alertas de stock"],
-  },
-];
-
-function filterSalesByMeta(
-  salesData: ReportSale[],
-  meta: FilterMeta
-): ReportSale[] {
-  if (!salesData.length) return [];
-  const from = buildBogotaDateFromKey(meta.fromDate);
-  const to = buildBogotaDateFromKey(meta.toDate);
-  to.setUTCDate(to.getUTCDate() + 1);
-  to.setUTCMilliseconds(-1);
-
-  return salesData.filter((sale) => {
-    const saleStatus = (sale.status ?? "").toLowerCase().trim();
-    if (saleStatus === "voided" || !!sale.voided_at) return false;
-
-    const saleDate = parseDateInput(sale.created_at);
-    if (!saleDate) return false;
-    if (saleDate < from || saleDate > to) return false;
-
-    if (
-      meta.posFilter !== "todos" &&
-      normalizeText(sale.pos_name) !== normalizeText(meta.posFilter)
-    ) {
-      return false;
-    }
-
-    if (meta.methodFilter !== "todos") {
-      const methodSlug = normalizeText(meta.methodFilter);
-      const saleMethod = normalizeText(sale.payment_method);
-      const multiMatch =
-        (sale.payments ?? []).some(
-          (payment) => normalizeText(payment.method) === methodSlug
-        ) || false;
-      if (saleMethod !== methodSlug && !multiMatch) {
-        return false;
-      }
-    }
-
-    if (
-      meta.sellerFilter &&
-      !normalizeText(sale.vendor_name).includes(
-        meta.sellerFilter.toLowerCase().trim()
-      )
-    ) {
-      return false;
-    }
-
-    return true;
-  });
 }
 
-export type DocumentHtmlOptions = {
-  pageIndex?: number | null;
-};
+function formatMoney(value: number | undefined | null) {
+  if (value == null || Number.isNaN(value)) return "$0";
+  return `$${value.toLocaleString("es-CO", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`;
+}
 
-export function buildDocumentHtml(
-  preset: ReportPreset,
-  result: ReportResult,
-  info: CompanyInfo,
-  meta: FilterMeta,
-  resolvePaymentLabel?: (method: string) => string,
-  options?: DocumentHtmlOptions
-): string {
-  const tableColumns = result.table?.columns ?? [];
-  const tableRows = result.table?.rows ?? [];
-  const rowsPerPage = (() => {
-    if (preset.id === "hourly-sales") return 16;
-    if (preset.id === "month-daily") return MONTH_DAILY_ROWS_PER_PAGE;
-    return TABLE_ROWS_PER_PAGE;
-  })();
-  const chartConfig = getChartConfig(preset.id, tableRows);
-  const columnLayouts = tableColumns.map((column) =>
-    getColumnPresentation(preset.id, column)
-  );
-  const documentTitle = getReportDocumentTitle(preset, meta);
-  const emptyMessage =
-    result.table?.emptyMessage ??
-    "No hay información disponible con los filtros aplicados.";
-  const rowChunks = buildRowChunks(preset.id, tableRows, rowsPerPage);
-  const tablePagesCount = rowChunks.length;
-  const hasChartPage = !!chartConfig;
-  const rawTotalPages = tablePagesCount + (hasChartPage ? 1 : 0);
-  const totalPages = Math.max(rawTotalPages, 1);
-  const summaryCards = result.summary
-    .map(
-      (item) =>
-        `<div class="card"><p class="label">${item.label}</p><p class="value">${item.value}</p></div>`
-    )
-    .join("");
-  const surchargeInfoHtml =
-    result.surchargeTotal && result.surchargeTotal > 0
-      ? `<div class="surcharge-line">Incremento cobrado en el periodo:<strong>${formatMoney(
-          result.surchargeTotal
-        )}</strong></div>`
-      : "";
-  const noteHtml = result.note ? `<div class="note">${result.note}</div>` : "";
-  const pageWidth = `${PAGE_WIDTH_MM}mm`;
-  const pageHeight = `${PAGE_HEIGHT_MM}mm`;
-  const paperWidth = `${PAPER_WIDTH_MM}mm`;
-  const paperHeight = `${PAPER_HEIGHT_MM}mm`;
-  const pageMargin = `${PAGE_MARGIN_MM}mm`;
-  const targetPageIndex =
-    typeof options?.pageIndex === "number" ? options.pageIndex : null;
-  const tablePagesHtml = rowChunks
-    .map((rowsChunk, pageIdx) => {
-      if (targetPageIndex !== null && targetPageIndex !== pageIdx) {
-        return "";
-      }
-      const tableHtml =
-        tableColumns.length > 0
-          ? `<table>
-                <thead>
-                  <tr>${tableColumns
-                    .map((column, columnIdx) => {
-                      const layout = columnLayouts[columnIdx];
-                      const styleAttr = layout.maxWidth
-                        ? ` style="${layout.width ? `width:${layout.width}px;` : ""}max-width:${layout.maxWidth}px"`
-                        : "";
-                      return `<th class="${cx(
-                        `align-${layout.align}`,
-                        layout.noWrap && "nowrap",
-                        layout.align === "right" && "numeric"
-                      )}"${styleAttr}>${column}</th>`;
-                    })
-                    .join("")}</tr>
-                </thead>
-                <tbody>
-                  ${
-                    rowsChunk.length > 0
-                      ? rowsChunk
-                          .map(
-                            (row) =>
-                              `<tr>${row
-                                .map((cell, cellIdx) => {
-                                  const layout = columnLayouts[cellIdx];
-                                  const content = layout.clampLines
-                                    ? `<span class="cell-text clamp-${layout.clampLines}">${cell}</span>`
-                                    : cell;
-                                  const styleAttr = layout.maxWidth
-                                    ? ` style="${layout.width ? `width:${layout.width}px;` : ""}max-width:${layout.maxWidth}px"`
-                                    : "";
-                                  return `<td class="${cx(
-                                    `align-${layout.align}`,
-                                    layout.noWrap && "nowrap",
-                                    layout.align === "right" && "numeric",
-                                    layout.isDateValue && "date-cell"
-                                  )}"${styleAttr}>${content}</td>`;
-                                })
-                                .join("")}</tr>`
-                          )
-                          .join("")
-                      : `<tr><td colspan="${tableColumns.length}" class="empty">${emptyMessage}</td></tr>`
-                  }
-                </tbody>
-              </table>`
-          : `<div class="empty">${emptyMessage}</div>`;
-      const showSummary = pageIdx === 0;
-      const showNote = pageIdx === tablePagesCount - 1 && !!noteHtml;
-      return `<div class="report-wrapper">
-        <div class="page-body">
-          <header>
-            <div class="left">
-              ${
-                info.logoUrl
-                  ? `<img src="${info.logoUrl}" alt="Logo" class="logo" />`
-                  : ""
-              }
-              <div>
-                <div class="title">${preset.title}</div>
-                <div>${info.name}</div>
-                <div>${info.address}</div>
-                <div>${info.email}${
-        info.phone ? " · " + info.phone : ""
-      }</div>
-              </div>
-            </div>
-            <div class="right">
-              <span>Generado:</span>
-              <div>${formatBogotaDate(new Date(), {
-                dateStyle: "short",
-                timeStyle: "short",
-              })}</div>
-            </div>
-          </header>
-          <div class="meta">
-            <div><span>Periodo:</span> ${meta.fromDate} – ${meta.toDate}</div>
-            <div><span>POS:</span> ${
-              meta.posFilter === "todos" ? "Todos" : meta.posFilter
-            }</div>
-            <div><span>Método:</span> ${
-              meta.methodFilter === "todos"
-                ? "Todos"
-                : resolvePaymentLabel
-                ? resolvePaymentLabel(meta.methodFilter)
-                : meta.methodFilter
-            }</div>
-            <div><span>Vendedor:</span> ${meta.sellerFilter || "Todos"}</div>
-          </div>
-          ${
-            showSummary
-              ? `<div class="summary">
-            ${summaryCards}
-          </div>${surchargeInfoHtml ? surchargeInfoHtml : ""}`
-              : ""
-          }
-          <div class="table-block">
-            ${tableHtml}
-          </div>
-          ${showNote ? noteHtml : ""}
-          ${
-            showNote
-              ? `<div class="components">
-            <strong>Componentes:</strong> ${
-              preset.highlights.length ? preset.highlights.join(", ") : "—"
-            }
-          </div>`
-              : ""
-          }
-        </div>
-        <div class="footer">
-          <span>${info.name}</span>
-          <span>Página ${pageIdx + 1} / ${totalPages}</span>
-        </div>
-      </div>`;
-    })
-    .filter(Boolean)
-    .join("");
-  let chartContent = "";
-  if (chartConfig?.type === "hourly-bars") {
-    const { bars, maxValue } = chartConfig;
-    chartContent = `<div class="chart-area">
-      ${bars
-        .map((entry) => {
-          const heightPx =
-            maxValue > 0
-              ? (entry.total / maxValue) * HOURLY_CHART_BAR_MAX_HEIGHT
-              : 0;
-          const adjustedHeight = Math.max(
-            heightPx,
-            entry.total > 0 ? HOURLY_CHART_BAR_MAX_HEIGHT * 0.12 : 0
-          );
-          const shortLabel = formatChartHourLabel(entry.label);
-          const ticketLabel = entry.tickets === 1 ? "ticket" : "tickets";
-          return `<div class="chart-bar">
-            <div class="chart-value">${formatMoney(entry.total)}</div>
-            <div class="bar" style="height:${adjustedHeight}px;"></div>
-            <div class="chart-label">${shortLabel}</div>
-            <div class="chart-subtext">${entry.tickets} ${ticketLabel}</div>
-          </div>`;
-        })
-        .join("")}
-    </div>`;
-  } else if (chartConfig?.type === "month-line") {
-    const { points, maxValue } = chartConfig;
-    const width = LINE_CHART_WIDTH;
-    const height = LINE_CHART_HEIGHT;
-    const { top, right, bottom, left } = LINE_CHART_PADDING;
-    const innerWidth = width - left - right;
-    const innerHeight = height - top - bottom;
-    const xStep = points.length > 1 ? innerWidth / (points.length - 1) : 0;
-    const safeMax = Math.max(maxValue, 1);
-    const polylinePoints = points
-      .map((point, idx) => {
-        const ratio = safeMax > 0 ? point.value / safeMax : 0;
-        const x =
-          left + (points.length > 1 ? idx * xStep : innerWidth / 2);
-        const y = top + innerHeight - ratio * innerHeight;
-        return `${x},${y}`;
-      })
-      .join(" ");
-    const tickCount = Math.max(LINE_CHART_TICKS, 2);
-    const tickLines = Array.from({ length: tickCount })
-      .map((_, idx) => {
+function formatCompactMoney(value: number | undefined | null) {
+  if (value == null || Number.isNaN(value)) return "$0";
+  if (Math.abs(value) >= 1_000_000) {
+    return `$${(value / 1_000_000).toLocaleString("es-CO", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })}M`;
+  }
+  if (Math.abs(value) >= 1_000) {
+    return `$${(value / 1_000).toLocaleString("es-CO", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    })}k`;
+  }
+  return formatMoney(value);
+}
+
+function formatCount(value: number | undefined | null) {
+  if (value == null || Number.isNaN(value)) return "0";
+  return value.toLocaleString("es-CO");
+}
+
+function formatPercentChange(current: number, previous: number) {
+  if (!Number.isFinite(previous) || previous <= 0) return null;
+  const change = ((current - previous) / previous) * 100;
+  const sign = change > 0 ? "+" : "";
+  return `${sign}${change.toLocaleString("es-CO", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  })}%`;
+}
+
+function formatMethodLabel(method: string | null | undefined) {
+  if (!method) return "Sin método";
+  const normalized = method.trim().toLowerCase();
+  const methodLabels: Record<string, string> = {
+    cash: "Efectivo",
+    efectivo: "Efectivo",
+    card: "Tarjeta",
+    tarjeta: "Tarjeta",
+    "credit card": "Tarjeta crédito",
+    "tarjeta credito": "Tarjeta crédito",
+    "tarjeta crédito": "Tarjeta crédito",
+    "debit card": "Tarjeta débito",
+    "tarjeta debito": "Tarjeta débito",
+    "tarjeta débito": "Tarjeta débito",
+    transfer: "Transferencia",
+    transferencia: "Transferencia",
+    qr: "QR",
+    nequi: "Nequi",
+    daviplata: "Daviplata",
+  };
+  return methodLabels[normalized] ?? capitalize(normalized);
+}
+
+function normalizeLookupValue(value: string | number | null | undefined) {
+  if (value == null) return "";
+  return String(value).trim().toLowerCase();
+}
+
+function resolveItemGroupName(
+  item: ReportSaleItem,
+  productGroupLookup: ProductGroupLookup
+) {
+  const byId =
+    productGroupLookup.byId.get(normalizeLookupValue(item.product_id)) ?? "";
+  if (byId) return byId;
+
+  const bySku =
+    productGroupLookup.bySku.get(normalizeLookupValue(item.product_sku)) ?? "";
+  if (bySku) return bySku;
+
+  const itemName = item.product_name?.trim() || item.name?.trim() || "";
+  const byName = productGroupLookup.byName.get(normalizeLookupValue(itemName)) ?? "";
+  if (byName) return byName;
+
+  const groupName = item.product_group?.trim() || "";
+  const subGroupName = item.product_category?.trim() || "";
+  if (groupName && subGroupName && subGroupName !== groupName) {
+    return `${groupName} / ${subGroupName}`;
+  }
+  return groupName || subGroupName || "";
+}
+
+function aggregatePaymentMethods(sales: EnrichedSale[]) {
+  const methodMap = new Map<string, { total: number; tickets: number }>();
+
+  const combineSale = (method: string, amount: number) => {
+    const key = method || "Sin método";
+    const current = methodMap.get(key) ?? { total: 0, tickets: 0 };
+    current.total += amount;
+    current.tickets += 1;
+    methodMap.set(key, current);
+  };
+
+  sales.forEach((sale) => {
+    const payments = sale.payments;
+    if (Array.isArray(payments) && payments.length > 1) {
+      const sumPayments = payments.reduce(
+        (sum, payment) => sum + toNumber(payment.amount),
+        0
+      );
+      payments.forEach((payment) => {
+        const rawAmount = toNumber(payment.amount);
         const value =
-          idx === tickCount - 1
-            ? safeMax
-            : (safeMax / (tickCount - 1)) * idx;
-        const ratio = safeMax > 0 ? value / safeMax : 0;
-        const y = top + innerHeight - ratio * innerHeight;
-        return `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="#cbd5e1" stroke-width="1" />
-        <text x="${left - 14}" y="${y + 4}" fill="#475569" font-size="13" text-anchor="end">${formatMoney(
+          sumPayments > 0
+            ? (rawAmount / sumPayments) * sale.total
+            : sale.total / payments.length;
+        combineSale(
+          formatMethodLabel(payment.method ?? sale.paymentMethod),
           value
-        )}</text>`;
-      })
-      .join("");
-    let lastValueLabelX = -Infinity;
-    let lastValueLabelY = -Infinity;
-    const pointElements = points
-      .map((point, idx) => {
-        const ratio = safeMax > 0 ? point.value / safeMax : 0;
-        const x =
-          left + (points.length > 1 ? idx * xStep : innerWidth / 2);
-        const y = top + innerHeight - ratio * innerHeight;
-        const labelY = height - bottom + 50;
-        let valueLabelY = y <= top + 26 ? y + 24 : y - 14;
-        if (
-          Math.abs(x - lastValueLabelX) < 52 &&
-          Math.abs(valueLabelY - lastValueLabelY) < 24
-        ) {
-          valueLabelY = valueLabelY - 18;
-        }
-        if (valueLabelY < top + 12) {
-          valueLabelY = y + 24;
-        }
-        const chartDayLabel = point.label;
-        lastValueLabelX = x;
-        lastValueLabelY = valueLabelY;
-        return `<circle cx="${x}" cy="${y}" r="7" fill="#1d9fe3" stroke="#ffffff" stroke-width="3" />
-        <text x="${x}" y="${valueLabelY}" fill="#111827" font-size="12" font-weight="600" text-anchor="middle">${formatMoney(
-          point.value
-        )}</text>
-        <text x="${x}" y="${labelY}" fill="#475569" font-size="12" text-anchor="end" transform="rotate(-38 ${x} ${labelY})">${chartDayLabel}</text>`;
-      })
-      .join("");
-    chartContent = `<div class="line-chart">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:${height}px;display:block;">
-        <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom + 10}" stroke="#94a3b8" stroke-width="2" />
-        <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${
-          height - bottom
-        }" stroke="#94a3b8" stroke-width="2" />
-        ${tickLines}
-        <polyline points="${polylinePoints}" fill="none" stroke="#10b981" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" />
-        ${pointElements}
-      </svg>
-    </div>`;
-  } else if (chartConfig?.type === "payment-bars") {
-    const { items, maxValue } = chartConfig;
-    const safeMax = Math.max(maxValue, 1);
-    chartContent = `<div class="payment-bars">
-      ${items
-        .map((item) => {
-          const percent = safeMax > 0 ? (item.total / safeMax) * 100 : 0;
-          return `<div class="payment-row">
-            <div class="payment-label">${item.label}</div>
-            <div class="payment-bar-track"><div class="payment-bar-fill" style="width:${percent}%"></div></div>
-            <div class="payment-value">${formatMoney(item.total)}</div>
-          </div>`;
-        })
-        .join("")}
-    </div>`;
-  }
-  const chartUsesLandscape = !!chartConfig && chartConfig.type !== "payment-bars";
-  const chartWrapperClasses = chartUsesLandscape
-    ? "report-wrapper chart-wrapper landscape"
-    : "report-wrapper chart-wrapper";
-  const chartPageIndex = tablePagesCount;
-  const shouldRenderChart =
-    !!chartConfig &&
-    (targetPageIndex === null || targetPageIndex === chartPageIndex);
-  const chartPageHtml =
-    shouldRenderChart && chartConfig
-      ? `<div class="${chartWrapperClasses}">
-        <div class="chart-body">
-          <header>
-            <div class="left">
-              ${
-                info.logoUrl
-                  ? `<img src="${info.logoUrl}" alt="Logo" class="logo" />`
-                  : ""
-              }
-              <div>
-                <div class="title">${preset.title}</div>
-                <div>${info.name}</div>
-                <div>${info.address}</div>
-                <div>${info.email}${
-        info.phone ? " · " + info.phone : ""
-      }</div>
-              </div>
-            </div>
-            <div class="right">
-              <span>Generado:</span>
-              <div>${formatBogotaDate(new Date(), {
-                dateStyle: "short",
-                timeStyle: "short",
-              })}</div>
-            </div>
-          </header>
-          <div class="chart-meta">
-            <div><span>Periodo:</span> ${meta.fromDate} – ${meta.toDate}</div>
-            <div><span>POS:</span> ${
-              meta.posFilter === "todos" ? "Todos" : meta.posFilter
-            }</div>
-            <div><span>Método:</span> ${
-              meta.methodFilter === "todos"
-                ? "Todos"
-                : resolvePaymentLabel
-                ? resolvePaymentLabel(meta.methodFilter)
-                : meta.methodFilter
-            }</div>
-            <div><span>Vendedor:</span> ${meta.sellerFilter || "Todos"}</div>
-          </div>
-          <div class="chart-title">${chartConfig.title}</div>
-          <p class="chart-description">
-            ${chartConfig.description}
-          </p>
-          ${chartContent}
-        </div>
-        <div class="footer">
-          <span>${info.name}</span>
-          <span>Página ${totalPages} / ${totalPages}</span>
-        </div>
-      </div>`
-      : "";
-  return `<!DOCTYPE html>
-    <html lang="es">
-      <head>
-        <meta charset="utf-8" />
-        <title>${documentTitle}</title>
-        <style>
-          @page { size: ${paperWidth} ${paperHeight}; margin: ${pageMargin}; }
-          @page chart-landscape { size: A4 landscape; margin: ${pageMargin}; }
-          * { box-sizing: border-box; font-family: "Inter", Arial, sans-serif; }
-          body { background: #f4f6f9; color: #0f172a; margin: 0; padding: 24px 0; }
-          @media print {
-            body { padding: 0; background: #fff; }
-            * {
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            .report-wrapper {
-              margin: 0 auto !important;
-              border: 0 !important;
-              /* En impresion priorizamos estabilidad: evita desbordes y paginas fantasma. */
-              min-height: calc(${pageHeight} - 2mm) !important;
-              height: auto !important;
-              display: block !important;
-              position: relative !important;
-              padding-bottom: 28px !important;
-              page-break-after: always !important;
-              break-after: page !important;
-            }
-            .chart-wrapper.landscape {
-              min-height: calc(${pageWidth} - 2mm) !important;
-            }
-            .page-body { display: block !important; flex: 0 0 auto !important; }
-            .table-block {
-              display: block !important;
-              flex: 0 0 auto !important;
-              overflow: visible !important;
-            }
-            .footer {
-              margin-top: 0 !important;
-              position: absolute !important;
-              left: 0 !important;
-              right: 0 !important;
-              bottom: 0 !important;
-              page-break-inside: avoid !important;
-              break-inside: avoid-page !important;
-            }
-          }
-          .report-wrapper { width: ${pageWidth}; min-height: ${pageHeight}; margin: 0 auto 12mm; background: #fff; border: 1px solid #d3d7df; page-break-after: always; break-after: page; display:flex; flex-direction:column; }
-          .report-wrapper:last-of-type { page-break-after: auto; break-after: auto; }
-          .chart-wrapper { width: ${pageWidth}; }
-          .chart-wrapper.landscape { width: ${pageHeight}; min-height: ${pageWidth}; page: chart-landscape; }
-          .chart-body { flex:1; display:flex; flex-direction:column; padding: 16px 20px 18px; }
-          .page-body { flex:1; display:flex; flex-direction:column; }
-          header { padding: 12px 18px 10px; border-bottom: 1px solid #e3e6ef; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 3px; }
-          header .left { display: flex; gap: 10px; align-items: center; }
-          header .title { font-size: 15px; font-weight: 600; line-height: 1.1; }
-          .logo { height: 36px; width: auto; object-fit: contain; }
-          header .right { text-align:right;font-size:11px;color:#475569; }
-          .meta { padding: 8px 18px; background: #f8fafc; border-bottom: 1px solid #e3e6ef; display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 6px; font-size: 9.5px; line-height: 1.15; }
-          .meta span { font-weight: 600; color: #0f172a; }
-          .summary { padding: 6px 18px; display: grid; grid-template-columns: repeat(auto-fit,minmax(138px,1fr)); gap: 5px; }
-          .card { border: 1px solid #e3e6ef; border-radius: 10px; padding: 5px 8px; background: #fff; break-inside: avoid; min-height: 42px; display:flex; flex-direction:column; justify-content:center; }
-          .card .label { font-size: 8.5px; text-transform: uppercase; color: #475569; margin-bottom: 1px; }
-          .card .value { font-size: 13px; font-weight: 600; line-height: 1.05; }
-          .table-block { flex: 1 1 auto; min-height: 0; padding: 0 18px 10px; display:flex; flex-direction:column; overflow:hidden; }
-          table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
-          th, td { border: 1px solid #d7dbe5; padding: 5px 8px; vertical-align: middle; line-height: 1.2; }
-          th { background: #f8fafc; font-size: 10px; text-transform: uppercase; color: #475569; }
-          tr:nth-child(even) { background: #fdfdfd; }
-          tr { break-inside: avoid; }
-          .note { margin: 10px 20px 4px; font-size: 10px; color: #475569; }
-          .footer { border-top: 1px solid #e3e6ef; padding: 8px 20px; font-size: 9px; display: flex; justify-content: space-between; color: #64748b; margin-top: auto; }
-          .components { font-size: 10px; margin: 2px 20px 8px; color: #475569; }
-          .empty { padding: 10px; text-align: center; color: #94a3b8; font-size: 11px; }
-          .align-left { text-align: left; }
-          .align-right { text-align: right; }
-          .align-center { text-align: center; }
-          .nowrap { white-space: nowrap; }
-          .numeric { font-variant-numeric: tabular-nums; }
-          .date-cell { font-size: 11px; }
-          .chart-meta { padding: 8px 0 4px; display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 8px; font-size: 10px; border-bottom: 1px solid #e3e6ef; margin-bottom: 8px; }
-          .chart-meta span { font-weight: 600; color: #0f172a; }
-          .chart-title { font-size: 16px; font-weight: 600; margin: 12px 0 4px; }
-          .chart-description { font-size: 11px; color: #475569; margin-bottom: 12px; }
-          .chart-area { flex:1; border:1px solid #d7dbe5; border-radius: 18px; background:#f8fafc; padding: 20px 16px 12px; display:flex; align-items:flex-end; gap: 8px; }
-          .chart-bar { flex:1; min-width: 28px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; text-align:center; font-size: 10px; color:#475569; }
-          .chart-bar .bar { width: 26px; background: #059669; border: 1px solid #047857; border-radius: 0; }
-          .chart-value { font-size: 11px; font-weight: 600; margin-bottom: 4px; color:#0f172a; display:inline-block; transform:rotate(-32deg); transform-origin:left bottom; }
-          .chart-label { font-size: 10px; font-weight: 600; margin-top: 6px; color:#0f172a; }
-          .chart-subtext { font-size: 9px; color:#94a3b8; margin-top: 1px; }
-          .line-chart { flex:1; min-height: 440px; border:1px solid #d7dbe5; border-radius: 18px; background:#fff; padding: 12px 8px; }
-          .chart-wrapper.landscape .line-chart { min-height: 440px; }
-          .line-svg { width: 100%; height: 100%; display:block; }
-          .line-grid { stroke: #e2e8f0; stroke-width: 1; }
-          .line-axis { stroke: #94a3b8; stroke-width: 1.2; }
-          .line-path { fill: none; stroke: #10b981; stroke-width: 2.5; }
-          .line-point { fill: #0ea5e9; stroke: #fff; stroke-width: 1.5; }
-          .line-value { font-size: 10px; fill: #0f172a; text-anchor: middle; }
-          .line-x-label { font-size: 8px; fill: #475569; text-anchor: middle; }
-          .line-y-label { font-size: 9px; fill: #475569; text-anchor: end; }
-          .payment-bars { display:flex; flex-direction:column; gap:10px; padding:12px 0; }
-          .payment-row { display:grid; grid-template-columns: 130px 1fr 90px; gap:12px; align-items:center; font-size:11px; color:#0f172a; }
-          .payment-label { font-weight:600; color:#0f172a; }
-          .payment-bar-track { background:#e2e8f0; border-radius:999px; height:14px; overflow:hidden; }
-          .payment-bar-fill { background:linear-gradient(90deg,#34d399,#059669); height:100%; border-radius:999px; }
-          .payment-value { font-weight:600; text-align:right; font-size:12px; }
-          .surcharge-line { margin: 2px 20px; font-size: 10px; color: #0f172a; }
-          .surcharge-line strong { font-size: 12px; margin-left: 4px; }
-          .cell-text { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.3; }
-          .cell-text.clamp-1 { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; min-height: auto; }
-          .cell-text.clamp-2 { -webkit-line-clamp: 2; min-height: 2.6em; }
-          .cell-text.clamp-3 { -webkit-line-clamp: 3; min-height: 3.9em; }
-        </style>
-      </head>
-      <body>
-        ${tablePagesHtml}${chartPageHtml}
-      </body>
-    </html>`;
-}
+        );
+      });
+      return;
+    }
 
-export function buildReportResult(
-  reportId: string,
-  sales: ReportSale[],
-  labelResolver?: PaymentLabelResolver,
-  changesData: ReportChange[] = []
-): ReportResult | null {
-  const resolvePaymentLabel =
-    labelResolver ?? ((method: string) => method.toUpperCase());
-  if (!sales.length) {
-    return {
-      summary: [
-        { label: "Ventas netas", value: "$0" },
-        { label: "Tickets", value: "0" },
-        { label: "Ticket promedio", value: "$0" },
-      ],
-      table: {
-        columns: [],
-        rows: [],
-        emptyMessage: "No hay datos con los filtros actuales.",
-      },
-      surchargeTotal: 0,
-    };
-  }
+    combineSale(
+      formatMethodLabel(sale.paymentMethod ?? payments?.[0]?.method),
+      sale.total
+    );
+  });
 
-  const totalNet = sales.reduce((sum, sale) => sum + (sale.total ?? 0), 0);
-  const totalSurcharge = sales.reduce(
-    (sum, sale) => sum + Math.max(0, sale.surcharge_amount ?? 0),
+  const grandTotal = Array.from(methodMap.values()).reduce(
+    (sum, entry) => sum + entry.total,
     0
   );
-  const ticketCount = sales.length;
-  const avgTicket = ticketCount ? totalNet / ticketCount : 0;
 
-  const groupBy = (
-    keyFn: (sale: ReportSale) => string,
-    valueReducer: (entry: {
-      total: number;
-      count: number;
-      extra?: Record<string, number>;
-    }) => void = () => {}
-  ) => {
-    const map = new Map<
-      string,
-      { total: number; count: number; extra: Record<string, number> }
-    >();
-    sales.forEach((sale) => {
-      const key = keyFn(sale) || "Sin dato";
-      if (!map.has(key)) {
-        map.set(key, { total: 0, count: 0, extra: {} });
-      }
-      const entry = map.get(key)!;
-      entry.total += sale.total ?? 0;
-      entry.count += 1;
-      valueReducer(entry);
-    });
-    return map;
-  };
-
-  const aggregateByPaymentMethod = () => {
-    const methodMap = new Map<string, { total: number; count: number }>();
-    const combineSale = (method: string, amount: number) => {
-      const key = method || "Sin método";
-      if (!methodMap.has(key)) {
-        methodMap.set(key, { total: 0, count: 0 });
-      }
-      const entry = methodMap.get(key)!;
-      entry.total += amount;
-      entry.count += 1;
-    };
-
-    sales.forEach((sale) => {
-      const payments = sale.payments;
-      if (Array.isArray(payments) && payments.length > 1) {
-        const sumPayments = payments.reduce(
-          (sum, payment) => sum + (payment.amount ?? 0),
-          0
-        );
-        const saleTotal = sale.total ?? sale.paid_amount ?? sumPayments;
-        payments.forEach((payment) => {
-          const rawAmount = payment.amount ?? 0;
-          const value =
-            sumPayments > 0
-              ? (rawAmount / sumPayments) * saleTotal
-              : saleTotal / payments.length;
-          combineSale(payment.method ?? sale.payment_method ?? "Sin método", value);
-        });
-      } else {
-        combineSale(
-          sale.payment_method ?? payments?.[0]?.method ?? "Sin método",
-          sale.total ?? sale.paid_amount ?? payments?.[0]?.amount ?? 0
-        );
-      }
-    });
-
-    return Array.from(methodMap.entries()).sort((a, b) => b[1].total - a[1].total);
-  };
-
-const dayFormatter = (iso: string) => {
-  const keyMatch = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (keyMatch) {
-    const date = buildBogotaDateFromKey(iso);
-    return formatBogotaDate(date, { day: "2-digit", month: "short" }) || "--";
-  }
-  return formatBogotaDate(iso, { day: "2-digit", month: "short" }) || "--";
-};
-
-const dateTimeFormatter = (iso: string) =>
-  formatBogotaDate(iso, { dateStyle: "short", timeStyle: "short" }) || "--";
-
-  switch (reportId) {
-    case "daily-sales": {
-      const posMap = groupBy((sale) => sale.pos_name ?? "Sin POS");
-      const rows = Array.from(posMap.entries())
-        .sort((a, b) => b[1].total - a[1].total)
-        .map(([pos, entry]) => [
-          pos,
-          formatMoney(entry.total),
-          entry.count.toString(),
-          formatMoney(entry.count ? entry.total / entry.count : 0),
-        ]);
-      return {
-        summary: [
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-          { label: "Tickets", value: ticketCount.toString() },
-          { label: "Ticket promedio", value: formatMoney(avgTicket) },
-        ],
-        table: {
-          columns: ["POS", "Ventas", "Tickets", "Ticket promedio"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "month-daily": {
-      const dayMap = new Map<string, { total: number; count: number }>();
-      sales.forEach((sale) => {
-        const key = sale.created_at.slice(0, 10);
-        if (!dayMap.has(key)) {
-          dayMap.set(key, { total: 0, count: 0 });
-        }
-        const entry = dayMap.get(key)!;
-        entry.total += sale.total ?? 0;
-        entry.count += 1;
-      });
-      const rows = Array.from(dayMap.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([date, entry]) => [
-          dayFormatter(date),
-          formatMoney(entry.total),
-          entry.count.toString(),
-          formatMoney(entry.count ? entry.total / entry.count : 0),
-        ]);
-      return {
-        summary: [
-          { label: "Ventas del periodo", value: formatMoney(totalNet) },
-          { label: "Tickets", value: ticketCount.toString() },
-          { label: "Ticket promedio", value: formatMoney(avgTicket) },
-        ],
-        table: {
-          columns: ["Día", "Ventas", "Tickets", "Ticket promedio"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "category-sales": {
-      const categoryMap = new Map<
-        string,
-        { total: number; units: number; tickets: Set<number> }
-      >();
-      const changeMap = new Map<number, ReportChange[]>();
-      if (changesData.length > 0) {
-        changesData.forEach((change) => {
-          if (change.status !== "confirmed" || change.voided_at) return;
-          const list = changeMap.get(change.sale_id) ?? [];
-          list.push(change);
-          changeMap.set(change.sale_id, list);
-        });
-      }
-
-      sales.forEach((sale) => {
-        const changedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
-        const netItems = applyReturnsToSaleItems(sale, changedItems);
-        const pricedItems = applyCartDiscountToItems(sale, netItems);
-        pricedItems.forEach((item) => {
-          const category =
-            item.product_group?.trim() ||
-            item.product_category?.trim() ||
-            "Sin categoría";
-          const quantity = Math.max(0, Number(item.quantity ?? 0));
-          const unitPrice = Math.max(0, Number(item.unit_price ?? 0));
-          const lineTotal = unitPrice * quantity;
-          if (!categoryMap.has(category)) {
-            categoryMap.set(category, { total: 0, units: 0, tickets: new Set() });
-          }
-          const entry = categoryMap.get(category)!;
-          entry.total += lineTotal;
-          entry.units += quantity;
-          entry.tickets.add(sale.id);
-        });
-      });
-
-      const categoryRows = Array.from(categoryMap.entries()).sort(
-        (a, b) => b[1].total - a[1].total
-      );
-      const categorizedTotal = categoryRows.reduce(
-        (sum, [, entry]) => sum + entry.total,
-        0
-      );
-      const totalUnits = categoryRows.reduce(
-        (sum, [, entry]) => sum + entry.units,
-        0
-      );
-      const rows = categoryRows.map(([category, entry]) => {
-        const ticketsCount = entry.tickets.size;
-        return [
-          category,
-          formatMoney(entry.total),
-          entry.units.toString(),
-          ticketsCount.toString(),
-          categorizedTotal > 0
-            ? `${((entry.total / categorizedTotal) * 100).toFixed(1)}%`
-            : "0%",
-          formatMoney(ticketsCount > 0 ? entry.total / ticketsCount : 0),
-        ];
-      });
-
-      return {
-        summary: [
-          { label: "Categorías activas", value: categoryRows.length.toString() },
-          { label: "Unidades", value: totalUnits.toString() },
-          { label: "Ventas categorizadas", value: formatMoney(categorizedTotal) },
-        ],
-        table: {
-          columns: [
-            "Categoría",
-            "Ventas",
-            "Unidades",
-            "Tickets",
-            "Participación",
-            "Ticket promedio",
-          ],
-          rows,
-          emptyMessage:
-            "No hay productos categorizados para el rango seleccionado.",
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "pos-performance": {
-      const posMap = groupBy((sale) => sale.pos_name ?? "Sin POS");
-      const rows = Array.from(posMap.entries())
-        .sort((a, b) => b[1].total - a[1].total)
-        .map(([pos, entry]) => [
-          pos,
-          formatMoney(entry.total),
-          entry.count.toString(),
-          `${((entry.total / totalNet) * 100).toFixed(1)}%`,
-        ]);
-      return {
-        summary: [
-          { label: "Total POS", value: rows.length.toString() },
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-          { label: "Ticket promedio", value: formatMoney(avgTicket) },
-        ],
-        table: {
-          columns: ["POS", "Ventas", "Tickets", "Participación"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "seller-performance":
-    case "pos-user-conciliation": {
-      const vendorMap = groupBy((sale) => sale.vendor_name ?? "Sin vendedor");
-      const rows = Array.from(vendorMap.entries())
-        .sort((a, b) => b[1].total - a[1].total)
-        .map(([vendor, entry]) => [
-          vendor,
-          formatMoney(entry.total),
-          entry.count.toString(),
-          formatMoney(entry.count ? entry.total / entry.count : 0),
-        ]);
-      return {
-        summary: [
-          { label: "Vendedores activos", value: rows.length.toString() },
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-          { label: "Ticket promedio", value: formatMoney(avgTicket) },
-        ],
-        table: {
-          columns: ["Vendedor", "Ventas", "Tickets", "Ticket promedio"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "hourly-sales": {
-      const hoursMap = new Map<
-        number,
-        { total: number; count: number }
-      >();
-      let minHour = 23;
-      let maxHour = 0;
-      sales.forEach((sale) => {
-        const { hour: hourPart } = getBogotaDateParts(sale.created_at);
-        const hourValue = Number(hourPart);
-        if (!Number.isFinite(hourValue)) return;
-        const hourKey = hourValue;
-        minHour = Math.min(minHour, hourKey);
-        maxHour = Math.max(maxHour, hourKey);
-        if (!hoursMap.has(hourKey)) {
-          hoursMap.set(hourKey, { total: 0, count: 0 });
-        }
-        const entry = hoursMap.get(hourKey)!;
-        entry.total += sale.total ?? 0;
-        entry.count += 1;
-      });
-      if (!hoursMap.size) {
-        return {
-          summary: [
-            { label: "Ventas netas", value: formatMoney(totalNet) },
-            { label: "Tickets", value: ticketCount.toString() },
-            { label: "Hora pico", value: "—" },
-          ],
-          table: {
-            columns: ["Hora", "Tickets", "Ventas", "% de ventas"],
-            rows: [],
-            emptyMessage: "No hay datos con los filtros actuales.",
-          },
-        };
-      }
-      const hourLabel = (hour: number) =>
-        `${hour.toString().padStart(2, "0")}:00 – ${(
-          (hour + 1) %
-          24
-        )
-          .toString()
-          .padStart(2, "0")}:00`;
-      const rows: Array<Array<string>> = [];
-      for (let hour = minHour; hour <= maxHour; hour += 1) {
-        const entry = hoursMap.get(hour) ?? { total: 0, count: 0 };
-        rows.push([
-          hourLabel(hour),
-          entry.count.toString(),
-          formatMoney(entry.total),
-          totalNet > 0
-            ? `${((entry.total / totalNet) * 100).toFixed(1)}%`
-            : "0%",
-        ]);
-      }
-      const peakHour = Array.from(hoursMap.entries()).reduce(
-        (best, current) => {
-          if (!best || current[1].total > best[1].total) return current;
-          return best;
-        },
-        null as [number, { total: number; count: number }] | null
-      );
-      return {
-        summary: [
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-          { label: "Tickets", value: ticketCount.toString() },
-          {
-            label: "Hora pico",
-            value: peakHour ? hourLabel(peakHour[0]) : "—",
-          },
-        ],
-        table: {
-          columns: ["Hora", "Tickets", "Ventas", "% de ventas"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "payment-methods": {
-      const rows = aggregateByPaymentMethod()
-        .sort((a, b) => b[1].total - a[1].total)
-        .map(([method, entry]) => {
-          const resolvedLabel =
-            method === "Sin método"
-              ? "Sin método"
-              : resolvePaymentLabel(method);
-          return [
-            resolvedLabel,
-            formatMoney(entry.total),
-            entry.count.toString(),
-            totalNet > 0
-              ? `${((entry.total / totalNet) * 100).toFixed(1)}%`
-              : "0%",
-          ];
-        });
-      const dominant = rows[0]?.[0] ?? "—";
-      return {
-        summary: [
-          { label: "Métodos activos", value: rows.length.toString() },
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-          { label: "Método dominante", value: dominant },
-        ],
-        table: {
-          columns: ["Método", "Ventas", "Tickets", "Participación"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "client-segmentation": {
-      const clientMap = new Map<
-        string,
-        { total: number; count: number; last: string }
-      >();
-      sales.forEach((sale) => {
-        const key = sale.customer_name ?? sale.customer_email ?? "Sin cliente";
-        if (!clientMap.has(key)) {
-          clientMap.set(key, { total: 0, count: 0, last: sale.created_at });
-        }
-        const entry = clientMap.get(key)!;
-        entry.total += sale.total ?? 0;
-        entry.count += 1;
-        if (sale.created_at > entry.last) entry.last = sale.created_at;
-      });
-      const rows = Array.from(clientMap.entries())
-        .sort((a, b) => b[1].total - a[1].total)
-        .slice(0, 15)
-        .map(([client, entry]) => [
-          client,
-          formatMoney(entry.total),
-          entry.count.toString(),
-          formatBogotaDate(entry.last, { dateStyle: "short" }),
-        ]);
-      return {
-        summary: [
-          { label: "Clientes únicos", value: clientMap.size.toString() },
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-          { label: "Ticket promedio", value: formatMoney(avgTicket) },
-        ],
-        table: {
-          columns: ["Cliente", "Ventas", "Tickets", "Última compra"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "surcharge-summary": {
-      const surchargeSales = sales.filter(
-        (sale) => (sale.surcharge_amount ?? 0) > 0
-      );
-      const rows = surchargeSales.map((sale) => [
-        dateTimeFormatter(sale.created_at),
-        sale.document_number
-          ? sale.document_number
-          : sale.sale_number
-          ? `#${sale.sale_number.toString().padStart(4, "0")}`
-          : "—",
-        sale.pos_name ?? "Sin POS",
-        sale.vendor_name ?? "Sin vendedor",
-        resolvePaymentLabel(sale.payment_method ?? "Sin método"),
-        formatMoney(sale.surcharge_amount ?? 0),
-        formatMoney(sale.total ?? 0),
-      ]);
-      const surchargeTickets = surchargeSales.length;
-      const totalSurchargeValue = surchargeSales.reduce(
-        (sum, sale) => sum + Math.max(0, sale.surcharge_amount ?? 0),
-        0
-      );
-      const averageSurcharge =
-        surchargeTickets > 0 ? totalSurchargeValue / surchargeTickets : 0;
-      return {
-        summary: [
-          {
-            label: "Total incremento",
-            value: formatMoney(totalSurchargeValue),
-          },
-          {
-            label: "Tickets con incremento",
-            value: surchargeTickets.toString(),
-          },
-          {
-            label: "Incremento promedio",
-            value: formatMoney(averageSurcharge),
-          },
-        ],
-        table: {
-          columns: [
-            "Fecha",
-            "Documento",
-            "POS",
-            "Vendedor",
-            "Método",
-            "Recargo",
-            "Total venta",
-          ],
-          rows,
-          emptyMessage:
-            "No se registraron incrementos en este periodo seleccionado.",
-        },
-        surchargeTotal: totalSurchargeValue,
-      };
-    }
-    case "loyalty-repeat": {
-      const clientCounts = new Map<string, number>();
-      sales.forEach((sale) => {
-        const key = sale.customer_name ?? sale.customer_email ?? "Sin cliente";
-        clientCounts.set(key, (clientCounts.get(key) ?? 0) + 1);
-      });
-      let newClients = 0;
-      let returning = 0;
-      clientCounts.forEach((count) => {
-        if (count > 1) returning += 1;
-        else newClients += 1;
-      });
-      const rows = Array.from(clientCounts.entries())
-        .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
-        .map(([client, count]) => [
-          client,
-          count > 1 ? "Recurrente" : "Nuevo",
-          `${count} compra${count > 1 ? "s" : ""}`,
-        ]);
-      return {
-        summary: [
-          { label: "Clientes nuevos", value: newClients.toString() },
-          { label: "Clientes recurrentes", value: returning.toString() },
-          {
-            label: "Tasa de repetición",
-            value:
-              clientCounts.size > 0
-                ? `${((returning / clientCounts.size) * 100).toFixed(1)}%`
-                : "0%",
-          },
-        ],
-        table: {
-          columns: ["Cliente", "Tipo", "Compras"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "discounts-report": {
-      let discountTotal = 0;
-      sales.forEach((sale) => {
-        discountTotal += sale.cart_discount_value ?? 0;
-        sale.items?.forEach((item) => {
-          discountTotal += item.line_discount_value ?? 0;
-        });
-      });
-      const gross = totalNet + discountTotal;
-      return {
-        summary: [
-          { label: "Descuento aplicado", value: formatMoney(discountTotal) },
-          {
-            label: "% sobre ventas",
-            value: gross
-              ? `${((discountTotal / gross) * 100).toFixed(1)}%`
-              : "0%",
-          },
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-        ],
-        table: {
-          columns: ["Detalle", "Valor"],
-          rows: [
-            ["Ventas brutas", formatMoney(gross)],
-            ["Ventas netas", formatMoney(totalNet)],
-            ["Total descuento", formatMoney(discountTotal)],
-          ],
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "payments-reconciliation": {
-      const rows = aggregateByPaymentMethod()
-        .map(([method, entry]) => {
-          const resolvedLabel =
-            method === "Sin método"
-              ? "Sin método"
-              : resolvePaymentLabel(method);
-          return [
-            resolvedLabel,
-            formatMoney(entry.total),
-            entry.count.toString(),
-            `${((entry.total / totalNet) * 100).toFixed(1)}%`,
-          ];
-        });
-      return {
-        summary: [
-          { label: "Métodos usados", value: rows.length.toString() },
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-          { label: "Ticket promedio", value: formatMoney(avgTicket) },
-        ],
-        table: {
-          columns: ["Método", "Ventas", "Tickets", "Participación"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "credit-balance": {
-      const creditSales = sales.filter((sale) => {
-        const method = normalizeText(sale.payment_method);
-        const isCredit =
-          method === "credit" ||
-          method === "credito" ||
-          method === "separado";
-        if (isCredit) return true;
-        return (sale.payments ?? []).some((payment) => {
-          const paymentMethod = normalizeText(payment.method);
-          return (
-            paymentMethod === "credit" ||
-            paymentMethod === "credito" ||
-            paymentMethod === "separado"
-          );
-        });
-      });
-      const outstanding = creditSales.reduce((sum, sale) => {
-        const paid = sale.paid_amount ?? 0;
-        return sum + Math.max(0, (sale.total ?? 0) - paid);
-      }, 0);
-      const rows = creditSales.map((sale) => [
-        sale.customer_name ?? "Sin cliente",
-        formatMoney(sale.total ?? 0),
-        formatMoney(sale.paid_amount ?? 0),
-        formatMoney(Math.max(0, (sale.total ?? 0) - (sale.paid_amount ?? 0))),
-      ]);
-      return {
-        summary: [
-          {
-            label: "Ventas a crédito",
-            value: creditSales.length.toString(),
-          },
-          { label: "Saldo pendiente", value: formatMoney(outstanding) },
-          { label: "Total crédito", value: formatMoney(totalNet) },
-        ],
-        table: {
-          columns: ["Cliente", "Total", "Pagado", "Saldo"],
-          rows,
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "products-top": {
-      const productMap = new Map<
-        string,
-        {
-          sku?: string | null;
-          group?: string | null;
-          total: number;
-          units: number;
-          last: string;
-        }
-      >();
-      sales.forEach((sale) => {
-        sale.items?.forEach((item) => {
-          const key = item.product_name ?? item.name ?? "Sin nombre";
-          if (!productMap.has(key)) {
-            productMap.set(key, {
-              sku: item.product_sku ?? null,
-              group: item.product_group ?? item.product_category ?? null,
-              total: 0,
-              units: 0,
-              last: sale.created_at,
-            });
-          }
-          const entry = productMap.get(key)!;
-          entry.total += (item.unit_price ?? 0) * (item.quantity ?? 0);
-          entry.units += item.quantity ?? 0;
-          if (!entry.sku && item.product_sku) entry.sku = item.product_sku;
-          if (!entry.group && (item.product_group || item.product_category)) {
-            entry.group = item.product_group ?? item.product_category ?? null;
-          }
-          if (sale.created_at > entry.last) entry.last = sale.created_at;
-        });
-      });
-      const entriesArray = Array.from(productMap.entries());
-      const rows = entriesArray
-        .sort((a, b) => b[1].total - a[1].total)
-        .map(([name, entry]) => [
-          entry.sku ?? "—",
-          name,
-          entry.group ?? "—",
-          entry.units.toString(),
-          formatMoney(entry.total),
-          dateTimeFormatter(entry.last),
-        ]);
-      const totalUnits = entriesArray.reduce(
-        (sum, [, entry]) => sum + entry.units,
-        0
-      );
-      const totalProductsValue = entriesArray.reduce(
-        (sum, [, entry]) => sum + entry.total,
-        0
-      );
-      return {
-        summary: [
-          { label: "Productos únicos", value: productMap.size.toString() },
-          { label: "Unidades vendidas", value: totalUnits.toString() },
-          {
-            label: "Valor generado",
-            value: formatMoney(totalProductsValue),
-          },
-        ],
-        table: {
-          columns: [
-            "SKU",
-            "Producto",
-            "Categoría / grupo",
-            "Unidades",
-            "Ventas",
-            "Última venta",
-          ],
-          rows,
-          emptyMessage:
-            "Aún no tenemos ventas asociadas a productos en este periodo.",
-        },
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "products-sold": {
-      const rows: Array<Array<string>> = [];
-      let units = 0;
-      let subtotal = 0;
-      const uniqueProducts = new Set<string>();
-      const changeMap = new Map<number, ReportChange[]>();
-      if (changesData.length > 0) {
-        changesData.forEach((change) => {
-          if (change.status !== "confirmed" || change.voided_at) return;
-          const list = changeMap.get(change.sale_id) ?? [];
-          list.push(change);
-          changeMap.set(change.sale_id, list);
-        });
-      }
-      sales.forEach((sale) => {
-        const changedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
-        const netItems = applyReturnsToSaleItems(sale, changedItems);
-        const pricedItems = applyCartDiscountToItems(sale, netItems);
-        pricedItems.forEach((item) => {
-          const productName =
-            item.product_name ?? item.name ?? "Producto sin nombre";
-          uniqueProducts.add(productName);
-          const quantity = item.quantity ?? 0;
-          const unitPrice = item.unit_price ?? 0;
-          units += quantity;
-          subtotal += unitPrice * quantity;
-          rows.push([
-            dateFormatter(sale.created_at),
-            productName,
-            item.product_sku ?? "—",
-            formatMoney(unitPrice),
-            quantity.toString(),
-            sale.document_number
-              ? sale.document_number
-              : sale.sale_number
-              ? `#${sale.sale_number.toString().padStart(4, "0")}`
-              : "—",
-          ]);
-        });
-      });
-      return {
-        summary: [
-          { label: "Unidades vendidas", value: units.toString() },
-          { label: "Productos únicos", value: uniqueProducts.size.toString() },
-          { label: "Valor de productos", value: formatMoney(subtotal) },
-        ],
-        table: {
-          columns: [
-            "Fecha",
-            "Producto",
-            "Código / SKU",
-            "Precio unitario",
-            "Cantidad",
-            "Ticket",
-          ],
-          rows,
-          emptyMessage: "No se registraron productos vendidos en este periodo.",
-        },
-        note:
-          "Incluye cada artículo vendido con el ticket al que pertenece. Utiliza la exportación para obtener el detalle completo.",
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    case "free-sales-traceability": {
-      const rows: Array<Array<string>> = [];
-      let freeSaleCount = 0;
-      let freeSaleValue = 0;
-
-      sales.forEach((sale) => {
-        const reasons = extractFreeSaleReasonsFromNotes(sale.notes);
-        const freeItems = (sale.items ?? []).filter((item) => isFreeSaleItem(item));
-        if (!freeItems.length) return;
-        freeItems.forEach((item, index) => {
-          const quantity = Math.max(0, Number(item.quantity ?? 0));
-          const unitPrice = Math.max(0, Number(item.unit_price ?? 0));
-          const lineTotal = unitPrice * quantity;
-          freeSaleCount += 1;
-          freeSaleValue += lineTotal;
-          rows.push([
-            dateTimeFormatter(sale.created_at),
-            reasons[index] ?? reasons[0] ?? "Sin motivo registrado",
-            formatMoney(unitPrice),
-            sale.document_number
-              ? sale.document_number
-              : sale.sale_number
-              ? `#${sale.sale_number.toString().padStart(4, "0")}`
-              : "—",
-          ]);
-        });
-      });
-
-      return {
-        summary: [
-          { label: "Ventas libres", value: freeSaleCount.toString() },
-          { label: "Valor total", value: formatMoney(freeSaleValue) },
-          {
-            label: "Motivos registrados",
-            value: rows.filter((row) => row[1] !== "Sin motivo registrado").length.toString(),
-          },
-        ],
-        table: {
-          columns: ["Fecha", "Motivo", "Precio", "Ticket"],
-          rows,
-          emptyMessage:
-            "No se registraron ventas libres en este periodo.",
-        },
-        note:
-          "Este informe muestra cada línea de venta libre y el motivo capturado al momento de la venta.",
-        surchargeTotal: totalSurcharge,
-      };
-    }
-    default:
-      return {
-        summary: [
-          {
-            label: "Estado",
-            value: "Próximamente",
-          },
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-          { label: "Tickets", value: ticketCount.toString() },
-        ],
-        note:
-          "Este reporte se conectará próximamente al backend para ofrecer datos completos.",
-        surchargeTotal: totalSurcharge,
-      };
-  }
+  return Array.from(methodMap.entries())
+    .map(([method, entry]) => ({
+      method,
+      total: entry.total,
+      tickets: entry.tickets,
+      percentage: grandTotal > 0 ? (entry.total / grandTotal) * 100 : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
 }
-
-type ReportDocumentViewerProps = {
-  preset: ReportPreset;
-  filterMeta: FilterMeta;
-  salesData: ReportSale[];
-  changesData: ReportChange[];
-  companyInfo: CompanyInfo;
-  token?: string | null;
-  settingsError?: string | null;
-  onClose?: () => void;
-  resolveMethodLabel: PaymentLabelResolver;
-};
-
-const dateFormatter = (iso: string) =>
-  formatBogotaDate(iso, { dateStyle: "short" }) || "--";
 
 const buildItemKey = (item: {
   product_id?: number | null;
@@ -2409,14 +344,12 @@ const buildItemKey = (item: {
   return `name:${name}|sku:${sku}`;
 };
 
-const applyChangesToSaleItems = (
-  sale: ReportSale,
+function applyChangesToSaleItems(
+  sale: EnrichedSale,
   changes: ReportChange[] | undefined
-): ReportSaleItem[] => {
+): ReportSaleItem[] {
   const sourceItems = sale.items ?? [];
-  if (!sourceItems.length || !changes || changes.length === 0) {
-    return sourceItems;
-  }
+  if (!sourceItems.length || !changes?.length) return sourceItems;
 
   const itemsMap = new Map<string, ReportSaleItem>();
   sourceItems.forEach((item) => {
@@ -2428,6 +361,7 @@ const applyChangesToSaleItems = (
 
   changes.forEach((change) => {
     if (change.status !== "confirmed" || change.voided_at) return;
+
     change.items_returned?.forEach((item) => {
       const key = buildItemKey(item);
       const existing = itemsMap.get(key);
@@ -2464,15 +398,9 @@ const applyChangesToSaleItems = (
       const quantity = Number(item.quantity ?? 0);
       if (existing) {
         existing.quantity = Number(existing.quantity ?? 0) + quantity;
-        if (existing.unit_price == null) {
-          existing.unit_price = item.unit_price;
-        }
-        if (!existing.product_name) {
-          existing.product_name = item.product_name ?? undefined;
-        }
-        if (!existing.product_sku) {
-          existing.product_sku = item.product_sku ?? undefined;
-        }
+        if (existing.unit_price == null) existing.unit_price = item.unit_price;
+        if (!existing.product_name) existing.product_name = item.product_name ?? undefined;
+        if (!existing.product_sku) existing.product_sku = item.product_sku ?? undefined;
         itemsMap.set(key, existing);
         return;
       }
@@ -2489,9 +417,9 @@ const applyChangesToSaleItems = (
   return Array.from(itemsMap.values()).filter(
     (item) => Number(item.quantity ?? 0) > 0
   );
-};
+}
 
-const applyReturnsToSaleItems = (sale: ReportSale, items: ReportSaleItem[]) => {
+function applyReturnsToSaleItems(sale: EnrichedSale, items: ReportSaleItem[]) {
   if (!items.length) return items;
   const returns = sale.returns ?? [];
   if (!returns.length) return items;
@@ -2542,531 +470,215 @@ const applyReturnsToSaleItems = (sale: ReportSale, items: ReportSaleItem[]) => {
   return Array.from(itemsMap.values()).filter(
     (item) => Number(item.quantity ?? 0) > 0
   );
-};
+}
 
-function ReportDocumentViewer({
-  preset,
-  filterMeta,
-  salesData,
-  changesData,
-  companyInfo,
-  token,
-  settingsError,
-  onClose,
-  resolveMethodLabel,
-}: ReportDocumentViewerProps) {
-  const [pageIndex, setPageIndex] = useState(0);
-  const [exportLoading, setExportLoading] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
+function applyCartDiscountToItems(
+  sale: EnrichedSale,
+  items: ReportSaleItem[]
+): ReportSaleItem[] {
+  const cartDiscount = Math.max(0, Number(sale.cart_discount_value ?? 0));
+  if (cartDiscount <= 0 || items.length === 0) return items;
 
-  const filteredSales = useMemo(
-    () => filterSalesByMeta(salesData, filterMeta),
-    [salesData, filterMeta]
-  );
+  const totals = items.map((item) => {
+    const quantity = Math.max(0, Number(item.quantity ?? 0));
+    const unitPrice = Math.max(0, Number(item.unit_price ?? 0));
+    return { quantity, lineTotal: unitPrice * quantity };
+  });
+  const subtotal = totals.reduce((sum, entry) => sum + entry.lineTotal, 0);
+  if (subtotal <= 0) return items;
 
-  const result = useMemo(
-    () =>
-      buildReportResult(
-        preset.id,
-        filteredSales,
-        resolveMethodLabel,
-        changesData
-      ),
-    [preset.id, filteredSales, resolveMethodLabel, changesData]
-  );
-  const documentData = useMemo(() => {
-    const tableRows = result?.table?.rows ?? [];
-    const rowsPerPage = (() => {
-      if (preset.id === "hourly-sales") return 16;
-      if (preset.id === "month-daily") return MONTH_DAILY_ROWS_PER_PAGE;
-      return TABLE_ROWS_PER_PAGE;
-    })();
-    const chartConfig = getChartConfig(preset.id, tableRows);
-    const rowChunks = buildRowChunks(preset.id, tableRows, rowsPerPage);
-    const tablePagesCount = rowChunks.length;
-    const totalPages = tablePagesCount + (chartConfig ? 1 : 0);
-    const safeTotalPages = Math.max(totalPages, 1);
-    const currentIndex = Math.min(
-      Math.max(pageIndex, 0),
-      safeTotalPages - 1
-    );
-    const chartUsesLandscape =
-      !!chartConfig && chartConfig.type !== "payment-bars";
-    const isChartPage =
-      !!chartConfig && currentIndex === tablePagesCount;
+  let remainingDiscount = Math.min(cartDiscount, subtotal);
+  return items.map((item, index) => {
+    const { quantity, lineTotal } = totals[index];
+    if (quantity <= 0 || lineTotal <= 0) return item;
+    const rawShare =
+      index === items.length - 1
+        ? remainingDiscount
+        : (lineTotal / subtotal) * cartDiscount;
+    const discountShare = Math.max(0, Math.min(rawShare, remainingDiscount));
+    remainingDiscount -= discountShare;
+    const netLineTotal = Math.max(0, lineTotal - discountShare);
+    const unitPriceNet = netLineTotal / quantity;
     return {
-      totalPages: safeTotalPages,
-      currentIndex,
-      isChartPage,
-      chartUsesLandscape,
+      ...item,
+      unit_price: unitPriceNet,
     };
-  }, [result, pageIndex, preset.id]);
+  });
+}
 
-  const handlePrint = useCallback(() => {
-    if (!result) return;
-    const documentTitle = getReportDocumentTitle(preset, filterMeta);
-    const html = buildDocumentHtml(
-      preset,
-      result,
-      companyInfo,
-      filterMeta,
-      resolveMethodLabel
+function buildNetSaleItems(
+  sale: EnrichedSale,
+  changes: ReportChange[] | undefined
+): ReportSaleItem[] {
+  const changedItems = applyChangesToSaleItems(sale, changes);
+  const netItems = applyReturnsToSaleItems(sale, changedItems);
+  return applyCartDiscountToItems(sale, netItems);
+}
+
+function aggregateTopProducts(
+  sales: EnrichedSale[],
+  changesBySaleId: Map<number, ReportChange[]>
+) {
+  const productMap = new Map<string, { name: string; units: number; total: number }>();
+
+  sales.forEach((sale) => {
+    buildNetSaleItems(sale, changesBySaleId.get(sale.id)).forEach((item) => {
+      const name =
+        item.product_name?.trim() || item.name?.trim() || "Producto sin nombre";
+      const quantity = Math.max(0, toNumber(item.quantity));
+      const total = Math.max(0, toNumber(item.unit_price) * quantity);
+      if (quantity <= 0 && total <= 0) return;
+      const key = `${item.product_id ?? name}-${name}`;
+      const current = productMap.get(key) ?? { name, units: 0, total: 0 };
+      current.units += quantity;
+      current.total += total;
+      productMap.set(key, current);
+    });
+  });
+
+  return Array.from(productMap.values())
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+}
+
+function aggregateTopGroups(
+  sales: EnrichedSale[],
+  changesBySaleId: Map<number, ReportChange[]>,
+  productGroupLookup: ProductGroupLookup
+) {
+  const groupMap = new Map<string, { name: string; units: number; total: number }>();
+
+  sales.forEach((sale) => {
+    buildNetSaleItems(sale, changesBySaleId.get(sale.id)).forEach((item) => {
+      const name = resolveItemGroupName(item, productGroupLookup) || "Sin grupo";
+      const quantity = Math.max(0, toNumber(item.quantity));
+      const total = Math.max(0, toNumber(item.unit_price) * quantity);
+      if (quantity <= 0 && total <= 0) return;
+      const current = groupMap.get(name) ?? { name, units: 0, total: 0 };
+      current.units += quantity;
+      current.total += total;
+      groupMap.set(name, current);
+    });
+  });
+
+  return Array.from(groupMap.values())
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+}
+
+function buildAdjustedSales(
+  sales: ReportSale[],
+  adjustments: ReportDocumentAdjustment[]
+): EnrichedSale[] {
+  const adjustmentsMap = new Map<number, number>();
+  adjustments.forEach((entry) => {
+    adjustmentsMap.set(
+      entry.doc_id,
+      (adjustmentsMap.get(entry.doc_id) ?? 0) + toNumber(entry.total_delta)
     );
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (!win) return;
-    win.document.write(html);
-    win.document.close();
-    win.document.title = documentTitle;
-    win.focus();
-    win.print();
-  }, [result, preset, companyInfo, filterMeta, resolveMethodLabel]);
+  });
 
-  const handleDownloadPdf = useCallback(async () => {
-    if (!result) return;
-    try {
-      setExportLoading(true);
-      setExportError(null);
+  return sales
+    .map((sale) => {
+      const date = parseDateInput(sale.created_at);
+      const dateKey = getBogotaDateKey(sale.created_at);
+      if (!date || !dateKey) return null;
+      const baseTotal = toNumber(sale.total ?? sale.paid_amount);
+      const adjustedTotal =
+        sale.status === "voided"
+          ? 0
+          : Math.max(0, baseTotal + (adjustmentsMap.get(sale.id) ?? 0));
+      return {
+        id: sale.id,
+        dateKey,
+        total: adjustedTotal,
+        cart_discount_value: sale.cart_discount_value ?? null,
+        returns: Array.isArray(sale.returns) ? sale.returns : [],
+        paymentMethod: sale.payment_method ?? null,
+        payments: Array.isArray(sale.payments) ? sale.payments : [],
+        items: Array.isArray(sale.items) ? sale.items : [],
+      };
+    })
+    .filter((sale): sale is EnrichedSale => sale !== null);
+}
 
-      const documentTitle = getReportDocumentTitle(preset, filterMeta);
-      const html = buildDocumentHtml(
-        preset,
-        result,
-        companyInfo,
-        filterMeta,
-        resolveMethodLabel
-      );
-      const blob = await exportReportPdf(
-        {
-          title: documentTitle,
-          document_html: html,
-          preset_id: preset.id,
-        },
-        token
-      );
-
-      const fileName = `reporte_${preset.id}_${filterMeta.fromDate}_${filterMeta.toDate}.pdf`;
-      const picker = (
-        window as Window & {
-          showSaveFilePicker?: (options?: {
-            suggestedName?: string;
-            types?: {
-              description?: string;
-              accept?: Record<string, string[]>;
-            }[];
-          }) => Promise<{
-            createWritable: () => Promise<{
-              write: (data: Blob) => Promise<void>;
-              close: () => Promise<void>;
-            }>;
-          }>;
-        }
-      ).showSaveFilePicker;
-
-      if (picker) {
-        try {
-          const handle = await picker({
-            suggestedName: fileName,
-            types: [
-              {
-                description: "PDF",
-                accept: {
-                  "application/pdf": [".pdf"],
-                },
-              },
-            ],
-          });
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          return;
-        } catch (err) {
-          if (err instanceof DOMException && err.name === "AbortError") {
-            return;
-          }
-          throw err;
-        }
-      }
-
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setExportError(
-        err instanceof Error ? err.message : "No se pudo exportar el archivo PDF."
-      );
-    } finally {
-      setExportLoading(false);
-    }
-  }, [
-    result,
-    preset,
-    companyInfo,
-    filterMeta,
-    resolveMethodLabel,
-    token,
-  ]);
-
-  const handleDownloadExcel = useCallback(async () => {
-    if (!result) return;
-    try {
-      setExportLoading(true);
-      setExportError(null);
-
-      const blob = await exportReportExcel(
-        {
-          preset_id: preset.id,
-          title: preset.title,
-          company: {
-            name: companyInfo.name,
-            address: companyInfo.address,
-            email: companyInfo.email,
-            phone: companyInfo.phone,
-          },
-          filters: {
-            from_date: filterMeta.fromDate,
-            to_date: filterMeta.toDate,
-            pos_filter: filterMeta.posFilter,
-            method_filter: filterMeta.methodFilter,
-            seller_filter: filterMeta.sellerFilter,
-          },
-          summary: result.summary.map((item) => ({
-            label: item.label,
-            value: item.value,
-          })),
-          table: {
-            columns: result.table?.columns ?? [],
-            rows: result.table?.rows ?? [],
-            empty_message: result.table?.emptyMessage,
-          },
-        },
-        token
-      );
-
-      const fileName = `reporte_${preset.id}_${filterMeta.fromDate}_${filterMeta.toDate}.xlsx`;
-      const picker = (
-        window as Window & {
-          showSaveFilePicker?: (options?: {
-            suggestedName?: string;
-            types?: {
-              description?: string;
-              accept?: Record<string, string[]>;
-            }[];
-          }) => Promise<{
-            createWritable: () => Promise<{
-              write: (data: Blob) => Promise<void>;
-              close: () => Promise<void>;
-            }>;
-          }>;
-        }
-      ).showSaveFilePicker;
-
-      if (picker) {
-        try {
-          const handle = await picker({
-            suggestedName: fileName,
-            types: [
-              {
-                description: "Excel",
-                accept: {
-                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-                    [".xlsx"],
-                },
-              },
-            ],
-          });
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          return;
-        } catch (err) {
-          if (err instanceof DOMException && err.name === "AbortError") {
-            return;
-          }
-          throw err;
-        }
-      }
-
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setExportError(
-        err instanceof Error ? err.message : "No se pudo exportar el archivo Excel."
-      );
-    } finally {
-      setExportLoading(false);
-    }
-  }, [result, preset, companyInfo, filterMeta, token]);
-
-  const {
-    totalPages,
-    currentIndex,
-    isChartPage,
-    chartUsesLandscape,
-  } = documentData;
-
-  const isLandscapeChartPage = isChartPage && chartUsesLandscape;
-  const previewHtml = useMemo(() => {
-    if (!result) return "";
-    return buildDocumentHtml(
-      preset,
-      result,
-      companyInfo,
-      filterMeta,
-      resolveMethodLabel,
-      { pageIndex: currentIndex }
-    );
-  }, [
-    result,
-    preset,
-    companyInfo,
-    filterMeta,
-    resolveMethodLabel,
-    currentIndex,
-  ]);
-  const previewWidthPx =
-    (isLandscapeChartPage ? PAGE_HEIGHT_MM : PAGE_WIDTH_MM) * MM_TO_PX;
-  const previewHeightPx =
-    (isLandscapeChartPage ? PAGE_WIDTH_MM : PAGE_HEIGHT_MM) * MM_TO_PX;
-
-  // La previsualización se renderiza ahora directamente desde el HTML del PDF.
-
-  if (!result) {
-    return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6 text-sm text-slate-300">
-        No hay datos para este reporte con los filtros seleccionados.
-      </div>
-    );
-  }
-
+function ChevronIcon({ direction }: { direction: "left" | "right" }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6 space-y-6">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-emerald-400">
-            Informe generado
-          </p>
-          <h2 className="text-2xl font-semibold text-slate-100">
-            {preset.title}
-          </h2>
-          <p className="text-sm text-slate-400 max-w-3xl">
-            {preset.description}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <button
-            className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={handleDownloadPdf}
-            disabled={exportLoading}
-          >
-            {exportLoading ? "Generando PDF..." : "Descargar PDF"}
-          </button>
-          <button
-            className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={handleDownloadExcel}
-            disabled={exportLoading}
-          >
-            {exportLoading ? "Generando Excel..." : "Descargar Excel"}
-          </button>
-          <button
-            className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400"
-            onClick={handlePrint}
-          >
-            Imprimir
-          </button>
-          {onClose && (
-            <button
-              className="px-3 py-1.5 rounded-md border border-rose-500/40 text-rose-200 hover:border-rose-400"
-              onClick={onClose}
-            >
-              Cerrar pestaña
-            </button>
-          )}
-        </div>
-      </div>
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path
+        d={
+          direction === "left"
+            ? "M11.5 4.5 6 10l5.5 5.5"
+            : "M8.5 4.5 14 10l-5.5 5.5"
+        }
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
-      {settingsError && (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 text-sm text-rose-100 px-4 py-3">
-          {settingsError}
-        </div>
-      )}
-      {exportError && (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 text-sm text-rose-100 px-4 py-3">
-          {exportError}
-        </div>
-      )}
-
-      <div className="flex items-center justify-end gap-3 text-xs text-slate-300">
-        <button
-          className="px-2 py-1 rounded border border-slate-700 disabled:opacity-40"
-          onClick={() => setPageIndex((idx) => Math.max(idx - 1, 0))}
-          disabled={currentIndex === 0}
-        >
-          ←
-        </button>
-        <span>
-          Página {currentIndex + 1} / {totalPages}
-        </span>
-        <button
-          className="px-2 py-1 rounded border border-slate-700 disabled:opacity-40"
-          onClick={() =>
-            setPageIndex((idx) => Math.min(idx + 1, totalPages - 1))
-          }
-          disabled={currentIndex === totalPages - 1}
-        >
-          →
-        </button>
-      </div>
-
-      <div className="flex justify-center">
-        {previewHtml ? (
-          <div
-            className="rounded-2xl shadow-2xl border border-slate-800 bg-white overflow-hidden"
-            style={{
-              width: `${previewWidthPx}px`,
-              height: `${previewHeightPx + 80}px`,
-            }}
-          >
-            <iframe
-              key={`${preset.id}-${currentIndex}`}
-              srcDoc={previewHtml}
-              title={`Vista previa ${preset.title} página ${currentIndex + 1}`}
-              style={{
-                width: `${previewWidthPx}px`,
-                height: `${previewHeightPx}px`,
-                overflow: "hidden",
-                border: "0",
-                display: "block",
-              }}
-            />
-          </div>
-        ) : (
-          <div className="rounded-xl border border-dashed border-slate-700/70 bg-slate-900/50 px-6 py-12 text-center text-sm text-slate-400">
-            No hay vista previa disponible.
-          </div>
-        )}
-      </div>
-    </section>
+function NavigationButton({
+  direction,
+  onClick,
+  disabled,
+  label,
+}: {
+  direction: "left" | "right";
+  onClick: () => void;
+  disabled: boolean;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:text-emerald-700 disabled:cursor-not-allowed disabled:text-slate-300"
+    >
+      <ChevronIcon direction={direction} />
+    </button>
   );
 }
 
 export default function ReportsPage() {
   const { token, user } = useAuth();
-  const favoritesStorageKey = useMemo(
-    () => buildReportStorageKey("favorites"),
-    []
-  );
-  const openReportsStorageKey = useMemo(
-    () => buildReportStorageKey("open_tabs"),
-    []
-  );
-  const activeReportTabStorageKey = useMemo(
-    () => buildReportStorageKey("active_tab"),
-    []
-  );
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
   );
-  const { catalog, getPaymentLabel } =
-    usePaymentMethodLabelResolver();
-  const resolveMethodLabel = useCallback(
-    (method: string) => getPaymentLabel(method, method),
-    [getPaymentLabel]
-  );
-
-  const defaultDates = useMemo(getDefaultDates, []);
-  const [range, setRange] = useState<QuickRange>("today");
-  const [fromDate, setFromDate] = useState<string>(defaultDates.fromDate);
-  const [toDate, setToDate] = useState<string>(defaultDates.toDate);
-  const [posFilter, setPosFilter] = useState<string>("todos");
-  const [sellerFilter, setSellerFilter] = useState<string>("");
-  const [methodFilter, setMethodFilter] = useState<string>("todos");
-  const paymentOptions = useMemo(
-    () =>
-      [...catalog]
-        .filter((method) => method.is_active)
-        .sort((a, b) => a.order_index - b.order_index),
-    [catalog]
-  );
-
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
-  const [openReports, setOpenReports] = useState<OpenReportTab[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = window.localStorage.getItem(buildReportStorageKey("open_tabs"));
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(isValidOpenReportTab);
-    } catch (err) {
-      console.warn("No se pudieron cargar los reportes abiertos", err);
-      return [];
-    }
-  });
-  const tabsInitializedRef = useRef(false);
-  const [activeTabId, setActiveTabId] = useState<string>(() => {
-    if (typeof window === "undefined") return "selector";
-    const stored = window.localStorage.getItem(buildReportStorageKey("active_tab"));
-    return stored || "selector";
-  });
-
-  const [salesData, setSalesData] = useState<ReportSale[]>([]);
-  const [changesData, setChangesData] = useState<ReportChange[]>([]);
-  const [salesLoading, setSalesLoading] = useState(false);
-  const [salesError, setSalesError] = useState<string | null>(null);
-  const [favoriteReportIds, setFavoriteReportIds] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = window.localStorage.getItem(buildReportStorageKey("favorites"));
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(
-          (id: unknown): id is string => typeof id === "string"
-        );
-      }
-    } catch (err) {
-      console.warn("No se pudieron cargar favoritos", err);
-    }
-    return [];
-  });
-
-  const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(
-    null
-  );
-  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
     defaultRolePermissions
   );
+  const [sales, setSales] = useState<EnrichedSale[]>([]);
+  const [changes, setChanges] = useState<ReportChange[]>([]);
+  const [productGroupLookup, setProductGroupLookup] = useState<ProductGroupLookup>({
+    byId: new Map(),
+    bySku: new Map(),
+    byName: new Map(),
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const todayKey = getBogotaDateKey();
+  const todayYear = todayKey.slice(0, 4);
+  const todayMonthKey = todayKey.slice(0, 7);
+  const [selectedYear, setSelectedYear] = useState(todayYear);
+  const [selectedMonthKey, setSelectedMonthKey] = useState(todayMonthKey);
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const dailyDetailRef = useRef<HTMLDivElement | null>(null);
+  const annualAverageCardRef = useRef<HTMLButtonElement | null>(null);
+  const [showAnnualDailyAverage, setShowAnnualDailyAverage] = useState(false);
+  const [annualTransitionActive, setAnnualTransitionActive] = useState(true);
+  const [monthlyTransitionActive, setMonthlyTransitionActive] = useState(true);
 
-  const filterMeta: FilterMeta = useMemo(
-    () => ({
-      fromDate,
-      toDate,
-      posFilter,
-      methodFilter,
-      sellerFilter,
-    }),
-    [fromDate, toDate, posFilter, methodFilter, sellerFilter]
-  );
-  const methodFilterLabel = useMemo(
-    () =>
-      methodFilter === "todos"
-        ? "Todos"
-        : resolveMethodLabel(methodFilter),
-    [methodFilter, resolveMethodLabel]
-  );
   const canLoadRolePermissions = useMemo(() => {
     if (!isDashboardRole(user?.role)) return false;
     const settingsModule = defaultRolePermissions.find(
@@ -3078,6 +690,7 @@ export default function ReportsPage() {
     if (!settingsAction) return false;
     return Boolean(settingsAction.roles[user.role]);
   }, [user?.role]);
+
   const canSeeModuleAction = useCallback(
     (moduleId: string, actionId: string) => {
       if (!isDashboardRole(user?.role)) return false;
@@ -3091,41 +704,11 @@ export default function ReportsPage() {
     },
     [roleModules, user?.role]
   );
-  const canViewOperationalSales = canSeeModuleAction("pos", "pos.sales");
+
   const canViewReportDataset =
     canSeeModuleAction("reports", "reports.view") ||
     canSeeModuleAction("sales_history", "sales_history.view") ||
-    canViewOperationalSales;
-  const canViewPosSettings = canSeeModuleAction("settings", "settings.view");
-
-  const companyInfo = useMemo<CompanyInfo>(() => {
-    if (!posSettings) return FALLBACK_COMPANY;
-    const rawLogo =
-      posSettings.logoUrl ??
-      posSettings.logo_url ??
-      posSettings.ticket_logo_url ??
-      "";
-    return {
-      name: posSettings.company_name?.trim() || FALLBACK_COMPANY.name,
-      address: posSettings.address?.trim() || FALLBACK_COMPANY.address,
-      email: posSettings.contact_email?.trim() || FALLBACK_COMPANY.email,
-      phone: posSettings.contact_phone?.trim() || FALLBACK_COMPANY.phone,
-      logoUrl: rawLogo.trim() || "",
-    };
-  }, [posSettings]);
-
-  const currentPreset = useMemo(
-    () =>
-      selectedPresetId
-        ? REPORT_PRESETS.find((p) => p.id === selectedPresetId) ?? null
-        : null,
-    [selectedPresetId]
-  );
-
-  const filteredSalesForPreview = useMemo(
-    () => filterSalesByMeta(salesData, filterMeta),
-    [salesData, filterMeta]
-  );
+    canSeeModuleAction("pos", "pos.sales");
 
   useEffect(() => {
     if (!token) return;
@@ -3136,15 +719,11 @@ export default function ReportsPage() {
     let cancelled = false;
     fetchRolePermissions(token)
       .then((modules) => {
-        if (!cancelled) {
-          setRoleModules(modules);
-        }
+        if (!cancelled) setRoleModules(modules);
       })
       .catch((err) => {
         console.error("No pudimos cargar permisos de reportes.", err);
-        if (!cancelled) {
-          setRoleModules(defaultRolePermissions);
-        }
+        if (!cancelled) setRoleModules(defaultRolePermissions);
       });
     return () => {
       cancelled = true;
@@ -3152,867 +731,1122 @@ export default function ReportsPage() {
   }, [canLoadRolePermissions, token]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        favoritesStorageKey,
-        JSON.stringify(favoriteReportIds)
-      );
-    } catch (err) {
-      console.warn("No se pudieron guardar favoritos", err);
-    }
-  }, [favoriteReportIds, favoritesStorageKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      if (openReports.length) {
-        window.localStorage.setItem(
-          openReportsStorageKey,
-          JSON.stringify(openReports)
-        );
-      } else {
-        window.localStorage.removeItem(openReportsStorageKey);
-      }
-    } catch (err) {
-      console.warn("No se pudieron guardar las pestañas de reportes", err);
-    }
-  }, [openReports, openReportsStorageKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      if (activeTabId && activeTabId !== "selector") {
-        window.localStorage.setItem(
-          activeReportTabStorageKey,
-          activeTabId
-        );
-      } else {
-        window.localStorage.removeItem(activeReportTabStorageKey);
-      }
-    } catch (err) {
-      console.warn("No se pudo guardar la pestaña activa de reportes", err);
-    }
-  }, [activeTabId, activeReportTabStorageKey]);
-
-  useEffect(() => {
-    if (!openReports.length) {
-      tabsInitializedRef.current = true;
-      if (activeTabId !== "selector") {
-        setActiveTabId("selector");
-      }
-      return;
-    }
-    if (activeTabId === "selector") {
-      if (!tabsInitializedRef.current) {
-        setActiveTabId(openReports[0].id);
-      }
-      tabsInitializedRef.current = true;
-      return;
-    }
-    const exists = openReports.some((tab) => tab.id === activeTabId);
-    if (!exists) {
-      setActiveTabId(openReports[0].id);
-    }
-    tabsInitializedRef.current = true;
-  }, [openReports, activeTabId]);
-
-  const globalPreviewResult = useMemo(
-    () =>
-      filteredSalesForPreview.length
-        ? buildReportResult(
-            "daily-sales",
-            filteredSalesForPreview,
-            resolveMethodLabel
-          )
-        : null,
-    [filteredSalesForPreview, resolveMethodLabel]
-  );
-
-  const handleQuickRange = (value: QuickRange) => {
-    const todayKey = getBogotaDateKey();
-    const todayStart = buildBogotaDateFromKey(todayKey);
-    let startKey = todayKey;
-    let endKey = todayKey;
-    switch (value) {
-      case "today":
-        break;
-      case "yesterday":
-        startKey = getBogotaDateKey(
-          new Date(todayStart.getTime() - 24 * 60 * 60 * 1000)
-        );
-        endKey = startKey;
-        break;
-      case "week":
-        startKey = getBogotaDateKey(
-          new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000)
-        );
-        break;
-      case "month":
-        {
-          const { year, month } = getBogotaDateParts();
-          startKey = `${year}-${month}-01`;
-        }
-        break;
-      case "year":
-        {
-          const { year } = getBogotaDateParts();
-          startKey = `${year}-01-01`;
-        }
-        break;
-      default:
-        break;
-    }
-    setRange(value);
-    setFromDate(startKey);
-    setToDate(endKey);
-  };
-
-  const loadSales = useCallback(async () => {
     if (!canViewReportDataset) {
-      setSalesData([]);
-      setChangesData([]);
-      setSalesError(null);
-      setSalesLoading(false);
+      setSales([]);
+      setChanges([]);
+      setProductGroupLookup({ byId: new Map(), bySku: new Map(), byName: new Map() });
+      setLoading(false);
+      setError(null);
       return;
     }
     if (!authHeaders) return;
-    try {
-      setSalesLoading(true);
-      setSalesError(null);
-      const apiBase = getApiBase();
+    const requestHeaders: HeadersInit = authHeaders;
+    let cancelled = false;
 
-      const fetchAllPages = async <T,>(path: string): Promise<T[]> => {
-        const rows: T[] = [];
-        let skip = 0;
-        for (;;) {
-          const res = await fetch(
-            `${apiBase}${path}?skip=${skip}&limit=${REPORT_PAGE_SIZE}`,
-            {
-              headers: authHeaders,
-              credentials: "include",
-            }
-          );
-          if (!res.ok) {
-            throw new Error(`Error ${res.status}`);
-          }
-          const page: T[] = await res.json();
-          rows.push(...page);
-          if (page.length < REPORT_PAGE_SIZE) break;
-          skip += page.length;
-        }
-        return rows;
-      };
-
-      const [salesResult, changesResult] = await Promise.allSettled([
-        fetchAllPages<ReportSale>("/pos/sales"),
-        fetchAllPages<ReportChange>("/pos/changes"),
-      ]);
-
-      if (salesResult.status !== "fulfilled") {
-        throw salesResult.reason;
-      }
-
-      const data = salesResult.value;
-      let nextSales = data;
-
-      if (data.length > 0) {
-        const ids = data.map((sale) => sale.id);
-        const adjustmentsBatches: ReportDocumentAdjustment[] = [];
-        for (let index = 0; index < ids.length; index += ADJUSTMENTS_CHUNK_SIZE) {
-          const chunk = ids.slice(index, index + ADJUSTMENTS_CHUNK_SIZE);
-          const adjustmentsRes = await fetch(
-            `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${chunk.join(",")}`,
-            {
-              headers: authHeaders,
-              credentials: "include",
-            }
-          );
-          if (!adjustmentsRes.ok) continue;
-          const batch: ReportDocumentAdjustment[] = await adjustmentsRes.json();
-          adjustmentsBatches.push(...batch);
-        }
-        if (adjustmentsBatches.length > 0) {
-          nextSales = applyDocumentAdjustmentsToSales(data, adjustmentsBatches);
-        }
-      }
-
-      setSalesData(nextSales);
-      if (changesResult.status === "fulfilled") {
-        setChangesData(changesResult.value);
-      } else {
-        setChangesData([]);
-      }
-    } catch (err) {
-      console.error(err);
-      setSalesError(
-        err instanceof Error
-          ? err.message
-          : "No pudimos cargar la información de ventas."
-      );
-    } finally {
-      setSalesLoading(false);
-    }
-  }, [authHeaders, canViewReportDataset]);
-
-  useEffect(() => {
-    void loadSales();
-  }, [loadSales]);
-
-  useEffect(() => {
-    let active = true;
-    if (!token) return;
-    if (!canViewPosSettings) {
-      setPosSettings(null);
-      setSettingsError(null);
-      return;
-    }
-    (async () => {
+    async function loadSales() {
       try {
-        const settings = await fetchPosSettings(token);
-        if (active) {
-          setPosSettings(settings);
-          setSettingsError(null);
+        setLoading(true);
+        setError(null);
+        const apiBase = getApiBase();
+
+        const fetchAllPages = async <T,>(path: string): Promise<T[]> => {
+          const rows: T[] = [];
+          let skip = 0;
+          for (;;) {
+            const res = await fetch(
+              `${apiBase}${path}?skip=${skip}&limit=${REPORT_PAGE_SIZE}`,
+              {
+                headers: requestHeaders,
+                credentials: "include",
+              }
+            );
+            if (!res.ok) throw new Error(`Error ${res.status}`);
+            const page: T[] = await res.json();
+            rows.push(...page);
+            if (page.length < REPORT_PAGE_SIZE) break;
+            skip += page.length;
+          }
+          return rows;
+        };
+
+        const rawSales = await fetchAllPages<ReportSale>("/pos/sales");
+        const rawChanges = await fetchAllPages<ReportChange>("/pos/changes");
+        const rawProducts = await fetchAllPages<ProductCatalogRow>("/products/");
+        const adjustments: ReportDocumentAdjustment[] = [];
+
+        if (rawSales.length > 0) {
+          const ids = rawSales.map((sale) => sale.id);
+          for (let index = 0; index < ids.length; index += ADJUSTMENTS_CHUNK_SIZE) {
+            const chunk = ids.slice(index, index + ADJUSTMENTS_CHUNK_SIZE);
+            const res = await fetch(
+              `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${chunk.join(",")}`,
+              {
+                headers: requestHeaders,
+                credentials: "include",
+              }
+            );
+            if (!res.ok) continue;
+            const batch: ReportDocumentAdjustment[] = await res.json();
+            adjustments.push(...batch);
+          }
+        }
+
+        if (!cancelled) {
+          setSales(buildAdjustedSales(rawSales, adjustments));
+          setChanges(rawChanges);
+          const byId = new Map<string, string>();
+          const bySku = new Map<string, string>();
+          const byName = new Map<string, string>();
+
+          rawProducts.forEach((product) => {
+            const groupName =
+              typeof product.group_name === "string"
+                ? product.group_name.trim()
+                : "";
+            if (!groupName) return;
+
+            const idKey = normalizeLookupValue(product.id);
+            if (idKey) byId.set(idKey, groupName);
+
+            const skuKey = normalizeLookupValue(product.sku);
+            if (skuKey) bySku.set(skuKey, groupName);
+
+            const nameKey = normalizeLookupValue(product.name);
+            if (nameKey) byName.set(nameKey, groupName);
+          });
+
+          setProductGroupLookup({ byId, bySku, byName });
         }
       } catch (err) {
-        console.error("No se pudieron cargar las configuraciones", err);
-        if (active) {
-          setSettingsError(
-            err instanceof Error ? err.message : "Error al cargar ajustes."
+        console.error(err);
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "No pudimos cargar las ventas del año."
           );
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [canViewPosSettings, token]);
-
-  const handleSelectPreset = useCallback((presetId: string) => {
-    if (presetId === "month-daily") {
-      const { fromDate: monthStart, toDate: monthEnd } = getMonthRangeFromKey(
-        getBogotaDateKey()
-      );
-      setRange("month");
-      setFromDate(monthStart);
-      setToDate(monthEnd);
     }
-    setSelectedPresetId(presetId);
-    setActiveTabId("selector");
-  }, []);
 
-  const toggleFavorite = useCallback((presetId: string) => {
-    setFavoriteReportIds((prev) => {
-      const exists = prev.includes(presetId);
-      return exists ? prev.filter((id) => id !== presetId) : [...prev, presetId];
-    });
-  }, []);
-
-  const handleOpenReport = useCallback(() => {
-    if (!currentPreset) return;
-    const instanceId = `${currentPreset.id}-${Date.now()}`;
-    const newTab: OpenReportTab = {
-      id: instanceId,
-      presetId: currentPreset.id,
-      filterMeta: { ...filterMeta },
-      createdAt: new Date().toISOString(),
+    void loadSales();
+    return () => {
+      cancelled = true;
     };
-    setOpenReports((prev) => [...prev, newTab]);
-    setActiveTabId(instanceId);
-  }, [currentPreset, filterMeta]);
+  }, [authHeaders, canViewReportDataset]);
 
-  const handleOpenPreset = useCallback(
-    (preset: ReportPreset) => {
-      const tabFilterMeta = { ...filterMeta };
-      if (preset.id === "month-daily") {
-        const { fromDate: monthStart, toDate: monthEnd } = getMonthRangeFromKey(
-          getBogotaDateKey()
-        );
-        tabFilterMeta.fromDate = monthStart;
-        tabFilterMeta.toDate = monthEnd;
-        setRange("month");
-        setFromDate(monthStart);
-        setToDate(monthEnd);
-      }
-      const instanceId = `${preset.id}-${Date.now()}`;
-      const newTab: OpenReportTab = {
-        id: instanceId,
-        presetId: preset.id,
-        filterMeta: tabFilterMeta,
-        createdAt: new Date().toISOString(),
-      };
-      setSelectedPresetId(preset.id);
-      setOpenReports((prev) => [...prev, newTab]);
-      setActiveTabId(instanceId);
-    },
-    [filterMeta]
-  );
+  const availableYears = useMemo(() => {
+    const years = new Set<string>([todayYear]);
+    sales.forEach((sale) => years.add(sale.dateKey.slice(0, 4)));
+    return Array.from(years).sort((a, b) => Number(a) - Number(b));
+  }, [sales, todayYear]);
+  const minYear = availableYears[0] ?? todayYear;
+  const maxYear = availableYears[availableYears.length - 1] ?? todayYear;
 
-  const handleFromDateChange = useCallback(
-    (value: string) => {
-      if (selectedPresetId === "month-daily") {
-        const { fromDate: monthStart, toDate: monthEnd } =
-          getMonthRangeFromKey(value);
-        setRange("month");
-        setFromDate(monthStart);
-        setToDate(monthEnd);
-        return;
-      }
-      setFromDate(value);
-    },
-    [selectedPresetId]
-  );
+  const availableMonthKeys = useMemo(() => {
+    const months = new Set<string>([todayMonthKey]);
+    sales.forEach((sale) => months.add(sale.dateKey.slice(0, 7)));
+    return Array.from(months).sort();
+  }, [sales, todayMonthKey]);
+  const minMonthKey = availableMonthKeys[0] ?? todayMonthKey;
+  const maxMonthKey = availableMonthKeys[availableMonthKeys.length - 1] ?? todayMonthKey;
 
-  const handleToDateChange = useCallback(
-    (value: string) => {
-      if (selectedPresetId === "month-daily") {
-        const { fromDate: monthStart, toDate: monthEnd } =
-          getMonthRangeFromKey(value);
-        setRange("month");
-        setFromDate(monthStart);
-        setToDate(monthEnd);
-        return;
-      }
-      setToDate(value);
-    },
-    [selectedPresetId]
-  );
+  useEffect(() => {
+    if (Number(selectedYear) < Number(minYear)) {
+      setSelectedYear(minYear);
+      return;
+    }
+    if (Number(selectedYear) > Number(maxYear)) {
+      setSelectedYear(maxYear);
+    }
+  }, [maxYear, minYear, selectedYear]);
 
-  const handleCloseReportTab = useCallback((id: string) => {
-    setOpenReports((prev) => prev.filter((tab) => tab.id !== id));
-    setActiveTabId((current) => {
-      if (current !== id) return current;
-      // Si cerramos la pestaña activa, volvemos al selector
-      return "selector";
+  useEffect(() => {
+    if (selectedMonthKey < minMonthKey) {
+      setSelectedMonthKey(minMonthKey);
+      return;
+    }
+    if (selectedMonthKey > maxMonthKey) {
+      setSelectedMonthKey(maxMonthKey);
+    }
+  }, [maxMonthKey, minMonthKey, selectedMonthKey]);
+
+  useEffect(() => {
+    setSelectedDay(null);
+  }, [selectedMonthKey]);
+
+  useEffect(() => {
+    if (selectedDay == null) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (dailyDetailRef.current?.contains(target)) return;
+      setSelectedDay(null);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [selectedDay]);
+
+  useEffect(() => {
+    if (!showAnnualDailyAverage) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (annualAverageCardRef.current?.contains(target)) return;
+      setShowAnnualDailyAverage(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [showAnnualDailyAverage]);
+
+  useEffect(() => {
+    setAnnualTransitionActive(false);
+    const timeoutId = window.setTimeout(() => {
+      setAnnualTransitionActive(true);
+    }, 20);
+    return () => window.clearTimeout(timeoutId);
+  }, [selectedYear]);
+
+  useEffect(() => {
+    setMonthlyTransitionActive(false);
+    const timeoutId = window.setTimeout(() => {
+      setMonthlyTransitionActive(true);
+    }, 20);
+    return () => window.clearTimeout(timeoutId);
+  }, [selectedMonthKey, selectedDay]);
+
+  const currentMonthLabel = formatMonthTitle(selectedMonthKey);
+  const selectedMonthNumber = Number(selectedMonthKey.slice(5, 7));
+  const currentDayKey = Number(todayKey.slice(8, 10));
+  const isViewingCurrentMonth = selectedMonthKey === todayMonthKey;
+  const currentMonthDays = new Date(
+    Number(selectedMonthKey.slice(0, 4)),
+    selectedMonthNumber,
+    0
+  ).getDate();
+  const monthlyData = useMemo(() => {
+    const totals = new Map<string, { total: number; tickets: number }>();
+    MONTHS.forEach((month) =>
+      totals.set(month.key, { total: 0, tickets: 0 })
+    );
+    sales.forEach((sale) => {
+      if (!sale.dateKey.startsWith(`${selectedYear}-`)) return;
+      const monthKey = sale.dateKey.slice(5, 7);
+      const current = totals.get(monthKey) ?? { total: 0, tickets: 0 };
+      current.total += sale.total;
+      if (sale.total > 0) current.tickets += 1;
+      totals.set(monthKey, current);
     });
+    return MONTHS.map((month) => ({
+      ...month,
+      total: totals.get(month.key)?.total ?? 0,
+      tickets: totals.get(month.key)?.tickets ?? 0,
+    }));
+  }, [sales, selectedYear]);
+
+  const maxValue = useMemo(
+    () => Math.max(1, ...monthlyData.map((item) => item.total)),
+    [monthlyData]
+  );
+  const totalYearSales = useMemo(
+    () => monthlyData.reduce((sum, item) => sum + item.total, 0),
+    [monthlyData]
+  );
+  const averageMonthDivisor = useMemo(() => {
+    if (selectedYear === todayYear) {
+      return Math.max(1, Number(todayMonthKey.slice(5, 7)));
+    }
+    return 12;
+  }, [selectedYear, todayMonthKey, todayYear]);
+  const averageMonthSales = useMemo(
+    () => totalYearSales / averageMonthDivisor,
+    [averageMonthDivisor, totalYearSales]
+  );
+  const averageYearDayDivisor = useMemo(() => {
+    const selectedYearNumber = Number(selectedYear);
+    if (!Number.isFinite(selectedYearNumber)) return 365;
+
+    if (selectedYear === todayYear) {
+      const todayInBogota = parseDateInput(`${todayKey}T12:00:00-05:00`);
+      if (!todayInBogota) return 1;
+      const startOfYear = new Date(selectedYearNumber, 0, 1);
+      const diffMs = todayInBogota.getTime() - startOfYear.getTime();
+      return Math.max(1, Math.floor(diffMs / 86400000) + 1);
+    }
+
+    const isLeapYear =
+      (selectedYearNumber % 4 === 0 && selectedYearNumber % 100 !== 0) ||
+      selectedYearNumber % 400 === 0;
+    return isLeapYear ? 366 : 365;
+  }, [selectedYear, todayKey, todayYear]);
+  const averageYearDaySales = useMemo(
+    () => totalYearSales / averageYearDayDivisor,
+    [averageYearDayDivisor, totalYearSales]
+  );
+  const previousYearSales = useMemo(() => {
+    const previousYear = String(Number(selectedYear) - 1);
+    return sales.reduce((sum, sale) => {
+      if (!sale.dateKey.startsWith(`${previousYear}-`)) return sum;
+      return sum + sale.total;
+    }, 0);
+  }, [sales, selectedYear]);
+  const yearSalesChange = useMemo(
+    () => formatPercentChange(totalYearSales, previousYearSales),
+    [previousYearSales, totalYearSales]
+  );
+  const totalYearTickets = useMemo(
+    () => monthlyData.reduce((sum, item) => sum + item.tickets, 0),
+    [monthlyData]
+  );
+  const bestMonth = useMemo(() => {
+    return [...monthlyData].sort((a, b) => b.total - a.total)[0] ?? null;
+  }, [monthlyData]);
+  const chartTicks = useMemo(() => [1, 0.66, 0.33, 0], []);
+  const annualChart = useMemo(() => {
+    const width = 980;
+    const height = 164;
+    const topPadding = 30;
+    const chartHeight = 104;
+    const baselineY = topPadding + chartHeight;
+    const leftPadding = 16;
+    const innerWidth = width - leftPadding * 2;
+    const slotWidth = innerWidth / 12;
+    const barWidth = Math.max(26, slotWidth - 14);
+
+    return {
+      width,
+      height,
+      topPadding,
+      chartHeight,
+      baselineY,
+      leftPadding,
+      slotWidth,
+      barWidth,
+    };
   }, []);
-
-  const groupedPresets = useMemo(
-    () =>
-      REPORT_PRESETS.reduce<Record<string, ReportPreset[]>>(
-        (groups, preset) => {
-          if (!groups[preset.scope]) groups[preset.scope] = [];
-          groups[preset.scope].push(preset);
-          return groups;
-        },
-        {}
-      ),
-    []
+  const dailyData = useMemo(() => {
+    const totals = new Map<number, { total: number; tickets: number }>();
+    for (let day = 1; day <= currentMonthDays; day += 1) {
+      totals.set(day, { total: 0, tickets: 0 });
+    }
+    sales.forEach((sale) => {
+      if (!sale.dateKey.startsWith(selectedMonthKey)) return;
+      const day = Number(sale.dateKey.slice(8, 10));
+      const current = totals.get(day) ?? { total: 0, tickets: 0 };
+      current.total += sale.total;
+      if (sale.total > 0) current.tickets += 1;
+      totals.set(day, current);
+    });
+    return Array.from({ length: currentMonthDays }, (_, index) => {
+      const day = index + 1;
+      return {
+        day,
+        label: String(day).padStart(2, "0"),
+        weekday:
+          WEEKDAY_SHORT[
+            new Date(
+              Number(selectedMonthKey.slice(0, 4)),
+              selectedMonthNumber - 1,
+              day
+            ).getDay()
+          ],
+        total: totals.get(day)?.total ?? 0,
+        tickets: totals.get(day)?.tickets ?? 0,
+      };
+    });
+  }, [currentMonthDays, sales, selectedMonthKey, selectedMonthNumber]);
+  const maxDailyValue = useMemo(
+    () => Math.max(1, ...dailyData.map((item) => item.total)),
+    [dailyData]
   );
-
-  const favoritePresets = useMemo(
-    () =>
-      REPORT_PRESETS.filter((preset) =>
-        favoriteReportIds.includes(preset.id)
-      ),
-    [favoriteReportIds]
+  const totalMonthSales = useMemo(
+    () => dailyData.reduce((sum, item) => sum + item.total, 0),
+    [dailyData]
   );
-
-  const renderPresetRow = useCallback(
-    (preset: ReportPreset, variant: "default" | "favorite" = "default") => {
-      const isActive = selectedPresetId === preset.id;
-      const isFavorite = favoriteReportIds.includes(preset.id);
-      const isFavoriteVariant = variant === "favorite";
-      return (
-        <li
-          key={preset.id}
-          className={`px-4 py-3 flex items-start gap-3 cursor-pointer transition-colors ${
-            isFavoriteVariant
-              ? isActive
-                ? "bg-amber-200/55"
-                : "hover:bg-amber-100/60"
-              : isActive
-              ? "bg-emerald-500/10"
-              : "hover:bg-slate-900"
-          }`}
-          onClick={() => handleSelectPreset(preset.id)}
-          onDoubleClick={() => handleOpenPreset(preset)}
-        >
-          <div className="flex-1 min-w-0">
-            <p
-              className={`font-semibold ${
-                isFavoriteVariant ? "text-amber-950" : "text-slate-100"
-              }`}
-            >
-              {preset.title}
-            </p>
-            <p
-              className={`text-[11px] line-clamp-2 ${
-                isFavoriteVariant ? "text-amber-900/85" : "text-slate-400"
-              }`}
-            >
-              {preset.description}
-            </p>
-            <p
-              className={`mt-1 text-[11px] ${
-                isFavoriteVariant ? "text-amber-900/75" : "text-slate-500"
-              }`}
-            >
-              Alcance: {preset.scope}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              toggleFavorite(preset.id);
-            }}
-            className={`text-lg ${
-              isFavorite
-                ? isFavoriteVariant
-                  ? "text-amber-700 hover:text-amber-800"
-                  : "text-amber-400 hover:text-amber-300"
-                : isFavoriteVariant
-                ? "text-amber-600/70 hover:text-amber-700"
-                : "text-slate-500 hover:text-slate-300"
-            }`}
-            aria-label={
-              isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"
-            }
-          >
-            {isFavorite ? "★" : "☆"}
-          </button>
-        </li>
-      );
-    },
-    [
-      selectedPresetId,
-      favoriteReportIds,
-      handleSelectPreset,
-      toggleFavorite,
-      handleOpenPreset,
-    ]
+  const averageDayDivisor = useMemo(() => {
+    if (selectedMonthKey === todayMonthKey) {
+      return Math.max(1, currentDayKey);
+    }
+    return currentMonthDays;
+  }, [currentDayKey, currentMonthDays, selectedMonthKey, todayMonthKey]);
+  const averageDaySales = useMemo(
+    () => totalMonthSales / averageDayDivisor,
+    [averageDayDivisor, totalMonthSales]
   );
-
-  const activeReportTab =
-    activeTabId === "selector"
-      ? null
-      : openReports.find((tab) => tab.id === activeTabId) ?? null;
-  const activeReportPreset = useMemo(
-    () =>
-      activeReportTab
-        ? REPORT_PRESETS.find((p) => p.id === activeReportTab.presetId) ?? null
-        : null,
-    [activeReportTab]
+  const previousMonthSales = useMemo(() => {
+    const previousMonthKey = shiftMonthKey(selectedMonthKey, -1);
+    const isCurrentMonthComparison = selectedMonthKey === todayMonthKey;
+    const cutoffDay = isCurrentMonthComparison
+      ? Math.min(currentDayKey, getMonthDayCount(previousMonthKey))
+      : null;
+    return sales.reduce((sum, sale) => {
+      if (!sale.dateKey.startsWith(previousMonthKey)) return sum;
+      if (cutoffDay != null && Number(sale.dateKey.slice(8, 10)) > cutoffDay) {
+        return sum;
+      }
+      return sum + sale.total;
+    }, 0);
+  }, [currentDayKey, sales, selectedMonthKey, todayMonthKey]);
+  const monthSalesChange = useMemo(
+    () => formatPercentChange(totalMonthSales, previousMonthSales),
+    [previousMonthSales, totalMonthSales]
   );
+  const totalMonthTickets = useMemo(
+    () => dailyData.reduce((sum, item) => sum + item.tickets, 0),
+    [dailyData]
+  );
+  const bestDay = useMemo(() => {
+    return [...dailyData].sort((a, b) => b.total - a.total)[0] ?? null;
+  }, [dailyData]);
+  const activeDay = useMemo(() => {
+    if (selectedDay == null) return bestDay;
+    return dailyData.find((day) => day.day === selectedDay) ?? bestDay;
+  }, [bestDay, dailyData, selectedDay]);
+  const selectedDaySales = useMemo(() => {
+    if (selectedDay == null) return [];
+    const dayKey = `${selectedMonthKey}-${String(selectedDay).padStart(2, "0")}`;
+    return sales.filter((sale) => sale.dateKey === dayKey);
+  }, [sales, selectedDay, selectedMonthKey]);
+  const selectedDayMethods = useMemo(
+    () => aggregatePaymentMethods(selectedDaySales),
+    [selectedDaySales]
+  );
+  const selectedDayTotal = useMemo(
+    () => selectedDaySales.reduce((sum, sale) => sum + sale.total, 0),
+    [selectedDaySales]
+  );
+  const selectedDayLabel = useMemo(() => {
+    if (selectedDay == null) return null;
+    const day = dailyData.find((entry) => entry.day === selectedDay);
+    if (!day) return null;
+    return `${day.label} ${day.weekday}`;
+  }, [dailyData, selectedDay]);
+  const selectedMonthSales = useMemo(
+    () => sales.filter((sale) => sale.dateKey.startsWith(selectedMonthKey)),
+    [sales, selectedMonthKey]
+  );
+  const changesBySaleId = useMemo(() => {
+    const map = new Map<number, ReportChange[]>();
+    changes.forEach((change) => {
+      const list = map.get(change.sale_id) ?? [];
+      list.push(change);
+      map.set(change.sale_id, list);
+    });
+    return map;
+  }, [changes]);
+  const topProducts = useMemo(
+    () => aggregateTopProducts(selectedMonthSales, changesBySaleId),
+    [changesBySaleId, selectedMonthSales]
+  );
+  const topGroups = useMemo(
+    () => aggregateTopGroups(selectedMonthSales, changesBySaleId, productGroupLookup),
+    [changesBySaleId, productGroupLookup, selectedMonthSales]
+  );
+  const dailyChart = useMemo(() => {
+    const width = Math.max(980, dailyData.length * 34);
+    const height = 174;
+    const topPadding = 30;
+    const chartHeight = 102;
+    const baselineY = topPadding + chartHeight;
+    const leftPadding = 8;
+    const innerWidth = width - leftPadding * 2;
+    const slotWidth = innerWidth / Math.max(dailyData.length, 1);
+    const barWidth = Math.max(10, slotWidth - 4);
+
+    return {
+      width,
+      height,
+      topPadding,
+      baselineY,
+      chartHeight,
+      leftPadding,
+      slotWidth,
+      barWidth,
+    };
+  }, [dailyData.length]);
 
   return (
-    <main className="flex-1 px-6 py-6 text-slate-50">
-      <div className="w-full max-w-7xl mx-auto space-y-6">
-        {/* Header principal */}
-        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <main className="flex-1 px-6 py-4 text-slate-900">
+      <div className="mx-auto w-full max-w-7xl space-y-4">
+        <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-sm uppercase tracking-wide text-emerald-400 font-semibold">
-              Panel Metrik
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-500">
+              Reportes
             </p>
-            <h1 className="text-3xl font-bold">Reportes e informes</h1>
-            <p className="text-sm text-slate-400 max-w-2xl mt-1">
-              Selecciona un informe, ajusta los filtros y genera documentos
-              listos para imprimir, exportar o compartir.
+            <h1 className="mt-1 text-[1.6rem] font-bold leading-tight text-slate-900">
+              Ventas mensuales del año actual
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+              Empezamos por una sola lectura clara: la evolución mes a mes del
+              año {selectedYear}.
             </p>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {(
-              [
-                { id: "today", label: "Hoy" },
-                { id: "yesterday", label: "Ayer" },
-                { id: "week", label: "Últimos 7 días" },
-                { id: "month", label: "Este mes" },
-                { id: "year", label: "Este año" },
-              ] as { id: QuickRange; label: string }[]
-            ).map((quick) => (
-              <button
-                key={quick.id}
-                onClick={() => handleQuickRange(quick.id)}
-                className={`px-3 py-1.5 rounded-full border text-xs ${
-                  range === quick.id
-                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
-                    : "border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-400/50"
-                }`}
-              >
-                {quick.label}
-              </button>
-            ))}
-          </div>
+          <Link
+            href="/dashboard/reports/detailed"
+            className="inline-flex rounded-full border border-emerald-400/70 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+          >
+            Ir a reportes detallados
+          </Link>
         </header>
 
-        {/* Barra de pestañas (selector + informes abiertos) */}
-        <div className="border-b border-slate-800 flex items-center gap-2 overflow-x-auto text-sm">
-          <button
-            className={`px-3 py-2 border-b-2 ${
-              activeTabId === "selector"
-                ? "border-emerald-400 text-emerald-200"
-                : "border-transparent text-slate-400 hover:text-slate-100"
-            }`}
-            onClick={() => setActiveTabId("selector")}
-          >
-            Seleccionar informe
-          </button>
-          {openReports.map((tab) => {
-            const preset = REPORT_PRESETS.find((p) => p.id === tab.presetId);
-            if (!preset) return null;
-            const isActive = activeTabId === tab.id;
-            return (
-              <div
-                key={tab.id}
-                className={`flex items-center gap-1 px-3 py-2 border-b-2 ${
-                  isActive
-                    ? "border-emerald-400 text-emerald-200"
-                    : "border-transparent text-slate-400 hover:text-slate-100"
-                }`}
-              >
-                <button
-                  className="text-xs"
-                  onClick={() => setActiveTabId(tab.id)}
-                >
-                  {preset.title}
-                </button>
-                <button
-                  className="text-xs text-slate-500 hover:text-rose-300"
-                  onClick={() => handleCloseReportTab(tab.id)}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Contenido según pestaña activa */}
-        {activeReportTab && activeReportPreset && (
-          <ReportDocumentViewer
-            preset={activeReportPreset}
-            filterMeta={activeReportTab.filterMeta}
-            salesData={salesData}
-            changesData={changesData}
-            companyInfo={companyInfo}
-            token={token}
-            settingsError={settingsError}
-            onClose={() => handleCloseReportTab(activeReportTab.id)}
-            resolveMethodLabel={resolveMethodLabel}
-          />
-        )}
-
-        {(!activeReportTab || !activeReportPreset) && (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1.5fr)]">
-            {/* Columna izquierda: lista de reportes */}
-            <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6 space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+        {!canViewReportDataset ? (
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
+            Este rol no tiene acceso al dataset operativo para mostrar la gráfica.
+          </section>
+        ) : error ? (
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 shadow-sm">
+            Error al cargar datos: {error}
+          </section>
+        ) : loading ? (
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="animate-pulse space-y-5">
+              <div className="h-6 w-64 rounded bg-slate-200" />
+              <div className="h-[360px] rounded-2xl bg-slate-100" />
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold">
-                    Catálogo de reportes
-                  </h2>
-                  <p className="text-sm text-slate-400">
-                    Elige un informe de la lista. Luego ajusta los filtros en el
-                    panel derecho y pulsa &quot;Mostrar reporte&quot;.
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
+                    Vista anual
+                  </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <NavigationButton
+                      direction="left"
+                      onClick={() =>
+                        setSelectedYear((current) => String(Number(current) - 1))
+                      }
+                      disabled={selectedYear <= minYear}
+                      label="Ver año anterior"
+                    />
+                    <h2 className="text-[1.45rem] font-semibold leading-tight text-slate-900">
+                      {selectedYear}
+                    </h2>
+                    <NavigationButton
+                      direction="right"
+                      onClick={() =>
+                        setSelectedYear((current) => String(Number(current) + 1))
+                      }
+                      disabled={selectedYear >= maxYear}
+                      label="Ver año siguiente"
+                    />
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Datos agrupados por mes para leer tendencia y estacionalidad.
                   </p>
                 </div>
-              </div>
 
-              <div className="space-y-4 max-h-[620px] overflow-auto pr-1">
-                {favoritePresets.length > 0 && (
-                  <div className="rounded-2xl border border-amber-400/80 bg-gradient-to-br from-amber-100 via-amber-50 to-white shadow-[0_0_0_1px_rgba(245,158,11,0.35)]">
-                    <div className="px-4 py-2 border-b border-amber-300/70 text-xs uppercase tracking-wide text-amber-800 font-bold flex items-center justify-between">
-                      <span>Favoritos</span>
-                      <span>{favoritePresets.length}</span>
-                    </div>
-                    <ul className="divide-y divide-amber-300/60 text-sm">
-                      {favoritePresets.map((preset) =>
-                        renderPresetRow(preset, "favorite")
-                      )}
-                    </ul>
-                  </div>
-                )}
-                {Object.entries(groupedPresets).map(([scope, presets]) => (
-                  <div
-                    key={scope}
-                    className="rounded-2xl border border-slate-800 bg-slate-900/70"
-                  >
-                    <div className="px-4 py-2 border-b border-slate-800 text-xs uppercase tracking-wide text-slate-400">
-                      {scope}
-                    </div>
-                    <ul className="divide-y divide-slate-800 text-sm">
-                      {presets.map((preset) => renderPresetRow(preset))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {/* Columna derecha: filtros + resumen */}
-            <section className="space-y-4">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 md:p-6 space-y-5 backdrop-blur supports-[backdrop-filter]:bg-slate-950/55 shadow-lg sticky top-[4.5rem]">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
-                      Filtros del informe
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      Venta total
                     </p>
-                    <h3 className="text-base font-semibold text-slate-50">
-                      Rango y alcance
-                    </h3>
-                  </div>
-                  {currentPreset && (
-                    <span className="text-[11px] text-slate-400 text-right">
-                      Informe seleccionado:{" "}
-                      <strong className="text-slate-100">
-                        {currentPreset.title}
-                      </strong>
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid gap-4 text-sm md:grid-cols-2">
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                      Fechas
+                    <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                      {formatMoney(totalYearSales)}
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-slate-400 uppercase tracking-wide">
-                          Desde
-                        </span>
-                        <input
-                          type="date"
-                          value={fromDate}
-                          onChange={(e) => handleFromDateChange(e.target.value)}
-                          onClick={(e) => {
-                            const input = e.currentTarget;
-                            if (typeof input.showPicker === "function") {
-                              try {
-                                input.showPicker();
-                              } catch {
-                                // Algunos navegadores requieren un gesto de usuario estricto.
-                              }
-                            }
-                          }}
-                          className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-slate-400 uppercase tracking-wide">
-                          Hasta
-                        </span>
-                        <input
-                          type="date"
-                          value={toDate}
-                          onChange={(e) => handleToDateChange(e.target.value)}
-                          onClick={(e) => {
-                            const input = e.currentTarget;
-                            if (typeof input.showPicker === "function") {
-                              try {
-                                input.showPicker();
-                              } catch {
-                                // Algunos navegadores requieren un gesto de usuario estricto.
-                              }
-                            }
-                          }}
-                          className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
-                        />
-                      </label>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {(
-                        [
-                          { id: "today", label: "Hoy" },
-                          { id: "yesterday", label: "Ayer" },
-                          { id: "week", label: "Últimos 7 días" },
-                          { id: "month", label: "Este mes" },
-                          { id: "year", label: "Este año" },
-                        ] as { id: QuickRange; label: string }[]
-                      ).map((quick) => (
-                        <button
-                          key={quick.id}
-                          onClick={() => handleQuickRange(quick.id)}
-                          className={`px-3 py-1.5 rounded-full border text-xs transition ${
-                            range === quick.id
-                              ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
-                              : "border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-400/50"
-                          }`}
-                        >
-                          {quick.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                      Alcance
+                    <p className="mt-1 text-sm text-slate-500">
+                      {yearSalesChange
+                        ? `${yearSalesChange} vs año anterior`
+                        : "Sin base comparativa"}
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-slate-400 uppercase tracking-wide">
-                          POS
-                        </span>
-                        <select
-                          value={posFilter}
-                          onChange={(e) => setPosFilter(e.target.value)}
-                          className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
-                        >
-                          <option value="todos">Todos los POS</option>
-                          <option value="pos1">POS 1</option>
-                          <option value="pos2">POS 2</option>
-                          <option value="online">Ventas online</option>
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs text-slate-400 uppercase tracking-wide">
-                          Método de pago
-                        </span>
-                        <select
-                          value={methodFilter}
-                          onChange={(e) => setMethodFilter(e.target.value)}
-                          className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
-                        >
-                          <option value="todos">Todos</option>
-                          {paymentOptions.map((method) => (
-                            <option key={method.id} value={method.slug}>
-                              {method.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                    <label className="flex flex-col gap-1 text-sm">
-                      <span className="text-xs text-slate-400 uppercase tracking-wide">
-                        Vendedor / responsable
-                      </span>
-                      <input
-                        type="text"
-                        value={sellerFilter}
-                        onChange={(e) => setSellerFilter(e.target.value)}
-                        placeholder="Buscar por nombre o documento"
-                        className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
-                      />
-                    </label>
                   </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-                  <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                    <span>
-                      <strong className="text-slate-200">POS:</strong>{" "}
-                      {posFilter}
-                    </span>
-                    <span>·</span>
-                    <span>
-                      <strong className="text-slate-200">Método:</strong>{" "}
-                      {methodFilterLabel}
-                    </span>
-                    <span>·</span>
-                    <span>
-                      <strong className="text-slate-200">Vendedor:</strong>{" "}
-                      {sellerFilter || "todos"}
-                    </span>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      Mes líder
+                    </p>
+                    <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                      {bestMonth?.label ?? "—"}
+                    </p>
+                    <p className="text-sm text-emerald-600">
+                      {bestMonth ? formatMoney(bestMonth.total) : "$0"}
+                    </p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                    className="px-4 py-2.5 text-xs rounded-lg border border-slate-700/80 bg-slate-950/70 hover:border-emerald-400 hover:bg-slate-900/60 transition"
-                    disabled
-                  >
-                    Guardar filtro (próximamente)
-                  </button>
-                  <button
-                    className="px-4 py-2.5 text-xs rounded-lg border border-slate-700/80 bg-slate-950/70 hover:border-emerald-400 hover:bg-slate-900/60 transition"
-                    disabled
-                  >
-                    Compartir (próximamente)
-                  </button>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      Tickets del año
+                    </p>
+                    <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                      {formatCount(totalYearTickets)}
+                    </p>
                   </div>
-                </div>
-
-                <div className="flex flex-col gap-3 pt-2 border-t border-slate-800">
-                  <button
-                    className="px-4 py-3 text-sm rounded-lg bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"
-                    onClick={handleOpenReport}
-                    disabled={
-                      !currentPreset ||
-                      salesLoading ||
-                      !salesData.length ||
-                      !!salesError
-                    }
-                  >
-                    {salesLoading
-                      ? "Cargando ventas…"
-                      : !currentPreset
-                      ? "Selecciona un informe en la lista"
-                      : !canViewReportDataset
-                      ? "Sin acceso a datos operativos"
-                      : "Mostrar reporte"}
-                  </button>
                   <button
                     type="button"
-                    className="px-4 py-2 text-xs rounded-lg border border-slate-700 text-slate-200 hover:border-emerald-400/80 bg-slate-950/70 transition"
-                    onClick={() => {
-                      setFromDate(defaultDates.fromDate);
-                      setToDate(defaultDates.toDate);
-                      setPosFilter("todos");
-                      setMethodFilter("todos");
-                      setSellerFilter("");
-                    }}
+                    ref={annualAverageCardRef}
+                    onClick={() => setShowAnnualDailyAverage((current) => !current)}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-emerald-200 hover:bg-emerald-50/40"
                   >
-                    Restablecer filtros
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      {showAnnualDailyAverage ? "Promedio diario" : "Promedio mensual"}
+                    </p>
+                    <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                      {formatMoney(
+                        showAnnualDailyAverage ? averageYearDaySales : averageMonthSales
+                      )}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {showAnnualDailyAverage
+                        ? selectedYear === todayYear
+                          ? "Hasta hoy"
+                          : "Año completo"
+                        : selectedYear === todayYear
+                          ? "Meses transcurridos"
+                          : "Año completo"}
+                    </p>
                   </button>
-                  {!canViewReportDataset ? (
-                    <p className="text-xs text-slate-400">
-                      Este rol no tiene acceso al dataset necesario para generar
-                      reportes.
-                    </p>
-                  ) : salesError ? (
-                    <p className="text-xs text-rose-300">
-                      Error al cargar las ventas: {salesError}
-                    </p>
-                  ) : !salesLoading && !salesData.length ? (
-                    <p className="text-xs text-slate-400">
-                      Aún no hay datos de ventas desde el POS para este
-                      periodo.
-                    </p>
-                  ) : null}
                 </div>
               </div>
 
-              {/* Resumen rápido con filtros actuales */}
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 space-y-3 text-sm">
-                <p className="text-xs text-slate-400 uppercase tracking-wide">
-                  Resumen rápido del periodo
-                </p>
-                {salesLoading ? (
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {Array.from({ length: 3 }).map((_, idx) => (
-                      <div
-                        key={`summary-skeleton-${idx}`}
-                        className="rounded-lg border border-slate-800/60 bg-slate-950/60 px-3 py-2 animate-pulse"
-                      >
-                        <div className="h-3 w-16 rounded bg-slate-800/70" />
-                        <div className="mt-2 h-6 w-24 rounded bg-slate-800/70" />
-                      </div>
-                    ))}
+              <div
+                className={`transition-all duration-200 ease-out ${
+                  annualTransitionActive
+                    ? "translate-y-0 opacity-100"
+                    : "translate-y-1 opacity-0"
+                }`}
+              >
+                <div className="overflow-x-auto">
+                  <div className="w-full rounded-[28px] border border-slate-200 bg-slate-50 px-5 py-3">
+                  <svg
+                    viewBox={`0 0 ${annualChart.width} ${annualChart.height}`}
+                    className="block w-full"
+                    role="img"
+                    aria-label={`Evolución mensual ${selectedYear}`}
+                  >
+                    {chartTicks.map((tick) => {
+                      const y =
+                        annualChart.topPadding +
+                        (1 - tick) * annualChart.chartHeight;
+                      return (
+                        <line
+                          key={`annual-line-${tick}`}
+                          x1={0}
+                          y1={y}
+                          x2={annualChart.width}
+                          y2={y}
+                          stroke="#cbd5e1"
+                          strokeDasharray="4 4"
+                        />
+                      );
+                    })}
+
+                    {averageMonthSales > 0 ? (
+                      <line
+                        x1={0}
+                        y1={
+                          annualChart.baselineY -
+                          (averageMonthSales / maxValue) * annualChart.chartHeight
+                        }
+                        x2={annualChart.width}
+                        y2={
+                          annualChart.baselineY -
+                          (averageMonthSales / maxValue) * annualChart.chartHeight
+                        }
+                        stroke="#10b981"
+                        strokeOpacity="0.45"
+                        strokeDasharray="6 6"
+                      />
+                    ) : null}
+
+                    {monthlyData.map((month, index) => {
+                      const isCurrentMonth =
+                        selectedYear === todayYear && month.key === todayMonthKey.slice(5, 7);
+                      const hasSales = month.total > 0;
+                      const barHeight = hasSales
+                        ? Math.max(
+                            24,
+                            (month.total / maxValue) * annualChart.chartHeight
+                          )
+                        : 6;
+                      const x =
+                        annualChart.leftPadding +
+                        index * annualChart.slotWidth +
+                        (annualChart.slotWidth - annualChart.barWidth) / 2;
+                      const y = annualChart.baselineY - barHeight;
+                      const labelX = x + annualChart.barWidth / 2;
+
+                      return (
+                        <g
+                          key={month.key}
+                          role="button"
+                          tabIndex={0}
+                          className="cursor-pointer"
+                          aria-label={`Ver detalle de ${month.label} ${selectedYear}`}
+                          onClick={() =>
+                            setSelectedMonthKey(`${selectedYear}-${month.key}`)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setSelectedMonthKey(`${selectedYear}-${month.key}`);
+                            }
+                          }}
+                        >
+                          <title>{`Tickets del mes: ${month.tickets}\nTotal del mes: ${formatMoney(
+                            month.total
+                          )}`}</title>
+                          <text
+                            x={labelX}
+                            y={Math.max(14, y - 20)}
+                            textAnchor="middle"
+                            fontSize="11"
+                            fontWeight="700"
+                            fill="#475569"
+                          >
+                            {formatCompactMoney(month.total)}
+                          </text>
+                          <text
+                            x={labelX}
+                            y={Math.max(25, y - 6)}
+                            textAnchor="middle"
+                            fontSize="11"
+                            fontWeight="700"
+                            fill="#334155"
+                          >
+                            {month.tickets}
+                          </text>
+                          <rect
+                            x={x}
+                            y={y}
+                            width={annualChart.barWidth}
+                            height={barHeight}
+                            fill={
+                              isCurrentMonth
+                                ? "#10b981"
+                                : hasSales
+                                ? "#334155"
+                                : "#cbd5e1"
+                            }
+                          />
+                          <text
+                            x={labelX}
+                            y={annualChart.baselineY + 16}
+                            textAnchor="middle"
+                            fontSize="14"
+                            fontWeight="700"
+                            fill="#334155"
+                          >
+                            {month.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
                   </div>
-                ) : globalPreviewResult ? (
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {globalPreviewResult.summary.map((item) => (
-                      <div
-                        key={item.label}
-                        className="rounded-lg border border-slate-800/60 bg-slate-950/60 px-3 py-2"
-                      >
-                        <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                          {item.label}
-                        </p>
-                        <p className="text-lg font-semibold text-slate-100">
-                          {item.value}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500">
-                    Ajusta las fechas y filtros para ver un resumen de ventas
-                    rápidas del periodo.
-                  </p>
-                )}
+                </div>
               </div>
             </section>
-          </div>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
+                    Vista mensual
+                  </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <NavigationButton
+                      direction="left"
+                      onClick={() =>
+                        setSelectedMonthKey((current) => shiftMonthKey(current, -1))
+                      }
+                      disabled={selectedMonthKey <= minMonthKey}
+                      label="Ver mes anterior"
+                    />
+                    <h2 className="text-[1.45rem] font-semibold leading-tight text-slate-900">
+                      {currentMonthLabel}
+                    </h2>
+                    <NavigationButton
+                      direction="right"
+                      onClick={() =>
+                        setSelectedMonthKey((current) => shiftMonthKey(current, 1))
+                      }
+                      disabled={selectedMonthKey >= maxMonthKey}
+                      label="Ver mes siguiente"
+                    />
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Comportamiento día a día del mes seleccionado.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap justify-end gap-2">
+                  <div className="min-h-[84px] w-[220px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Venta del mes
+                    </p>
+                    <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
+                      {formatMoney(totalMonthSales)}
+                    </p>
+                    <p className="mt-1 text-[0.9rem] leading-snug text-slate-500">
+                      {monthSalesChange
+                        ? `${monthSalesChange} ${
+                            selectedMonthKey === todayMonthKey
+                              ? "vs corte mes anterior"
+                              : "vs mes anterior"
+                          }`
+                        : "Sin base comparativa"}
+                    </p>
+                  </div>
+                  <div className="min-h-[84px] w-[240px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      {selectedDay == null ? "Día líder" : "Día seleccionado"}
+                    </p>
+                    <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
+                      {activeDay ? `${activeDay.label} ${activeDay.weekday}` : "—"}
+                    </p>
+                    <p className="text-[0.9rem] text-emerald-600">
+                      {activeDay ? formatMoney(activeDay.total) : "$0"}
+                    </p>
+                  </div>
+                  <div className="min-h-[84px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Tickets del mes
+                    </p>
+                    <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
+                      {formatCount(totalMonthTickets)}
+                    </p>
+                  </div>
+                  <div className="min-h-[84px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Promedio diario
+                    </p>
+                    <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
+                      {formatMoney(averageDaySales)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={`relative h-[235px] overflow-hidden rounded-[28px] border border-slate-200 bg-slate-50 transition-all duration-200 ease-out ${
+                  monthlyTransitionActive
+                    ? "translate-y-0 opacity-100"
+                    : "translate-y-1 opacity-0"
+                }`}
+              >
+                <div className="h-full overflow-x-auto px-5 py-2">
+                  <div className="min-w-[1180px]">
+                    <svg
+                      viewBox={`0 0 ${dailyChart.width} ${dailyChart.height}`}
+                      className="block min-w-[1180px]"
+                      role="img"
+                      aria-label={`Evolución diaria ${selectedMonthKey}`}
+                    >
+                    {chartTicks.map((tick) => {
+                      const y =
+                        dailyChart.topPadding +
+                        (1 - tick) * dailyChart.chartHeight;
+                        return (
+                          <line
+                            key={`day-line-${tick}`}
+                            x1={0}
+                            y1={y}
+                            x2={dailyChart.width}
+                            y2={y}
+                            stroke="#cbd5e1"
+                            strokeDasharray="4 4"
+                        />
+                      );
+                    })}
+
+                    {averageDaySales > 0 ? (
+                      <line
+                        x1={0}
+                        y1={
+                          dailyChart.baselineY -
+                          (averageDaySales / maxDailyValue) * dailyChart.chartHeight
+                        }
+                        x2={dailyChart.width}
+                        y2={
+                          dailyChart.baselineY -
+                          (averageDaySales / maxDailyValue) * dailyChart.chartHeight
+                        }
+                        stroke="#10b981"
+                        strokeOpacity="0.45"
+                        strokeDasharray="6 6"
+                      />
+                    ) : null}
+
+                    {dailyData.map((day, index) => {
+                        const isCurrentDay =
+                          isViewingCurrentMonth && day.day === currentDayKey;
+                        const hasSales = day.total > 0;
+                        const barHeight = hasSales
+                          ? Math.max(
+                              22,
+                              (day.total / maxDailyValue) *
+                                dailyChart.chartHeight
+                            )
+                          : 3;
+                        const x =
+                          dailyChart.leftPadding +
+                          index * dailyChart.slotWidth +
+                          (dailyChart.slotWidth - dailyChart.barWidth) / 2;
+                        const y = dailyChart.baselineY - barHeight;
+                        const labelX = x + dailyChart.barWidth / 2;
+
+                        return (
+                          <g
+                            key={day.day}
+                            role="button"
+                            tabIndex={0}
+                            className="cursor-pointer"
+                            aria-label={`Ver resumen del día ${day.label} ${day.weekday}`}
+                            onClick={() => setSelectedDay(day.day)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setSelectedDay(day.day);
+                              }
+                            }}
+                          >
+                            <title>{`Tickets del día: ${day.tickets}\nTotal del día: ${formatMoney(
+                              day.total
+                            )}`}</title>
+                            <text
+                              x={labelX}
+                              y={Math.max(14, y - 20)}
+                              textAnchor="middle"
+                              fontSize="9"
+                              fontWeight="700"
+                              fill="#475569"
+                            >
+                              {formatCompactMoney(day.total)}
+                            </text>
+                            <text
+                              x={labelX}
+                              y={Math.max(24, y - 7)}
+                              textAnchor="middle"
+                              fontSize="9"
+                              fontWeight="700"
+                              fill="#334155"
+                            >
+                              {day.tickets}
+                            </text>
+                            <rect
+                              x={x}
+                              y={y}
+                              width={dailyChart.barWidth}
+                              height={barHeight}
+                              fill={
+                                isCurrentDay
+                                  ? "#10b981"
+                                  : hasSales
+                                  ? "#334155"
+                                  : "#cbd5e1"
+                              }
+                            />
+                            <text
+                              x={labelX}
+                              y={dailyChart.baselineY + 14}
+                              textAnchor="middle"
+                              fontSize="11"
+                              fontWeight="700"
+                              fill="#334155"
+                            >
+                              {day.label}
+                            </text>
+                            <text
+                              x={labelX}
+                              y={dailyChart.baselineY + 26}
+                              textAnchor="middle"
+                              fontSize="9"
+                              fontWeight="600"
+                              fill="#64748b"
+                            >
+                              {day.weekday}
+                            </text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                </div>
+
+                {selectedDay != null ? (
+                  <div
+                    className={`absolute inset-0 z-10 overflow-hidden bg-slate-50 px-3 py-2 transition-all duration-200 ease-out ${
+                      selectedDay != null
+                        ? "translate-y-0 opacity-100"
+                        : "pointer-events-none translate-y-2 opacity-0"
+                    }`}
+                    onClick={() => setSelectedDay(null)}
+                  >
+                    <div
+                      className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden"
+                      ref={dailyDetailRef}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div className="flex flex-none flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
+                            Detalle del día
+                          </p>
+                          <h3 className="mt-0.5 text-[1.2rem] font-semibold text-slate-900">
+                            {selectedDayLabel
+                              ? `${selectedDayLabel} · ${currentMonthLabel}`
+                              : currentMonthLabel}
+                          </h3>
+                          <p className="mt-0.5 text-sm text-slate-500">
+                            Haz click fuera o usa volver para regresar al gráfico.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDay(null)}
+                        className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-emerald-300 hover:text-emerald-700"
+                        >
+                          Volver al gráfico
+                        </button>
+                      </div>
+
+                      <div className="mt-2 grid min-h-0 flex-1 gap-2 overflow-hidden lg:grid-cols-2">
+                        <div className="grid content-start gap-2 overflow-hidden">
+                          <div className="min-h-[92px] rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                            <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                              Venta del día
+                            </p>
+                            <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                              {formatMoney(selectedDayTotal)}
+                            </p>
+                          </div>
+                          <div>
+                            <div className="min-h-[92px] rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                                Tickets
+                              </p>
+                              <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                                {formatCount(selectedDaySales.length)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex min-h-0 flex-col rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
+                            Métodos de pago
+                          </p>
+                          <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                            {selectedDayMethods.length ? (
+                              selectedDayMethods.map((entry) => (
+                                <div key={entry.method}>
+                                  <div className="flex items-center justify-between gap-4">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-slate-900">
+                                        {entry.method}
+                                        <span className="ml-2 text-[11px] font-medium text-slate-500">
+                                          {formatCount(entry.tickets)} tickets
+                                        </span>
+                                      </p>
+                                    </div>
+                                    <p className="shrink-0 text-sm font-semibold text-slate-900">
+                                      {formatMoney(entry.total)}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="py-2 text-sm text-slate-500">
+                                No hay métodos de pago disponibles para este día.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
+                      Top productos
+                    </p>
+                    <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                      Productos del mes
+                    </h3>
+                  </div>
+
+                  <div className="space-y-2">
+                    {topProducts.length ? (
+                      topProducts.map((product, index) => (
+                        <div
+                          key={`${product.name}-${index}`}
+                          className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900">
+                              {product.name}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {formatCount(product.units)} unidades
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-sm font-semibold text-slate-900">
+                            {formatMoney(product.total)}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                        No hay productos disponibles para este mes.
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="mb-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
+                      Top grupos
+                    </p>
+                    <h3 className="mt-1 text-lg font-semibold text-slate-900">
+                      Grupos del mes
+                    </h3>
+                  </div>
+
+                  <div className="space-y-2">
+                    {topGroups.length ? (
+                      topGroups.map((group, index) => (
+                        <div
+                          key={`${group.name}-${index}`}
+                          className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900">
+                              {group.name}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {formatCount(group.units)} unidades
+                            </p>
+                          </div>
+                          <p className="shrink-0 text-sm font-semibold text-slate-900">
+                            {formatMoney(group.total)}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                        No hay grupos disponibles para este mes.
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </section>
+          </>
         )}
       </div>
     </main>

@@ -365,7 +365,7 @@ type SummaryCard = {
 type DocumentAdjustmentRecord = {
   id: number;
   doc_id: number;
-  adjustment_type: "payment" | "discount" | "note";
+  adjustment_type: "payment" | "discount" | "total" | "note";
   reason?: string | null;
   payload?: Record<string, unknown> | null;
   total_delta: number;
@@ -791,7 +791,7 @@ export default function DocumentsExplorer({
   const [adjustmentsLoading, setAdjustmentsLoading] = useState(false);
   const [adjustmentsError, setAdjustmentsError] = useState<string | null>(null);
   const [adjustTarget, setAdjustTarget] = useState<DocumentRow | null>(null);
-  const [adjustType, setAdjustType] = useState<"payment" | "discount" | "note">(
+  const [adjustType, setAdjustType] = useState<"payment" | "discount" | "total" | "note">(
     "payment"
   );
   const [adjustReason, setAdjustReason] = useState("");
@@ -834,6 +834,14 @@ export default function DocumentsExplorer({
       case "month":
         start = new Date(
           Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1, 5, 0, 0)
+        );
+        break;
+      case "previousMonth":
+        start = new Date(
+          Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1, 5, 0, 0)
+        );
+        end = new Date(
+          Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0, 5, 0, 0)
         );
         break;
       case "year":
@@ -1167,8 +1175,8 @@ export default function DocumentsExplorer({
     setAdjustReason("");
     setAdjustTotalDelta("");
     const basePayments =
-      selectedSalePayments.length > 0
-        ? selectedSalePayments.map((payment) => ({
+      displaySalePayments.length > 0
+        ? displaySalePayments.map((payment) => ({
             id: crypto.randomUUID(),
             method: payment.method,
             amount: String(payment.amount ?? 0),
@@ -1310,6 +1318,11 @@ export default function DocumentsExplorer({
       let paymentDelta = 0;
       const payload: Record<string, unknown> = {};
       if (adjustType === "payment") {
+        if (currentEffectiveSaleTotal <= 0) {
+          throw new Error(
+            "Este documento tiene total en cero. Debes corregir el total antes de ajustar pagos."
+          );
+        }
         if (adjustPayments.length === 0) {
           throw new Error("Agrega al menos un pago.");
         }
@@ -1323,17 +1336,17 @@ export default function DocumentsExplorer({
           (sum, entry) => sum + entry.amount,
           0
         );
-        paymentDelta = adjustedTotal - selectedSalePaymentsTotal;
+        paymentDelta = adjustedTotal - displaySalePaymentsTotal;
         totalDelta = 0;
         payload.payments = payments;
-        payload.current_total = selectedSalePaymentsTotal;
+        payload.current_total = displaySalePaymentsTotal;
         payload.adjusted_total = adjustedTotal;
       } else if (adjustType === "discount") {
         if (!adjustTotalDelta.trim()) {
           throw new Error("Ingresa el total con descuento.");
         }
         const targetTotal = parseMoneyString(adjustTotalDelta || "0");
-        totalDelta = targetTotal - baseSaleTotal;
+        totalDelta = targetTotal - currentEffectiveSaleTotal;
         if (adjustPayments.length === 0) {
           throw new Error("Debes ajustar los pagos junto con el descuento.");
         }
@@ -1347,14 +1360,26 @@ export default function DocumentsExplorer({
           (sum, entry) => sum + entry.amount,
           0
         );
-        paymentDelta = adjustedTotal - selectedSalePaymentsTotal;
+        paymentDelta = adjustedTotal - displaySalePaymentsTotal;
         if (Math.abs(paymentDelta - totalDelta) > 0.01) {
           throw new Error(
             "El descuento debe cuadrar con el ajuste de pagos."
           );
         }
         payload.payments = payments;
-        payload.current_total = baseSaleTotal;
+        payload.current_total = currentEffectiveSaleTotal;
+        payload.adjusted_total = targetTotal;
+      } else if (adjustType === "total") {
+        if (!adjustTotalDelta.trim()) {
+          throw new Error("Ingresa el total corregido.");
+        }
+        const targetTotal = parseMoneyString(adjustTotalDelta || "0");
+        if (targetTotal < 0) {
+          throw new Error("El total corregido no puede ser negativo.");
+        }
+        totalDelta = targetTotal - currentEffectiveSaleTotal;
+        paymentDelta = 0;
+        payload.current_total = currentEffectiveSaleTotal;
         payload.adjusted_total = targetTotal;
       }
       if (adjustNote.trim()) {
@@ -2466,11 +2491,18 @@ const selectedSalePayments = useMemo(() => {
     selectedDoc?.total ??
     selectedSaleDocument?.total ??
     0;
+  const currentEffectiveSaleTotal = baseSaleTotal + totalAdjustmentsDelta;
   const discountTargetTotal = useMemo(
     () => parseMoneyString(adjustTotalDelta || "0"),
     [adjustTotalDelta]
   );
-  const discountAmount = Math.max(0, baseSaleTotal - discountTargetTotal);
+  const targetTotalPreview = adjustTotalDelta.trim()
+    ? discountTargetTotal
+    : currentEffectiveSaleTotal;
+  const discountAmount = Math.max(
+    0,
+    currentEffectiveSaleTotal - discountTargetTotal
+  );
   const adjustedSaleTotal = baseSaleTotal + totalAdjustmentsDelta;
   const adjustPaymentsTotal = useMemo(
     () =>
@@ -2480,7 +2512,7 @@ const selectedSalePayments = useMemo(() => {
       ),
     [adjustPayments]
   );
-  const adjustPaymentsDelta = adjustPaymentsTotal - selectedSalePaymentsTotal;
+  const adjustPaymentsDelta = adjustPaymentsTotal - displaySalePaymentsTotal;
 
   useEffect(() => {
     if (adjustType !== "discount") {
@@ -2691,6 +2723,8 @@ useEffect(() => {
   const adjustmentTypeLabel = (type: DocumentAdjustmentRecord["adjustment_type"]) =>
     type === "payment"
       ? "Ajuste de pagos"
+      : type === "total"
+      ? "Ajuste de total"
       : type === "discount"
       ? "Ajuste de descuento"
       : "Nota";
@@ -3237,7 +3271,6 @@ useEffect(() => {
               type="date"
               value={filterFrom}
               onChange={(e) => setFilterFrom(e.target.value)}
-              onFocus={(e) => e.target.showPicker?.()}
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
             />
           </label>
@@ -3247,7 +3280,6 @@ useEffect(() => {
               type="date"
               value={filterTo}
               onChange={(e) => setFilterTo(e.target.value)}
-              onFocus={(e) => e.target.showPicker?.()}
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
             />
           </label>
@@ -3345,11 +3377,12 @@ useEffect(() => {
           {[
             { id: "today", label: "Hoy" },
             { id: "yesterday", label: "Ayer" },
-            { id: "last7", label: "Últimos 7 días" },
-            { id: "week", label: "Esta semana" },
-            { id: "month", label: "Este mes" },
-            { id: "year", label: "Este año" },
-          ].map((btn) => (
+          { id: "last7", label: "Últimos 7 días" },
+          { id: "week", label: "Esta semana" },
+          { id: "month", label: "Este mes" },
+          { id: "previousMonth", label: "Mes anterior" },
+          { id: "year", label: "Este año" },
+        ].map((btn) => (
             <button
               key={btn.id}
               type="button"
@@ -4768,15 +4801,25 @@ useEffect(() => {
                 <select
                   value={adjustType}
                   onChange={(e) =>
-                    setAdjustType(e.target.value as "payment" | "discount" | "note")
+                    setAdjustType(
+                      e.target.value as "payment" | "discount" | "total" | "note"
+                    )
                   }
                   className="h-12 rounded-lg border border-slate-700 bg-slate-950 px-4 text-slate-100 text-base"
                 >
                   <option value="payment">Pagos</option>
+                  <option value="total">Total</option>
                   <option value="discount">Descuento</option>
                   <option value="note">Nota</option>
                 </select>
               </label>
+              {adjustType === "payment" && currentEffectiveSaleTotal <= 0 && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                  Este documento tiene total en cero. Usa{" "}
+                  <span className="font-semibold">Ajuste de total</span> antes
+                  de corregir pagos.
+                </div>
+              )}
               <label className="flex flex-col gap-1">
                 <span className="text-slate-300">Motivo</span>
                 <input
@@ -4786,10 +4829,14 @@ useEffect(() => {
                   placeholder="Describe el motivo del ajuste"
                 />
               </label>
-              {adjustType === "discount" && (
+              {(adjustType === "discount" || adjustType === "total") && (
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="flex flex-col gap-1">
-                    <span className="text-slate-300">Total con descuento</span>
+                    <span className="text-slate-300">
+                      {adjustType === "total"
+                        ? "Total corregido"
+                        : "Total con descuento"}
+                    </span>
                     <input
                       value={adjustTotalDelta}
                       onChange={(e) =>
@@ -4800,18 +4847,29 @@ useEffect(() => {
                       placeholder="0"
                     />
                     <span className="text-xs text-slate-500">
-                      Total actual: {formatMoney(baseSaleTotal)}
+                      Total actual: {formatMoney(currentEffectiveSaleTotal)}
                     </span>
                   </label>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-slate-300">Total descontado</span>
-                    <div className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100">
-                      {formatMoney(discountAmount)}
+                  {adjustType === "discount" ? (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-slate-300">Total descontado</span>
+                      <div className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100">
+                        {formatMoney(discountAmount)}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-slate-300">Delta total</span>
+                      <div className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100">
+                        {`${targetTotalPreview >= currentEffectiveSaleTotal ? "+" : ""}${formatMoney(
+                          Math.abs(targetTotalPreview - currentEffectiveSaleTotal)
+                        )}`}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
-              {adjustType !== "note" && (
+              {(adjustType === "payment" || adjustType === "discount") && (
                 <div className="space-y-3">
                   <div className="text-xs uppercase tracking-wide text-slate-500">
                     Distribucion de pagos
@@ -4873,7 +4931,7 @@ useEffect(() => {
                     <div>
                       Pagos actuales:{" "}
                       <span className="text-slate-100">
-                        {formatMoney(selectedSalePaymentsTotal)}
+                        {formatMoney(displaySalePaymentsTotal)}
                       </span>
                     </div>
                     <div>

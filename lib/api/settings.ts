@@ -596,6 +596,41 @@ export const defaultRolePermissions: RolePermissionModule[] = [
     ],
   },
   {
+    id: "commerce_web",
+    label: "Comercio Web",
+    description: "Operación del canal web: órdenes, pagos y conversión a venta.",
+    roles: {
+      Administrador: true,
+      Supervisor: true,
+      Vendedor: false,
+      Auditor: false,
+    },
+    actions: [
+      {
+        id: "commerce_web.view",
+        label: "Ver órdenes web",
+        description: "Permite entrar al módulo Comercio Web y consultar órdenes.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: true,
+        },
+      },
+      {
+        id: "commerce_web.manage",
+        label: "Gestionar órdenes web",
+        description: "Permite registrar pagos, mover estados y convertir órdenes a venta.",
+        roles: {
+          Administrador: true,
+          Supervisor: true,
+          Vendedor: false,
+          Auditor: false,
+        },
+      },
+    ],
+  },
+  {
     id: "settings",
     label: "Configuración",
     description: "Preferencias del POS, SMTP y otros ajustes.",

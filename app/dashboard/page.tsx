@@ -108,7 +108,7 @@ type RecentSalePayment = {
 type DocumentAdjustmentRecord = {
   id: number;
   doc_id: number;
-  adjustment_type: "payment" | "discount" | "note";
+  adjustment_type: "payment" | "discount" | "total" | "note";
   payload?: Record<string, unknown> | null;
   total_delta: number;
 };
