@@ -1249,35 +1249,35 @@ export default function ReportsPage() {
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Venta total
                     </p>
-                    <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                    <p className="mt-1 text-[20px] font-bold leading-none tracking-tight text-slate-900">
                       {formatMoney(totalYearSales)}
                     </p>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-[13px] leading-snug text-slate-500">
                       {yearSalesChange
                         ? `${yearSalesChange} vs año anterior`
                         : "Sin base comparativa"}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Mes líder
                     </p>
-                    <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                    <p className="mt-1 text-[20px] font-bold leading-none tracking-tight text-slate-900">
                       {bestMonth?.label ?? "—"}
                     </p>
-                    <p className="text-sm text-emerald-600">
+                    <p className="text-[13px] text-emerald-600">
                       {bestMonth ? formatMoney(bestMonth.total) : "$0"}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Tickets del año
                     </p>
-                    <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                    <p className="mt-1 text-[20px] font-bold leading-none tracking-tight text-slate-900">
                       {formatCount(totalYearTickets)}
                     </p>
                   </div>
@@ -1285,17 +1285,17 @@ export default function ReportsPage() {
                     type="button"
                     ref={annualAverageCardRef}
                     onClick={() => setShowAnnualDailyAverage((current) => !current)}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-emerald-200 hover:bg-emerald-50/40"
+                    className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-left transition hover:border-emerald-200 hover:bg-emerald-50/40"
                   >
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       {showAnnualDailyAverage ? "Promedio diario" : "Promedio mensual"}
                     </p>
-                    <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                    <p className="mt-1 text-[20px] font-bold leading-none tracking-tight text-slate-900">
                       {formatMoney(
                         showAnnualDailyAverage ? averageYearDaySales : averageMonthSales
                       )}
                     </p>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-[13px] leading-snug text-slate-500">
                       {showAnnualDailyAverage
                         ? selectedYear === todayYear
                           ? "Hasta hoy"
@@ -1480,14 +1480,14 @@ export default function ReportsPage() {
                 </div>
 
                 <div className="flex flex-wrap justify-end gap-2">
-                  <div className="min-h-[84px] w-[220px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                  <div className="min-h-[80px] w-[220px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Venta del mes
                     </p>
-                    <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
+                    <p className="mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
                       {formatMoney(totalMonthSales)}
                     </p>
-                    <p className="mt-1 text-[0.9rem] leading-snug text-slate-500">
+                    <p className="mt-1 text-[13px] leading-snug text-slate-500">
                       {monthSalesChange
                         ? `${monthSalesChange} ${
                             selectedMonthKey === todayMonthKey
@@ -1497,30 +1497,30 @@ export default function ReportsPage() {
                         : "Sin base comparativa"}
                     </p>
                   </div>
-                  <div className="min-h-[84px] w-[240px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                  <div className="min-h-[80px] w-[240px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       {selectedDay == null ? "Día líder" : "Día seleccionado"}
                     </p>
-                    <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
+                    <p className="mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
                       {activeDay ? `${activeDay.label} ${activeDay.weekday}` : "—"}
                     </p>
-                    <p className="text-[0.9rem] text-emerald-600">
+                    <p className="text-[13px] text-emerald-600">
                       {activeDay ? formatMoney(activeDay.total) : "$0"}
                     </p>
                   </div>
-                  <div className="min-h-[84px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                  <div className="min-h-[80px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Tickets del mes
                     </p>
-                    <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
+                    <p className="mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
                       {formatCount(totalMonthTickets)}
                     </p>
                   </div>
-                  <div className="min-h-[84px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                  <div className="min-h-[80px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Promedio diario
                     </p>
-                    <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
+                    <p className="mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
                       {formatMoney(averageDaySales)}
                     </p>
                   </div>
