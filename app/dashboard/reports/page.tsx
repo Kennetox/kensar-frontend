@@ -1692,12 +1692,12 @@ export default function ReportsPage() {
                           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
                             Detalle del día
                           </p>
-                          <h3 className="mt-0.5 text-[1.2rem] font-semibold text-slate-900">
+                          <h3 className="mt-0.5 text-[1.05rem] font-semibold text-slate-900">
                             {selectedDayLabel
                               ? `${selectedDayLabel} · ${currentMonthLabel}`
                               : currentMonthLabel}
                           </h3>
-                          <p className="mt-0.5 text-sm text-slate-500">
+                          <p className="mt-0.5 text-[13px] text-slate-500">
                             Haz click fuera o usa volver para regresar al gráfico.
                           </p>
                         </div>
@@ -1711,21 +1711,21 @@ export default function ReportsPage() {
                       </div>
 
                       <div className="mt-2 grid min-h-0 flex-1 gap-2 overflow-hidden lg:grid-cols-2">
-                        <div className="grid content-start gap-2 overflow-hidden">
-                          <div className="min-h-[92px] rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                        <div className="grid content-start gap-2 overflow-y-auto pr-1">
+                          <div className="min-h-[78px] rounded-2xl border border-slate-200 bg-white px-3 py-1.5">
                             <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
                               Venta del día
                             </p>
-                            <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                            <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
                               {formatMoney(selectedDayTotal)}
                             </p>
                           </div>
                           <div>
-                            <div className="min-h-[92px] rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                            <div className="min-h-[78px] rounded-2xl border border-slate-200 bg-white px-3 py-1.5">
                               <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
                                 Tickets
                               </p>
-                              <p className="mt-1 text-[1.35rem] font-bold leading-none text-slate-900">
+                              <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
                                 {formatCount(selectedDaySales.length)}
                               </p>
                             </div>
