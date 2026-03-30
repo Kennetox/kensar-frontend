@@ -281,36 +281,36 @@ body::after {
 }
 
 .report-page-title {
-  font-size: 36px;
-  line-height: 1.05;
+  font-size: 24px;
+  line-height: 1.08;
   letter-spacing: -0.03em;
 }
 
 .report-page-kicker {
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.1;
   letter-spacing: 0.18em;
 }
 
 .report-page-subtitle {
-  font-size: 16px;
+  font-size: 13px;
   line-height: 1.2;
 }
 
 .report-view-kicker {
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.1;
   letter-spacing: 0.22em;
 }
 
 .report-view-title {
-  font-size: 28px;
-  line-height: 1.05;
+  font-size: 18px;
+  line-height: 1.08;
   letter-spacing: -0.02em;
 }
 
 .report-view-subtitle {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.2;
 }
 
