@@ -1246,6 +1246,9 @@ export default function ReportsPage() {
             <p className="report-page-kicker text-xs font-semibold uppercase tracking-[0.18em] text-emerald-500">
               Reportes
             </p>
+            <p className="mt-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-rose-500">
+              Build marker v2
+            </p>
             <h1 className="report-page-title mt-1 font-bold leading-tight text-slate-900">
               Ventas mensuales del año actual
             </h1>
