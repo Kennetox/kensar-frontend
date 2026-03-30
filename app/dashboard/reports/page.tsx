@@ -1239,17 +1239,17 @@ export default function ReportsPage() {
   }, [dailyData.length]);
 
   return (
-    <main className="flex-1 px-6 py-4 text-slate-900">
+    <main className="report-page-shell flex-1 px-6 py-4 text-slate-900">
       <div className="mx-auto w-full max-w-7xl space-y-4">
         <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-500">
+            <p className="report-page-kicker text-xs font-semibold uppercase tracking-[0.18em] text-emerald-500">
               Reportes
             </p>
-            <h1 className="mt-1 text-[1.6rem] font-bold leading-tight text-slate-900">
+            <h1 className="report-page-title mt-1 font-bold leading-tight text-slate-900">
               Ventas mensuales del año actual
             </h1>
-            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            <p className="report-page-subtitle mt-1 max-w-2xl text-sm text-slate-500">
               Empezamos por una sola lectura clara: la evolución mes a mes del
               año {selectedYear}.
             </p>
@@ -1282,7 +1282,7 @@ export default function ReportsPage() {
             <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
+                  <p className="report-view-kicker text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
                     Vista anual
                   </p>
                   <div className="mt-1 flex items-center gap-2">
@@ -1294,7 +1294,7 @@ export default function ReportsPage() {
                       disabled={selectedYear <= minYear}
                       label="Ver año anterior"
                     />
-                    <h2 className="text-[1.45rem] font-semibold leading-tight text-slate-900">
+                    <h2 className="report-view-title font-semibold leading-tight text-slate-900">
                       {selectedYear}
                     </h2>
                     <NavigationButton
@@ -1306,7 +1306,7 @@ export default function ReportsPage() {
                       label="Ver año siguiente"
                     />
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="report-view-subtitle mt-1 text-sm text-slate-500">
                     Datos agrupados por mes para leer tendencia y estacionalidad.
                   </p>
                 </div>
@@ -1513,7 +1513,7 @@ export default function ReportsPage() {
             <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
+                  <p className="report-view-kicker text-xs font-semibold uppercase tracking-[0.22em] text-emerald-500">
                     Vista mensual
                   </p>
                   <div className="mt-1 flex items-center gap-2">
@@ -1525,7 +1525,7 @@ export default function ReportsPage() {
                       disabled={selectedMonthKey <= minMonthKey}
                       label="Ver mes anterior"
                     />
-                    <h2 className="text-[1.45rem] font-semibold leading-tight text-slate-900">
+                    <h2 className="report-view-title font-semibold leading-tight text-slate-900">
                       {currentMonthLabel}
                     </h2>
                     <NavigationButton
@@ -1537,7 +1537,7 @@ export default function ReportsPage() {
                       label="Ver mes siguiente"
                     />
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="report-view-subtitle mt-1 text-sm text-slate-500">
                     Comportamiento día a día del mes seleccionado.
                   </p>
                 </div>

@@ -274,6 +274,46 @@ body::after {
   line-height: 1.15;
 }
 
+.report-page-shell,
+.report-page-shell * {
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+}
+
+.report-page-title {
+  font-size: 36px;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.report-page-kicker {
+  font-size: 12px;
+  line-height: 1.1;
+  letter-spacing: 0.18em;
+}
+
+.report-page-subtitle {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.report-view-kicker {
+  font-size: 12px;
+  line-height: 1.1;
+  letter-spacing: 0.22em;
+}
+
+.report-view-title {
+  font-size: 28px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.report-view-subtitle {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
 /* =========================
    Sidebar nav: more presence
    ========================= */
