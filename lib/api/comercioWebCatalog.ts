@@ -66,6 +66,22 @@ export type ComercioWebCatalogProductUpdate = Partial<
   >
 >;
 
+export type ComercioWebCatalogPublicationStats = {
+  configured: number;
+  published: number;
+  featured: number;
+  discounted: number;
+  consult: number;
+};
+
+export type ComercioWebCatalogPublicationPage = {
+  items: ComercioWebCatalogProduct[];
+  total: number;
+  skip: number;
+  limit: number;
+  stats: ComercioWebCatalogPublicationStats;
+};
+
 function normalizeCatalogProduct(product: ComercioWebCatalogProduct): ComercioWebCatalogProduct {
   return {
     ...product,
@@ -97,6 +113,8 @@ export async function fetchComercioWebCatalogProducts(
   params?: {
     q?: string;
     published_only?: boolean;
+    configured_only?: boolean;
+    skip?: number;
     limit?: number;
   }
 ): Promise<ComercioWebCatalogProduct[]> {
@@ -104,6 +122,12 @@ export async function fetchComercioWebCatalogProducts(
   if (params?.q) qs.set("q", params.q);
   if (typeof params?.published_only === "boolean") {
     qs.set("published_only", String(params.published_only));
+  }
+  if (typeof params?.configured_only === "boolean") {
+    qs.set("configured_only", String(params.configured_only));
+  }
+  if (typeof params?.skip === "number" && params.skip > 0) {
+    qs.set("skip", String(params.skip));
   }
   qs.set("limit", String(params?.limit ?? 60));
   const res = await fetch(`${getApiBase()}/comercio-web/catalog/products?${qs.toString()}`, {
@@ -128,4 +152,47 @@ export async function updateComercioWebCatalogProduct(
   });
   if (!res.ok) throw await parseError(res);
   return normalizeCatalogProduct((await res.json()) as ComercioWebCatalogProduct);
+}
+
+export async function fetchComercioWebCatalogPublicationsPage(
+  token: string,
+  params?: {
+    q?: string;
+    field?: "all" | "name" | "sku" | "brand" | "group" | "badge";
+    status_filter?: "all" | "featured" | "discounted" | "consult";
+    featured_filter?: "all" | "featured" | "standard";
+    badge_filter?: "all" | "with_badge" | "without_badge";
+    skip?: number;
+    limit?: number;
+  }
+): Promise<ComercioWebCatalogPublicationPage> {
+  const qs = new URLSearchParams();
+  if (params?.q) qs.set("q", params.q);
+  if (params?.field) qs.set("field", params.field);
+  if (params?.status_filter) qs.set("status_filter", params.status_filter);
+  if (params?.featured_filter) qs.set("featured_filter", params.featured_filter);
+  if (params?.badge_filter) qs.set("badge_filter", params.badge_filter);
+  qs.set("skip", String(params?.skip ?? 0));
+  qs.set("limit", String(params?.limit ?? 50));
+
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/publications?${qs.toString()}`, {
+    headers: buildHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  const data = (await res.json()) as ComercioWebCatalogPublicationPage;
+  return {
+    ...data,
+    items: Array.isArray(data.items) ? data.items.map(normalizeCatalogProduct) : [],
+    total: Number(data.total || 0),
+    skip: Number(data.skip || 0),
+    limit: Number(data.limit || 50),
+    stats: {
+      configured: Number(data.stats?.configured || 0),
+      published: Number(data.stats?.published || 0),
+      featured: Number(data.stats?.featured || 0),
+      discounted: Number(data.stats?.discounted || 0),
+      consult: Number(data.stats?.consult || 0),
+    },
+  };
 }

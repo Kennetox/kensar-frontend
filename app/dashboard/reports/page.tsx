@@ -1078,7 +1078,6 @@ export default function ReportsPage() {
   </div>
 
   <div class="section">
-    <div style="font-weight:700; margin-bottom:6px;">KPIs de abajo</div>
     <div class="split">
       <div>
         <div style="font-size:11px; text-transform:uppercase; color:#10b981; font-weight:700;">Top productos</div>

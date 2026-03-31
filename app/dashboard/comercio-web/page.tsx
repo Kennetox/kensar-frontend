@@ -14,8 +14,10 @@ import {
   updateComercioWebOrderStatus,
 } from "@/lib/api/comercioWeb";
 import {
+  fetchComercioWebCatalogPublicationsPage,
   fetchComercioWebCatalogProducts,
   updateComercioWebCatalogProduct,
+  type ComercioWebCatalogPublicationStats,
   type ComercioWebCatalogProduct,
   type ComercioWebCatalogProductUpdate,
 } from "@/lib/api/comercioWebCatalog";
@@ -136,6 +138,14 @@ const PAYMENT_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
 ];
 
 const SHORT_DESCRIPTION_MAX_CHARS = 96;
+const CATALOG_TABLE_PAGE_SIZE = 50;
+const EMPTY_CATALOG_STATS: ComercioWebCatalogPublicationStats = {
+  configured: 0,
+  published: 0,
+  featured: 0,
+  discounted: 0,
+  consult: 0,
+};
 
 const OPERATIVE_STATUS_OPTIONS: Array<{
   value: ComercioWebOrderStatus;
@@ -252,7 +262,6 @@ function isConfiguredWebPublication(product: ComercioWebCatalogProduct): boolean
     product.web_published ||
     product.web_featured ||
     Boolean(product.web_name?.trim()) ||
-    Boolean(product.web_slug?.trim()) ||
     Boolean(product.web_category_key?.trim()) ||
     Boolean(product.web_short_description?.trim()) ||
     Boolean(product.web_long_description?.trim()) ||
@@ -262,7 +271,7 @@ function isConfiguredWebPublication(product: ComercioWebCatalogProduct): boolean
     typeof product.web_price_value === "number" ||
     (product.web_gallery_urls?.length ?? 0) > 0 ||
     product.web_price_mode === "consultar" ||
-    !product.web_visible_when_out_of_stock ||
+    product.web_visible_when_out_of_stock === false ||
     Boolean(product.web_whatsapp_message?.trim()) ||
     Number(product.web_sort_order || 0) > 0
   );
@@ -456,6 +465,9 @@ export default function ComercioWebPage() {
   const [publishedCatalogProducts, setPublishedCatalogProducts] = useState<
     ComercioWebCatalogProduct[]
   >([]);
+  const [publishedCatalogTotal, setPublishedCatalogTotal] = useState(0);
+  const [catalogMetrics, setCatalogMetrics] =
+    useState<ComercioWebCatalogPublicationStats>(EMPTY_CATALOG_STATS);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogSearchTerm, setCatalogSearchTerm] = useState("");
@@ -467,6 +479,7 @@ export default function ComercioWebPage() {
   const [publishedCatalogStatusFilter, setPublishedCatalogStatusFilter] = useState("all");
   const [publishedCatalogFeaturedFilter, setPublishedCatalogFeaturedFilter] = useState("all");
   const [publishedCatalogBadgeFilter, setPublishedCatalogBadgeFilter] = useState("all");
+  const [publishedCatalogPage, setPublishedCatalogPage] = useState(1);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [catalogComposerOpen, setCatalogComposerOpen] = useState(false);
   const [catalogComposerMode, setCatalogComposerMode] = useState<CatalogComposerMode>("create");
@@ -539,53 +552,36 @@ export default function ComercioWebPage() {
     }
   }, []);
 
-  const filteredPublishedCatalogProducts = useMemo(() => {
-    const term = publishedCatalogFilter.trim().toLowerCase();
+  const publishedCatalogTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(publishedCatalogTotal / CATALOG_TABLE_PAGE_SIZE)),
+    [publishedCatalogTotal]
+  );
+  const publishedCatalogStartIndex = publishedCatalogTotal
+    ? (publishedCatalogPage - 1) * CATALOG_TABLE_PAGE_SIZE + 1
+    : 0;
+  const publishedCatalogEndIndex =
+    publishedCatalogStartIndex === 0
+      ? 0
+      : Math.min(
+          publishedCatalogStartIndex + publishedCatalogProducts.length - 1,
+          publishedCatalogTotal
+        );
 
-    return publishedCatalogProducts.filter((product) => {
-      const searchableFields = {
-        name: `${getCatalogDisplayName(product)} ${product.name || ""}`,
-        sku: product.sku || "",
-        brand: product.brand || "",
-        group: product.group_name || "",
-        badge: product.web_badge_text || "",
-      };
-
-      const matchesTerm =
-        !term ||
-        (publishedCatalogFieldFilter === "all"
-          ? Object.values(searchableFields).some((value) => value.toLowerCase().includes(term)) ||
-            (product.web_short_description || "").toLowerCase().includes(term)
-          : searchableFields[
-              publishedCatalogFieldFilter as keyof typeof searchableFields
-            ].toLowerCase().includes(term));
-
-      const matchesStatus =
-        publishedCatalogStatusFilter === "all" ||
-        (publishedCatalogStatusFilter === "featured" && product.web_featured) ||
-        (publishedCatalogStatusFilter === "discounted" && hasVisibleDiscount(product)) ||
-        (publishedCatalogStatusFilter === "consult" && product.web_price_mode === "consultar");
-
-      const matchesFeatured =
-        publishedCatalogFeaturedFilter === "all" ||
-        (publishedCatalogFeaturedFilter === "featured" && product.web_featured) ||
-        (publishedCatalogFeaturedFilter === "standard" && !product.web_featured);
-
-      const matchesBadge =
-        publishedCatalogBadgeFilter === "all" ||
-        (publishedCatalogBadgeFilter === "with_badge" && Boolean(product.web_badge_text)) ||
-        (publishedCatalogBadgeFilter === "without_badge" && !product.web_badge_text);
-
-      return matchesTerm && matchesStatus && matchesFeatured && matchesBadge;
-    });
+  useEffect(() => {
+    setPublishedCatalogPage(1);
   }, [
-    publishedCatalogBadgeFilter,
-    publishedCatalogFieldFilter,
-    publishedCatalogFeaturedFilter,
     publishedCatalogFilter,
-    publishedCatalogProducts,
+    publishedCatalogFieldFilter,
     publishedCatalogStatusFilter,
+    publishedCatalogFeaturedFilter,
+    publishedCatalogBadgeFilter,
   ]);
+
+  useEffect(() => {
+    if (publishedCatalogPage > publishedCatalogTotalPages) {
+      setPublishedCatalogPage(publishedCatalogTotalPages);
+    }
+  }, [publishedCatalogPage, publishedCatalogTotalPages]);
 
   const previewGalleryImages = useMemo(() => {
     const candidates = [
@@ -747,16 +743,6 @@ export default function ComercioWebPage() {
     };
   }, [orders]);
 
-  const catalogMetrics = useMemo(() => {
-    const published = publishedCatalogProducts.filter((product) => product.web_published).length;
-    const featured = publishedCatalogProducts.filter((product) => product.web_featured).length;
-    const discounted = publishedCatalogProducts.filter((product) => hasVisibleDiscount(product)).length;
-    const consult = publishedCatalogProducts.filter(
-      (product) => product.web_price_mode === "consultar"
-    ).length;
-    return { published, featured, discounted, consult };
-  }, [publishedCatalogProducts]);
-
   const pendingPaymentOrders = useMemo(
     () => orders.filter((order) => order.status === "pending_payment").slice(0, 6),
     [orders]
@@ -798,27 +784,33 @@ export default function ComercioWebPage() {
     try {
       setCatalogLoading(true);
       setCatalogError(null);
-      const [publishedRows, allRows] = await Promise.all([
-        fetchComercioWebCatalogProducts(token, {
-          published_only: true,
-          limit: 200,
-        }),
-        fetchComercioWebCatalogProducts(token, {
-          published_only: false,
-          limit: 200,
-        }),
-      ]);
+      const page = await fetchComercioWebCatalogPublicationsPage(token, {
+        q: publishedCatalogFilter.trim() || undefined,
+        field:
+          publishedCatalogFieldFilter === "all"
+            ? undefined
+            : (publishedCatalogFieldFilter as "name" | "sku" | "brand" | "group" | "badge"),
+        status_filter:
+          publishedCatalogStatusFilter === "all"
+            ? undefined
+            : (publishedCatalogStatusFilter as "featured" | "discounted" | "consult"),
+        featured_filter:
+          publishedCatalogFeaturedFilter === "all"
+            ? undefined
+            : (publishedCatalogFeaturedFilter as "featured" | "standard"),
+        badge_filter:
+          publishedCatalogBadgeFilter === "all"
+            ? undefined
+            : (publishedCatalogBadgeFilter as "with_badge" | "without_badge"),
+        skip: (publishedCatalogPage - 1) * CATALOG_TABLE_PAGE_SIZE,
+        limit: CATALOG_TABLE_PAGE_SIZE,
+      });
 
-      const mergedMap = new Map<number, ComercioWebCatalogProduct>();
-      for (const row of publishedRows) mergedMap.set(row.id, row);
-      for (const row of allRows) {
-        if (isConfiguredWebPublication(row)) mergedMap.set(row.id, row);
-      }
-      const rows = Array.from(mergedMap.values());
-
-      setPublishedCatalogProducts(rows);
+      setPublishedCatalogProducts(page.items);
+      setPublishedCatalogTotal(page.total);
+      setCatalogMetrics(page.stats);
       setSelectedProductId((prev) => {
-        if (prev && rows.some((product) => product.id === prev)) {
+        if (prev && page.items.some((product) => product.id === prev)) {
           return prev;
         }
         return null;
@@ -828,7 +820,15 @@ export default function ComercioWebPage() {
     } finally {
       setCatalogLoading(false);
     }
-  }, [token]);
+  }, [
+    publishedCatalogBadgeFilter,
+    publishedCatalogFeaturedFilter,
+    publishedCatalogFieldFilter,
+    publishedCatalogFilter,
+    publishedCatalogPage,
+    publishedCatalogStatusFilter,
+    token,
+  ]);
 
   const searchCatalogProducts = useCallback(async () => {
     if (!token) return;
@@ -860,7 +860,10 @@ export default function ComercioWebPage() {
 
   useEffect(() => {
     if (activeTab !== "catalog") return;
-    void loadCatalogProducts();
+    const timer = window.setTimeout(() => {
+      void loadCatalogProducts();
+    }, 180);
+    return () => window.clearTimeout(timer);
   }, [activeTab, loadCatalogProducts]);
 
   async function handleApprovePayment(order: ComercioWebOrder) {
@@ -1612,7 +1615,8 @@ export default function ComercioWebPage() {
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-slate-900">Publicaciones web</h3>
                   <span className="text-xs text-slate-500">
-                    {filteredPublishedCatalogProducts.length} de {publishedCatalogProducts.length} visibles
+                    Mostrando {publishedCatalogStartIndex}-{publishedCatalogEndIndex} de{" "}
+                    {publishedCatalogTotal} filtradas · {catalogMetrics.configured} total configuradas
                   </span>
                 </div>
                 <div className="max-h-[32rem] overflow-auto rounded-2xl border border-slate-200">
@@ -1620,11 +1624,11 @@ export default function ComercioWebPage() {
                     <div className="px-4 py-8 text-sm text-slate-500">
                       Cargando publicaciones…
                     </div>
-                  ) : publishedCatalogProducts.length === 0 ? (
+                  ) : publishedCatalogTotal === 0 ? (
                     <div className="px-4 py-8 text-sm text-slate-500">
                       Aún no hay publicaciones web. Usa `Crear publicación` para iniciar el flujo.
                     </div>
-                  ) : filteredPublishedCatalogProducts.length === 0 ? (
+                  ) : publishedCatalogProducts.length === 0 ? (
                     <div className="px-4 py-8 text-sm text-slate-500">
                       No hay publicaciones que coincidan con esos filtros.
                     </div>
@@ -1641,7 +1645,7 @@ export default function ComercioWebPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredPublishedCatalogProducts.map((product) => (
+                        {publishedCatalogProducts.map((product) => (
                           <tr
                             key={`published-${product.id}`}
                             onDoubleClick={() => {
@@ -1786,6 +1790,35 @@ export default function ComercioWebPage() {
                     </table>
                   )}
                 </div>
+                {publishedCatalogTotal > 0 ? (
+                  <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs text-slate-600">
+                      Página {publishedCatalogPage} de {publishedCatalogTotalPages}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPublishedCatalogPage((prev) => Math.max(1, prev - 1))}
+                        disabled={publishedCatalogPage <= 1}
+                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Anterior
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPublishedCatalogPage((prev) =>
+                            Math.min(publishedCatalogTotalPages, prev + 1)
+                          )
+                        }
+                        disabled={publishedCatalogPage >= publishedCatalogTotalPages}
+                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </SectionCard>
             ) : null}
