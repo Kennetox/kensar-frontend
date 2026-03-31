@@ -1062,6 +1062,7 @@ function EntryReceptionForm() {
                   <thead className="bg-slate-50 text-xs uppercase tracking-[0.08em] text-slate-600">
                     <tr>
                       <th className="px-3 py-2">Producto</th>
+                      <th className="px-3 py-2">SKU</th>
                       <th className="px-3 py-2 text-right">Cantidad</th>
                       <th className="px-3 py-2 text-right">Costo</th>
                       <th className="px-3 py-2 text-right">Precio</th>
@@ -1072,13 +1073,13 @@ function EntryReceptionForm() {
                   <tbody className="divide-y divide-slate-200">
                     {loadingDetail ? (
                       <tr>
-                        <td colSpan={6} className="px-3 py-4 text-xs text-slate-500">
+                        <td colSpan={7} className="px-3 py-4 text-xs text-slate-500">
                           Cargando líneas...
                         </td>
                       </tr>
                     ) : items.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-3 py-4 text-xs text-slate-500">
+                        <td colSpan={7} className="px-3 py-4 text-xs text-slate-500">
                           Aún no hay productos agregados.
                         </td>
                       </tr>
@@ -1088,6 +1089,7 @@ function EntryReceptionForm() {
                         return (
                           <tr key={item.id}>
                             <td className="px-3 py-2">{item.product_name_snapshot}</td>
+                            <td className="px-3 py-2 text-slate-700">{item.sku_snapshot || "-"}</td>
                             <td className="px-3 py-2 text-right">
                               {isEditing ? (
                                 <input

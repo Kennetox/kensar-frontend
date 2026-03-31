@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { STORAGE_KEY, useAuth } from "../../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
-import { exportReportExcel, exportReportPdf } from "@/lib/api/reports";
+import {
+  exportReportExcel,
+  exportReportPdf,
+  fetchReportFavorites,
+  saveReportFavorites,
+} from "@/lib/api/reports";
 import {
   defaultRolePermissions,
   fetchPosSettings,
@@ -276,6 +281,14 @@ const resolveReportStorageScope = () => {
 
 const buildReportStorageKey = (suffix: string) =>
   `${REPORT_STORAGE_PREFIX}_${resolveReportStorageScope()}_${suffix}`;
+
+const areSameStringArrays = (left: string[], right: string[]): boolean => {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+};
 
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
@@ -3042,6 +3055,8 @@ export default function ReportsPage() {
     }
     return [];
   });
+  const favoritesSyncReadyRef = useRef(false);
+  const lastFavoritesSyncSignatureRef = useRef<string>("");
 
   const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(
     null
@@ -3163,6 +3178,101 @@ export default function ReportsPage() {
       console.warn("No se pudieron guardar favoritos", err);
     }
   }, [favoriteReportIds, favoritesStorageKey]);
+
+  const sanitizeFavoriteIds = useCallback((ids: string[]): string[] => {
+    const validPresetIds = new Set(REPORT_PRESETS.map((preset) => preset.id));
+    const unique: string[] = [];
+    const seen = new Set<string>();
+    for (const rawId of ids) {
+      const id = rawId.trim();
+      if (!id || seen.has(id) || !validPresetIds.has(id)) continue;
+      seen.add(id);
+      unique.push(id);
+    }
+    return unique;
+  }, []);
+
+  useEffect(() => {
+    favoritesSyncReadyRef.current = false;
+    if (!token) {
+      lastFavoritesSyncSignatureRef.current = "";
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const remoteFavorites = sanitizeFavoriteIds(
+          await fetchReportFavorites(token)
+        );
+        let nextFavorites = remoteFavorites;
+
+        if (remoteFavorites.length === 0 && typeof window !== "undefined") {
+          try {
+            const raw = window.localStorage.getItem(favoritesStorageKey);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) {
+                const localFavorites = sanitizeFavoriteIds(
+                  parsed.filter(
+                    (id: unknown): id is string => typeof id === "string"
+                  )
+                );
+                if (localFavorites.length > 0) {
+                  nextFavorites = await saveReportFavorites(localFavorites, token);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn("No se pudieron migrar favoritos locales", err);
+          }
+        }
+
+        if (cancelled) return;
+        const normalizedNext = sanitizeFavoriteIds(nextFavorites);
+        lastFavoritesSyncSignatureRef.current = JSON.stringify(normalizedNext);
+        setFavoriteReportIds((prev) =>
+          areSameStringArrays(prev, normalizedNext) ? prev : normalizedNext
+        );
+      } catch (err) {
+        console.error("No se pudieron cargar los favoritos del usuario", err);
+      } finally {
+        if (!cancelled) {
+          favoritesSyncReadyRef.current = true;
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [favoritesStorageKey, sanitizeFavoriteIds, token]);
+
+  useEffect(() => {
+    if (!token || !favoritesSyncReadyRef.current) return;
+    const normalized = sanitizeFavoriteIds(favoriteReportIds);
+    const nextSignature = JSON.stringify(normalized);
+    if (nextSignature === lastFavoritesSyncSignatureRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = sanitizeFavoriteIds(
+          await saveReportFavorites(normalized, token)
+        );
+        if (cancelled) return;
+        const savedSignature = JSON.stringify(saved);
+        lastFavoritesSyncSignatureRef.current = savedSignature;
+        setFavoriteReportIds((prev) =>
+          areSameStringArrays(prev, saved) ? prev : saved
+        );
+      } catch (err) {
+        console.error("No se pudieron sincronizar los favoritos", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [favoriteReportIds, sanitizeFavoriteIds, token]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

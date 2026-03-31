@@ -10,10 +10,8 @@ import {
   type RolePermissionModule,
 } from "@/lib/api/settings";
 import { getApiBase } from "@/lib/api/base";
-import { getBogotaDateKey, parseDateInput } from "@/lib/time/bogota";
-
-const REPORTS_CACHE_KEY = "kensar_reports_dataset";
-const REPORTS_CACHE_TTL_MS = 5 * 60 * 1000;
+import { exportReportPdf } from "@/lib/api/reports";
+import { getBogotaDateKey } from "@/lib/time/bogota";
 
 export {
   REPORT_PRESETS,
@@ -29,111 +27,39 @@ export type {
 
 type DashboardRole = PosUserRecord["role"];
 
-type ReportSaleItem = {
-  product_id?: number;
-  product_name?: string;
-  name?: string;
-  product_sku?: string | null;
-  product_group?: string | null;
-  product_category?: string | null;
-  quantity: number;
-  unit_price?: number;
-};
-
-type ReportSaleReturnItem = {
-  product_id?: number | null;
-  product_name?: string | null;
-  product_sku?: string | null;
-  quantity?: number;
-};
-
-type ReportSaleReturn = {
-  status?: string | null;
-  voided_at?: string | null;
-  items?: ReportSaleReturnItem[];
-};
-
-type ReportChangeReturnItem = {
-  product_id: number;
-  product_name?: string | null;
-  product_sku?: string | null;
-  quantity: number;
-  unit_price_net?: number | null;
-};
-
-type ReportChangeNewItem = {
-  product_id: number;
-  product_name?: string | null;
-  product_sku?: string | null;
-  quantity: number;
-  unit_price: number;
-};
-
-type ReportChange = {
-  sale_id: number;
-  status: string;
-  voided_at?: string | null;
-  items_returned: ReportChangeReturnItem[];
-  items_new: ReportChangeNewItem[];
-};
-
-type ReportSale = {
-  id: number;
-  created_at: string;
-  status?: string | null;
-  total?: number;
-  paid_amount?: number;
-  payment_method?: string | null;
-  payments?: Array<{ method?: string | null; amount?: number | null }>;
-  cart_discount_value?: number | null;
-  items?: ReportSaleItem[];
-  returns?: ReportSaleReturn[];
-};
-
-type ReportDocumentAdjustment = {
-  id: number;
-  doc_id: number;
-  total_delta?: number | null;
-  created_at?: string;
-};
-
-type EnrichedSale = {
-  id: number;
-  dateKey: string;
+type DashboardMonthlySalesPoint = {
+  month: number;
   total: number;
-  cart_discount_value: number | null;
-  returns: ReportSaleReturn[];
-  paymentMethod: string | null;
-  payments: Array<{ method?: string | null; amount?: number | null }>;
-  items: ReportSaleItem[];
+  tickets: number;
 };
 
-type ProductCatalogRow = {
-  id: number | string;
-  sku?: string | null;
-  name?: string | null;
-  group_name?: string | null;
+type DashboardDailySalesPoint = {
+  date: string;
+  total: number;
+  tickets: number;
 };
 
-type ProductGroupLookup = {
-  byId: Map<string, string>;
-  bySku: Map<string, string>;
-  byName: Map<string, string>;
+type QuickTopRow = {
+  name: string;
+  units: number;
+  total: number;
 };
 
-type ReportsCachePayload = {
-  savedAt: number;
-  sales: EnrichedSale[];
-  changes: ReportChange[];
-  productGroupLookup: {
-    byId: Array<[string, string]>;
-    bySku: Array<[string, string]>;
-    byName: Array<[string, string]>;
-  };
+type QuickInsightsResponse = {
+  year: number;
+  month: number;
+  min_year: number;
+  max_year: number;
+  top_products: QuickTopRow[];
+  top_groups: QuickTopRow[];
 };
 
-const REPORT_PAGE_SIZE = 500;
-const ADJUSTMENTS_CHUNK_SIZE = 200;
+type PaymentMethodSummary = {
+  method: string;
+  total: number;
+  tickets: number;
+};
+
 const MONTHS = [
   { key: "01", label: "Ene" },
   { key: "02", label: "Feb" },
@@ -232,6 +158,15 @@ function formatCount(value: number | undefined | null) {
   return value.toLocaleString("es-CO");
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function formatPercentChange(current: number, previous: number) {
   if (!Number.isFinite(previous) || previous <= 0) return null;
   const change = ((current - previous) / previous) * 100;
@@ -240,380 +175,6 @@ function formatPercentChange(current: number, previous: number) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 1,
   })}%`;
-}
-
-function formatMethodLabel(method: string | null | undefined) {
-  if (!method) return "Sin método";
-  const normalized = method.trim().toLowerCase();
-  const methodLabels: Record<string, string> = {
-    cash: "Efectivo",
-    efectivo: "Efectivo",
-    card: "Tarjeta",
-    tarjeta: "Tarjeta",
-    "credit card": "Tarjeta crédito",
-    "tarjeta credito": "Tarjeta crédito",
-    "tarjeta crédito": "Tarjeta crédito",
-    "debit card": "Tarjeta débito",
-    "tarjeta debito": "Tarjeta débito",
-    "tarjeta débito": "Tarjeta débito",
-    transfer: "Transferencia",
-    transferencia: "Transferencia",
-    qr: "QR",
-    nequi: "Nequi",
-    daviplata: "Daviplata",
-  };
-  return methodLabels[normalized] ?? capitalize(normalized);
-}
-
-function normalizeLookupValue(value: string | number | null | undefined) {
-  if (value == null) return "";
-  return String(value).trim().toLowerCase();
-}
-
-function resolveItemGroupName(
-  item: ReportSaleItem,
-  productGroupLookup: ProductGroupLookup
-) {
-  const byId =
-    productGroupLookup.byId.get(normalizeLookupValue(item.product_id)) ?? "";
-  if (byId) return byId;
-
-  const bySku =
-    productGroupLookup.bySku.get(normalizeLookupValue(item.product_sku)) ?? "";
-  if (bySku) return bySku;
-
-  const itemName = item.product_name?.trim() || item.name?.trim() || "";
-  const byName = productGroupLookup.byName.get(normalizeLookupValue(itemName)) ?? "";
-  if (byName) return byName;
-
-  const groupName = item.product_group?.trim() || "";
-  const subGroupName = item.product_category?.trim() || "";
-  if (groupName && subGroupName && subGroupName !== groupName) {
-    return `${groupName} / ${subGroupName}`;
-  }
-  return groupName || subGroupName || "";
-}
-
-function aggregatePaymentMethods(sales: EnrichedSale[]) {
-  const methodMap = new Map<string, { total: number; tickets: number }>();
-
-  const combineSale = (method: string, amount: number) => {
-    const key = method || "Sin método";
-    const current = methodMap.get(key) ?? { total: 0, tickets: 0 };
-    current.total += amount;
-    current.tickets += 1;
-    methodMap.set(key, current);
-  };
-
-  sales.forEach((sale) => {
-    const payments = sale.payments;
-    if (Array.isArray(payments) && payments.length > 1) {
-      const sumPayments = payments.reduce(
-        (sum, payment) => sum + toNumber(payment.amount),
-        0
-      );
-      payments.forEach((payment) => {
-        const rawAmount = toNumber(payment.amount);
-        const value =
-          sumPayments > 0
-            ? (rawAmount / sumPayments) * sale.total
-            : sale.total / payments.length;
-        combineSale(
-          formatMethodLabel(payment.method ?? sale.paymentMethod),
-          value
-        );
-      });
-      return;
-    }
-
-    combineSale(
-      formatMethodLabel(sale.paymentMethod ?? payments?.[0]?.method),
-      sale.total
-    );
-  });
-
-  const grandTotal = Array.from(methodMap.values()).reduce(
-    (sum, entry) => sum + entry.total,
-    0
-  );
-
-  return Array.from(methodMap.entries())
-    .map(([method, entry]) => ({
-      method,
-      total: entry.total,
-      tickets: entry.tickets,
-      percentage: grandTotal > 0 ? (entry.total / grandTotal) * 100 : 0,
-    }))
-    .sort((a, b) => b.total - a.total);
-}
-
-const buildItemKey = (item: {
-  product_id?: number | null;
-  product_name?: string | null;
-  product_sku?: string | null;
-}) => {
-  if (item.product_id != null) return `id:${item.product_id}`;
-  const name = item.product_name ?? "";
-  const sku = item.product_sku ?? "";
-  return `name:${name}|sku:${sku}`;
-};
-
-function applyChangesToSaleItems(
-  sale: EnrichedSale,
-  changes: ReportChange[] | undefined
-): ReportSaleItem[] {
-  const sourceItems = sale.items ?? [];
-  if (!sourceItems.length || !changes?.length) return sourceItems;
-
-  const itemsMap = new Map<string, ReportSaleItem>();
-  sourceItems.forEach((item) => {
-    const key = buildItemKey(item);
-    const quantity = Number(item.quantity ?? 0);
-    if (quantity <= 0) return;
-    itemsMap.set(key, { ...item });
-  });
-
-  changes.forEach((change) => {
-    if (change.status !== "confirmed" || change.voided_at) return;
-
-    change.items_returned?.forEach((item) => {
-      const key = buildItemKey(item);
-      const existing = itemsMap.get(key);
-      const quantity = Number(item.quantity ?? 0);
-      if (existing) {
-        const nextQty = Number(existing.quantity ?? 0) - quantity;
-        if (nextQty > 0) {
-          existing.quantity = nextQty;
-          itemsMap.set(key, existing);
-        } else {
-          itemsMap.delete(key);
-        }
-        return;
-      }
-      const fallbackKey = buildItemKey({
-        product_name: item.product_name ?? undefined,
-        product_sku: item.product_sku ?? undefined,
-      });
-      const fallback = itemsMap.get(fallbackKey);
-      if (fallback) {
-        const nextQty = Number(fallback.quantity ?? 0) - quantity;
-        if (nextQty > 0) {
-          fallback.quantity = nextQty;
-          itemsMap.set(fallbackKey, fallback);
-        } else {
-          itemsMap.delete(fallbackKey);
-        }
-      }
-    });
-
-    change.items_new?.forEach((item) => {
-      const key = buildItemKey(item);
-      const existing = itemsMap.get(key);
-      const quantity = Number(item.quantity ?? 0);
-      if (existing) {
-        existing.quantity = Number(existing.quantity ?? 0) + quantity;
-        if (existing.unit_price == null) existing.unit_price = item.unit_price;
-        if (!existing.product_name) existing.product_name = item.product_name ?? undefined;
-        if (!existing.product_sku) existing.product_sku = item.product_sku ?? undefined;
-        itemsMap.set(key, existing);
-        return;
-      }
-      itemsMap.set(key, {
-        product_id: item.product_id,
-        product_name: item.product_name ?? undefined,
-        product_sku: item.product_sku ?? undefined,
-        quantity,
-        unit_price: item.unit_price,
-      });
-    });
-  });
-
-  return Array.from(itemsMap.values()).filter(
-    (item) => Number(item.quantity ?? 0) > 0
-  );
-}
-
-function applyReturnsToSaleItems(sale: EnrichedSale, items: ReportSaleItem[]) {
-  if (!items.length) return items;
-  const returns = sale.returns ?? [];
-  if (!returns.length) return items;
-
-  const itemsMap = new Map<string, ReportSaleItem>();
-  items.forEach((item) => {
-    const key = buildItemKey(item);
-    const quantity = Number(item.quantity ?? 0);
-    if (quantity <= 0) return;
-    itemsMap.set(key, { ...item });
-  });
-
-  returns.forEach((ret) => {
-    if (ret.status && ret.status !== "confirmed") return;
-    if (ret.voided_at) return;
-    ret.items?.forEach((returnedItem) => {
-      const key = buildItemKey(returnedItem);
-      const existing = itemsMap.get(key);
-      const quantity = Number(returnedItem.quantity ?? 0);
-      if (quantity <= 0) return;
-      if (existing) {
-        const nextQty = Number(existing.quantity ?? 0) - quantity;
-        if (nextQty > 0) {
-          existing.quantity = nextQty;
-          itemsMap.set(key, existing);
-        } else {
-          itemsMap.delete(key);
-        }
-        return;
-      }
-      const fallbackKey = buildItemKey({
-        product_name: returnedItem.product_name ?? undefined,
-        product_sku: returnedItem.product_sku ?? undefined,
-      });
-      const fallback = itemsMap.get(fallbackKey);
-      if (fallback) {
-        const nextQty = Number(fallback.quantity ?? 0) - quantity;
-        if (nextQty > 0) {
-          fallback.quantity = nextQty;
-          itemsMap.set(fallbackKey, fallback);
-        } else {
-          itemsMap.delete(fallbackKey);
-        }
-      }
-    });
-  });
-
-  return Array.from(itemsMap.values()).filter(
-    (item) => Number(item.quantity ?? 0) > 0
-  );
-}
-
-function applyCartDiscountToItems(
-  sale: EnrichedSale,
-  items: ReportSaleItem[]
-): ReportSaleItem[] {
-  const cartDiscount = Math.max(0, Number(sale.cart_discount_value ?? 0));
-  if (cartDiscount <= 0 || items.length === 0) return items;
-
-  const totals = items.map((item) => {
-    const quantity = Math.max(0, Number(item.quantity ?? 0));
-    const unitPrice = Math.max(0, Number(item.unit_price ?? 0));
-    return { quantity, lineTotal: unitPrice * quantity };
-  });
-  const subtotal = totals.reduce((sum, entry) => sum + entry.lineTotal, 0);
-  if (subtotal <= 0) return items;
-
-  let remainingDiscount = Math.min(cartDiscount, subtotal);
-  return items.map((item, index) => {
-    const { quantity, lineTotal } = totals[index];
-    if (quantity <= 0 || lineTotal <= 0) return item;
-    const rawShare =
-      index === items.length - 1
-        ? remainingDiscount
-        : (lineTotal / subtotal) * cartDiscount;
-    const discountShare = Math.max(0, Math.min(rawShare, remainingDiscount));
-    remainingDiscount -= discountShare;
-    const netLineTotal = Math.max(0, lineTotal - discountShare);
-    const unitPriceNet = netLineTotal / quantity;
-    return {
-      ...item,
-      unit_price: unitPriceNet,
-    };
-  });
-}
-
-function buildNetSaleItems(
-  sale: EnrichedSale,
-  changes: ReportChange[] | undefined
-): ReportSaleItem[] {
-  const changedItems = applyChangesToSaleItems(sale, changes);
-  const netItems = applyReturnsToSaleItems(sale, changedItems);
-  return applyCartDiscountToItems(sale, netItems);
-}
-
-function aggregateTopProducts(
-  sales: EnrichedSale[],
-  changesBySaleId: Map<number, ReportChange[]>
-) {
-  const productMap = new Map<string, { name: string; units: number; total: number }>();
-
-  sales.forEach((sale) => {
-    buildNetSaleItems(sale, changesBySaleId.get(sale.id)).forEach((item) => {
-      const name =
-        item.product_name?.trim() || item.name?.trim() || "Producto sin nombre";
-      const quantity = Math.max(0, toNumber(item.quantity));
-      const total = Math.max(0, toNumber(item.unit_price) * quantity);
-      if (quantity <= 0 && total <= 0) return;
-      const key = `${item.product_id ?? name}-${name}`;
-      const current = productMap.get(key) ?? { name, units: 0, total: 0 };
-      current.units += quantity;
-      current.total += total;
-      productMap.set(key, current);
-    });
-  });
-
-  return Array.from(productMap.values())
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5);
-}
-
-function aggregateTopGroups(
-  sales: EnrichedSale[],
-  changesBySaleId: Map<number, ReportChange[]>,
-  productGroupLookup: ProductGroupLookup
-) {
-  const groupMap = new Map<string, { name: string; units: number; total: number }>();
-
-  sales.forEach((sale) => {
-    buildNetSaleItems(sale, changesBySaleId.get(sale.id)).forEach((item) => {
-      const name = resolveItemGroupName(item, productGroupLookup) || "Sin grupo";
-      const quantity = Math.max(0, toNumber(item.quantity));
-      const total = Math.max(0, toNumber(item.unit_price) * quantity);
-      if (quantity <= 0 && total <= 0) return;
-      const current = groupMap.get(name) ?? { name, units: 0, total: 0 };
-      current.units += quantity;
-      current.total += total;
-      groupMap.set(name, current);
-    });
-  });
-
-  return Array.from(groupMap.values())
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5);
-}
-
-function buildAdjustedSales(
-  sales: ReportSale[],
-  adjustments: ReportDocumentAdjustment[]
-): EnrichedSale[] {
-  const adjustmentsMap = new Map<number, number>();
-  adjustments.forEach((entry) => {
-    adjustmentsMap.set(
-      entry.doc_id,
-      (adjustmentsMap.get(entry.doc_id) ?? 0) + toNumber(entry.total_delta)
-    );
-  });
-
-  return sales
-    .map((sale) => {
-      const date = parseDateInput(sale.created_at);
-      const dateKey = getBogotaDateKey(sale.created_at);
-      if (!date || !dateKey) return null;
-      const baseTotal = toNumber(sale.total ?? sale.paid_amount);
-      const adjustedTotal =
-        sale.status === "voided"
-          ? 0
-          : Math.max(0, baseTotal + (adjustmentsMap.get(sale.id) ?? 0));
-      return {
-        id: sale.id,
-        dateKey,
-        total: adjustedTotal,
-        cart_discount_value: sale.cart_discount_value ?? null,
-        returns: Array.isArray(sale.returns) ? sale.returns : [],
-        paymentMethod: sale.payment_method ?? null,
-        payments: Array.isArray(sale.payments) ? sale.payments : [],
-        items: Array.isArray(sale.items) ? sale.items : [],
-      };
-    })
-    .filter((sale): sale is EnrichedSale => sale !== null);
 }
 
 function ChevronIcon({ direction }: { direction: "left" | "right" }) {
@@ -672,13 +233,6 @@ export default function ReportsPage() {
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
     defaultRolePermissions
   );
-  const [sales, setSales] = useState<EnrichedSale[]>([]);
-  const [changes, setChanges] = useState<ReportChange[]>([]);
-  const [productGroupLookup, setProductGroupLookup] = useState<ProductGroupLookup>({
-    byId: new Map(),
-    bySku: new Map(),
-    byName: new Map(),
-  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const todayKey = getBogotaDateKey();
@@ -692,31 +246,17 @@ export default function ReportsPage() {
   const [showAnnualDailyAverage, setShowAnnualDailyAverage] = useState(false);
   const [annualTransitionActive, setAnnualTransitionActive] = useState(true);
   const [monthlyTransitionActive, setMonthlyTransitionActive] = useState(true);
-
-  const readReportsCache = useCallback(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = window.sessionStorage.getItem(REPORTS_CACHE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as ReportsCachePayload;
-      if (!parsed?.savedAt || Date.now() - parsed.savedAt > REPORTS_CACHE_TTL_MS) {
-        return null;
-      }
-      return parsed;
-    } catch (err) {
-      console.warn("No se pudo leer caché de reportes", err);
-      return null;
-    }
-  }, []);
-
-  const writeReportsCache = useCallback((payload: ReportsCachePayload) => {
-    if (typeof window === "undefined") return;
-    try {
-      window.sessionStorage.setItem(REPORTS_CACHE_KEY, JSON.stringify(payload));
-    } catch (err) {
-      console.warn("No se pudo guardar caché de reportes", err);
-    }
-  }, []);
+  const [monthlySeries, setMonthlySeries] = useState<DashboardMonthlySalesPoint[]>([]);
+  const [previousYearSeries, setPreviousYearSeries] = useState<DashboardMonthlySalesPoint[]>([]);
+  const [dailySeries, setDailySeries] = useState<DashboardDailySalesPoint[]>([]);
+  const [previousMonthDailySeries, setPreviousMonthDailySeries] = useState<DashboardDailySalesPoint[]>([]);
+  const [topProducts, setTopProducts] = useState<QuickTopRow[]>([]);
+  const [topGroups, setTopGroups] = useState<QuickTopRow[]>([]);
+  const [minYear, setMinYear] = useState(todayYear);
+  const [maxYear, setMaxYear] = useState(todayYear);
+  const [dayMethodMap, setDayMethodMap] = useState<Record<string, PaymentMethodSummary[]>>({});
+  const [quickPdfLoading, setQuickPdfLoading] = useState(false);
+  const [quickPdfError, setQuickPdfError] = useState<string | null>(null);
 
   const canLoadRolePermissions = useMemo(() => {
     if (!isDashboardRole(user?.role)) return false;
@@ -771,9 +311,8 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (!canViewReportDataset) {
-      setSales([]);
-      setChanges([]);
-      setProductGroupLookup({ byId: new Map(), bySku: new Map(), byName: new Map() });
+      setTopProducts([]);
+      setTopGroups([]);
       setLoading(false);
       setError(null);
       return;
@@ -782,103 +321,29 @@ export default function ReportsPage() {
     const requestHeaders: HeadersInit = authHeaders;
     let cancelled = false;
 
-    async function loadSales() {
+    async function loadQuickInsights() {
       try {
         setLoading(true);
         setError(null);
-        const cached = readReportsCache();
-        if (cached) {
-          if (!cancelled) {
-            setSales(cached.sales);
-            setChanges(cached.changes);
-            setProductGroupLookup({
-              byId: new Map(cached.productGroupLookup.byId),
-              bySku: new Map(cached.productGroupLookup.bySku),
-              byName: new Map(cached.productGroupLookup.byName),
-            });
-          }
-          return;
-        }
         const apiBase = getApiBase();
-
-        const fetchAllPages = async <T,>(path: string): Promise<T[]> => {
-          const rows: T[] = [];
-          let skip = 0;
-          for (;;) {
-            const res = await fetch(
-              `${apiBase}${path}?skip=${skip}&limit=${REPORT_PAGE_SIZE}`,
-              {
-                headers: requestHeaders,
-                credentials: "include",
-              }
-            );
-            if (!res.ok) throw new Error(`Error ${res.status}`);
-            const page: T[] = await res.json();
-            rows.push(...page);
-            if (page.length < REPORT_PAGE_SIZE) break;
-            skip += page.length;
-          }
-          return rows;
-        };
-
-        const rawSales = await fetchAllPages<ReportSale>("/pos/sales");
-        const rawChanges = await fetchAllPages<ReportChange>("/pos/changes");
-        const rawProducts = await fetchAllPages<ProductCatalogRow>("/products/");
-        const adjustments: ReportDocumentAdjustment[] = [];
-
-        if (rawSales.length > 0) {
-          const ids = rawSales.map((sale) => sale.id);
-          for (let index = 0; index < ids.length; index += ADJUSTMENTS_CHUNK_SIZE) {
-            const chunk = ids.slice(index, index + ADJUSTMENTS_CHUNK_SIZE);
-            const res = await fetch(
-              `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${chunk.join(",")}`,
-              {
-                headers: requestHeaders,
-                credentials: "include",
-              }
-            );
-            if (!res.ok) continue;
-            const batch: ReportDocumentAdjustment[] = await res.json();
-            adjustments.push(...batch);
-          }
-        }
-
+        const month = Number(selectedMonthKey.slice(5, 7));
+        const year = Number(selectedMonthKey.slice(0, 4));
+        const params = new URLSearchParams({
+          year: String(year),
+          month: String(month),
+        });
+        const res = await fetch(`${apiBase}/reports/quick/insights?${params.toString()}`, {
+          headers: requestHeaders,
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error(`Error ${res.status}`);
+        const json = (await res.json()) as QuickInsightsResponse;
         if (!cancelled) {
-          const adjustedSales = buildAdjustedSales(rawSales, adjustments);
-          setSales(adjustedSales);
-          setChanges(rawChanges);
-          const byId = new Map<string, string>();
-          const bySku = new Map<string, string>();
-          const byName = new Map<string, string>();
-
-          rawProducts.forEach((product) => {
-            const groupName =
-              typeof product.group_name === "string"
-                ? product.group_name.trim()
-                : "";
-            if (!groupName) return;
-
-            const idKey = normalizeLookupValue(product.id);
-            if (idKey) byId.set(idKey, groupName);
-
-            const skuKey = normalizeLookupValue(product.sku);
-            if (skuKey) bySku.set(skuKey, groupName);
-
-            const nameKey = normalizeLookupValue(product.name);
-            if (nameKey) byName.set(nameKey, groupName);
-          });
-
-          setProductGroupLookup({ byId, bySku, byName });
-          writeReportsCache({
-            savedAt: Date.now(),
-            sales: adjustedSales,
-            changes: rawChanges,
-            productGroupLookup: {
-              byId: Array.from(byId.entries()),
-              bySku: Array.from(bySku.entries()),
-              byName: Array.from(byName.entries()),
-            },
-          });
+          setTopProducts(Array.isArray(json.top_products) ? json.top_products : []);
+          setTopGroups(Array.isArray(json.top_groups) ? json.top_groups : []);
+          setMinYear(String(json.min_year || Number(todayYear)));
+          setMaxYear(String(json.max_year || Number(todayYear)));
+          setDayMethodMap({});
         }
       } catch (err) {
         console.error(err);
@@ -894,27 +359,129 @@ export default function ReportsPage() {
       }
     }
 
-    void loadSales();
+    void loadQuickInsights();
     return () => {
       cancelled = true;
     };
-  }, [authHeaders, canViewReportDataset, readReportsCache, writeReportsCache]);
+  }, [authHeaders, canViewReportDataset, selectedMonthKey, todayYear]);
 
-  const availableYears = useMemo(() => {
-    const years = new Set<string>([todayYear]);
-    sales.forEach((sale) => years.add(sale.dateKey.slice(0, 4)));
-    return Array.from(years).sort((a, b) => Number(a) - Number(b));
-  }, [sales, todayYear]);
-  const minYear = availableYears[0] ?? todayYear;
-  const maxYear = availableYears[availableYears.length - 1] ?? todayYear;
+  useEffect(() => {
+    if (!canViewReportDataset) {
+      setMonthlySeries([]);
+      setPreviousYearSeries([]);
+      return;
+    }
+    if (!authHeaders) return;
+    const requestHeaders: HeadersInit = authHeaders;
+    let cancelled = false;
 
-  const availableMonthKeys = useMemo(() => {
-    const months = new Set<string>([todayMonthKey]);
-    sales.forEach((sale) => months.add(sale.dateKey.slice(0, 7)));
-    return Array.from(months).sort();
-  }, [sales, todayMonthKey]);
-  const minMonthKey = availableMonthKeys[0] ?? todayMonthKey;
-  const maxMonthKey = availableMonthKeys[availableMonthKeys.length - 1] ?? todayMonthKey;
+    async function loadMonthlySeries() {
+      try {
+        const apiBase = getApiBase();
+        const currentYear = Number(selectedYear);
+        const [currentRes, previousRes] = await Promise.all([
+          fetch(`${apiBase}/dashboard/monthly-sales?year=${currentYear}`, {
+            headers: requestHeaders,
+            credentials: "include",
+          }),
+          fetch(`${apiBase}/dashboard/monthly-sales?year=${currentYear - 1}`, {
+            headers: requestHeaders,
+            credentials: "include",
+          }),
+        ]);
+        if (!currentRes.ok) throw new Error(`Error ${currentRes.status}`);
+        const currentJson = (await currentRes.json()) as DashboardMonthlySalesPoint[];
+        const previousJson = previousRes.ok
+          ? ((await previousRes.json()) as DashboardMonthlySalesPoint[])
+          : [];
+        if (!cancelled) {
+          setMonthlySeries(Array.isArray(currentJson) ? currentJson : []);
+          setPreviousYearSeries(Array.isArray(previousJson) ? previousJson : []);
+        }
+      } catch (err) {
+        console.error("No pudimos cargar serie mensual dashboard.", err);
+        if (!cancelled) {
+          setMonthlySeries([]);
+          setPreviousYearSeries([]);
+        }
+      }
+    }
+
+    void loadMonthlySeries();
+    return () => {
+      cancelled = true;
+    };
+  }, [authHeaders, canViewReportDataset, selectedYear]);
+
+  useEffect(() => {
+    if (!canViewReportDataset) {
+      setDailySeries([]);
+      setPreviousMonthDailySeries([]);
+      return;
+    }
+    if (!authHeaders) return;
+    const requestHeaders: HeadersInit = authHeaders;
+    let cancelled = false;
+
+    async function loadDailySeries() {
+      try {
+        const monthDays = getMonthDayCount(selectedMonthKey);
+        const fromDate = `${selectedMonthKey}-01`;
+        const toDate = `${selectedMonthKey}-${String(monthDays).padStart(2, "0")}`;
+        const previousMonthKey = shiftMonthKey(selectedMonthKey, -1);
+        const previousMonthDays = getMonthDayCount(previousMonthKey);
+        const prevFromDate = `${previousMonthKey}-01`;
+        const prevToDate = `${previousMonthKey}-${String(previousMonthDays).padStart(2, "0")}`;
+        const apiBase = getApiBase();
+        const [currentRes, previousRes] = await Promise.all([
+          fetch(
+            `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
+              date_from: fromDate,
+              date_to: toDate,
+            }).toString()}`,
+            {
+              headers: requestHeaders,
+              credentials: "include",
+            }
+          ),
+          fetch(
+            `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
+              date_from: prevFromDate,
+              date_to: prevToDate,
+            }).toString()}`,
+            {
+              headers: requestHeaders,
+              credentials: "include",
+            }
+          ),
+        ]);
+        if (!currentRes.ok) throw new Error(`Error ${currentRes.status}`);
+        const currentJson = (await currentRes.json()) as DashboardDailySalesPoint[];
+        const previousJson = previousRes.ok
+          ? ((await previousRes.json()) as DashboardDailySalesPoint[])
+          : [];
+        if (!cancelled) {
+          setDailySeries(Array.isArray(currentJson) ? currentJson : []);
+          setPreviousMonthDailySeries(Array.isArray(previousJson) ? previousJson : []);
+        }
+      } catch (err) {
+        console.error("No pudimos cargar serie diaria dashboard.", err);
+        if (!cancelled) {
+          setDailySeries([]);
+          setPreviousMonthDailySeries([]);
+        }
+      }
+    }
+
+    void loadDailySeries();
+    return () => {
+      cancelled = true;
+    };
+  }, [authHeaders, canViewReportDataset, selectedMonthKey]);
+
+  const minMonthKey = `${selectedYear}-01`;
+  const maxMonthKey =
+    selectedYear === todayYear ? todayMonthKey : `${selectedYear}-12`;
 
   useEffect(() => {
     if (Number(selectedYear) < Number(minYear)) {
@@ -925,6 +492,14 @@ export default function ReportsPage() {
       setSelectedYear(maxYear);
     }
   }, [maxYear, minYear, selectedYear]);
+
+  useEffect(() => {
+    setSelectedMonthKey((current) => {
+      const monthPart = current.slice(5, 7);
+      const next = `${selectedYear}-${monthPart}`;
+      return next === current ? current : next;
+    });
+  }, [selectedYear]);
 
   useEffect(() => {
     if (selectedMonthKey < minMonthKey) {
@@ -939,6 +514,11 @@ export default function ReportsPage() {
   useEffect(() => {
     setSelectedDay(null);
   }, [selectedMonthKey]);
+
+  const selectedDayKey = useMemo(() => {
+    if (selectedDay == null) return null;
+    return `${selectedMonthKey}-${String(selectedDay).padStart(2, "0")}`;
+  }, [selectedDay, selectedMonthKey]);
 
   useEffect(() => {
     if (selectedDay == null) return;
@@ -955,6 +535,51 @@ export default function ReportsPage() {
       document.removeEventListener("pointerdown", handlePointerDown, true);
     };
   }, [selectedDay]);
+
+  useEffect(() => {
+    if (!canViewReportDataset) return;
+    if (!authHeaders) return;
+    if (!selectedDayKey) return;
+    const dayKey = selectedDayKey;
+    if (dayMethodMap[dayKey]) return;
+    const requestHeaders: HeadersInit = authHeaders;
+    let cancelled = false;
+
+    async function loadDayMethods() {
+      try {
+        const apiBase = getApiBase();
+        const params = new URLSearchParams({
+          range: "day",
+          start_date: dayKey,
+        });
+        const res = await fetch(`${apiBase}/dashboard/payment-methods?${params.toString()}`, {
+          headers: requestHeaders,
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error(`Error ${res.status}`);
+        const json = (await res.json()) as { methods?: PaymentMethodSummary[] };
+        if (!cancelled) {
+          setDayMethodMap((prev) => ({
+            ...prev,
+            [dayKey]: Array.isArray(json.methods) ? json.methods : [],
+          }));
+        }
+      } catch (err) {
+        console.error("No pudimos cargar métodos por día.", err);
+        if (!cancelled) {
+          setDayMethodMap((prev) => ({
+            ...prev,
+            [dayKey]: [],
+          }));
+        }
+      }
+    }
+
+    void loadDayMethods();
+    return () => {
+      cancelled = true;
+    };
+  }, [authHeaders, canViewReportDataset, dayMethodMap, selectedDayKey]);
 
   useEffect(() => {
     if (!showAnnualDailyAverage) return;
@@ -1002,20 +627,19 @@ export default function ReportsPage() {
     MONTHS.forEach((month) =>
       totals.set(month.key, { total: 0, tickets: 0 })
     );
-    sales.forEach((sale) => {
-      if (!sale.dateKey.startsWith(`${selectedYear}-`)) return;
-      const monthKey = sale.dateKey.slice(5, 7);
-      const current = totals.get(monthKey) ?? { total: 0, tickets: 0 };
-      current.total += sale.total;
-      if (sale.total > 0) current.tickets += 1;
-      totals.set(monthKey, current);
+    monthlySeries.forEach((item) => {
+      const monthKey = String(item.month).padStart(2, "0");
+      totals.set(monthKey, {
+        total: toNumber(item.total),
+        tickets: Math.max(0, Math.trunc(toNumber(item.tickets))),
+      });
     });
     return MONTHS.map((month) => ({
       ...month,
       total: totals.get(month.key)?.total ?? 0,
       tickets: totals.get(month.key)?.tickets ?? 0,
     }));
-  }, [sales, selectedYear]);
+  }, [monthlySeries]);
 
   const maxValue = useMemo(
     () => Math.max(1, ...monthlyData.map((item) => item.total)),
@@ -1040,8 +664,8 @@ export default function ReportsPage() {
     if (!Number.isFinite(selectedYearNumber)) return 365;
 
     if (selectedYear === todayYear) {
-      const todayInBogota = parseDateInput(`${todayKey}T12:00:00-05:00`);
-      if (!todayInBogota) return 1;
+      const todayInBogota = new Date(`${todayKey}T12:00:00-05:00`);
+      if (Number.isNaN(todayInBogota.getTime())) return 1;
       const startOfYear = new Date(selectedYearNumber, 0, 1);
       const diffMs = todayInBogota.getTime() - startOfYear.getTime();
       return Math.max(1, Math.floor(diffMs / 86400000) + 1);
@@ -1057,12 +681,11 @@ export default function ReportsPage() {
     [averageYearDayDivisor, totalYearSales]
   );
   const previousYearSales = useMemo(() => {
-    const previousYear = String(Number(selectedYear) - 1);
-    return sales.reduce((sum, sale) => {
-      if (!sale.dateKey.startsWith(`${previousYear}-`)) return sum;
-      return sum + sale.total;
-    }, 0);
-  }, [sales, selectedYear]);
+    return previousYearSeries.reduce(
+      (sum, point) => sum + toNumber(point.total),
+      0
+    );
+  }, [previousYearSeries]);
   const yearSalesChange = useMemo(
     () => formatPercentChange(totalYearSales, previousYearSales),
     [previousYearSales, totalYearSales]
@@ -1102,13 +725,15 @@ export default function ReportsPage() {
     for (let day = 1; day <= currentMonthDays; day += 1) {
       totals.set(day, { total: 0, tickets: 0 });
     }
-    sales.forEach((sale) => {
-      if (!sale.dateKey.startsWith(selectedMonthKey)) return;
-      const day = Number(sale.dateKey.slice(8, 10));
-      const current = totals.get(day) ?? { total: 0, tickets: 0 };
-      current.total += sale.total;
-      if (sale.total > 0) current.tickets += 1;
-      totals.set(day, current);
+    dailySeries.forEach((point) => {
+      const key = getBogotaDateKey(point.date);
+      if (!key || !key.startsWith(selectedMonthKey)) return;
+      const day = Number(key.slice(8, 10));
+      if (!Number.isFinite(day) || day < 1 || day > currentMonthDays) return;
+      totals.set(day, {
+        total: toNumber(point.total),
+        tickets: Math.max(0, Math.trunc(toNumber(point.tickets))),
+      });
     });
     return Array.from({ length: currentMonthDays }, (_, index) => {
       const day = index + 1;
@@ -1127,7 +752,7 @@ export default function ReportsPage() {
         tickets: totals.get(day)?.tickets ?? 0,
       };
     });
-  }, [currentMonthDays, sales, selectedMonthKey, selectedMonthNumber]);
+  }, [currentMonthDays, dailySeries, selectedMonthKey, selectedMonthNumber]);
   const maxDailyValue = useMemo(
     () => Math.max(1, ...dailyData.map((item) => item.total)),
     [dailyData]
@@ -1147,19 +772,16 @@ export default function ReportsPage() {
     [averageDayDivisor, totalMonthSales]
   );
   const previousMonthSales = useMemo(() => {
-    const previousMonthKey = shiftMonthKey(selectedMonthKey, -1);
     const isCurrentMonthComparison = selectedMonthKey === todayMonthKey;
-    const cutoffDay = isCurrentMonthComparison
-      ? Math.min(currentDayKey, getMonthDayCount(previousMonthKey))
-      : null;
-    return sales.reduce((sum, sale) => {
-      if (!sale.dateKey.startsWith(previousMonthKey)) return sum;
-      if (cutoffDay != null && Number(sale.dateKey.slice(8, 10)) > cutoffDay) {
-        return sum;
-      }
-      return sum + sale.total;
+    const cutoffDay = isCurrentMonthComparison ? currentDayKey : null;
+    return previousMonthDailySeries.reduce((sum, point) => {
+      const key = getBogotaDateKey(point.date);
+      if (!key) return sum;
+      const day = Number(key.slice(8, 10));
+      if (cutoffDay != null && day > cutoffDay) return sum;
+      return sum + toNumber(point.total);
     }, 0);
-  }, [currentDayKey, sales, selectedMonthKey, todayMonthKey]);
+  }, [currentDayKey, previousMonthDailySeries, selectedMonthKey, todayMonthKey]);
   const monthSalesChange = useMemo(
     () => formatPercentChange(totalMonthSales, previousMonthSales),
     [previousMonthSales, totalMonthSales]
@@ -1175,46 +797,18 @@ export default function ReportsPage() {
     if (selectedDay == null) return bestDay;
     return dailyData.find((day) => day.day === selectedDay) ?? bestDay;
   }, [bestDay, dailyData, selectedDay]);
-  const selectedDaySales = useMemo(() => {
-    if (selectedDay == null) return [];
-    const dayKey = `${selectedMonthKey}-${String(selectedDay).padStart(2, "0")}`;
-    return sales.filter((sale) => sale.dateKey === dayKey);
-  }, [sales, selectedDay, selectedMonthKey]);
   const selectedDayMethods = useMemo(
-    () => aggregatePaymentMethods(selectedDaySales),
-    [selectedDaySales]
+    () => (selectedDayKey ? dayMethodMap[selectedDayKey] ?? [] : []),
+    [dayMethodMap, selectedDayKey]
   );
-  const selectedDayTotal = useMemo(
-    () => selectedDaySales.reduce((sum, sale) => sum + sale.total, 0),
-    [selectedDaySales]
-  );
+  const selectedDayTotal = useMemo(() => activeDay?.total ?? 0, [activeDay]);
+  const selectedDayTickets = useMemo(() => activeDay?.tickets ?? 0, [activeDay]);
   const selectedDayLabel = useMemo(() => {
     if (selectedDay == null) return null;
     const day = dailyData.find((entry) => entry.day === selectedDay);
     if (!day) return null;
     return `${day.label} ${day.weekday}`;
   }, [dailyData, selectedDay]);
-  const selectedMonthSales = useMemo(
-    () => sales.filter((sale) => sale.dateKey.startsWith(selectedMonthKey)),
-    [sales, selectedMonthKey]
-  );
-  const changesBySaleId = useMemo(() => {
-    const map = new Map<number, ReportChange[]>();
-    changes.forEach((change) => {
-      const list = map.get(change.sale_id) ?? [];
-      list.push(change);
-      map.set(change.sale_id, list);
-    });
-    return map;
-  }, [changes]);
-  const topProducts = useMemo(
-    () => aggregateTopProducts(selectedMonthSales, changesBySaleId),
-    [changesBySaleId, selectedMonthSales]
-  );
-  const topGroups = useMemo(
-    () => aggregateTopGroups(selectedMonthSales, changesBySaleId, productGroupLookup),
-    [changesBySaleId, productGroupLookup, selectedMonthSales]
-  );
   const dailyChart = useMemo(() => {
     const width = Math.max(980, dailyData.length * 34);
     const height = 174;
@@ -1238,6 +832,351 @@ export default function ReportsPage() {
     };
   }, [dailyData.length]);
 
+  const handleDownloadQuickPdf = useCallback(async () => {
+    try {
+      setQuickPdfLoading(true);
+      setQuickPdfError(null);
+
+      const annualBars = monthlyData
+        .map((month, index) => {
+          const hasSales = month.total > 0;
+          const barHeight = hasSales
+            ? Math.max(24, (month.total / maxValue) * annualChart.chartHeight)
+            : 6;
+          const x =
+            annualChart.leftPadding +
+            index * annualChart.slotWidth +
+            (annualChart.slotWidth - annualChart.barWidth) / 2;
+          const y = annualChart.baselineY - barHeight;
+          const labelX = x + annualChart.barWidth / 2;
+          return `
+            <g>
+              <text x="${labelX}" y="${Math.max(
+                14,
+                y - 20
+              )}" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">${escapeHtml(
+                formatCompactMoney(month.total)
+              )}</text>
+              <text x="${labelX}" y="${Math.max(
+                25,
+                y - 6
+              )}" text-anchor="middle" font-size="11" font-weight="700" fill="#334155">${escapeHtml(
+                String(month.tickets)
+              )}</text>
+              <rect x="${x}" y="${y}" width="${annualChart.barWidth}" height="${barHeight}" fill="#334155" />
+              <text x="${labelX}" y="${
+                annualChart.baselineY + 16
+              }" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">${escapeHtml(
+                month.label
+              )}</text>
+            </g>
+          `;
+        })
+        .join("");
+
+      const annualGrid = chartTicks
+        .map((tick) => {
+          const y = annualChart.topPadding + (1 - tick) * annualChart.chartHeight;
+          return `<line x1="0" y1="${y}" x2="${annualChart.width}" y2="${y}" stroke="#cbd5e1" stroke-dasharray="4 4" />`;
+        })
+        .join("");
+
+      const annualAverageLine =
+        averageMonthSales > 0
+          ? `<line x1="0" y1="${
+              annualChart.baselineY -
+              (averageMonthSales / maxValue) * annualChart.chartHeight
+            }" x2="${annualChart.width}" y2="${
+              annualChart.baselineY -
+              (averageMonthSales / maxValue) * annualChart.chartHeight
+            }" stroke="#10b981" stroke-opacity="0.45" stroke-dasharray="6 6" />`
+          : "";
+
+      const dailyBars = dailyData
+        .map((day, index) => {
+          const hasSales = day.total > 0;
+          const barHeight = hasSales
+            ? Math.max(22, (day.total / maxDailyValue) * dailyChart.chartHeight)
+            : 3;
+          const x =
+            dailyChart.leftPadding +
+            index * dailyChart.slotWidth +
+            (dailyChart.slotWidth - dailyChart.barWidth) / 2;
+          const y = dailyChart.baselineY - barHeight;
+          const labelX = x + dailyChart.barWidth / 2;
+          return `
+            <g>
+              <text x="${labelX}" y="${Math.max(
+                14,
+                y - 20
+              )}" text-anchor="middle" font-size="9" font-weight="700" fill="#475569">${escapeHtml(
+                formatCompactMoney(day.total)
+              )}</text>
+              <text x="${labelX}" y="${Math.max(
+                24,
+                y - 7
+              )}" text-anchor="middle" font-size="9" font-weight="700" fill="#334155">${escapeHtml(
+                String(day.tickets)
+              )}</text>
+              <rect x="${x}" y="${y}" width="${dailyChart.barWidth}" height="${barHeight}" fill="#334155" />
+              <text x="${labelX}" y="${
+                dailyChart.baselineY + 14
+              }" text-anchor="middle" font-size="11" font-weight="700" fill="#334155">${escapeHtml(
+                day.label
+              )}</text>
+              <text x="${labelX}" y="${
+                dailyChart.baselineY + 26
+              }" text-anchor="middle" font-size="9" font-weight="600" fill="#64748b">${escapeHtml(
+                day.weekday
+              )}</text>
+            </g>
+          `;
+        })
+        .join("");
+
+      const dailyGrid = chartTicks
+        .map((tick) => {
+          const y = dailyChart.topPadding + (1 - tick) * dailyChart.chartHeight;
+          return `<line x1="0" y1="${y}" x2="${dailyChart.width}" y2="${y}" stroke="#cbd5e1" stroke-dasharray="4 4" />`;
+        })
+        .join("");
+
+      const dailyAverageLine =
+        averageDaySales > 0
+          ? `<line x1="0" y1="${
+              dailyChart.baselineY -
+              (averageDaySales / maxDailyValue) * dailyChart.chartHeight
+            }" x2="${dailyChart.width}" y2="${
+              dailyChart.baselineY -
+              (averageDaySales / maxDailyValue) * dailyChart.chartHeight
+            }" stroke="#10b981" stroke-opacity="0.45" stroke-dasharray="6 6" />`
+          : "";
+
+      const topProductsHtml = topProducts
+        .map(
+          (product) => `
+          <div class="row">
+            <div>
+              <div class="title">${escapeHtml(product.name)}</div>
+              <div class="meta">${escapeHtml(formatCount(product.units))} unidades</div>
+            </div>
+            <div class="value">${escapeHtml(formatMoney(product.total))}</div>
+          </div>
+        `
+        )
+        .join("");
+
+      const topGroupsHtml = topGroups
+        .map(
+          (group) => `
+          <div class="row">
+            <div>
+              <div class="title">${escapeHtml(group.name)}</div>
+              <div class="meta">${escapeHtml(formatCount(group.units))} unidades</div>
+            </div>
+            <div class="value">${escapeHtml(formatMoney(group.total))}</div>
+          </div>
+        `
+        )
+        .join("");
+
+      const generatedAt = new Intl.DateTimeFormat("es-CO", {
+        timeZone: "America/Bogota",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date());
+
+      const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    @page { size: A4 portrait; margin: 10mm; }
+    body { font-family: Inter, Arial, sans-serif; color: #0f172a; margin: 0; }
+    .section { border: 1px solid #e2e8f0; border-radius: 16px; padding: 12px; margin-top: 10px; }
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .kpi { border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px; background: #f8fafc; }
+    .kpi .label { font-size: 10px; text-transform: uppercase; color: #64748b; }
+    .kpi .value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+    .kpi .meta { font-size: 11px; color: #64748b; margin-top: 4px; }
+    .title { font-size: 24px; font-weight: 700; margin: 0; }
+    .subtitle { font-size: 12px; color: #64748b; margin-top: 3px; }
+    .chart-wrap { border: 1px solid #e2e8f0; border-radius: 16px; background: #f8fafc; padding: 8px; margin-top: 8px; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row { display: flex; justify-content: space-between; gap: 8px; align-items: center; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px; margin-top: 6px; background: #f8fafc; }
+    .row .title { font-size: 14px; font-weight: 600; margin: 0; }
+    .row .meta { font-size: 11px; color: #64748b; }
+    .row .value { font-size: 14px; font-weight: 700; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <h1 class="title">Reporte rápido mensual/anual</h1>
+  <div class="subtitle">Generado: ${escapeHtml(generatedAt)}</div>
+  <div class="subtitle">Año: ${escapeHtml(selectedYear)} · Mes: ${escapeHtml(currentMonthLabel)}</div>
+
+  <div class="section">
+    <div style="font-weight:700; margin-bottom:6px;">Resumen anual (${escapeHtml(selectedYear)})</div>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Venta total</div><div class="value">${escapeHtml(
+        formatMoney(totalYearSales)
+      )}</div><div class="meta">${escapeHtml(
+        yearSalesChange ? `${yearSalesChange} vs año anterior` : "Sin base comparativa"
+      )}</div></div>
+      <div class="kpi"><div class="label">Mes líder</div><div class="value">${escapeHtml(
+        bestMonth?.label ?? "—"
+      )}</div><div class="meta">${escapeHtml(
+        bestMonth ? formatMoney(bestMonth.total) : "$0"
+      )}</div></div>
+      <div class="kpi"><div class="label">Tickets del año</div><div class="value">${escapeHtml(
+        formatCount(totalYearTickets)
+      )}</div></div>
+      <div class="kpi"><div class="label">Promedio mensual</div><div class="value">${escapeHtml(
+        formatMoney(averageMonthSales)
+      )}</div></div>
+    </div>
+    <div class="chart-wrap">
+      <svg viewBox="0 0 ${annualChart.width} ${annualChart.height}" width="100%">
+        ${annualGrid}
+        ${annualAverageLine}
+        ${annualBars}
+      </svg>
+    </div>
+  </div>
+
+  <div class="section">
+    <div style="font-weight:700; margin-bottom:6px;">Resumen mensual (${escapeHtml(
+      currentMonthLabel
+    )})</div>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Venta del mes</div><div class="value">${escapeHtml(
+        formatMoney(totalMonthSales)
+      )}</div><div class="meta">${escapeHtml(
+        monthSalesChange ? `${monthSalesChange} vs mes anterior` : "Sin base comparativa"
+      )}</div></div>
+      <div class="kpi"><div class="label">Día líder</div><div class="value">${escapeHtml(
+        activeDay ? `${activeDay.label} ${activeDay.weekday}` : "—"
+      )}</div><div class="meta">${escapeHtml(
+        activeDay ? formatMoney(activeDay.total) : "$0"
+      )}</div></div>
+      <div class="kpi"><div class="label">Tickets del mes</div><div class="value">${escapeHtml(
+        formatCount(totalMonthTickets)
+      )}</div></div>
+      <div class="kpi"><div class="label">Promedio diario</div><div class="value">${escapeHtml(
+        formatMoney(averageDaySales)
+      )}</div></div>
+    </div>
+    <div class="chart-wrap">
+      <svg viewBox="0 0 ${dailyChart.width} ${dailyChart.height}" width="100%">
+        ${dailyGrid}
+        ${dailyAverageLine}
+        ${dailyBars}
+      </svg>
+    </div>
+  </div>
+
+  <div class="section">
+    <div style="font-weight:700; margin-bottom:6px;">KPIs de abajo</div>
+    <div class="split">
+      <div>
+        <div style="font-size:11px; text-transform:uppercase; color:#10b981; font-weight:700;">Top productos</div>
+        ${topProductsHtml || '<div class="meta">Sin datos.</div>'}
+      </div>
+      <div>
+        <div style="font-size:11px; text-transform:uppercase; color:#10b981; font-weight:700;">Top grupos</div>
+        ${topGroupsHtml || '<div class="meta">Sin datos.</div>'}
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+      const blob = await exportReportPdf(
+        {
+          title: `Reporte rapido ${selectedYear}-${selectedMonthKey.slice(5, 7)}`,
+          document_html: html,
+          preset_id: "quick-summary",
+        },
+        token
+      );
+
+      const fileName = `reporte_rapido_${selectedYear}_${selectedMonthKey.slice(5, 7)}.pdf`;
+      const picker = (
+        window as Window & {
+          showSaveFilePicker?: (options?: {
+            suggestedName?: string;
+            types?: {
+              description?: string;
+              accept?: Record<string, string[]>;
+            }[];
+          }) => Promise<{
+            createWritable: () => Promise<{
+              write: (data: Blob) => Promise<void>;
+              close: () => Promise<void>;
+            }>;
+          }>;
+        }
+      ).showSaveFilePicker;
+
+      if (picker) {
+        try {
+          const handle = await picker({
+            suggestedName: fileName,
+            types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return;
+        } catch (err) {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          throw err;
+        }
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setQuickPdfError(
+        err instanceof Error ? err.message : "No se pudo exportar el resumen en PDF."
+      );
+    } finally {
+      setQuickPdfLoading(false);
+    }
+  }, [
+    activeDay,
+    annualChart,
+    averageDaySales,
+    averageMonthSales,
+    bestMonth,
+    chartTicks,
+    currentMonthLabel,
+    dailyChart,
+    dailyData,
+    maxDailyValue,
+    maxValue,
+    monthSalesChange,
+    monthlyData,
+    selectedMonthKey,
+    selectedYear,
+    token,
+    topGroups,
+    topProducts,
+    totalMonthSales,
+    totalMonthTickets,
+    totalYearSales,
+    totalYearTickets,
+    yearSalesChange,
+  ]);
+
   return (
     <main className="report-page-shell flex-1 px-6 py-4 text-slate-900">
       <div className="mx-auto w-full max-w-7xl space-y-4">
@@ -1245,9 +1184,6 @@ export default function ReportsPage() {
           <div>
             <p className="report-page-kicker text-xs font-semibold uppercase tracking-[0.18em] text-emerald-500">
               Reportes
-            </p>
-            <p className="mt-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-rose-500">
-              Build marker v2
             </p>
             <h1 className="report-page-title mt-1 font-bold leading-tight text-slate-900">
               Ventas mensuales del año actual
@@ -1257,13 +1193,28 @@ export default function ReportsPage() {
               año {selectedYear}.
             </p>
           </div>
-          <Link
-            href="/dashboard/reports/detailed"
-            className="inline-flex rounded-full border border-emerald-400/70 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-          >
-            Ir a reportes detallados
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/dashboard/reports/detailed"
+              className="inline-flex rounded-full border border-emerald-400/70 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+            >
+              Ir a reportes detallados
+            </Link>
+            <button
+              type="button"
+              onClick={() => void handleDownloadQuickPdf()}
+              disabled={quickPdfLoading}
+              className="inline-flex rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {quickPdfLoading ? "Generando PDF..." : "Descargar resumen PDF"}
+            </button>
+          </div>
         </header>
+        {quickPdfError ? (
+          <section className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm">
+            {quickPdfError}
+          </section>
+        ) : null}
 
         {!canViewReportDataset ? (
           <section className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
@@ -1792,7 +1743,7 @@ export default function ReportsPage() {
                                 Tickets
                               </p>
                               <p className="mt-1 text-[1.15rem] font-bold leading-none text-slate-900">
-                                {formatCount(selectedDaySales.length)}
+                                {formatCount(selectedDayTickets)}
                               </p>
                             </div>
                           </div>

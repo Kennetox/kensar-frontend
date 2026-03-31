@@ -33,6 +33,10 @@ export type ReportPdfExportPayload = {
   preset_id?: string;
 };
 
+export type ReportFavoritesResponse = {
+  preset_ids: string[];
+};
+
 export async function exportReportPdf(
   payload: ReportPdfExportPayload,
   token?: string | null
@@ -56,6 +60,55 @@ export async function exportReportPdf(
   }
 
   return await res.blob();
+}
+
+export async function fetchReportFavorites(
+  token?: string | null
+): Promise<string[]> {
+  if (!token) return [];
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/reports/favorites`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `Error ${res.status}`);
+  }
+
+  const json: ReportFavoritesResponse = await res.json();
+  if (!Array.isArray(json.preset_ids)) return [];
+  return json.preset_ids.filter((id): id is string => typeof id === "string");
+}
+
+export async function saveReportFavorites(
+  presetIds: string[],
+  token?: string | null
+): Promise<string[]> {
+  if (!token) return [];
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/reports/favorites`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ preset_ids: presetIds }),
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `Error ${res.status}`);
+  }
+
+  const json: ReportFavoritesResponse = await res.json();
+  if (!Array.isArray(json.preset_ids)) return [];
+  return json.preset_ids.filter((id): id is string => typeof id === "string");
 }
 
 export async function exportReportExcel(

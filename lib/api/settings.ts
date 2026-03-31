@@ -141,6 +141,20 @@ export type SmtpTestEmailPayload = {
   message?: string | null;
 };
 
+export type MonthlyQuickReportSendPayload = {
+  year?: number;
+  month?: number;
+  force?: boolean;
+};
+
+export type MonthlyQuickReportSendResponse = {
+  status: string;
+  period_year: number;
+  period_month: number;
+  recipients: string[];
+  detail?: string | null;
+};
+
 async function request<T>(
   path: string,
   init?: RequestInit,
@@ -1002,6 +1016,21 @@ export async function sendSmtpTestEmail(
     {
       method: "POST",
       body: JSON.stringify(payload),
+    },
+    undefined,
+    token
+  );
+}
+
+export async function sendMonthlyQuickReportNow(
+  payload?: MonthlyQuickReportSendPayload,
+  token?: string | null
+): Promise<MonthlyQuickReportSendResponse> {
+  return request<MonthlyQuickReportSendResponse>(
+    "/reports/monthly-quick/send-now",
+    {
+      method: "POST",
+      body: JSON.stringify(payload ?? {}),
     },
     undefined,
     token

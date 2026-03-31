@@ -38,6 +38,7 @@ import {
   PosStationResponse,
   sendPosStationNotice,
   sendSmtpTestEmail,
+  sendMonthlyQuickReportNow,
   fetchStockDevices,
   updateStockDevice,
   StockDeviceRecord,
@@ -628,6 +629,9 @@ export default function SettingsPage() {
   const [smtpTestSending, setSmtpTestSending] = useState(false);
   const [smtpTestMessage, setSmtpTestMessage] = useState<string | null>(null);
   const [smtpTestError, setSmtpTestError] = useState<string | null>(null);
+  const [monthlyReportSending, setMonthlyReportSending] = useState(false);
+  const [monthlyReportMessage, setMonthlyReportMessage] = useState<string | null>(null);
+  const [monthlyReportError, setMonthlyReportError] = useState<string | null>(null);
   const [passwordModalUser, setPasswordModalUser] =
     useState<PosUserRecord | null>(null);
   const [passwordModalState, setPasswordModalState] = useState<{
@@ -2305,6 +2309,38 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSendMonthlyReportNow() {
+    if (!token) return;
+    try {
+      setMonthlyReportSending(true);
+      setMonthlyReportMessage(null);
+      setMonthlyReportError(null);
+      const response = await sendMonthlyQuickReportNow(
+        { force: true },
+        token
+      );
+      const month = String(response.period_month).padStart(2, "0");
+      if (response.status === "sent") {
+        setMonthlyReportMessage(
+          `Reporte enviado (${response.period_year}-${month}) a ${response.recipients.length} destinatario(s).`
+        );
+      } else {
+        setMonthlyReportMessage(
+          response.detail ||
+            `No fue necesario enviar (${response.period_year}-${month}).`
+        );
+      }
+    } catch (err) {
+      setMonthlyReportError(
+        err instanceof Error
+          ? err.message
+          : "No pudimos enviar el reporte mensual."
+      );
+    } finally {
+      setMonthlyReportSending(false);
+    }
+  }
+
   function openUserModal(user?: PosUserRecord) {
     if (user) {
       setEditingUser(user);
@@ -3392,18 +3428,34 @@ export default function SettingsPage() {
               <p className="text-xs text-slate-400">
                 PDF consolidado para el área contable.
               </p>
+              {monthlyReportMessage && (
+                <p className="text-xs text-emerald-300 mt-2">{monthlyReportMessage}</p>
+              )}
+              {monthlyReportError && (
+                <p className="text-xs text-rose-300 mt-2">{monthlyReportError}</p>
+              )}
             </div>
-            <label className="inline-flex items-center gap-2 text-xs text-slate-400">
-              Email
-              <input
-                type="checkbox"
-                checked={form.notifications.monthlyReportEmail}
-                onChange={(e) =>
-                  updateNotification("monthlyReportEmail", e.target.checked)
-                }
-                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500"
-              />
-            </label>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void handleSendMonthlyReportNow()}
+                disabled={monthlyReportSending}
+                className="px-3 py-2 rounded-md border border-emerald-400/70 text-emerald-300 text-xs hover:bg-emerald-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {monthlyReportSending ? "Enviando..." : "Enviar ahora"}
+              </button>
+              <label className="inline-flex items-center gap-2 text-xs text-slate-400">
+                Email
+                <input
+                  type="checkbox"
+                  checked={form.notifications.monthlyReportEmail}
+                  onChange={(e) =>
+                    updateNotification("monthlyReportEmail", e.target.checked)
+                  }
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500"
+                />
+              </label>
+            </div>
           </div>
         </div>
       </article>

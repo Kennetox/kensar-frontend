@@ -12,11 +12,13 @@ export type ComercioWebCatalogProduct = {
   unit?: string | null;
   image_url?: string | null;
   image_thumb_url?: string | null;
+  web_gallery_urls?: string[];
   active: boolean;
   service: boolean;
   group_name?: string | null;
   brand?: string | null;
   supplier?: string | null;
+  web_category_key?: string | null;
   web_name?: string | null;
   web_slug?: string | null;
   web_published: boolean;
@@ -24,6 +26,8 @@ export type ComercioWebCatalogProduct = {
   web_short_description?: string | null;
   web_long_description?: string | null;
   web_compare_price?: number | null;
+  web_price_source: "base" | "fixed" | "discount_percent";
+  web_price_value?: number | null;
   web_badge_text?: string | null;
   web_sort_order: number;
   web_visible_when_out_of_stock: boolean;
@@ -39,9 +43,11 @@ export type ComercioWebCatalogProductUpdate = Partial<
     | "cost"
     | "image_url"
     | "image_thumb_url"
+    | "web_gallery_urls"
     | "group_name"
     | "brand"
     | "supplier"
+    | "web_category_key"
     | "web_name"
     | "web_slug"
     | "web_published"
@@ -49,6 +55,8 @@ export type ComercioWebCatalogProductUpdate = Partial<
     | "web_short_description"
     | "web_long_description"
     | "web_compare_price"
+    | "web_price_source"
+    | "web_price_value"
     | "web_badge_text"
     | "web_sort_order"
     | "web_visible_when_out_of_stock"
@@ -57,6 +65,16 @@ export type ComercioWebCatalogProductUpdate = Partial<
     | "active"
   >
 >;
+
+function normalizeCatalogProduct(product: ComercioWebCatalogProduct): ComercioWebCatalogProduct {
+  return {
+    ...product,
+    web_price_source: product.web_price_source ?? "base",
+    web_price_value:
+      typeof product.web_price_value === "number" ? product.web_price_value : null,
+    web_gallery_urls: Array.isArray(product.web_gallery_urls) ? product.web_gallery_urls : [],
+  };
+}
 
 function buildHeaders(token: string): HeadersInit {
   return {
@@ -93,7 +111,8 @@ export async function fetchComercioWebCatalogProducts(
     credentials: "include",
   });
   if (!res.ok) throw await parseError(res);
-  return (await res.json()) as ComercioWebCatalogProduct[];
+  const data = (await res.json()) as ComercioWebCatalogProduct[];
+  return data.map(normalizeCatalogProduct);
 }
 
 export async function updateComercioWebCatalogProduct(
@@ -108,5 +127,5 @@ export async function updateComercioWebCatalogProduct(
     credentials: "include",
   });
   if (!res.ok) throw await parseError(res);
-  return (await res.json()) as ComercioWebCatalogProduct;
+  return normalizeCatalogProduct((await res.json()) as ComercioWebCatalogProduct);
 }

@@ -1443,6 +1443,7 @@ export default function MovementsPage() {
                       <div>
                         <p className="text-sm font-medium text-slate-900">{row.product_name}</p>
                         <p className="text-xs text-slate-500">
+                          SKU: {row.sku || "-"} ·{" "}
                           {reasonLabel[row.reason as InventoryMovementReason] ?? row.reason}
                           {row.reason === "sale" && row.sale_pos_name ? (
                             <>
@@ -1523,7 +1524,7 @@ export default function MovementsPage() {
                       <div>
                         <p className="text-sm font-medium text-slate-900">{row.product_name}</p>
                         <p className="text-xs text-slate-500">
-                          {resolveEntrySourceLabel(row)} · {formatDate(row.created_at)}
+                          SKU: {row.sku || "-"} · {resolveEntrySourceLabel(row)} · {formatDate(row.created_at)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">

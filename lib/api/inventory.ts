@@ -36,6 +36,7 @@ export type InventoryMovementRecord = {
   id: number;
   product_id: number;
   product_name: string;
+  sku?: string | null;
   qty_delta: number;
   reason: string;
   notes?: string | null;
@@ -292,6 +293,7 @@ export type InventoryLatestEntryRecord = {
   source: "app" | "manual";
   product_id: number;
   product_name: string;
+  sku?: string | null;
   qty_delta: number;
   reason?: InventoryMovementReason | null;
   reference_type?: string | null;

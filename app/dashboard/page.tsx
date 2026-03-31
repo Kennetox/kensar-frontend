@@ -1606,7 +1606,7 @@ export default function DashboardHomePage() {
                     >
                       <div className="flex flex-col items-center gap-1 mb-2 min-h-[34px]">
                         {isWeekMode ? (
-                          <div className="text-[11px] dashboard-chart-ticket">
+                        <div className="text-[11px] dashboard-chart-ticket">
                             {point.tickets} tickets
                           </div>
                         ) : null}
@@ -1630,7 +1630,7 @@ export default function DashboardHomePage() {
                       </div>
 
                       <div
-                        className={`w-6 sm:w-8 h-32 rounded-full overflow-hidden flex items-end dashboard-chart-track ${
+                          className={`w-6 sm:w-8 h-32 rounded-full overflow-hidden flex items-end dashboard-chart-track ${
                           isZero ? "dashboard-chart-track-empty" : ""
                         } ${isCurrentDay ? "dashboard-chart-current" : ""}`}
                       >
