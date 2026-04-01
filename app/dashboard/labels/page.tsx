@@ -59,20 +59,34 @@ export default function LabelsPage() {
         setSearchLoading(true);
         setSearchError(null);
 
-        const params = new URLSearchParams({
-          limit: "5000",
-        });
+        const pageSize = 5000;
+        let skip = 0;
+        const data: PosProduct[] = [];
 
-        const res = await fetch(`${apiBase}/products/?${params.toString()}`, {
-          headers: authHeaders ?? undefined,
-          credentials: "include",
-        });
+        while (true) {
+          const params = new URLSearchParams({
+            limit: String(pageSize),
+            skip: String(skip),
+          });
 
-        if (!res.ok) {
-          throw new Error(`Error ${res.status}`);
+          const res = await fetch(`${apiBase}/products/?${params.toString()}`, {
+            headers: authHeaders ?? undefined,
+            credentials: "include",
+          });
+
+          if (!res.ok) {
+            throw new Error(`Error ${res.status}`);
+          }
+
+          const batch: PosProduct[] = await res.json();
+          data.push(...batch);
+
+          if (batch.length < pageSize) {
+            break;
+          }
+          skip += pageSize;
         }
 
-        const data: PosProduct[] = await res.json();
         const normalizedQuery = query.toLowerCase();
         const filtered = data
           .filter((product) => product.active)
@@ -87,7 +101,26 @@ export default function LabelsPage() {
               value.includes(normalizedQuery)
             );
           })
-          .slice(0, 200)
+          .sort((a, b) => {
+            const score = (product: PosProduct) => {
+              const sku = (product.sku ?? "").toLowerCase();
+              const barcode = (product.barcode ?? "").toLowerCase();
+              const name = (product.name ?? "").toLowerCase();
+              const id = String(product.id ?? "").toLowerCase();
+
+              if (sku === normalizedQuery) return 0;
+              if (barcode === normalizedQuery) return 1;
+              if (sku.startsWith(normalizedQuery)) return 2;
+              if (barcode.startsWith(normalizedQuery)) return 3;
+              if (sku.includes(normalizedQuery)) return 4;
+              if (barcode.includes(normalizedQuery)) return 5;
+              if (name.includes(normalizedQuery)) return 6;
+              if (id.includes(normalizedQuery)) return 7;
+              return 8;
+            };
+
+            return score(a) - score(b);
+          })
           .map((product) => ({
             id: product.id,
             sku: product.sku,
