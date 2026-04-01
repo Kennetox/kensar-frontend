@@ -390,6 +390,12 @@ function generateSuggestedSlug(value: string): string {
   return normalized.slice(0, 60).replace(/-+$/g, "");
 }
 
+function normalizeCategoryKey(value: string): string {
+  const normalized = normalizeSlugBase(value);
+  if (!normalized) return "";
+  return normalized.slice(0, 64).replace(/-+$/g, "");
+}
+
 function hasVisibleDiscount(product: ComercioWebCatalogProduct): boolean {
   const webSalePrice = resolveWebSalePriceFromProduct(product);
   return (
@@ -649,6 +655,7 @@ export default function ComercioWebPage() {
     emptyCategoryEditorState
   );
   const [catalogCategoryEditingId, setCatalogCategoryEditingId] = useState<number | null>(null);
+  const [catalogCategoryKeyTouched, setCatalogCategoryKeyTouched] = useState(false);
   const [catalogCategorySaving, setCatalogCategorySaving] = useState(false);
   const [toast, setToast] = useState<InlineToast | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
@@ -861,6 +868,10 @@ export default function ComercioWebPage() {
         (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es")
       ),
     [catalogCategories]
+  );
+  const suggestedCatalogCategoryKey = useMemo(
+    () => normalizeCategoryKey(catalogCategoryEditor.name),
+    [catalogCategoryEditor.name]
   );
   const getWebCategoryLabel = useCallback(
     (value?: string | null) => {
@@ -1760,6 +1771,7 @@ export default function ComercioWebPage() {
   function resetCategoryEditor() {
     setCatalogCategoryEditingId(null);
     setCatalogCategoryEditor(emptyCategoryEditorState);
+    setCatalogCategoryKeyTouched(false);
   }
 
   function editCategoryRow(row: ComercioWebCatalogCategory) {
@@ -1770,11 +1782,38 @@ export default function ComercioWebPage() {
       sort_order: String(row.sort_order ?? 0),
       is_active: Boolean(row.is_active),
     });
+    setCatalogCategoryKeyTouched(false);
+  }
+
+  function handleCatalogCategoryNameChange(value: string) {
+    setCatalogCategoryEditor((prev) => {
+      const nextName = value;
+      if (catalogCategoryKeyTouched) {
+        return { ...prev, name: nextName };
+      }
+      const previousSuggested = normalizeCategoryKey(prev.name);
+      const nextSuggested = normalizeCategoryKey(nextName);
+      const currentKey = (prev.key || "").trim();
+      const shouldUpdateKey = !currentKey || currentKey === previousSuggested;
+      return {
+        ...prev,
+        name: nextName,
+        key: shouldUpdateKey ? nextSuggested : prev.key,
+      };
+    });
+  }
+
+  function handleCatalogCategoryKeyChange(value: string) {
+    setCatalogCategoryKeyTouched(true);
+    setCatalogCategoryEditor((prev) => ({
+      ...prev,
+      key: normalizeCategoryKey(value),
+    }));
   }
 
   async function handleSaveCatalogCategory() {
     if (!token || !canManage) return;
-    const key = catalogCategoryEditor.key.trim().toLowerCase();
+    const key = normalizeCategoryKey(catalogCategoryEditor.key.trim());
     const name = catalogCategoryEditor.name.trim();
     if (!key || !name) {
       setCatalogCategoryError("Debes completar clave y nombre.");
@@ -3309,22 +3348,15 @@ export default function ComercioWebPage() {
                   </p>
                   <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <input
-                      value={catalogCategoryEditor.key}
-                      onChange={(event) =>
-                        setCatalogCategoryEditor((prev) => ({
-                          ...prev,
-                          key: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""),
-                        }))
-                      }
-                      placeholder="Clave (ej: audio-profesional)"
+                      value={catalogCategoryEditor.name}
+                      onChange={(event) => handleCatalogCategoryNameChange(event.target.value)}
+                      placeholder="Nombre visible"
                       className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
                     />
                     <input
-                      value={catalogCategoryEditor.name}
-                      onChange={(event) =>
-                        setCatalogCategoryEditor((prev) => ({ ...prev, name: event.target.value }))
-                      }
-                      placeholder="Nombre visible"
+                      value={catalogCategoryEditor.key}
+                      onChange={(event) => handleCatalogCategoryKeyChange(event.target.value)}
+                      placeholder="Clave sugerida (ej: audio-profesional)"
                       className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
                     />
                     <input
@@ -3353,6 +3385,25 @@ export default function ComercioWebPage() {
                       Activa
                     </label>
                   </div>
+                  {suggestedCatalogCategoryKey &&
+                  suggestedCatalogCategoryKey !== catalogCategoryEditor.key ? (
+                    <div className="mt-2 text-xs text-slate-500">
+                      Sugerida:{" "}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCatalogCategoryEditor((prev) => ({
+                            ...prev,
+                            key: suggestedCatalogCategoryKey,
+                          }));
+                          setCatalogCategoryKeyTouched(false);
+                        }}
+                        className="font-semibold text-emerald-700 underline decoration-dotted underline-offset-2"
+                      >
+                        {suggestedCatalogCategoryKey}
+                      </button>
+                    </div>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
