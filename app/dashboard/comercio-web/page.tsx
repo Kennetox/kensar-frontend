@@ -1845,6 +1845,27 @@ export default function ComercioWebPage() {
     }
   }
 
+  async function handleToggleCatalogCategoryVisibility(row: ComercioWebCatalogCategory) {
+    if (!token || !canManage) return;
+    try {
+      setCatalogCategorySaving(true);
+      setCatalogCategoryError(null);
+      await updateComercioWebCatalogCategory(token, row.id, { is_active: !row.is_active });
+      showToast(row.is_active ? "Categoría oculta en web." : "Categoría visible en web.");
+      if (catalogCategoryEditingId === row.id) {
+        setCatalogCategoryEditor((prev) => ({ ...prev, is_active: !row.is_active }));
+      }
+      await loadCatalogCategories();
+    } catch (err) {
+      setCatalogCategoryError(
+        err instanceof Error ? err.message : "No se pudo actualizar la visibilidad."
+      );
+      showToast("No se pudo actualizar la visibilidad de la categoría.", "error");
+    } finally {
+      setCatalogCategorySaving(false);
+    }
+  }
+
   async function handleDeleteCatalogCategory(row: ComercioWebCatalogCategory) {
     if (!token || !canManage) return;
     const accepted = window.confirm(
@@ -3507,6 +3528,18 @@ export default function ComercioWebPage() {
                                   title="Bajar"
                                 >
                                   ↓
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!canManage || catalogCategorySaving}
+                                  onClick={() => void handleToggleCatalogCategoryVisibility(row)}
+                                  className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                                    row.is_active
+                                      ? "border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300"
+                                      : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300"
+                                  }`}
+                                >
+                                  {row.is_active ? "Ocultar" : "Mostrar"}
                                 </button>
                                 <button
                                   type="button"
