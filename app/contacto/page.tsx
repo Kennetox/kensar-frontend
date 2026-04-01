@@ -23,6 +23,7 @@ const CONTACT_MESSAGE = "Hola%20Kensar,%20quiero%20informaci%C3%B3n%20de%20Metri
 
 const contactWhatsAppUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${CONTACT_MESSAGE}`;
 const contactMailtoUrl = `mailto:${CONTACT_EMAIL}?cc=${CONTACT_EMAIL_CC}&subject=Contacto%20Metrik`;
+const KENSAR_WEB_URL = "https://kensar-web.vercel.app/";
 const mapEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(MAP_QUERY)}&z=15&output=embed`;
 const mapOpenUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(MAP_QUERY)}`;
 
@@ -104,6 +105,17 @@ export default function ContactPage() {
                     className="h-[56px] w-auto object-contain"
                   />
                 </div>
+                <p className="mt-2 text-slate-600 md:pr-[320px]">
+                  Kensar web:{" "}
+                  <a
+                    href={KENSAR_WEB_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-blue-700 underline underline-offset-2"
+                  >
+                    {KENSAR_WEB_URL}
+                  </a>
+                </p>
                 <p className="mt-2 text-slate-600 md:pr-[320px]">
                   Correo:{" "}
                   <a
