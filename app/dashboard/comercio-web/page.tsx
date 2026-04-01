@@ -3382,7 +3382,7 @@ export default function ComercioWebPage() {
                           }))
                         }
                       />
-                      Activa
+                      Visible en web
                     </label>
                   </div>
                   {suggestedCatalogCategoryKey &&
@@ -3404,6 +3404,9 @@ export default function ComercioWebPage() {
                       </button>
                     </div>
                   ) : null}
+                  <p className="mt-2 text-xs text-slate-500">
+                    Al desactivar una categoría, se oculta en el catálogo web junto con sus productos.
+                  </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
