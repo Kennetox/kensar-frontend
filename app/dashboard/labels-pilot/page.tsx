@@ -287,7 +287,6 @@ export default function LabelsPilotPage() {
               product.sku ?? "",
               product.name ?? "",
               product.barcode ?? "",
-              String(product.id ?? ""),
             ].map((value) => value.toLowerCase());
             return haystack.some((value) => value.includes(normalizedQuery));
           })
@@ -296,7 +295,6 @@ export default function LabelsPilotPage() {
               const sku = (product.sku ?? "").toLowerCase();
               const barcode = (product.barcode ?? "").toLowerCase();
               const name = (product.name ?? "").toLowerCase();
-              const id = String(product.id ?? "").toLowerCase();
 
               if (sku === normalizedQuery) return 0;
               if (barcode === normalizedQuery) return 1;
@@ -305,8 +303,7 @@ export default function LabelsPilotPage() {
               if (sku.includes(normalizedQuery)) return 4;
               if (barcode.includes(normalizedQuery)) return 5;
               if (name.includes(normalizedQuery)) return 6;
-              if (id.includes(normalizedQuery)) return 7;
-              return 8;
+              return 7;
             };
 
             return score(a) - score(b);
