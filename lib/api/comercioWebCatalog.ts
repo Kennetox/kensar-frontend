@@ -33,6 +33,7 @@ export type ComercioWebCatalogProduct = {
   web_visible_when_out_of_stock: boolean;
   web_price_mode: "visible" | "consultar";
   web_whatsapp_message?: string | null;
+  web_warranty_text?: string | null;
 };
 
 export type ComercioWebCatalogProductUpdate = Partial<
@@ -62,6 +63,7 @@ export type ComercioWebCatalogProductUpdate = Partial<
     | "web_visible_when_out_of_stock"
     | "web_price_mode"
     | "web_whatsapp_message"
+    | "web_warranty_text"
     | "active"
   >
 >;
@@ -81,6 +83,30 @@ export type ComercioWebCatalogPublicationPage = {
   limit: number;
   stats: ComercioWebCatalogPublicationStats;
 };
+
+export type ComercioWebCatalogCategory = {
+  id: number;
+  key: string;
+  name: string;
+  image_url?: string | null;
+  tile_color?: string | null;
+  sort_order: number;
+  is_active: boolean;
+  product_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ComercioWebCatalogCategoryCreate = {
+  key: string;
+  name: string;
+  image_url?: string | null;
+  tile_color?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
+};
+
+export type ComercioWebCatalogCategoryUpdate = Partial<ComercioWebCatalogCategoryCreate>;
 
 function normalizeCatalogProduct(product: ComercioWebCatalogProduct): ComercioWebCatalogProduct {
   return {
@@ -195,4 +221,63 @@ export async function fetchComercioWebCatalogPublicationsPage(
       consult: Number(data.stats?.consult || 0),
     },
   };
+}
+
+export async function fetchComercioWebCatalogCategories(
+  token: string,
+  params?: { include_inactive?: boolean }
+): Promise<ComercioWebCatalogCategory[]> {
+  const qs = new URLSearchParams();
+  if (typeof params?.include_inactive === "boolean") {
+    qs.set("include_inactive", String(params.include_inactive));
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/categories${suffix}`, {
+    headers: buildHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  const data = (await res.json()) as ComercioWebCatalogCategory[];
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createComercioWebCatalogCategory(
+  token: string,
+  input: ComercioWebCatalogCategoryCreate
+): Promise<ComercioWebCatalogCategory> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/categories`, {
+    method: "POST",
+    headers: buildHeaders(token),
+    body: JSON.stringify(input),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as ComercioWebCatalogCategory;
+}
+
+export async function updateComercioWebCatalogCategory(
+  token: string,
+  categoryId: number,
+  input: ComercioWebCatalogCategoryUpdate
+): Promise<ComercioWebCatalogCategory> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/categories/${categoryId}`, {
+    method: "PUT",
+    headers: buildHeaders(token),
+    body: JSON.stringify(input),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as ComercioWebCatalogCategory;
+}
+
+export async function deleteComercioWebCatalogCategory(
+  token: string,
+  categoryId: number
+): Promise<void> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/categories/${categoryId}`, {
+    method: "DELETE",
+    headers: buildHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
 }

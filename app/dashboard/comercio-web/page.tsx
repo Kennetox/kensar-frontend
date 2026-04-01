@@ -14,13 +14,24 @@ import {
   updateComercioWebOrderStatus,
 } from "@/lib/api/comercioWeb";
 import {
+  createComercioWebCatalogCategory,
+  deleteComercioWebCatalogCategory,
+  fetchComercioWebCatalogCategories,
   fetchComercioWebCatalogPublicationsPage,
   fetchComercioWebCatalogProducts,
+  updateComercioWebCatalogCategory,
   updateComercioWebCatalogProduct,
+  type ComercioWebCatalogCategory,
   type ComercioWebCatalogPublicationStats,
   type ComercioWebCatalogProduct,
   type ComercioWebCatalogProductUpdate,
 } from "@/lib/api/comercioWebCatalog";
+import {
+  createComercioWebDiscountCode,
+  fetchComercioWebDiscountCodes,
+  updateComercioWebDiscountCode,
+  type ComercioWebDiscountCode,
+} from "@/lib/api/comercioWebDiscountCodes";
 import {
   defaultRolePermissions,
   fetchRolePermissions,
@@ -70,6 +81,7 @@ type CatalogEditorState = {
   web_visible_when_out_of_stock: boolean;
   web_price_mode: "visible" | "consultar";
   web_whatsapp_message: string;
+  web_warranty_text: string;
   image_url: string;
   image_thumb_url: string;
   web_gallery_urls: string[];
@@ -82,6 +94,47 @@ type InlineToast = {
 };
 
 type CatalogComposerMode = "create" | "edit";
+type CatalogWorkspaceView = "publications" | "discount_codes" | "categories";
+type DiscountCodePeriodOption = "day" | "week" | "month" | "indefinite" | "custom";
+
+type DiscountCodeEditorState = {
+  code: string;
+  discount_percent: string;
+  period: DiscountCodePeriodOption;
+  max_uses: string;
+  starts_at: string;
+  ends_at: string;
+  is_active: boolean;
+};
+
+type CategoryEditorState = {
+  key: string;
+  name: string;
+  sort_order: string;
+  is_active: boolean;
+};
+
+type CommerceWebDraftState = {
+  activeTab?: CommerceTab;
+  catalogWorkspaceView?: CatalogWorkspaceView;
+  catalogComposerOpen?: boolean;
+  catalogComposerMode?: CatalogComposerMode;
+  selectedProductId?: number | null;
+  previewImageIndex?: number;
+  catalogDirty?: boolean;
+  catalogEditor?: CatalogEditorState;
+  catalogSearchTerm?: string;
+  publishedCatalogFilter?: string;
+  publishedCatalogFieldFilter?: string;
+  publishedCatalogStatusFilter?: string;
+  publishedCatalogFeaturedFilter?: string;
+  publishedCatalogBadgeFilter?: string;
+  discountCodeComposerOpen?: boolean;
+  discountCodeEditingId?: number | null;
+  discountCodeEditor?: DiscountCodeEditorState;
+  catalogCategoryEditingId?: number | null;
+  catalogCategoryEditor?: CategoryEditorState;
+};
 
 type UploadProductImageResponse = {
   url: string;
@@ -96,14 +149,7 @@ type CatalogActionConfirmState = {
 } | null;
 
 const COMMERCE_WEB_ACTIVE_TAB_STORAGE_KEY = "commerce_web_active_tab";
-
-const WEB_CATEGORY_OPTIONS = [
-  { value: "audio-profesional", label: "Audio profesional" },
-  { value: "instrumentos", label: "Instrumentos" },
-  { value: "microfonos", label: "Microfonos" },
-  { value: "accesorios", label: "Accesorios" },
-  { value: "camaras", label: "Camaras" },
-] as const;
+const COMMERCE_WEB_DRAFT_STORAGE_KEY = "commerce_web_catalog_draft_v1";
 
 const TABS: Array<{ id: CommerceTab; label: string }> = [
   { id: "overview", label: "Resumen" },
@@ -115,6 +161,10 @@ const TABS: Array<{ id: CommerceTab; label: string }> = [
 
 function isCommerceTab(value: string): value is CommerceTab {
   return TABS.some((tab) => tab.id === value);
+}
+
+function isCatalogWorkspaceView(value: string): value is CatalogWorkspaceView {
+  return value === "publications" || value === "discount_codes" || value === "categories";
 }
 
 const ORDER_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
@@ -137,8 +187,15 @@ const PAYMENT_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "refunded", label: "Reembolsado" },
 ];
 
+const WARRANTY_PRESET_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "Garantía de 3 meses", label: "Garantía de 3 meses" },
+  { value: "Garantía de 6 meses", label: "Garantía de 6 meses" },
+  { value: "Garantía de 1 año", label: "Garantía de 1 año" },
+];
+
 const SHORT_DESCRIPTION_MAX_CHARS = 96;
 const CATALOG_TABLE_PAGE_SIZE = 50;
+const DISCOUNT_CODE_TABLE_PAGE_SIZE = 50;
 const EMPTY_CATALOG_STATS: ComercioWebCatalogPublicationStats = {
   configured: 0,
   published: 0,
@@ -173,9 +230,35 @@ const emptyCatalogEditorState: CatalogEditorState = {
   web_visible_when_out_of_stock: true,
   web_price_mode: "visible",
   web_whatsapp_message: "",
+  web_warranty_text: "",
   image_url: "",
   image_thumb_url: "",
   web_gallery_urls: [],
+};
+
+const emptyDiscountCodeEditorState: DiscountCodeEditorState = {
+  code: "",
+  discount_percent: "",
+  period: "indefinite",
+  max_uses: "",
+  starts_at: "",
+  ends_at: "",
+  is_active: true,
+};
+
+const DISCOUNT_PERIOD_OPTIONS: Array<{ value: DiscountCodePeriodOption; label: string }> = [
+  { value: "day", label: "Un día" },
+  { value: "week", label: "Una semana" },
+  { value: "month", label: "Un mes" },
+  { value: "indefinite", label: "Indefinido" },
+  { value: "custom", label: "Personalizado" },
+];
+
+const emptyCategoryEditorState: CategoryEditorState = {
+  key: "",
+  name: "",
+  sort_order: "0",
+  is_active: true,
 };
 
 function formatMoney(value: number): string {
@@ -194,6 +277,65 @@ function formatDateTime(value?: string | null): string {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+function toDateTimeLocalInput(value?: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocalInput(value?: string): string | null {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return null;
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function toDateTimeLocalValue(date: Date): string {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function getRangeForPeriod(period: DiscountCodePeriodOption): {
+  startsAt: string;
+  endsAt: string;
+} {
+  const now = new Date();
+  if (period === "indefinite") {
+    return { startsAt: "", endsAt: "" };
+  }
+  if (period === "custom") {
+    return { startsAt: toDateTimeLocalValue(now), endsAt: "" };
+  }
+  const endsAt = new Date(now);
+  if (period === "day") {
+    endsAt.setDate(endsAt.getDate() + 1);
+  } else if (period === "week") {
+    endsAt.setDate(endsAt.getDate() + 7);
+  } else {
+    endsAt.setMonth(endsAt.getMonth() + 1);
+  }
+  return { startsAt: toDateTimeLocalValue(now), endsAt: toDateTimeLocalValue(endsAt) };
+}
+
+function inferPeriodFromDates(
+  startsAt?: string | null,
+  endsAt?: string | null
+): DiscountCodePeriodOption {
+  if (!startsAt && !endsAt) return "indefinite";
+  if (!startsAt || !endsAt) return "custom";
+  const startMs = new Date(startsAt).getTime();
+  const endMs = new Date(endsAt).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) return "custom";
+  const diffHours = (endMs - startMs) / (1000 * 60 * 60);
+  if (Math.abs(diffHours - 24) <= 2) return "day";
+  if (Math.abs(diffHours - 24 * 7) <= 2) return "week";
+  if (Math.abs(diffHours - 24 * 30) <= 12) return "month";
+  return "custom";
 }
 
 function statusBadgeClass(status: string): string {
@@ -273,6 +415,7 @@ function isConfiguredWebPublication(product: ComercioWebCatalogProduct): boolean
     product.web_price_mode === "consultar" ||
     product.web_visible_when_out_of_stock === false ||
     Boolean(product.web_whatsapp_message?.trim()) ||
+    Boolean(product.web_warranty_text?.trim()) ||
     Number(product.web_sort_order || 0) > 0
   );
 }
@@ -350,12 +493,6 @@ function getDiscountBadgeTextFromEditor(editor: CatalogEditorState): string | nu
   return getDiscountBadgeText(parseDiscountPercent(editor.web_price_value));
 }
 
-function getWebCategoryLabel(value?: string | null): string {
-  return (
-    WEB_CATEGORY_OPTIONS.find((item) => item.value === (value || "").trim().toLowerCase())?.label || ""
-  );
-}
-
 function buildEditorState(product: ComercioWebCatalogProduct | null): CatalogEditorState {
   if (!product) return emptyCatalogEditorState;
   const galleryUrls = product.web_gallery_urls ?? [];
@@ -383,6 +520,7 @@ function buildEditorState(product: ComercioWebCatalogProduct | null): CatalogEdi
     web_visible_when_out_of_stock: Boolean(product.web_visible_when_out_of_stock),
     web_price_mode: product.web_price_mode || "visible",
     web_whatsapp_message: product.web_whatsapp_message || "",
+    web_warranty_text: product.web_warranty_text || "",
     image_url: product.image_url || "",
     image_thumb_url: product.image_thumb_url || "",
     web_gallery_urls:
@@ -480,6 +618,8 @@ export default function ComercioWebPage() {
   const [publishedCatalogFeaturedFilter, setPublishedCatalogFeaturedFilter] = useState("all");
   const [publishedCatalogBadgeFilter, setPublishedCatalogBadgeFilter] = useState("all");
   const [publishedCatalogPage, setPublishedCatalogPage] = useState(1);
+  const [catalogWorkspaceView, setCatalogWorkspaceView] =
+    useState<CatalogWorkspaceView>("publications");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [catalogComposerOpen, setCatalogComposerOpen] = useState(false);
   const [catalogComposerMode, setCatalogComposerMode] = useState<CatalogComposerMode>("create");
@@ -491,10 +631,30 @@ export default function ComercioWebPage() {
   const [catalogSavePublishPromptOpen, setCatalogSavePublishPromptOpen] = useState(false);
   const [catalogActionConfirm, setCatalogActionConfirm] = useState<CatalogActionConfirmState>(null);
   const [catalogActionSubmitting, setCatalogActionSubmitting] = useState(false);
+  const [discountCodeRows, setDiscountCodeRows] = useState<ComercioWebDiscountCode[]>([]);
+  const [discountCodeTotal, setDiscountCodeTotal] = useState(0);
+  const [discountCodeLoading, setDiscountCodeLoading] = useState(false);
+  const [discountCodeError, setDiscountCodeError] = useState<string | null>(null);
+  const [discountCodePage, setDiscountCodePage] = useState(1);
+  const [discountCodeEditor, setDiscountCodeEditor] = useState<DiscountCodeEditorState>(
+    emptyDiscountCodeEditorState
+  );
+  const [discountCodeComposerOpen, setDiscountCodeComposerOpen] = useState(false);
+  const [discountCodeEditingId, setDiscountCodeEditingId] = useState<number | null>(null);
+  const [discountCodeSaving, setDiscountCodeSaving] = useState(false);
+  const [catalogCategories, setCatalogCategories] = useState<ComercioWebCatalogCategory[]>([]);
+  const [catalogCategoryLoading, setCatalogCategoryLoading] = useState(false);
+  const [catalogCategoryError, setCatalogCategoryError] = useState<string | null>(null);
+  const [catalogCategoryEditor, setCatalogCategoryEditor] = useState<CategoryEditorState>(
+    emptyCategoryEditorState
+  );
+  const [catalogCategoryEditingId, setCatalogCategoryEditingId] = useState<number | null>(null);
+  const [catalogCategorySaving, setCatalogCategorySaving] = useState(false);
   const [toast, setToast] = useState<InlineToast | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const catalogImageInputRef = useRef<HTMLInputElement | null>(null);
+  const draftHydratedRef = useRef(false);
 
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(defaultRolePermissions);
 
@@ -502,6 +662,139 @@ export default function ComercioWebPage() {
     if (typeof window === "undefined") return;
     window.sessionStorage.setItem(COMMERCE_WEB_ACTIVE_TAB_STORAGE_KEY, activeTab);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (draftHydratedRef.current) return;
+    try {
+      const raw = window.sessionStorage.getItem(COMMERCE_WEB_DRAFT_STORAGE_KEY);
+      if (!raw) {
+        draftHydratedRef.current = true;
+        return;
+      }
+      const draft = JSON.parse(raw) as CommerceWebDraftState;
+      if (draft.activeTab && isCommerceTab(draft.activeTab)) {
+        setActiveTab(draft.activeTab);
+      }
+      if (draft.catalogWorkspaceView && isCatalogWorkspaceView(draft.catalogWorkspaceView)) {
+        setCatalogWorkspaceView(draft.catalogWorkspaceView);
+      }
+      if (typeof draft.catalogComposerOpen === "boolean") {
+        setCatalogComposerOpen(draft.catalogComposerOpen);
+      }
+      if (draft.catalogComposerMode === "create" || draft.catalogComposerMode === "edit") {
+        setCatalogComposerMode(draft.catalogComposerMode);
+      }
+      if (typeof draft.selectedProductId === "number" || draft.selectedProductId === null) {
+        setSelectedProductId(draft.selectedProductId ?? null);
+      }
+      if (typeof draft.previewImageIndex === "number" && draft.previewImageIndex >= 0) {
+        setPreviewImageIndex(draft.previewImageIndex);
+      }
+      if (typeof draft.catalogDirty === "boolean") {
+        setCatalogDirty(draft.catalogDirty);
+      }
+      if (draft.catalogEditor) {
+        setCatalogEditor({
+          ...emptyCatalogEditorState,
+          ...draft.catalogEditor,
+          web_gallery_urls: Array.isArray(draft.catalogEditor.web_gallery_urls)
+            ? draft.catalogEditor.web_gallery_urls.filter((item) => typeof item === "string")
+            : [],
+        });
+      }
+      if (typeof draft.catalogSearchTerm === "string") {
+        setCatalogSearchTerm(draft.catalogSearchTerm);
+      }
+      if (typeof draft.publishedCatalogFilter === "string") {
+        setPublishedCatalogFilter(draft.publishedCatalogFilter);
+      }
+      if (typeof draft.publishedCatalogFieldFilter === "string") {
+        setPublishedCatalogFieldFilter(draft.publishedCatalogFieldFilter);
+      }
+      if (typeof draft.publishedCatalogStatusFilter === "string") {
+        setPublishedCatalogStatusFilter(draft.publishedCatalogStatusFilter);
+      }
+      if (typeof draft.publishedCatalogFeaturedFilter === "string") {
+        setPublishedCatalogFeaturedFilter(draft.publishedCatalogFeaturedFilter);
+      }
+      if (typeof draft.publishedCatalogBadgeFilter === "string") {
+        setPublishedCatalogBadgeFilter(draft.publishedCatalogBadgeFilter);
+      }
+      if (typeof draft.discountCodeComposerOpen === "boolean") {
+        setDiscountCodeComposerOpen(draft.discountCodeComposerOpen);
+      }
+      if (typeof draft.discountCodeEditingId === "number" || draft.discountCodeEditingId === null) {
+        setDiscountCodeEditingId(draft.discountCodeEditingId ?? null);
+      }
+      if (draft.discountCodeEditor) {
+        setDiscountCodeEditor({
+          ...emptyDiscountCodeEditorState,
+          ...draft.discountCodeEditor,
+        });
+      }
+      if (typeof draft.catalogCategoryEditingId === "number" || draft.catalogCategoryEditingId === null) {
+        setCatalogCategoryEditingId(draft.catalogCategoryEditingId ?? null);
+      }
+      if (draft.catalogCategoryEditor) {
+        setCatalogCategoryEditor({
+          ...emptyCategoryEditorState,
+          ...draft.catalogCategoryEditor,
+        });
+      }
+    } catch {
+      // Ignore malformed storage payloads.
+    } finally {
+      draftHydratedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!draftHydratedRef.current) return;
+    const draft: CommerceWebDraftState = {
+      activeTab,
+      catalogWorkspaceView,
+      catalogComposerOpen,
+      catalogComposerMode,
+      selectedProductId,
+      previewImageIndex,
+      catalogDirty,
+      catalogEditor,
+      catalogSearchTerm,
+      publishedCatalogFilter,
+      publishedCatalogFieldFilter,
+      publishedCatalogStatusFilter,
+      publishedCatalogFeaturedFilter,
+      publishedCatalogBadgeFilter,
+      discountCodeComposerOpen,
+      discountCodeEditingId,
+      discountCodeEditor,
+      catalogCategoryEditingId,
+      catalogCategoryEditor,
+    };
+    window.sessionStorage.setItem(COMMERCE_WEB_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  }, [
+    activeTab,
+    catalogWorkspaceView,
+    catalogComposerOpen,
+    catalogComposerMode,
+    selectedProductId,
+    previewImageIndex,
+    catalogDirty,
+    catalogEditor,
+    catalogSearchTerm,
+    publishedCatalogFilter,
+    publishedCatalogFieldFilter,
+    publishedCatalogStatusFilter,
+    publishedCatalogFeaturedFilter,
+    publishedCatalogBadgeFilter,
+    discountCodeComposerOpen,
+    discountCodeEditingId,
+    discountCodeEditor,
+    catalogCategoryEditingId,
+    catalogCategoryEditor,
+  ]);
 
   useEffect(() => {
     if (!token) return;
@@ -542,6 +835,41 @@ export default function ComercioWebPage() {
       null,
     [catalogSearchResults, publishedCatalogProducts, selectedProductId]
   );
+  const categoryLabelMap = useMemo(() => {
+    const next = new Map<string, string>();
+    catalogCategories.forEach((item) => {
+      const key = (item.key || "").trim().toLowerCase();
+      if (key) next.set(key, item.name);
+    });
+    return next;
+  }, [catalogCategories]);
+  const activeCatalogCategories = useMemo(
+    () =>
+      catalogCategories
+        .filter((item) => item.is_active)
+        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es")),
+    [catalogCategories]
+  );
+  const selectedCatalogCategory = useMemo(() => {
+    const key = (catalogEditor.web_category_key || "").trim().toLowerCase();
+    if (!key) return null;
+    return catalogCategories.find((item) => (item.key || "").trim().toLowerCase() === key) || null;
+  }, [catalogCategories, catalogEditor.web_category_key]);
+  const orderedCatalogCategories = useMemo(
+    () =>
+      [...catalogCategories].sort(
+        (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es")
+      ),
+    [catalogCategories]
+  );
+  const getWebCategoryLabel = useCallback(
+    (value?: string | null) => {
+      const key = (value || "").trim().toLowerCase();
+      if (!key) return "";
+      return categoryLabelMap.get(key) || value || "";
+    },
+    [categoryLabelMap]
+  );
 
   const resolveAssetUrl = useCallback((url?: string | null) => {
     if (!url) return null;
@@ -567,6 +895,18 @@ export default function ComercioWebPage() {
           publishedCatalogTotal
         );
 
+  const discountCodeTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(discountCodeTotal / DISCOUNT_CODE_TABLE_PAGE_SIZE)),
+    [discountCodeTotal]
+  );
+  const discountCodeStartIndex = discountCodeTotal
+    ? (discountCodePage - 1) * DISCOUNT_CODE_TABLE_PAGE_SIZE + 1
+    : 0;
+  const discountCodeEndIndex =
+    discountCodeStartIndex === 0
+      ? 0
+      : Math.min(discountCodeStartIndex + discountCodeRows.length - 1, discountCodeTotal);
+
   useEffect(() => {
     setPublishedCatalogPage(1);
   }, [
@@ -582,6 +922,12 @@ export default function ComercioWebPage() {
       setPublishedCatalogPage(publishedCatalogTotalPages);
     }
   }, [publishedCatalogPage, publishedCatalogTotalPages]);
+
+  useEffect(() => {
+    if (discountCodePage > discountCodeTotalPages) {
+      setDiscountCodePage(discountCodeTotalPages);
+    }
+  }, [discountCodePage, discountCodeTotalPages]);
 
   const previewGalleryImages = useMemo(() => {
     const candidates = [
@@ -644,8 +990,25 @@ export default function ComercioWebPage() {
     };
   }, [clearToastTimers]);
 
+  const loadCatalogCategories = useCallback(async () => {
+    if (!token) return;
+    try {
+      setCatalogCategoryLoading(true);
+      setCatalogCategoryError(null);
+      const rows = await fetchComercioWebCatalogCategories(token, { include_inactive: true });
+      setCatalogCategories(rows);
+    } catch (err) {
+      setCatalogCategoryError(
+        err instanceof Error ? err.message : "No se pudieron cargar las categorías"
+      );
+    } finally {
+      setCatalogCategoryLoading(false);
+    }
+  }, [token]);
+
   const resetCatalogComposer = useCallback(() => {
     setCatalogComposerOpen(false);
+    setCatalogWorkspaceView("publications");
     setCatalogComposerMode("create");
     setSelectedProductId(null);
     setCatalogSearchTerm("");
@@ -656,8 +1019,10 @@ export default function ComercioWebPage() {
   }, []);
 
   const openCatalogComposer = useCallback((productId?: number) => {
+    setCatalogWorkspaceView("publications");
     setCatalogComposerOpen(true);
     setCatalogError(null);
+    void loadCatalogCategories();
     if (typeof productId === "number") {
       setCatalogComposerMode("edit");
       setSelectedProductId(productId);
@@ -669,7 +1034,7 @@ export default function ComercioWebPage() {
     setCatalogSearchResults([]);
     setCatalogSearchExecuted(false);
     setCatalogDirty(false);
-  }, []);
+  }, [loadCatalogCategories]);
 
   const paymentRows = useMemo<PaymentRow[]>(
     () =>
@@ -830,6 +1195,26 @@ export default function ComercioWebPage() {
     token,
   ]);
 
+  const loadDiscountCodes = useCallback(async () => {
+    if (!token) return;
+    try {
+      setDiscountCodeLoading(true);
+      setDiscountCodeError(null);
+      const page = await fetchComercioWebDiscountCodes(token, {
+        skip: (discountCodePage - 1) * DISCOUNT_CODE_TABLE_PAGE_SIZE,
+        limit: DISCOUNT_CODE_TABLE_PAGE_SIZE,
+      });
+      setDiscountCodeRows(page.items);
+      setDiscountCodeTotal(page.total);
+    } catch (err) {
+      setDiscountCodeError(
+        err instanceof Error ? err.message : "No se pudieron cargar los códigos de descuento"
+      );
+    } finally {
+      setDiscountCodeLoading(false);
+    }
+  }, [discountCodePage, token]);
+
   const searchCatalogProducts = useCallback(async () => {
     if (!token) return;
     const term = catalogSearchTerm.trim();
@@ -860,11 +1245,24 @@ export default function ComercioWebPage() {
 
   useEffect(() => {
     if (activeTab !== "catalog") return;
+    void loadCatalogCategories();
+  }, [activeTab, loadCatalogCategories]);
+
+  useEffect(() => {
+    if (activeTab !== "catalog") return;
     const timer = window.setTimeout(() => {
+      if (catalogWorkspaceView === "discount_codes") {
+        void loadDiscountCodes();
+        return;
+      }
+      if (catalogWorkspaceView === "categories") {
+        void loadCatalogCategories();
+        return;
+      }
       void loadCatalogProducts();
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [activeTab, loadCatalogProducts]);
+  }, [activeTab, catalogWorkspaceView, loadCatalogProducts, loadDiscountCodes, loadCatalogCategories]);
 
   async function handleApprovePayment(order: ComercioWebOrder) {
     if (!token) return;
@@ -1057,6 +1455,7 @@ export default function ComercioWebPage() {
       web_visible_when_out_of_stock: catalogEditor.web_visible_when_out_of_stock,
       web_price_mode: catalogEditor.web_price_mode,
       web_whatsapp_message: catalogEditor.web_whatsapp_message.trim() || undefined,
+      web_warranty_text: catalogEditor.web_warranty_text.trim() || undefined,
       image_url: catalogEditor.image_url.trim() || undefined,
       image_thumb_url: catalogEditor.image_thumb_url.trim() || undefined,
       web_gallery_urls: catalogEditor.web_gallery_urls,
@@ -1232,6 +1631,227 @@ export default function ComercioWebPage() {
     } catch (err) {
       setCatalogError(err instanceof Error ? err.message : "No se pudo publicar el producto");
       showToast("No se pudo activar la publicación.", "error");
+    }
+  }
+
+  function resetDiscountCodeEditor(closeComposer = false) {
+    setDiscountCodeEditingId(null);
+    setDiscountCodeEditor(emptyDiscountCodeEditorState);
+    if (closeComposer) {
+      setDiscountCodeComposerOpen(false);
+    }
+  }
+
+  function editDiscountCodeRow(row: ComercioWebDiscountCode) {
+    const period = inferPeriodFromDates(row.starts_at, row.ends_at);
+    setDiscountCodeEditingId(row.id);
+    setDiscountCodeEditor({
+      code: row.code,
+      discount_percent: String(row.discount_percent ?? ""),
+      period,
+      max_uses: row.max_uses ? String(row.max_uses) : "",
+      starts_at: toDateTimeLocalInput(row.starts_at),
+      ends_at: toDateTimeLocalInput(row.ends_at),
+      is_active: Boolean(row.is_active),
+    });
+    setDiscountCodeComposerOpen(true);
+  }
+
+  function openCreateDiscountCodeComposer() {
+    setDiscountCodeEditingId(null);
+    setDiscountCodeEditor({
+      ...emptyDiscountCodeEditorState,
+      ...getRangeForPeriod(emptyDiscountCodeEditorState.period),
+    });
+    setDiscountCodeError(null);
+    setDiscountCodeComposerOpen(true);
+  }
+
+  function handleDiscountCodePeriodChange(period: DiscountCodePeriodOption) {
+    const range = getRangeForPeriod(period);
+    setDiscountCodeEditor((prev) => ({
+      ...prev,
+      period,
+      starts_at: period === "custom" ? prev.starts_at || range.startsAt : range.startsAt,
+      ends_at: period === "custom" ? prev.ends_at : range.endsAt,
+    }));
+  }
+
+  async function handleSaveDiscountCode() {
+    if (!token || !canManage) return;
+    const code = discountCodeEditor.code.trim().toUpperCase();
+    const percent = Number(discountCodeEditor.discount_percent);
+    const maxUsesRaw = discountCodeEditor.max_uses.trim();
+    const maxUses = maxUsesRaw ? Number(maxUsesRaw) : null;
+    if (!code) {
+      setDiscountCodeError("Debes ingresar el código.");
+      return;
+    }
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
+      setDiscountCodeError("El descuento debe ser un porcentaje válido entre 0 y 100.");
+      return;
+    }
+    if (
+      maxUsesRaw &&
+      (!Number.isInteger(maxUses) || !Number.isFinite(maxUses) || Number(maxUses) < 1)
+    ) {
+      setDiscountCodeError("El uso máximo debe ser un número entero mayor o igual a 1.");
+      return;
+    }
+
+    let startsAt: string | null = null;
+    let endsAt: string | null = null;
+    if (discountCodeEditor.period === "custom") {
+      startsAt = fromDateTimeLocalInput(discountCodeEditor.starts_at);
+      endsAt = fromDateTimeLocalInput(discountCodeEditor.ends_at);
+      if (!startsAt || !endsAt) {
+        setDiscountCodeError("Debes definir fecha inicio y fecha fin para el periodo personalizado.");
+        return;
+      }
+    } else {
+      startsAt = fromDateTimeLocalInput(discountCodeEditor.starts_at);
+      endsAt = fromDateTimeLocalInput(discountCodeEditor.ends_at);
+    }
+
+    try {
+      setDiscountCodeSaving(true);
+      setDiscountCodeError(null);
+      const payload = {
+        code,
+        discount_percent: percent,
+        is_active: discountCodeEditor.is_active,
+        max_uses: maxUses,
+        starts_at: startsAt,
+        ends_at: endsAt,
+      };
+      if (discountCodeEditingId) {
+        await updateComercioWebDiscountCode(token, discountCodeEditingId, payload);
+        showToast("Código actualizado con éxito.");
+      } else {
+        await createComercioWebDiscountCode(token, payload);
+        showToast("Código creado con éxito.");
+      }
+      resetDiscountCodeEditor(true);
+      await loadDiscountCodes();
+    } catch (err) {
+      setDiscountCodeError(err instanceof Error ? err.message : "No se pudo guardar el código");
+      showToast("No se pudo guardar el código.", "error");
+    } finally {
+      setDiscountCodeSaving(false);
+    }
+  }
+
+  async function handleToggleDiscountCode(row: ComercioWebDiscountCode) {
+    if (!token || !canManage) return;
+    try {
+      setDiscountCodeSaving(true);
+      setDiscountCodeError(null);
+      await updateComercioWebDiscountCode(token, row.id, { is_active: !row.is_active });
+      showToast(row.is_active ? "Código desactivado." : "Código activado.");
+      await loadDiscountCodes();
+    } catch (err) {
+      setDiscountCodeError(err instanceof Error ? err.message : "No se pudo actualizar el estado");
+      showToast("No se pudo actualizar el estado del código.", "error");
+    } finally {
+      setDiscountCodeSaving(false);
+    }
+  }
+
+  function resetCategoryEditor() {
+    setCatalogCategoryEditingId(null);
+    setCatalogCategoryEditor(emptyCategoryEditorState);
+  }
+
+  function editCategoryRow(row: ComercioWebCatalogCategory) {
+    setCatalogCategoryEditingId(row.id);
+    setCatalogCategoryEditor({
+      key: row.key,
+      name: row.name,
+      sort_order: String(row.sort_order ?? 0),
+      is_active: Boolean(row.is_active),
+    });
+  }
+
+  async function handleSaveCatalogCategory() {
+    if (!token || !canManage) return;
+    const key = catalogCategoryEditor.key.trim().toLowerCase();
+    const name = catalogCategoryEditor.name.trim();
+    if (!key || !name) {
+      setCatalogCategoryError("Debes completar clave y nombre.");
+      return;
+    }
+    try {
+      setCatalogCategorySaving(true);
+      setCatalogCategoryError(null);
+      const payload = {
+        key,
+        name,
+        sort_order: Number(catalogCategoryEditor.sort_order || "0"),
+        is_active: catalogCategoryEditor.is_active,
+      };
+      if (catalogCategoryEditingId) {
+        await updateComercioWebCatalogCategory(token, catalogCategoryEditingId, payload);
+        showToast("Categoría actualizada.");
+      } else {
+        await createComercioWebCatalogCategory(token, payload);
+        showToast("Categoría creada.");
+      }
+      resetCategoryEditor();
+      await loadCatalogCategories();
+    } catch (err) {
+      setCatalogCategoryError(err instanceof Error ? err.message : "No se pudo guardar la categoría");
+      showToast("No se pudo guardar la categoría.", "error");
+    } finally {
+      setCatalogCategorySaving(false);
+    }
+  }
+
+  async function handleDeleteCatalogCategory(row: ComercioWebCatalogCategory) {
+    if (!token || !canManage) return;
+    const accepted = window.confirm(
+      `¿Eliminar la categoría "${row.name}"? Esta acción no se puede deshacer.`
+    );
+    if (!accepted) return;
+    try {
+      setCatalogCategorySaving(true);
+      setCatalogCategoryError(null);
+      await deleteComercioWebCatalogCategory(token, row.id);
+      showToast("Categoría eliminada.");
+      if (catalogCategoryEditingId === row.id) resetCategoryEditor();
+      await loadCatalogCategories();
+    } catch (err) {
+      setCatalogCategoryError(err instanceof Error ? err.message : "No se pudo eliminar la categoría");
+      showToast("No se pudo eliminar la categoría.", "error");
+    } finally {
+      setCatalogCategorySaving(false);
+    }
+  }
+
+  async function handleMoveCatalogCategory(
+    row: ComercioWebCatalogCategory,
+    direction: "up" | "down"
+  ) {
+    if (!token || !canManage) return;
+    const currentIndex = orderedCatalogCategories.findIndex((item) => item.id === row.id);
+    if (currentIndex < 0) return;
+    const swapIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (swapIndex < 0 || swapIndex >= orderedCatalogCategories.length) return;
+    const target = orderedCatalogCategories[swapIndex];
+    try {
+      setCatalogCategorySaving(true);
+      setCatalogCategoryError(null);
+      await updateComercioWebCatalogCategory(token, row.id, {
+        sort_order: target.sort_order,
+      });
+      await updateComercioWebCatalogCategory(token, target.id, {
+        sort_order: row.sort_order,
+      });
+      await loadCatalogCategories();
+    } catch (err) {
+      setCatalogCategoryError(err instanceof Error ? err.message : "No se pudo reordenar.");
+      showToast("No se pudo mover la categoría.", "error");
+    } finally {
+      setCatalogCategorySaving(false);
     }
   }
 
@@ -1471,6 +2091,44 @@ export default function ComercioWebPage() {
 
         {activeTab === "catalog" ? (
           <section className="space-y-4">
+          <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setCatalogWorkspaceView("publications")}
+                className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                  catalogWorkspaceView === "publications"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                Publicaciones
+              </button>
+              <button
+                type="button"
+                onClick={() => setCatalogWorkspaceView("discount_codes")}
+                className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                  catalogWorkspaceView === "discount_codes"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                Códigos de descuento
+              </button>
+              <button
+                type="button"
+                onClick={() => setCatalogWorkspaceView("categories")}
+                className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                  catalogWorkspaceView === "categories"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                Categorías
+              </button>
+            </div>
+          </section>
+          {catalogWorkspaceView === "publications" ? (
           <section className={`grid gap-4 ${catalogComposerOpen ? "" : "xl:grid-cols-[0.95fr,1.05fr]"}`}>
             {!catalogComposerOpen ? (
             <SectionCard
@@ -2123,19 +2781,27 @@ export default function ComercioWebPage() {
                             onChange={(event) =>
                               handleCatalogField("web_category_key", event.target.value)
                             }
+                            disabled={catalogCategoryLoading}
                             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
                           >
-                            <option value="">Selecciona una categoría</option>
-                            {WEB_CATEGORY_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
+                            <option value="">
+                              {catalogCategoryLoading ? "Cargando categorías..." : "Selecciona una categoría"}
+                            </option>
+                            {activeCatalogCategories.map((option) => (
+                              <option key={option.id} value={option.key}>
+                                {option.name}
                               </option>
                             ))}
+                            {selectedCatalogCategory && !selectedCatalogCategory.is_active ? (
+                              <option value={selectedCatalogCategory.key}>
+                                {selectedCatalogCategory.name} (inactiva)
+                              </option>
+                            ) : null}
                           </select>
                         </LabeledField>
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-2">
+                      <div className="grid gap-3 md:grid-cols-3">
                         <LabeledField label="Descripción corta" required>
                           <textarea
                             value={catalogEditor.web_short_description}
@@ -2162,6 +2828,36 @@ export default function ComercioWebPage() {
                             rows={4}
                             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
                           />
+                        </LabeledField>
+                        <LabeledField label="Garantía (detalle)">
+                          <select
+                            value=""
+                            onChange={(event) => {
+                              const selected = event.target.value;
+                              if (!selected) return;
+                              handleCatalogField("web_warranty_text", selected);
+                            }}
+                            className="mb-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                          >
+                            <option value="">Seleccionar opción rápida</option>
+                            {WARRANTY_PRESET_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            value={catalogEditor.web_warranty_text}
+                            onChange={(event) =>
+                              handleCatalogField("web_warranty_text", event.target.value)
+                            }
+                            placeholder="Ej: Garantía de 12 meses"
+                            maxLength={160}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                          />
+                          <p className="mt-1 text-xs text-slate-500">
+                            Solo se muestra en el detalle del producto.
+                          </p>
                         </LabeledField>
                       </div>
 
@@ -2600,6 +3296,429 @@ export default function ComercioWebPage() {
             </SectionCard>
             ) : null}
           </section>
+          ) : null}
+          {catalogWorkspaceView === "categories" ? (
+            <SectionCard
+              title="Categorías web"
+              subtitle="Gestiona las categorías que se usan para publicar y filtrar el catálogo web."
+            >
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    {catalogCategoryEditingId ? "Editar categoría" : "Crear categoría"}
+                  </p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <input
+                      value={catalogCategoryEditor.key}
+                      onChange={(event) =>
+                        setCatalogCategoryEditor((prev) => ({
+                          ...prev,
+                          key: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""),
+                        }))
+                      }
+                      placeholder="Clave (ej: audio-profesional)"
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                    />
+                    <input
+                      value={catalogCategoryEditor.name}
+                      onChange={(event) =>
+                        setCatalogCategoryEditor((prev) => ({ ...prev, name: event.target.value }))
+                      }
+                      placeholder="Nombre visible"
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                    />
+                    <input
+                      type="number"
+                      value={catalogCategoryEditor.sort_order}
+                      onChange={(event) =>
+                        setCatalogCategoryEditor((prev) => ({
+                          ...prev,
+                          sort_order: event.target.value,
+                        }))
+                      }
+                      placeholder="Orden"
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                    />
+                    <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={catalogCategoryEditor.is_active}
+                        onChange={(event) =>
+                          setCatalogCategoryEditor((prev) => ({
+                            ...prev,
+                            is_active: event.target.checked,
+                          }))
+                        }
+                      />
+                      Activa
+                    </label>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={!canManage || catalogCategorySaving}
+                      onClick={() => void handleSaveCatalogCategory()}
+                      className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
+                      style={{
+                        backgroundColor: canManage ? "#2563eb" : "#bfdbfe",
+                        borderColor: canManage ? "#1d4ed8" : "#93c5fd",
+                        color: canManage ? "#ffffff" : "#1e3a8a",
+                      }}
+                    >
+                      {catalogCategorySaving
+                        ? "Guardando..."
+                        : catalogCategoryEditingId
+                          ? "Guardar cambios"
+                          : "+ Crear categoría"}
+                    </button>
+                    {catalogCategoryEditingId ? (
+                      <button
+                        type="button"
+                        onClick={resetCategoryEditor}
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                      >
+                        Cancelar edición
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void loadCatalogCategories()}
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                    >
+                      Refrescar categorías
+                    </button>
+                  </div>
+                  {catalogCategoryError ? (
+                    <p className="mt-2 text-sm text-rose-600">{catalogCategoryError}</p>
+                  ) : null}
+                </div>
+
+                <div className="max-h-[30rem] overflow-auto rounded-2xl border border-slate-200">
+                  {catalogCategoryLoading ? (
+                    <div className="px-4 py-8 text-sm text-slate-500">Cargando categorías…</div>
+                  ) : catalogCategories.length === 0 ? (
+                    <div className="px-4 py-8 text-sm text-slate-500">
+                      Aún no hay categorías configuradas.
+                    </div>
+                  ) : (
+                    <table className="min-w-full text-sm">
+                      <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                        <tr>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Clave</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Nombre</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Orden</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Productos</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Estado</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orderedCatalogCategories.map((row, index) => (
+                          <tr key={row.id} className="border-b border-slate-100">
+                            <td className="px-4 py-3 font-mono text-xs text-slate-700">{row.key}</td>
+                            <td className="px-4 py-3 font-medium text-slate-900">{row.name}</td>
+                            <td className="px-4 py-3 text-slate-700">{row.sort_order}</td>
+                            <td className="px-4 py-3 text-slate-700">{row.product_count}</td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                                  row.is_active
+                                    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                    : "border-slate-300 bg-slate-100 text-slate-600"
+                                }`}
+                              >
+                                {row.is_active ? "activa" : "inactiva"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  disabled={!canManage || catalogCategorySaving || index === 0}
+                                  onClick={() => void handleMoveCatalogCategory(row, "up")}
+                                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                  title="Subir"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    !canManage ||
+                                    catalogCategorySaving ||
+                                    index === orderedCatalogCategories.length - 1
+                                  }
+                                  onClick={() => void handleMoveCatalogCategory(row, "down")}
+                                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                  title="Bajar"
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => editCategoryRow(row)}
+                                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!canManage || catalogCategorySaving}
+                                  onClick={() => void handleDeleteCatalogCategory(row)}
+                                  className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Eliminar
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </SectionCard>
+          ) : null}
+          {catalogWorkspaceView === "discount_codes" ? (
+            <SectionCard
+              title="Códigos de descuento"
+              subtitle="Crea, activa y controla vigencia de códigos promocionales para el canal web."
+            >
+              <div className="space-y-4">
+                {!discountCodeComposerOpen ? (
+                  <div>
+                    <button
+                      type="button"
+                      disabled={!canManage || discountCodeSaving}
+                      onClick={openCreateDiscountCodeComposer}
+                      className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
+                      style={{
+                        backgroundColor: canManage && !discountCodeSaving ? "#2563eb" : "#bfdbfe",
+                        borderColor: canManage && !discountCodeSaving ? "#1d4ed8" : "#93c5fd",
+                        color: canManage && !discountCodeSaving ? "#ffffff" : "#1e3a8a",
+                      }}
+                    >
+                      + Crear cupón
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      {discountCodeEditingId ? "Editar cupón" : "Crear cupón"}
+                    </p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+                      <input
+                        value={discountCodeEditor.code}
+                        onChange={(event) =>
+                          setDiscountCodeEditor((prev) => ({
+                            ...prev,
+                            code: event.target.value.toUpperCase(),
+                          }))
+                        }
+                        placeholder="Código (ej: KENSAR10)"
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      />
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        step={0.1}
+                        value={discountCodeEditor.discount_percent}
+                        onChange={(event) =>
+                          setDiscountCodeEditor((prev) => ({ ...prev, discount_percent: event.target.value }))
+                        }
+                        placeholder="% descuento"
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      />
+                      <select
+                        value={discountCodeEditor.period}
+                        onChange={(event) =>
+                          handleDiscountCodePeriodChange(event.target.value as DiscountCodePeriodOption)
+                        }
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      >
+                        {DISCOUNT_PERIOD_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={discountCodeEditor.max_uses}
+                        onChange={(event) =>
+                          setDiscountCodeEditor((prev) => ({ ...prev, max_uses: event.target.value }))
+                        }
+                        placeholder="Uso máximo (opcional)"
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      />
+                      <input
+                        type="datetime-local"
+                        value={discountCodeEditor.starts_at}
+                        onChange={(event) =>
+                          setDiscountCodeEditor((prev) => ({ ...prev, starts_at: event.target.value }))
+                        }
+                        disabled={discountCodeEditor.period !== "custom"}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      />
+                      <input
+                        type="datetime-local"
+                        value={discountCodeEditor.ends_at}
+                        onChange={(event) =>
+                          setDiscountCodeEditor((prev) => ({ ...prev, ends_at: event.target.value }))
+                        }
+                        disabled={discountCodeEditor.period !== "custom"}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                      />
+                      <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={discountCodeEditor.is_active}
+                          onChange={(event) =>
+                            setDiscountCodeEditor((prev) => ({ ...prev, is_active: event.target.checked }))
+                          }
+                        />
+                        Activo
+                      </label>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={!canManage || discountCodeSaving}
+                        onClick={() => void handleSaveDiscountCode()}
+                        className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
+                        style={{
+                          backgroundColor: canManage && !discountCodeSaving ? "#2563eb" : "#bfdbfe",
+                          borderColor: canManage && !discountCodeSaving ? "#1d4ed8" : "#93c5fd",
+                          color: canManage && !discountCodeSaving ? "#ffffff" : "#1e3a8a",
+                        }}
+                      >
+                        {discountCodeSaving
+                          ? "Guardando..."
+                          : discountCodeEditingId
+                            ? "Guardar cambios"
+                            : "Crear cupón"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => resetDiscountCodeEditor(true)}
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                    {discountCodeError ? (
+                      <p className="mt-2 text-sm text-rose-600">{discountCodeError}</p>
+                    ) : null}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-900">Tabla de códigos</h3>
+                  <span className="text-xs text-slate-500">
+                    Mostrando {discountCodeStartIndex}-{discountCodeEndIndex} de {discountCodeTotal}
+                  </span>
+                </div>
+
+                <div className="max-h-[30rem] overflow-auto rounded-2xl border border-slate-200">
+                  {discountCodeLoading ? (
+                    <div className="px-4 py-8 text-sm text-slate-500">Cargando códigos…</div>
+                  ) : discountCodeRows.length === 0 ? (
+                    <div className="px-4 py-8 text-sm text-slate-500">
+                      Aún no hay códigos de descuento configurados.
+                    </div>
+                  ) : (
+                    <table className="min-w-full text-sm">
+                      <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                        <tr>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Código</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Descuento</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Uso</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Inicio</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Fin</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Estado</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {discountCodeRows.map((row) => (
+                          <tr key={row.id} className="border-b border-slate-100">
+                            <td className="px-4 py-3 font-semibold text-slate-900">{row.code}</td>
+                            <td className="px-4 py-3 text-slate-700">{row.discount_percent}%</td>
+                            <td className="px-4 py-3 text-slate-700">
+                              {row.max_uses ? `${row.uses_count || 0} / ${row.max_uses}` : "Ilimitado"}
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">{formatDateTime(row.starts_at)}</td>
+                            <td className="px-4 py-3 text-slate-700">{formatDateTime(row.ends_at)}</td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                                  row.is_active
+                                    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                    : "border-slate-300 bg-slate-100 text-slate-600"
+                                }`}
+                              >
+                                {row.is_active ? "activo" : "inactivo"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => editDiscountCodeRow(row)}
+                                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!canManage || discountCodeSaving}
+                                  onClick={() => void handleToggleDiscountCode(row)}
+                                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {row.is_active ? "Desactivar" : "Activar"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+                {discountCodeTotal > 0 ? (
+                  <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs text-slate-600">
+                      Página {discountCodePage} de {discountCodeTotalPages}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDiscountCodePage((prev) => Math.max(1, prev - 1))}
+                        disabled={discountCodePage <= 1}
+                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Anterior
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDiscountCodePage((prev) => Math.min(discountCodeTotalPages, prev + 1))
+                        }
+                        disabled={discountCodePage >= discountCodeTotalPages}
+                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </SectionCard>
+          ) : null}
           </section>
         ) : null}
 
