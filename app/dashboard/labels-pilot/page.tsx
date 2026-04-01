@@ -282,7 +282,6 @@ export default function LabelsPilotPage() {
 
         const normalizedQuery = query.toLowerCase();
         const filtered = data
-          .filter((product) => product.active)
           .filter((product) => {
             const haystack = [
               product.sku ?? "",
