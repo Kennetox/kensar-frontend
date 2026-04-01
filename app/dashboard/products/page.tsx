@@ -413,6 +413,7 @@ export default function ProductsPage() {
   const tableRef = useRef<HTMLTableElement | null>(null);
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const { token, user } = useAuth();
+  const isAdmin = user?.role === "Administrador";
   const canImportProducts = user?.role === "Administrador";
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
@@ -1480,7 +1481,7 @@ export default function ProductsPage() {
         active: createForm.active,
         service: createForm.service,
         includes_tax: createForm.includes_tax,
-        is_investment: createForm.is_investment,
+        is_investment: isAdmin ? createForm.is_investment : false,
         group_name: createForm.group_name || null,
         brand: createForm.brand || null,
         supplier: createForm.supplier || null,
@@ -1675,7 +1676,9 @@ export default function ProductsPage() {
       payload.active = editForm.active;
       payload.service = editForm.service;
       payload.includes_tax = editForm.includes_tax;
-      payload.is_investment = editForm.is_investment;
+      if (isAdmin) {
+        payload.is_investment = editForm.is_investment;
+      }
       payload.group_name = editForm.group_name || null;
       payload.brand = editForm.brand || null;
       payload.supplier = editForm.supplier || null;
@@ -2984,16 +2987,18 @@ export default function ProductsPage() {
                   />
                   Precio incluye impuestos
                 </label>
-                <label className="inline-flex items-center gap-2 text-slate-300">
-                  <input
-                    type="checkbox"
-                    name="is_investment"
-                    checked={createForm.is_investment}
-                    onChange={(e) => handleFormChange(e, setCreateForm)}
-                    className="rounded border-slate-600 bg-slate-900"
-                  />
-                  Es inversión
-                </label>
+                {isAdmin && (
+                  <label className="inline-flex items-center gap-2 text-slate-300">
+                    <input
+                      type="checkbox"
+                      name="is_investment"
+                      checked={createForm.is_investment}
+                      onChange={(e) => handleFormChange(e, setCreateForm)}
+                      className="rounded border-slate-600 bg-slate-900"
+                    />
+                    Es inversión
+                  </label>
+                )}
               </div>
 
               <div className="md:col-span-2 flex justify-end mt-2 gap-2">
@@ -3318,16 +3323,18 @@ export default function ProductsPage() {
                   />
                   Precio incluye impuestos
                 </label>
-                <label className="inline-flex items-center gap-2 text-slate-300">
-                  <input
-                    type="checkbox"
-                    name="is_investment"
-                    checked={editForm.is_investment}
-                    onChange={(e) => handleFormChange(e, setEditForm)}
-                    className="rounded border-slate-600 bg-slate-900"
-                  />
-                  Es inversión
-                </label>
+                {isAdmin && (
+                  <label className="inline-flex items-center gap-2 text-slate-300">
+                    <input
+                      type="checkbox"
+                      name="is_investment"
+                      checked={editForm.is_investment}
+                      onChange={(e) => handleFormChange(e, setEditForm)}
+                      className="rounded border-slate-600 bg-slate-900"
+                    />
+                    Es inversión
+                  </label>
+                )}
               </div>
 
               {editedProduct && (
