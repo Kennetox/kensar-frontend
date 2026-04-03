@@ -33,6 +33,10 @@ import {
   type SeparatedOrderPayment,
 } from "@/lib/api/separatedOrders";
 import {
+  fetchComercioWebOrders,
+  type ComercioWebOrder,
+} from "@/lib/api/comercioWeb";
+import {
   buildBogotaDateFromKey,
   formatBogotaDate,
   getBogotaDateKey,
@@ -318,6 +322,7 @@ type DocumentRow = {
   id: string;
   type:
     | "venta"
+    | "orden_web"
     | "devolucion"
     | "cambio"
     | "cierre"
@@ -348,6 +353,7 @@ type DocumentRow = {
   closureId?: number | null;
   data:
     | SaleRecord
+    | ComercioWebOrder
     | ReturnRecord
     | ChangeRecord
     | ClosureRecord
@@ -381,6 +387,7 @@ type DocumentAdjustmentRecord = {
 type DocumentsCachePayload = {
   savedAt: number;
   sales: SaleRecord[];
+  webOrders: ComercioWebOrder[];
   returns: ReturnRecord[];
   changes: ChangeRecord[];
   closures: ClosureRecord[];
@@ -761,6 +768,7 @@ export default function DocumentsExplorer({
   );
   const today = getBogotaDateKey();
   const [sales, setSales] = useState<SaleRecord[]>([]);
+  const [webOrders, setWebOrders] = useState<ComercioWebOrder[]>([]);
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [changes, setChanges] = useState<ChangeRecord[]>([]);
   const [closures, setClosures] = useState<ClosureRecord[]>([]);
@@ -874,7 +882,7 @@ export default function DocumentsExplorer({
     try {
       setLoading(true);
       setError(null);
-      if (!authHeaders) throw new Error("Sin sesión activa");
+      if (!authHeaders || !token) throw new Error("Sin sesión activa");
       const apiBase = getApiBase();
       const PAGE_SIZE = 200;
       const force = options?.force === true;
@@ -899,8 +907,11 @@ export default function DocumentsExplorer({
       const needsSales =
         filterType === "all" ||
         filterType === "venta" ||
+        filterType === "orden_web" ||
         filterType === "anulacion" ||
         filterType === "abono";
+      const needsWebOrders =
+        filterType === "all" || filterType === "orden_web";
       const needsReturns =
         filterType === "all" ||
         filterType === "devolucion" ||
@@ -923,6 +934,7 @@ export default function DocumentsExplorer({
 
       const applyLoadedState = (payload: DocumentsCachePayload) => {
         setSales(payload.sales);
+        setWebOrders(payload.webOrders ?? []);
         setReturns(payload.returns);
         setChanges(payload.changes);
         setClosures(payload.closures);
@@ -933,6 +945,7 @@ export default function DocumentsExplorer({
         setSaleAdjustmentsById(payload.saleAdjustmentsById);
         const docsList = mappedDocuments(
           payload.sales,
+          payload.webOrders ?? [],
           payload.returns,
           payload.changes,
           payload.closures,
@@ -1151,6 +1164,7 @@ export default function DocumentsExplorer({
       const rangeParams = buildRangeParams();
       const [
         salesData,
+        webOrdersData,
         returnsData,
         changesData,
         closuresData,
@@ -1163,6 +1177,9 @@ export default function DocumentsExplorer({
         await Promise.all([
           needsSales
             ? fetchAllPages<SaleRecord>("/pos/sales", rangeParams)
+            : Promise.resolve([]),
+          needsWebOrders
+            ? fetchComercioWebOrders(token, { limit: 200 })
             : Promise.resolve([]),
           needsReturns
             ? fetchAllPages<ReturnRecord>("/pos/returns", rangeParams)
@@ -1223,6 +1240,7 @@ export default function DocumentsExplorer({
       const payload: DocumentsCachePayload = {
         savedAt: Date.now(),
         sales: salesData,
+        webOrders: webOrdersData,
         returns: returnsData,
         changes: changesData,
         closures: closuresData,
@@ -1715,6 +1733,7 @@ export default function DocumentsExplorer({
 
   function mappedDocuments(
     salesList: SaleRecord[],
+    webOrdersList: ComercioWebOrder[],
     returnsList: ReturnRecord[],
     changesList: ChangeRecord[],
     closuresList: ClosureRecord[],
@@ -1770,6 +1789,41 @@ export default function DocumentsExplorer({
         status: sale.status,
         closureId: sale.closure_id ?? null,
         data: sale,
+      };
+    });
+
+    const webOrderDocs: DocumentRow[] = webOrdersList.map((order) => {
+      const firstItem =
+        order.items && order.items.length > 0 ? order.items[0] : undefined;
+      const conversionLabel = order.sale_document_number
+        ? `Convertida a ${order.sale_document_number}`
+        : "Sin convertir a venta";
+      const paymentMethod =
+        order.payments?.find((payment) => payment.status === "approved")?.method ??
+        order.payments?.[0]?.method;
+      return {
+        id: `web-order-${order.id}`,
+        type: "orden_web",
+        recordId: order.id,
+        saleId: order.sale_id ?? undefined,
+        createdAt: order.created_at,
+        documentNumber:
+          order.document_number ?? `OW-${String(order.id).padStart(6, "0")}`,
+        reference: conversionLabel,
+        detail: firstItem
+          ? `${firstItem.product_name || "Producto"} x${firstItem.quantity ?? 1}`
+          : "Orden web sin detalle",
+        total: toNumber(order.total),
+        paymentMethod: paymentMethod ?? undefined,
+        customer: order.customer_name ?? undefined,
+        pos: "Comercio Web",
+        vendor: undefined,
+        linkedDocumentId: order.sale_id ? `sale-${order.sale_id}` : undefined,
+        linkedDocumentNumber: order.sale_document_number ?? undefined,
+        linkedDocumentType: order.sale_document_number ? "Venta" : undefined,
+        status: order.status,
+        closureId: null,
+        data: order,
       };
     });
 
@@ -2023,6 +2077,7 @@ export default function DocumentsExplorer({
 
     return [
       ...saleDocs,
+      ...webOrderDocs,
       ...returnDocs,
       ...changeDocs,
       ...abonoDocs,
@@ -2041,6 +2096,7 @@ export default function DocumentsExplorer({
     () =>
       mappedDocuments(
         sales,
+        webOrders,
         returns,
         changes,
         closures,
@@ -2049,13 +2105,16 @@ export default function DocumentsExplorer({
         manualMovementDocs,
         recountDocs
       ),
-    [sales, returns, changes, closures, separatedOrders, receivingDocs, manualMovementDocs, recountDocs]
+    [sales, webOrders, returns, changes, closures, separatedOrders, receivingDocs, manualMovementDocs, recountDocs]
   );
 
   const canAdjustDocuments = canDoDocumentAction("documents.sales.adjust");
   const canVoidDocuments = canDoDocumentAction("documents.sales.void");
   const getStatusLabel = (status?: string) => {
     if (!status || status === "active" || status === "confirmed") return null;
+    if (status === "paid") return "Pagado";
+    if (status === "pending_payment") return "Pendiente de pago";
+    if (status === "payment_failed") return "Pago fallido";
     if (status === "voided") return "Anulado";
     if (status === "adjusted") return "Ajustado";
     if (status === "adjustment") return "Ajuste";
@@ -2066,6 +2125,20 @@ export default function DocumentsExplorer({
     if (status === "open") return "Abierto";
     if (status === "cancelled") return "Cancelado";
     return status;
+  };
+  const getStatusBadgeClass = (status?: string) => {
+    if (
+      status === "voided" ||
+      status === "payment_failed" ||
+      status === "failed" ||
+      status === "cancelled"
+    ) {
+      return "border-rose-400/70 bg-rose-50 text-rose-700";
+    }
+    if (status === "paid" || status === "approved" || status === "fulfilled" || status === "ready") {
+      return "border-emerald-300/80 bg-emerald-50 text-emerald-700";
+    }
+    return "border-amber-400/80 bg-amber-200 text-amber-900";
   };
 
   const isAnnulationDocument = (doc: DocumentRow) => {
@@ -2302,6 +2375,20 @@ useEffect(() => {
 }, [selectedDoc, authHeaders, logout]);
 
 const selectedDetails = selectedDoc?.data;
+  const selectedWebOrder =
+    selectedDoc?.type === "orden_web"
+      ? (selectedDetails as ComercioWebOrder | null)
+      : null;
+  const selectedWebOrderCancellationReason =
+    selectedWebOrder?.status === "cancelled"
+      ? [...(selectedWebOrder.status_logs ?? [])]
+          .sort((a, b) => {
+            const left = parseDateInput(a.created_at)?.getTime() ?? 0;
+            const right = parseDateInput(b.created_at)?.getTime() ?? 0;
+            return right - left;
+          })
+          .find((entry) => entry.to_status === "cancelled")?.note ?? null
+      : null;
   const selectedSupportFile =
     selectedReceivingDetail?.lot ??
     (selectedDoc?.type === "recepcion"
@@ -2376,6 +2463,8 @@ const selectedDetails = selectedDoc?.data;
           ? doc.status === "voided"
             ? "Anulacion"
             : "Venta"
+          : doc.type === "orden_web"
+          ? "Orden web"
           : doc.type === "devolucion"
           ? isAnnulation
             ? "Anulacion"
@@ -2477,6 +2566,7 @@ const selectedDocCanShowVoidButton =
   !!selectedDoc &&
   canVoidDocuments &&
   selectedDoc.type !== "cierre" &&
+  selectedDoc.type !== "orden_web" &&
   selectedDoc.type !== "abono" &&
   selectedDoc.type !== "recepcion" &&
   selectedDoc.type !== "recuento" &&
@@ -2485,6 +2575,7 @@ const selectedDocCanVoid =
   !!selectedDoc &&
   canVoidDocuments &&
   selectedDoc.type !== "cierre" &&
+  selectedDoc.type !== "orden_web" &&
   selectedDoc.type !== "abono" &&
   selectedDoc.type !== "recepcion" &&
   selectedDoc.type !== "recuento" &&
@@ -3245,6 +3336,7 @@ useEffect(() => {
     : !canVoidDocuments
     ? "No tienes permisos"
     : selectedDoc.type === "cierre" ||
+      selectedDoc.type === "orden_web" ||
       selectedDoc.type === "abono" ||
       selectedDoc.type === "recepcion" ||
       selectedDoc.type === "recuento"
@@ -3333,7 +3425,7 @@ useEffect(() => {
           <div>
             <h1 className="text-2xl font-semibold text-slate-50">Documentos</h1>
             <p className="text-sm text-slate-400">
-              Historial completo de ventas, devoluciones y otros movimientos documentados.
+              Historial de ventas, órdenes web y movimientos documentados.
             </p>
             {error && <p className="text-xs text-red-400">{error}</p>}
           </div>
@@ -3378,6 +3470,7 @@ useEffect(() => {
             >
               <option value="all">Todos</option>
               <option value="venta">Ventas</option>
+              <option value="orden_web">Órdenes web</option>
               <option value="devolucion">Devoluciones</option>
               <option value="cambio">Cambios</option>
               <option value="anulacion">Anulaciones</option>
@@ -3700,6 +3793,8 @@ useEffect(() => {
                         ? doc.status === "voided"
                           ? "Anulación"
                           : "Venta"
+                        : doc.type === "orden_web"
+                        ? "Orden web"
                         : doc.type === "devolucion"
                         ? isAnnulation
                           ? "Anulación"
@@ -3771,6 +3866,8 @@ useEffect(() => {
                                   ? doc.status === "voided"
                                     ? "border-rose-400/70 bg-rose-50 text-rose-700"
                                     : "border-emerald-300/80 bg-emerald-50 text-emerald-700"
+                                  : doc.type === "orden_web"
+                                  ? "border-indigo-300/80 bg-indigo-50 text-indigo-700"
                                   : doc.type === "devolucion"
                                   ? isAnnulation
                                     ? "border-rose-400/70 bg-rose-50 text-rose-700"
@@ -3788,11 +3885,7 @@ useEffect(() => {
                             </span>
                             {statusLabel && (
                               <span
-                                className={`px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm whitespace-nowrap ${
-                                  doc.status === "voided"
-                                    ? "border-rose-400/70 bg-rose-50 text-rose-700"
-                                    : "border-amber-400/80 bg-amber-200 text-amber-900"
-                                }`}
+                                className={`px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm whitespace-nowrap ${getStatusBadgeClass(doc.status)}`}
                               >
                                 {statusLabel}
                               </span>
@@ -3802,6 +3895,17 @@ useEffect(() => {
                         <td className="px-3 py-2 text-sm align-top">
                           <span className="block truncate flex items-center gap-2">
                             <span className="truncate">{doc.detail}</span>
+                            {doc.type === "orden_web" && (
+                              <span
+                                className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border font-semibold ${
+                                  doc.linkedDocumentNumber
+                                    ? "border-emerald-400/70 bg-emerald-50 text-emerald-700"
+                                    : "border-slate-600 bg-slate-800 text-slate-300"
+                                }`}
+                              >
+                                {doc.linkedDocumentNumber ? "Convertida" : "Sin convertir"}
+                              </span>
+                            )}
                             {hasAdjustment && (
                               <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-700 text-white bg-sky-600 shadow-[0_0_0_1px_rgba(3,105,161,0.28)] font-semibold">
                                 Ajustado
@@ -3876,6 +3980,8 @@ useEffect(() => {
                   <span className="text-right text-slate-100">
                     {selectedDoc.type === "venta"
                       ? "Venta"
+                      : selectedDoc.type === "orden_web"
+                      ? "Orden web"
                       : selectedDoc.type === "devolucion"
                       ? selectedDoc.isAnnulation
                         ? "Anulación"
@@ -3897,11 +4003,7 @@ useEffect(() => {
                   <div className="flex justify-between gap-3">
                     <span className="text-slate-400">Estado</span>
                     <span
-                      className={`text-right inline-flex items-center px-2.5 py-1 rounded-full border text-xs uppercase font-semibold ${
-                        selectedDoc.status === "voided"
-                          ? "border-rose-300/80 bg-rose-50 text-rose-700"
-                          : "border-amber-400/80 bg-amber-200 text-amber-900"
-                      }`}
+                      className={`text-right inline-flex items-center px-2.5 py-1 rounded-full border text-xs uppercase font-semibold ${getStatusBadgeClass(selectedDoc.status)}`}
                     >
                       {selectedDocStatusLabel}
                     </span>
@@ -3913,6 +4015,30 @@ useEffect(() => {
                     {selectedDoc.reference}
                   </span>
                 </div>
+                {selectedDoc.type === "orden_web" && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-slate-400">Conversión a venta</span>
+                    <span
+                      className={`text-right inline-flex items-center px-2.5 py-1 rounded-full border text-xs uppercase font-semibold ${
+                        selectedDoc.linkedDocumentNumber
+                          ? "border-emerald-300/80 bg-emerald-50 text-emerald-700"
+                          : "border-slate-500/80 bg-slate-800 text-slate-300"
+                      }`}
+                    >
+                      {selectedDoc.linkedDocumentNumber ? "Convertida" : "Sin convertir"}
+                    </span>
+                  </div>
+                )}
+                {selectedDoc.type === "orden_web" &&
+                  selectedDoc.status === "cancelled" &&
+                  selectedWebOrderCancellationReason && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-400">Motivo cancelación</span>
+                      <span className="text-right text-rose-300 max-w-[70%]">
+                        {selectedWebOrderCancellationReason}
+                      </span>
+                    </div>
+                  )}
                 {selectedDoc.linkedDocumentNumber && selectedDoc.linkedDocumentType && (
                   <div className="flex justify-between gap-3">
                     <span className="text-slate-400">Documento vinculado</span>

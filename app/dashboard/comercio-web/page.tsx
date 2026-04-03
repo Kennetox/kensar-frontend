@@ -370,6 +370,20 @@ function getPrimaryContact(order: ComercioWebOrder): string {
   return order.customer_phone || order.customer_email || "Sin contacto";
 }
 
+function isOrderConverted(order: ComercioWebOrder): boolean {
+  return Boolean(order.sale_id || order.sale_document_number);
+}
+
+function conversionBadgeClass(order: ComercioWebOrder): string {
+  return isOrderConverted(order)
+    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+    : "border-slate-300 bg-slate-100 text-slate-700";
+}
+
+function conversionBadgeLabel(order: ComercioWebOrder): string {
+  return isOrderConverted(order) ? "Venta convertida" : "Sin convertir";
+}
+
 function getCatalogDisplayName(product: ComercioWebCatalogProduct): string {
   return product.web_name?.trim() || product.name;
 }
@@ -3893,6 +3907,9 @@ export default function ComercioWebPage() {
                             <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusBadgeClass(order.payment_status)}`}>
                               pago {order.payment_status}
                             </span>
+                            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${conversionBadgeClass(order)}`}>
+                              {conversionBadgeLabel(order)}
+                            </span>
                           </div>
                           <p className="mt-2 text-sm text-slate-700">
                             {order.customer_name || "Cliente web"} · {getPrimaryContact(order)}
@@ -3904,7 +3921,7 @@ export default function ComercioWebPage() {
                         <div className="text-right">
                           <p className="text-lg font-semibold text-slate-900">{formatMoney(order.total)}</p>
                           {order.sale_document_number ? (
-                            <p className="mt-1 text-xs font-medium text-emerald-700">{order.sale_document_number}</p>
+                            <p className="mt-1 text-xs font-medium text-emerald-700">Venta {order.sale_document_number}</p>
                           ) : null}
                         </div>
                       </div>
@@ -3937,6 +3954,34 @@ export default function ComercioWebPage() {
                     <InfoPill label="Estado" value={selectedOrder.status} />
                     <InfoPill label="Pago" value={selectedOrder.payment_status} />
                     <InfoPill label="Fulfillment" value={selectedOrder.fulfillment_status} />
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-900">Estado de conversión a venta</p>
+                      <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${conversionBadgeClass(selectedOrder)}`}>
+                        {conversionBadgeLabel(selectedOrder)}
+                      </span>
+                    </div>
+                    {isOrderConverted(selectedOrder) ? (
+                      <div className="mt-3 space-y-1.5 text-sm text-slate-700">
+                        <p>
+                          Documento de venta:{" "}
+                          <span className="font-semibold text-slate-900">
+                            {selectedOrder.sale_document_number || `#${selectedOrder.sale_id}`}
+                          </span>
+                        </p>
+                        {selectedOrder.converted_to_sale_at ? (
+                          <p className="text-xs text-slate-500">
+                            Convertida el {formatDateTime(selectedOrder.converted_to_sale_at)}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-slate-600">
+                        Esta orden aún no tiene ticket de venta (`V-*`) generado.
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2">
@@ -4450,6 +4495,9 @@ function QueueList({
                 <p className="text-sm font-medium text-slate-900">{order.document_number || `Orden #${order.id}`}</p>
                 <p className="mt-1 text-xs text-slate-500">
                   {order.customer_name || "Cliente web"} · {getPrimaryContact(order)}
+                </p>
+                <p className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${conversionBadgeClass(order)}`}>
+                  {conversionBadgeLabel(order)}
                 </p>
               </div>
               <span className="text-sm font-semibold text-slate-900">{formatMoney(order.total)}</span>

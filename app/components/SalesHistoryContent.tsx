@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
@@ -293,7 +294,12 @@ function getAdjustedPaymentsFromAdjustments(
   return payments.length ? payments : null;
 }
 
-type QuickRange = "today" | "yesterday" | "thisWeek" | "thisMonth";
+type QuickRange =
+  | "today"
+  | "yesterday"
+  | "thisWeek"
+  | "thisMonth"
+  | "lastMonth";
 
 type DashboardRole = PosUserRecord["role"];
 
@@ -334,6 +340,23 @@ function getQuickRangeDates(range: QuickRange) {
       return {
         from: getBogotaDateKey(startOfMonth),
         to: todayKey,
+      };
+    }
+    case "lastMonth": {
+      const { year, month } = getBogotaDateParts();
+      let previousYear = Number(year);
+      let previousMonth = Number(month) - 1;
+      if (previousMonth === 0) {
+        previousMonth = 12;
+        previousYear -= 1;
+      }
+      const previousMonthText = String(previousMonth).padStart(2, "0");
+      const lastDay = new Date(
+        Date.UTC(previousYear, previousMonth, 0)
+      ).getUTCDate();
+      return {
+        from: `${previousYear}-${previousMonthText}-01`,
+        to: `${previousYear}-${previousMonthText}-${String(lastDay).padStart(2, "0")}`,
       };
     }
     case "today":
@@ -624,7 +647,35 @@ export default function SalesHistoryContent({
   const [emailFeedback, setEmailFeedback] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [emailRecipient, setEmailRecipient] = useState("");
-  const [showEmailForm, setShowEmailForm] = useState(false);
+  const [emailDocumentType, setEmailDocumentType] = useState<
+    "ticket" | "invoice" | null
+  >(null);
+  const [emailSendBothDocuments, setEmailSendBothDocuments] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  useEffect(() => {
+    if (!emailModalOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setEmailModalOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [emailModalOpen]);
   const [showSaleDetails, setShowSaleDetails] = useState(false);
   const [returnPrintError, setReturnPrintError] = useState<string | null>(null);
   const [returnPrintLoading, setReturnPrintLoading] = useState(false);
@@ -705,6 +756,13 @@ export default function SalesHistoryContent({
         .filter((method) => method.is_active)
         .sort((a, b) => a.order_index - b.order_index),
     [catalog]
+  );
+  const hasMixedPaymentOption = useMemo(
+    () =>
+      paymentOptions.some(
+        (method) => (method.slug ?? "").toLowerCase() === "mixed"
+      ),
+    [paymentOptions]
   );
   const filterFromKey = useMemo(() => (filterFrom ? filterFrom : null), [
     filterFrom,
@@ -1527,11 +1585,7 @@ export default function SalesHistoryContent({
     );
   const canPrintChange =
     !!selectedSale?.changes && selectedSale.changes.length > 0;
-  const trimmedRecipient = emailRecipient.trim();
-  const canEmailTicket =
-    !!selectedSale &&
-    (!showEmailForm || trimmedRecipient.length > 0) &&
-    !emailSending;
+  const canEmailTicket = !!selectedSale && !emailSending;
   const separatedTicketInfo = useMemo(() => {
     if (!selectedSeparatedOrder) return undefined;
     const initialMethodSlug =
@@ -1564,16 +1618,26 @@ export default function SalesHistoryContent({
       setEmailRecipient("");
       setEmailFeedback(null);
       setEmailError(null);
-      setShowEmailForm(false);
+      setEmailDocumentType(null);
+      setEmailSendBothDocuments(false);
+      setEmailModalOpen(false);
       setReturnPrintError(null);
       return;
     }
     setEmailRecipient(selectedSale.customer_email ?? "");
     setEmailFeedback(null);
     setEmailError(null);
-    setShowEmailForm(false);
+    setEmailDocumentType(null);
+    setEmailSendBothDocuments(false);
+    setEmailModalOpen(false);
     setReturnPrintError(null);
   }, [selectedSale]);
+
+  const handleSelectEmailDocumentType = (documentType: "ticket" | "invoice") => {
+    setEmailDocumentType(documentType);
+    setEmailError(null);
+    setEmailFeedback(null);
+  };
 
   const handlePrintTicket = useCallback(async () => {
     if (!selectedSale) return;
@@ -2083,20 +2147,35 @@ export default function SalesHistoryContent({
     token,
   ]);
 
-  const handleEmailTicket = async () => {
+  const handleEmailTicket = () => {
+    if (!selectedSale) return;
+    setEmailModalOpen(true);
+    setEmailFeedback(null);
+    setEmailError(null);
+    setEmailDocumentType(null);
+    setEmailSendBothDocuments(false);
+  };
+
+  const submitEmailDocument = async () => {
     if (!selectedSale) return;
     if (!token) {
       setEmailError("Tu sesión expiró. Vuelve a iniciar sesión.");
       setEmailFeedback(null);
       return;
     }
-    if (!showEmailForm) {
-      setShowEmailForm(true);
+    if (!emailSendBothDocuments && !emailDocumentType) {
+      setEmailError("Selecciona Ticket o Factura completa para continuar.");
+      setEmailFeedback(null);
       return;
     }
+    const documentLabel = emailSendBothDocuments
+      ? "ticket y factura"
+      : emailDocumentType === "invoice"
+      ? "factura completa"
+      : "ticket";
     const recipient = emailRecipient.trim();
     if (recipient.length === 0) {
-      setEmailError("Ingresa un correo para enviar el ticket.");
+      setEmailError(`Ingresa un correo para enviar el ${documentLabel}.`);
       setEmailFeedback(null);
       return;
     }
@@ -2116,6 +2195,8 @@ export default function SalesHistoryContent({
           credentials: "include",
           body: JSON.stringify({
             attach_pdf: true,
+            document_type: emailDocumentType ?? "ticket",
+            send_both_documents: emailSendBothDocuments,
             recipients: [recipient],
           }),
         }
@@ -2124,16 +2205,20 @@ export default function SalesHistoryContent({
         const detail = await res.json().catch(() => null);
         throw new Error(
           detail?.detail ??
-            `No se pudo enviar el ticket por email (Error ${res.status}).`
+            `No se pudo enviar el ${documentLabel} por email (Error ${res.status}).`
         );
       }
-      setEmailFeedback(`Ticket enviado a ${recipient}.`);
+      setEmailFeedback(
+        emailSendBothDocuments
+          ? `Ticket y factura enviados a ${recipient}.`
+          : `${emailDocumentType === "invoice" ? "Factura completa enviada" : "Ticket enviado"} a ${recipient}.`
+      );
     } catch (err) {
       console.error(err);
       setEmailError(
         err instanceof Error
           ? err.message
-          : "No se pudo enviar el ticket por email."
+          : `No se pudo enviar el ${documentLabel} por email.`
       );
     } finally {
       setEmailSending(false);
@@ -2199,6 +2284,7 @@ export default function SalesHistoryContent({
     { label: "Ayer", value: "yesterday" },
     { label: "Esta semana", value: "thisWeek" },
     { label: "Este mes", value: "thisMonth" },
+    { label: "Mes anterior", value: "lastMonth" },
   ];
 
   useEffect(() => {
@@ -2413,7 +2499,6 @@ export default function SalesHistoryContent({
                 type="date"
                 value={filterFrom}
                 onChange={(e) => handleManualFromChange(e.target.value)}
-                onFocus={(e) => e.target.showPicker?.()}
                 disabled={!canUseSalesHistoryRange}
                 className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
@@ -2424,7 +2509,6 @@ export default function SalesHistoryContent({
                 type="date"
                 value={filterTo}
                 onChange={(e) => handleManualToChange(e.target.value)}
-                onFocus={(e) => e.target.showPicker?.()}
                 disabled={!canUseSalesHistoryRange}
                 className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
@@ -2472,6 +2556,9 @@ export default function SalesHistoryContent({
                 className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               >
                 <option value="">Todos</option>
+                {!hasMixedPaymentOption && (
+                  <option value="mixed">Mixto (pagos múltiples)</option>
+                )}
                 {paymentOptions.map((method) => (
                   <option key={method.id} value={method.slug}>
                     {method.name}
@@ -2789,8 +2876,8 @@ export default function SalesHistoryContent({
         </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-5">
-          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-            <div>
+          <div className="flex items-start justify-between mb-3 gap-3 flex-wrap md:flex-nowrap">
+            <div className="min-w-0 md:flex-1">
               <div className="flex items-center gap-3">
                 <h2 className="text-base font-semibold text-slate-100">
                   Detalle de la venta seleccionada
@@ -2818,7 +2905,7 @@ export default function SalesHistoryContent({
                 flechas ↑ / ↓) para ver la información completa.
               </p>
             </div>
-            <div className="flex flex-col items-end gap-2 w-full md:w-auto">
+            <div className="ml-auto flex flex-col items-end gap-2 w-full md:w-[20rem] md:flex-shrink-0">
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
                 <button
                   type="button"
@@ -2870,38 +2957,9 @@ export default function SalesHistoryContent({
                       : "border-slate-300 text-slate-700 bg-white shadow-sm hover:bg-slate-50"
                   }`}
                 >
-                  {!showEmailForm
-                    ? "Enviar por email"
-                    : emailSending
-                    ? "Enviando…"
-                    : "Enviar ticket"}
+                  Enviar por email
                 </button>
               </div>
-              {showEmailForm && (
-                <div className="flex flex-col gap-1 w-full sm:w-80">
-                  <label className="flex flex-col text-base text-slate-400">
-                    <span className="mb-1">Enviar ticket a</span>
-                    <input
-                      type="email"
-                      value={emailRecipient}
-                      onChange={(e) => setEmailRecipient(e.target.value)}
-                      placeholder="cliente@email.com"
-                      className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-base text-slate-100 placeholder:text-slate-500 focus:ring-1 focus:ring-emerald-500"
-                      disabled={!selectedSale}
-                    />
-                  </label>
-                  {emailFeedback && (
-                    <p className="text-base text-emerald-300">
-                      {emailFeedback}
-                    </p>
-                  )}
-                  {emailError && (
-                    <p className="text-base text-rose-300">
-                      {emailError}
-                    </p>
-                  )}
-                </div>
-              )}
               {returnPrintError && (
                 <p className="text-base text-rose-300">
                   {returnPrintError}
@@ -3418,6 +3476,197 @@ export default function SalesHistoryContent({
             </div>
           )}
         </section>
+
+        {isClient &&
+          emailModalOpen &&
+          selectedSale &&
+          createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4"
+            onClick={() => setEmailModalOpen(false)}
+          >
+            <div
+              onClick={(event) => event.stopPropagation()}
+              className={`w-full max-w-md rounded-xl border p-5 shadow-xl ${
+                isPosTheme
+                  ? "border-slate-700 bg-slate-900"
+                  : "border-slate-200 bg-white"
+              }`}
+            >
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <p
+                    className={`text-xs uppercase tracking-wide ${
+                      isPosTheme ? "text-slate-400" : "text-slate-500"
+                    }`}
+                  >
+                    Enviar por email
+                  </p>
+                  <h3
+                    className={`text-lg font-semibold ${
+                      isPosTheme ? "text-slate-100" : "text-slate-900"
+                    }`}
+                  >
+                    {selectedSale.document_number ??
+                      `V-${selectedSale.id.toString().padStart(6, "0")}`}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEmailModalOpen(false)}
+                  className={`text-xl leading-none ${
+                    isPosTheme
+                      ? "text-slate-400 hover:text-slate-200"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                  aria-label="Cerrar"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div
+                  className={`inline-flex w-full rounded-md border p-1 ${
+                    isPosTheme
+                      ? "border-slate-700 bg-slate-950"
+                      : "border-slate-300 bg-slate-100"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleSelectEmailDocumentType("ticket")}
+                    className={`flex-1 rounded px-3 py-2 text-sm font-semibold transition ${
+                      emailDocumentType === "ticket"
+                        ? isPosTheme
+                          ? "bg-emerald-500/20 text-emerald-300"
+                          : "bg-emerald-700 text-white"
+                        : isPosTheme
+                        ? "text-slate-300 hover:text-slate-100"
+                        : "text-slate-600 hover:text-slate-800"
+                    }`}
+                  >
+                    Ticket
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectEmailDocumentType("invoice")}
+                    className={`flex-1 rounded px-3 py-2 text-sm font-semibold transition ${
+                      emailDocumentType === "invoice"
+                        ? isPosTheme
+                          ? "bg-emerald-500/20 text-emerald-300"
+                          : "bg-emerald-700 text-white"
+                        : isPosTheme
+                        ? "text-slate-300 hover:text-slate-100"
+                        : "text-slate-600 hover:text-slate-800"
+                    }`}
+                  >
+                    Factura completa
+                  </button>
+                </div>
+
+                <label
+                  className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                    isPosTheme
+                      ? "border-slate-700 bg-slate-950 text-slate-200"
+                      : "border-slate-300 bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={emailSendBothDocuments}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setEmailSendBothDocuments(checked);
+                      setEmailError(null);
+                      setEmailFeedback(null);
+                    }}
+                    className="h-4 w-4 accent-emerald-600"
+                  />
+                  Enviar ambos (ticket + factura) en un solo correo
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span
+                    className={`text-sm ${
+                      isPosTheme ? "text-slate-300" : "text-slate-700"
+                    }`}
+                  >
+                    {emailSendBothDocuments
+                      ? "Enviar ticket y factura a"
+                      : emailDocumentType
+                      ? `Enviar ${emailDocumentType === "invoice" ? "factura completa" : "ticket"} a`
+                      : "Correo de destino"}
+                  </span>
+                  <input
+                    type="email"
+                    value={emailRecipient}
+                    onChange={(e) => setEmailRecipient(e.target.value)}
+                    placeholder="cliente@email.com"
+                    className={`rounded-md border px-3 py-2 text-base focus:ring-1 focus:ring-emerald-500 ${
+                      isPosTheme
+                        ? "border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+                        : "border-slate-300 bg-white text-slate-700 placeholder:text-slate-400"
+                    }`}
+                  />
+                </label>
+
+                {emailFeedback && (
+                  <p
+                    className={`text-sm ${
+                      isPosTheme ? "text-emerald-300" : "text-emerald-800"
+                    }`}
+                  >
+                    {emailFeedback}
+                  </p>
+                )}
+                {emailError && (
+                  <p
+                    className={`text-sm ${
+                      isPosTheme ? "text-rose-300" : "text-rose-700"
+                    }`}
+                  >
+                    {emailError}
+                  </p>
+                )}
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEmailModalOpen(false)}
+                    className={`rounded-md border px-4 py-2 text-sm font-semibold ${
+                      isPosTheme
+                        ? "border-slate-700 text-slate-200 hover:bg-slate-800"
+                        : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                    }`}
+                    disabled={emailSending}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitEmailDocument()}
+                    className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                    disabled={
+                      emailSending ||
+                      (!emailSendBothDocuments && !emailDocumentType) ||
+                      emailRecipient.trim().length === 0
+                    }
+                  >
+                    {emailSending
+                      ? "Enviando…"
+                      : emailSendBothDocuments
+                      ? "Enviar documentos"
+                      : emailDocumentType === "invoice"
+                      ? "Enviar factura"
+                      : "Enviar ticket"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
       </div>
     </main>
   );
