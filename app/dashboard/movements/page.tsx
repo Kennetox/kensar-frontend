@@ -474,6 +474,7 @@ export default function MovementsPage() {
       search: inventorySearch.trim() || undefined,
       group: inventoryGroupFilter !== "all" ? inventoryGroupFilter : undefined,
       stock: inventoryStockFilter,
+      status: inventoryStatusFilter,
       sort: inventorySort,
     })
       .then((data) => {
@@ -500,6 +501,7 @@ export default function MovementsPage() {
     inventorySearch,
     inventorySort,
     inventoryStockFilter,
+    inventoryStatusFilter,
     inventoryGroupFilter,
     refreshNonce,
   ]);
@@ -705,16 +707,13 @@ export default function MovementsPage() {
 
   useEffect(() => {
     setInventoryPageNo(1);
-  }, [inventorySearch, inventorySort, inventoryStockFilter, inventoryGroupFilter, inventoryPageSize]);
+  }, [inventorySearch, inventorySort, inventoryStockFilter, inventoryStatusFilter, inventoryGroupFilter, inventoryPageSize]);
 
   const inventoryItemsRaw = useMemo(
     () => inventoryPage?.items ?? [],
     [inventoryPage?.items]
   );
-  const inventoryItems = useMemo(() => {
-    if (inventoryStatusFilter === "all") return inventoryItemsRaw;
-    return inventoryItemsRaw.filter((row) => resolveStatus(row) === inventoryStatusFilter);
-  }, [inventoryItemsRaw, inventoryStatusFilter]);
+  const inventoryItems = inventoryItemsRaw;
 
   const inventoryTotal = inventoryPage?.total ?? 0;
   const inventoryPages = Math.max(1, Math.ceil(inventoryTotal / inventoryPageSize));
