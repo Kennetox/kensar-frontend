@@ -213,6 +213,7 @@ const OPERATIVE_STATUS_OPTIONS: Array<{
   { value: "fulfilled", label: "Marcar entregada" },
   { value: "cancelled", label: "Cancelar orden" },
 ];
+const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
 
 const emptyCatalogEditorState: CatalogEditorState = {
   web_name: "",
@@ -358,6 +359,134 @@ function statusBadgeClass(status: string): string {
     default:
       return "border-slate-200 bg-slate-50 text-slate-600";
   }
+}
+
+function translateOrderStatus(status: string): string {
+  switch (status) {
+    case "pending_payment":
+      return "Pendiente de pago";
+    case "paid":
+      return "Pagada";
+    case "processing":
+      return "En proceso";
+    case "ready":
+      return "Lista";
+    case "fulfilled":
+      return "Entregada";
+    case "payment_failed":
+      return "Pago fallido";
+    case "cancelled":
+      return "Cancelada";
+    case "refunded":
+      return "Reembolsada";
+    case "draft":
+      return "Borrador";
+    default:
+      return status;
+  }
+}
+
+function translatePaymentStatus(status: string): string {
+  switch (status) {
+    case "pending":
+      return "Pendiente";
+    case "approved":
+      return "Aprobado";
+    case "failed":
+    case "rejected":
+      return "Rechazado";
+    case "cancelled":
+      return "Cancelado";
+    case "refunded":
+      return "Reembolsado";
+    default:
+      return status;
+  }
+}
+
+function translateFulfillmentStatus(status: string): string {
+  switch (status) {
+    case "pending":
+      return "Pendiente";
+    case "processing":
+      return "En proceso";
+    case "ready":
+      return "Lista";
+    case "fulfilled":
+      return "Entregada";
+    case "cancelled":
+      return "Cancelada";
+    default:
+      return status;
+  }
+}
+
+function extractCheckoutContextFromOrderNotes(notes?: string | null): Record<string, unknown> | null {
+  const raw = (notes || "").trim();
+  if (!raw) return null;
+  const markerIndex = raw.indexOf(CHECKOUT_CONTEXT_NOTE_MARKER);
+  if (markerIndex < 0) return null;
+  const jsonPart = raw.slice(markerIndex + CHECKOUT_CONTEXT_NOTE_MARKER.length).trim();
+  if (!jsonPart) return null;
+  try {
+    const parsed = JSON.parse(jsonPart);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function flattenCheckoutContextEntries(
+  value: unknown,
+  prefix = ""
+): Array<{ key: string; value: string }> {
+  if (value == null) return [];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return [{ key: prefix || "valor", value: String(value) }];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) =>
+      flattenCheckoutContextEntries(entry, `${prefix}[${index}]`)
+    );
+  }
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([entryKey, entryValue]) => {
+      const nextPrefix = prefix ? `${prefix}.${entryKey}` : entryKey;
+      return flattenCheckoutContextEntries(entryValue, nextPrefix);
+    });
+  }
+  return [{ key: prefix || "valor", value: String(value) }];
+}
+
+function formatCheckoutContextKey(key: string): string {
+  return key
+    .replace(/\./g, " / ")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function translateTimelineActorType(actorType?: string): string {
+  const normalized = (actorType || "").trim().toLowerCase();
+  if (normalized === "guest") return "Invitado";
+  if (normalized === "customer") return "Cliente";
+  if (normalized === "pos_user") return "Usuario POS";
+  if (normalized === "system") return "Sistema";
+  return actorType || "Sin actor";
+}
+
+function translateTimelineNote(note?: string | null): string {
+  const raw = (note || "").trim();
+  if (!raw) return "Sin nota adicional";
+  return raw
+    .replace("(approved)", "(aprobado)")
+    .replace("(failed)", "(fallido)")
+    .replace("(cancelled)", "(cancelado)")
+    .replace("(refunded)", "(reembolsado)")
+    .replace("(pending)", "(pendiente)");
 }
 
 function sumApprovedPayments(order: ComercioWebOrder): number {
@@ -1932,6 +2061,14 @@ export default function ComercioWebPage() {
   const selectedRemaining = selectedOrder
     ? Math.max(0, Number(selectedOrder.total || 0) - sumApprovedPayments(selectedOrder))
     : 0;
+  const selectedCheckoutContext = useMemo(
+    () => extractCheckoutContextFromOrderNotes(selectedOrder?.notes),
+    [selectedOrder?.notes]
+  );
+  const selectedCheckoutContextEntries = useMemo(
+    () => flattenCheckoutContextEntries(selectedCheckoutContext),
+    [selectedCheckoutContext]
+  );
   const catalogActionMeta = getCatalogActionMeta(catalogActionConfirm);
 
   return (
@@ -3825,117 +3962,143 @@ export default function ComercioWebPage() {
 
         {activeTab === "orders" ? (
           <section className="space-y-4">
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="grid gap-2 lg:grid-cols-[1.4fr,1fr,1fr,auto,auto]">
-                <input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") setSearch(searchInput);
-                  }}
-                  placeholder="Buscar por OW, cliente, correo o teléfono"
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                />
-                <select
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none"
-                >
-                  {ORDER_STATUS_OPTIONS.map((item) => (
-                    <option key={item.value || "all"} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={paymentStatus}
-                  onChange={(event) => setPaymentStatus(event.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none"
-                >
-                  {PAYMENT_STATUS_OPTIONS.map((item) => (
-                    <option key={item.value || "all"} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setSearch(searchInput)}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-400"
-                >
-                  Aplicar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void loadOrders()}
-                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
-                >
-                  Refrescar
-                </button>
+            <section className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
+                <label className="flex flex-col gap-1 lg:w-[320px] lg:flex-none">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Buscar
+                  </span>
+                  <input
+                    value={searchInput}
+                    onChange={(event) => setSearchInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") setSearch(searchInput);
+                    }}
+                    placeholder="OW, cliente o correo"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 lg:w-[190px] lg:flex-none">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Estado
+                  </span>
+                  <select
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none"
+                  >
+                    {ORDER_STATUS_OPTIONS.map((item) => (
+                      <option key={item.value || "all"} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 lg:w-[190px] lg:flex-none">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Pago
+                  </span>
+                  <select
+                    value={paymentStatus}
+                    onChange={(event) => setPaymentStatus(event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none"
+                  >
+                    {PAYMENT_STATUS_OPTIONS.map((item) => (
+                      <option key={item.value || "all"} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex items-end lg:ml-1">
+                  <button
+                    type="button"
+                    onClick={() => setSearch(searchInput)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-slate-400"
+                  >
+                    Aplicar
+                  </button>
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => void loadOrders()}
+                    className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                  >
+                    Refrescar
+                  </button>
+                </div>
               </div>
               {orderError ? <p className="mt-2 text-sm text-rose-600">{orderError}</p> : null}
             </section>
 
-          <section className="grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
-            <SectionCard title="Listado de órdenes" subtitle="Documentos `OW` creados por el canal web.">
-              {loadingOrders ? (
-                <div className="py-8 text-sm text-slate-500">Cargando órdenes…</div>
-              ) : orders.length === 0 ? (
-                <div className="py-8 text-sm text-slate-500">No hay órdenes para los filtros actuales.</div>
-              ) : (
-                <div className="space-y-3">
-                  {orders.map((order) => (
-                    <button
-                      key={order.id}
-                      type="button"
-                      onClick={() => setSelectedId(order.id)}
-                      className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
-                        selectedId === order.id
-                          ? "border-emerald-300 bg-emerald-50/70"
-                          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-base font-semibold text-slate-900">
+            <section className="grid gap-4 lg:grid-cols-12">
+              <div className="lg:col-span-5">
+                <SectionCard
+                  title="Órdenes"
+                  subtitle={`Lista operativa del canal web (${orders.length})`}
+                >
+                {loadingOrders ? (
+                  <div className="py-8 text-sm text-slate-500">Cargando órdenes…</div>
+                ) : orders.length === 0 ? (
+                  <div className="py-8 text-sm text-slate-500">No hay órdenes para los filtros actuales.</div>
+                ) : (
+                  <div className="max-h-[68vh] space-y-2 overflow-y-auto pr-1">
+                    {orders.map((order) => (
+                      <button
+                        key={order.id}
+                        type="button"
+                        onClick={() => setSelectedId(order.id)}
+                        className={`w-full rounded-2xl border px-3.5 py-3 text-left transition ${
+                          selectedId === order.id
+                            ? "border-emerald-300 bg-emerald-50/70"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-slate-900">
                               {order.document_number || `Orden #${order.id}`}
-                            </span>
-                            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusBadgeClass(order.status)}`}>
-                              {order.status}
-                            </span>
-                            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusBadgeClass(order.payment_status)}`}>
-                              pago {order.payment_status}
-                            </span>
-                            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${conversionBadgeClass(order)}`}>
-                              {conversionBadgeLabel(order)}
-                            </span>
+                            </p>
+                            <p className="mt-1 truncate text-xs text-slate-600">
+                              {order.customer_name || "Cliente web"} · {getPrimaryContact(order)}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusBadgeClass(order.status)}`}>
+                                {translateOrderStatus(order.status)}
+                              </span>
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusBadgeClass(order.payment_status)}`}>
+                                {translatePaymentStatus(order.payment_status)}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              {order.items.length} item{order.items.length === 1 ? "" : "s"} · {formatDateTime(order.created_at)}
+                            </p>
                           </div>
-                          <p className="mt-2 text-sm text-slate-700">
-                            {order.customer_name || "Cliente web"} · {getPrimaryContact(order)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {order.items.length} item{order.items.length === 1 ? "" : "s"} · {formatDateTime(order.created_at)}
-                          </p>
+                          <div className="text-right">
+                            <p className="text-base font-semibold text-slate-900">{formatMoney(order.total)}</p>
+                            {order.sale_document_number ? (
+                              <p className="mt-1 text-[11px] font-medium text-emerald-700">Venta {order.sale_document_number}</p>
+                            ) : (
+                              <p className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium ${conversionBadgeClass(order)}`}>
+                                {conversionBadgeLabel(order)}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-lg font-semibold text-slate-900">{formatMoney(order.total)}</p>
-                          {order.sale_document_number ? (
-                            <p className="mt-1 text-xs font-medium text-emerald-700">Venta {order.sale_document_number}</p>
-                          ) : null}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </SectionCard>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                </SectionCard>
+              </div>
 
-            <SectionCard title="Detalle operativo" subtitle="Pago, items, timeline y acciones disponibles.">
-              {!selectedOrder ? (
-                <div className="text-sm text-slate-500">Selecciona una orden para ver su detalle.</div>
-              ) : (
-                <div className="space-y-5">
+              <div className="lg:col-span-7">
+                <SectionCard title="Detalle operativo" subtitle="Resumen, productos, pagos, timeline y acciones.">
+                  {!selectedOrder ? (
+                    <div className="text-sm text-slate-500">Selecciona una orden de la lista para ver el detalle.</div>
+                  ) : (
+                    <div className="max-h-[68vh] space-y-5 overflow-y-auto pr-1">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Documento web</p>
@@ -3951,9 +4114,38 @@ export default function ComercioWebPage() {
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-3">
-                    <InfoPill label="Estado" value={selectedOrder.status} />
-                    <InfoPill label="Pago" value={selectedOrder.payment_status} />
-                    <InfoPill label="Fulfillment" value={selectedOrder.fulfillment_status} />
+                    <InfoPill label="Estado" value={translateOrderStatus(selectedOrder.status)} />
+                    <InfoPill label="Pago" value={translatePaymentStatus(selectedOrder.payment_status)} />
+                    <InfoPill label="Fulfillment" value={translateFulfillmentStatus(selectedOrder.fulfillment_status)} />
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        Datos capturados en checkout web
+                      </h3>
+                      <span className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600">
+                        {selectedCheckoutContextEntries.length} campo(s)
+                      </span>
+                    </div>
+                    {selectedCheckoutContextEntries.length === 0 ? (
+                      <p className="mt-3 text-sm text-slate-600">
+                        Esta orden no tiene contexto extendido de checkout almacenado.
+                      </p>
+                    ) : (
+                      <div className="mt-3 max-h-64 overflow-y-auto rounded-2xl border border-slate-200 bg-white">
+                        <div className="divide-y divide-slate-100">
+                          {selectedCheckoutContextEntries.map((entry, index) => (
+                            <div key={`${entry.key}-${index}`} className="grid gap-1 px-3 py-2 md:grid-cols-[0.45fr,0.55fr]">
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                {formatCheckoutContextKey(entry.key)}
+                              </p>
+                              <p className="break-words text-sm text-slate-800">{entry.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
@@ -4067,24 +4259,25 @@ export default function ComercioWebPage() {
                             <div key={log.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                               <div className="flex items-center justify-between gap-3">
                                 <p className="text-sm font-medium text-slate-900">
-                                  {log.from_status ? `${log.from_status} → ` : ""}{log.to_status}
+                                  {log.from_status ? `${translateOrderStatus(log.from_status)} → ` : ""}{translateOrderStatus(log.to_status)}
                                 </p>
                                 <span className="text-xs text-slate-500">{formatDateTime(log.created_at)}</span>
                               </div>
                               <p className="mt-1 text-xs text-slate-500">
-                                Actor: {log.actor_type}{log.actor_user_id ? ` #${log.actor_user_id}` : ""}
+                                Actor: {translateTimelineActorType(log.actor_type)}{log.actor_user_id ? ` #${log.actor_user_id}` : ""}
                               </p>
-                              <p className="mt-2 text-xs text-slate-700">{log.note || "Sin nota adicional"}</p>
+                              <p className="mt-2 text-xs text-slate-700">{translateTimelineNote(log.note)}</p>
                             </div>
                           ))
                         )}
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </SectionCard>
-          </section>
+                  </div>
+                )}
+                </SectionCard>
+              </div>
+            </section>
           </section>
         ) : null}
 
@@ -4117,7 +4310,7 @@ export default function ComercioWebPage() {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold text-slate-900">{formatMoney(payment.amount)}</p>
-                      <span className={`mt-1 inline-flex rounded-full border px-2 py-1 text-[11px] font-medium ${statusBadgeClass(payment.status)}`}>{payment.status}</span>
+                      <span className={`mt-1 inline-flex rounded-full border px-2 py-1 text-[11px] font-medium ${statusBadgeClass(payment.status)}`}>{translatePaymentStatus(payment.status)}</span>
                     </div>
                   </button>
                 ))}
@@ -4164,7 +4357,7 @@ export default function ComercioWebPage() {
                           <td className="px-3 py-3 text-slate-700">{payment.method}</td>
                           <td className="px-3 py-3 text-slate-700">{payment.provider}</td>
                           <td className="px-3 py-3">
-                            <span className={`rounded-full border px-2 py-1 text-[11px] font-medium ${statusBadgeClass(payment.status)}`}>{payment.status}</span>
+                            <span className={`rounded-full border px-2 py-1 text-[11px] font-medium ${statusBadgeClass(payment.status)}`}>{translatePaymentStatus(payment.status)}</span>
                           </td>
                           <td className="px-3 py-3 text-right font-semibold text-slate-900">{formatMoney(payment.amount)}</td>
                         </tr>
@@ -4547,7 +4740,7 @@ function PaymentCard({ payment }: { payment: ComercioWebOrderPayment }) {
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-slate-900">{formatMoney(payment.amount)}</p>
-          <span className={`mt-1 inline-flex rounded-full border px-2 py-1 text-[11px] font-medium ${statusBadgeClass(payment.status)}`}>{payment.status}</span>
+          <span className={`mt-1 inline-flex rounded-full border px-2 py-1 text-[11px] font-medium ${statusBadgeClass(payment.status)}`}>{translatePaymentStatus(payment.status)}</span>
         </div>
       </div>
       <p className="mt-2 text-xs text-slate-500">{formatDateTime(payment.created_at)}</p>

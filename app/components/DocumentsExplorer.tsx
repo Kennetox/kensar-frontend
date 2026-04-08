@@ -2114,7 +2114,14 @@ export default function DocumentsExplorer({
     if (!status || status === "active" || status === "confirmed") return null;
     if (status === "paid") return "Pagado";
     if (status === "pending_payment") return "Pendiente de pago";
+    if (status === "processing") return "En proceso";
+    if (status === "ready") return "Lista";
+    if (status === "fulfilled") return "Entregada";
     if (status === "payment_failed") return "Pago fallido";
+    if (status === "failed" || status === "rejected") return "Rechazado";
+    if (status === "pending") return "Pendiente";
+    if (status === "approved") return "Aprobado";
+    if (status === "refunded") return "Reembolsado";
     if (status === "voided") return "Anulado";
     if (status === "adjusted") return "Ajustado";
     if (status === "adjustment") return "Ajuste";
