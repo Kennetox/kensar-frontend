@@ -13,6 +13,7 @@ import {
 import { fetchUserProfile, type UserProfileRecord } from "@/lib/api/profile";
 import { getApiBase } from "@/lib/api/base";
 import { isTenantModuleEnabled } from "@/lib/tenantModules";
+import KoraOpsAssistant from "./components/KoraOpsAssistant";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
 const SCHEDULE_MODULE_ENABLED = false;
@@ -776,6 +777,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const displayName = profile?.name?.trim() || user?.name || "Usuario";
   const displayRole = profile?.role ?? user?.role ?? "";
+  const isKoraEnabled = !posPreview && displayRole === "Administrador";
   const avatarUrl = profile?.avatar_url ?? "";
   const resolvedAvatarUrl = avatarUrl.startsWith("/")
     ? `${getApiBase()}${avatarUrl}`
@@ -1116,6 +1118,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             children
           )}
         </main>
+        <KoraOpsAssistant enabled={isKoraEnabled} userName={displayName} token={token} />
       </div>
     </div>
   );

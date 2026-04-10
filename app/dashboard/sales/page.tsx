@@ -8,6 +8,7 @@ export default function SalesHistoryPage() {
   const posPreview = searchParams.get("posPreview") === "1";
   const saleIdParam = searchParams.get("saleId");
   const saleDateParam = searchParams.get("saleDate");
+  const termParam = searchParams.get("term");
   const initialSaleId =
     saleIdParam && /^\d+$/.test(saleIdParam)
       ? Number.parseInt(saleIdParam, 10)
@@ -26,6 +27,7 @@ export default function SalesHistoryPage() {
         returnBackPath={salesPath}
         initialSaleId={initialSaleId}
         initialDateKey={saleDateParam}
+        initialTerm={termParam}
       />
     </div>
   );

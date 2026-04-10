@@ -588,6 +588,7 @@ type SalesHistoryContentProps = {
   autoReturnOnSelect?: boolean;
   initialSaleId?: number | null;
   initialDateKey?: string | null;
+  initialTerm?: string | null;
   variant?: "dashboard" | "pos";
 };
 
@@ -599,6 +600,7 @@ export default function SalesHistoryContent({
   autoReturnOnSelect = false,
   initialSaleId = null,
   initialDateKey = null,
+  initialTerm = null,
   variant = "dashboard",
 }: SalesHistoryContentProps) {
   const router = useRouter();
@@ -625,7 +627,7 @@ export default function SalesHistoryContent({
       : today;
   const [filterFrom, setFilterFrom] = useState(initialRangeDate);
   const [filterTo, setFilterTo] = useState(initialRangeDate);
-  const [filterTerm, setFilterTerm] = useState("");
+  const [filterTerm, setFilterTerm] = useState(initialTerm?.trim() ?? "");
   const [filterClient, setFilterClient] = useState("");
   const [filterPayment, setFilterPayment] = useState("");
   const [filterPos, setFilterPos] = useState("");

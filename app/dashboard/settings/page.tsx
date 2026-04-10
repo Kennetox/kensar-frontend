@@ -202,7 +202,8 @@ type SettingsTab =
   | "payments"
   | "notifications"
   | "security"
-  | "control";
+  | "control"
+  | "kora";
 
 const SETTINGS_TABS: {
   id: SettingsTab;
@@ -244,7 +245,23 @@ const SETTINGS_TABS: {
     label: "Control de caja",
     description: "Últimos cierres por estación y alertas de pendientes.",
   },
+  {
+    id: "kora",
+    label: "Calidad KORA",
+    description: "Métricas de consultas, aciertos y fallbacks del asistente.",
+  },
 ];
+
+type KoraMetricEntry = {
+  at: string;
+  source: "message" | "action";
+  input: string;
+  intent: string;
+  status: "handled" | "fallback" | "confirm";
+  latencyMs: number;
+};
+
+const KORA_METRICS_KEY = "kora_ops_metrics_v1";
 
 type StationControlRow = {
   stationId: string | null;
@@ -743,6 +760,8 @@ export default function SettingsPage() {
   const [adminClosureLoading, setAdminClosureLoading] = useState<string | null>(null);
   const [adminClosureMessage, setAdminClosureMessage] = useState<string | null>(null);
   const [adminClosureError, setAdminClosureError] = useState<string | null>(null);
+  const [koraMetrics, setKoraMetrics] = useState<KoraMetricEntry[]>([]);
+  const [koraMetricsLoaded, setKoraMetricsLoaded] = useState(false);
   const isAdmin = user?.role === "Administrador";
   const resolveStationId = useCallback(
     (stationId?: string | null, posName?: string | null) => {
@@ -781,6 +800,39 @@ export default function SettingsPage() {
       createHrProfile: true,
     });
     setEditingUser(null);
+  }, []);
+
+  const loadKoraMetrics = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(KORA_METRICS_KEY);
+      const parsed = raw ? (JSON.parse(raw) as KoraMetricEntry[]) : [];
+      const safe = Array.isArray(parsed)
+        ? parsed.filter(
+            (entry) =>
+              entry &&
+              typeof entry.input === "string" &&
+              typeof entry.intent === "string" &&
+              typeof entry.status === "string"
+          )
+        : [];
+      setKoraMetrics(safe);
+    } catch {
+      setKoraMetrics([]);
+    } finally {
+      setKoraMetricsLoaded(true);
+    }
+  }, []);
+
+  const clearKoraMetrics = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.removeItem(KORA_METRICS_KEY);
+    } catch {
+      // no-op
+    }
+    setKoraMetrics([]);
+    setKoraMetricsLoaded(true);
   }, []);
 
   const loadControlData = useCallback(async () => {
@@ -1976,6 +2028,11 @@ export default function SettingsPage() {
     controlError,
     loadControlData,
   ]);
+
+  useEffect(() => {
+    if (activeTab !== "kora") return;
+    loadKoraMetrics();
+  }, [activeTab, loadKoraMetrics]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4392,6 +4449,127 @@ export default function SettingsPage() {
     </div>
   );
 
+  const sortedKoraMetrics = useMemo(
+    () =>
+      [...koraMetrics].sort(
+        (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
+      ),
+    [koraMetrics]
+  );
+  const koraHandledCount = useMemo(
+    () => sortedKoraMetrics.filter((row) => row.status === "handled").length,
+    [sortedKoraMetrics]
+  );
+  const koraFallbackCount = useMemo(
+    () => sortedKoraMetrics.filter((row) => row.status === "fallback").length,
+    [sortedKoraMetrics]
+  );
+  const koraConfirmCount = useMemo(
+    () => sortedKoraMetrics.filter((row) => row.status === "confirm").length,
+    [sortedKoraMetrics]
+  );
+  const koraHandledRate = useMemo(() => {
+    if (!sortedKoraMetrics.length) return 0;
+    return (koraHandledCount / sortedKoraMetrics.length) * 100;
+  }, [koraHandledCount, sortedKoraMetrics.length]);
+  const koraAvgLatency = useMemo(() => {
+    if (!sortedKoraMetrics.length) return 0;
+    const total = sortedKoraMetrics.reduce(
+      (sum, row) => sum + Math.max(0, row.latencyMs || 0),
+      0
+    );
+    return total / sortedKoraMetrics.length;
+  }, [sortedKoraMetrics]);
+  const koraRecentFallbacks = useMemo(
+    () => sortedKoraMetrics.filter((row) => row.status === "fallback").slice(0, 8),
+    [sortedKoraMetrics]
+  );
+
+  const koraContent = (
+    <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4">
+      <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Calidad KORA</h2>
+          <p className="text-sm text-slate-400 max-w-2xl">
+            Métricas internas del asistente durante esta sesión local del navegador.
+            Sirve para validar tasa de entendimiento, ambigüedad y tiempos de respuesta.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={loadKoraMetrics}
+            className="px-3 py-2 rounded-lg border border-emerald-500/60 text-emerald-200 text-xs hover:bg-emerald-500/10"
+          >
+            Refrescar
+          </button>
+          <button
+            type="button"
+            onClick={clearKoraMetrics}
+            className="px-3 py-2 rounded-lg border border-rose-500/70 text-rose-200 text-xs hover:bg-rose-500/10"
+          >
+            Limpiar historial
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Consultas</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-100">{sortedKoraMetrics.length}</p>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Entendidas</p>
+          <p className="mt-1 text-2xl font-semibold text-emerald-300">{koraHandledCount}</p>
+          <p className="text-xs text-slate-400">{koraHandledRate.toFixed(1)}%</p>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Fallback</p>
+          <p className="mt-1 text-2xl font-semibold text-amber-300">{koraFallbackCount}</p>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Confirmación / Latencia</p>
+          <p className="mt-1 text-2xl font-semibold text-sky-300">{koraConfirmCount}</p>
+          <p className="text-xs text-slate-400">{Math.round(koraAvgLatency)} ms prom.</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-800/70 overflow-hidden">
+        <div className="px-4 py-2 border-b border-slate-800 bg-slate-950/40">
+          <p className="text-xs text-slate-300 font-semibold">Últimos fallos de entendimiento</p>
+        </div>
+        {!koraMetricsLoaded ? (
+          <div className="px-4 py-6 text-xs text-slate-400">Cargando métricas...</div>
+        ) : koraRecentFallbacks.length === 0 ? (
+          <div className="px-4 py-6 text-xs text-slate-500">No hay fallos recientes registrados.</div>
+        ) : (
+          <div className="max-h-[320px] overflow-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-950/40 text-slate-400">
+                <tr>
+                  <th className="px-3 py-2">Fecha</th>
+                  <th className="px-3 py-2">Consulta</th>
+                  <th className="px-3 py-2">Intent detectado</th>
+                  <th className="px-3 py-2 text-right">Latencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {koraRecentFallbacks.map((row, index) => (
+                  <tr key={`${row.at}-${index}`} className="border-t border-slate-800/70">
+                    <td className="px-3 py-2 text-slate-400">{formatDateLabel(row.at)}</td>
+                    <td className="px-3 py-2 text-slate-200">{row.input || "—"}</td>
+                    <td className="px-3 py-2 text-slate-400">{row.intent || "unknown"}</td>
+                    <td className="px-3 py-2 text-right text-slate-300">{Math.max(0, row.latencyMs || 0)} ms</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+
   const tabContentMap: Record<SettingsTab, ReactNode> = {
     company: companyContent,
     appearance: appearanceContent,
@@ -4539,6 +4717,7 @@ export default function SettingsPage() {
     notifications: notificationsContent,
     security: securityContent,
     control: controlContent,
+    kora: koraContent,
   };
 
   return (
