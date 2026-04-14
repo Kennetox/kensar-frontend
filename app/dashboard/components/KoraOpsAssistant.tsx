@@ -11,6 +11,30 @@ import { getApiBase } from "@/lib/api/base";
 import { fetchSeparatedOrders } from "@/lib/api/separatedOrders";
 import { fetchComercioWebOrders } from "@/lib/api/comercioWeb";
 import { getBogotaDateKey } from "@/lib/time/bogota";
+import {
+  extractProductCode,
+  extractProductHint,
+  extractProductTerm,
+  normalizeQuery,
+  parseSpecificDate,
+  resolvePaymentMethodFromQuery,
+} from "./kora/nlp";
+import {
+  buildIntentCandidates,
+  resolveIntentWithContext,
+  type IntentCandidate,
+  type KoraTopic,
+  type QueryIntent,
+} from "./kora/intent-engine";
+import {
+  buildModuleGuideMessage,
+  buildModuleTaskActions,
+  MODULE_GUIDES,
+  PRODUCT_GUIDE_ACTIONS,
+  REPORT_GUIDE_ACTIONS,
+  resolveModuleFromQuery,
+  type KoraModuleKey,
+} from "./kora/module-knowledge";
 
 type KoraOpsAssistantProps = {
   enabled: boolean;
@@ -33,38 +57,8 @@ type KoraMessage = {
   actions?: KoraAction[];
 };
 
-type QueryIntent =
-  | "greeting"
-  | "help"
-  | "how_reports"
-  | "how_create_product"
-  | "how_find_sale"
-  | "payment_methods_by_date"
-  | "sales_mtd_comparison"
-  | "sales_method_month_comparison"
-  | "sales_method_year_comparison"
-  | "top_product_current_month"
-  | "sales_previous_month"
-  | "sales_specific_date"
-  | "product_by_code"
-  | "product_group_lookup"
-  | "last_sale_product"
-  | "last_sale_followup_product"
-  | "last_sale_followup_previous"
-  | "inventory_overview"
-  | "inventory_critical"
-  | "inventory_low"
-  | "sales_overview"
-  | "sales_today"
-  | "sales_month"
-  | "sales_tickets"
-  | "separated_pending"
-  | "web_overview"
-  | "web_pending"
-  | "web_processing"
-  | "unknown";
+type KoraToneMode = "professional" | "friendly";
 
-type KoraTopic = "inventory" | "sales" | "web" | null;
 
 type SalesSnapshot = {
   todaySales: number;
@@ -114,9 +108,13 @@ type LastSaleLookupContext = {
   currentIndex: number;
 } | null;
 
-type IntentCandidate = {
-  intent: QueryIntent;
-  score: number;
+type KoraEntityContext = {
+  moduleKey?: KoraModuleKey | null;
+  productTerm?: string | null;
+  paymentMethodSlug?: string | null;
+  dateKey?: string | null;
+  topProductsQueryActive?: boolean;
+  topProductsLimit?: number | null;
 };
 
 type KoraMetricEntry = {
@@ -128,10 +126,30 @@ type KoraMetricEntry = {
   latencyMs: number;
 };
 
+type KoraApiAskResponse = {
+  handled: boolean;
+  answer: string;
+  source: "rules-v2" | "openai-v2";
+  confidence: number;
+  actions?: Array<{ label: string; href?: string | null }>;
+  suggestions?: string[];
+  generated_at: string;
+};
+
 type QuickTopRow = {
   name: string;
   units: number;
   total: number;
+};
+
+type KoraProductAuditEntry = {
+  id: number;
+  product_id: number;
+  action: string;
+  actor_name?: string | null;
+  actor_email?: string | null;
+  changes?: Record<string, unknown> | null;
+  created_at: string;
 };
 
 const CACHE_TTL_MS = 45_000;
@@ -153,18 +171,14 @@ const WEB_ACTIONS: KoraAction[] = [
   { id: "go-reports-web", label: "Abrir Reportes", href: "/dashboard/reports" },
 ];
 
-const REPORT_GUIDE_ACTIONS: KoraAction[] = [
-  { id: "guide-reports-main", label: "Abrir Reportes", href: "/dashboard/reports" },
-  { id: "guide-reports-detailed", label: "Abrir Reporte detallado", href: "/dashboard/reports/detailed" },
-];
-
-const PRODUCT_GUIDE_ACTIONS: KoraAction[] = [
-  { id: "guide-products-main", label: "Abrir Productos", href: "/dashboard/products" },
-  { id: "guide-labels", label: "Abrir Etiquetas", href: "/dashboard/labels" },
-];
-
 const PRODUCT_ACTIONS: KoraAction[] = [
   { id: "product-open-products", label: "Abrir Productos", href: "/dashboard/products" },
+];
+
+const CROSS_MODULE_ACTIONS: KoraAction[] = [
+  { id: "cross-open-dashboard", label: "Abrir Inicio", href: "/dashboard" },
+  { id: "cross-open-reports", label: "Abrir Reportes", href: "/dashboard/reports" },
+  { id: "cross-open-reports-detailed", label: "Abrir Reporte detallado", href: "/dashboard/reports/detailed" },
 ];
 
 function resolveFirstName(value?: string | null) {
@@ -194,31 +208,6 @@ function buildWelcomeMessage(userName?: string | null) {
   return `${greeting}${recipient}, soy KORA. ¿En qué te ayudo hoy?`;
 }
 
-function normalizeQuery(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\p{L}\p{N}\s/-]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function tokenizeQuery(value: string) {
-  return normalizeQuery(value)
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
-
-function hasTokenStartingWith(tokens: string[], prefixes: string[]) {
-  return tokens.some((token) => prefixes.some((prefix) => token.startsWith(prefix)));
-}
-
-function hasPhrase(text: string, phrases: string[]) {
-  return phrases.some((phrase) => text.includes(phrase));
-}
-
 function saleLabel(sale: SalesHistoryItem) {
   if (sale.document_number?.trim()) return `Doc ${sale.document_number.trim()}`;
   if (Number.isFinite(sale.sale_number)) return `Venta #${sale.sale_number}`;
@@ -246,6 +235,45 @@ function monthLabel(month: number) {
     "diciembre",
   ];
   return names[Math.max(1, Math.min(12, month)) - 1] ?? "mes";
+}
+
+function parseMonthFromInput(input: string) {
+  const text = normalizeQuery(input);
+  const map: Record<string, number> = {
+    enero: 1,
+    ene: 1,
+    febrero: 2,
+    feb: 2,
+    marzo: 3,
+    mar: 3,
+    abril: 4,
+    abr: 4,
+    mayo: 5,
+    may: 5,
+    junio: 6,
+    jun: 6,
+    julio: 7,
+    jul: 7,
+    agosto: 8,
+    ago: 8,
+    septiembre: 9,
+    setiembre: 9,
+    sep: 9,
+    set: 9,
+    octubre: 10,
+    oct: 10,
+    noviembre: 11,
+    nov: 11,
+    diciembre: 12,
+    dic: 12,
+  };
+  const hit = Object.entries(map).find(([key]) => new RegExp(`(^|\\s)${key}(\\s|$)`).test(text));
+  if (!hit) return null;
+  const month = hit[1];
+  const yearRaw = text.match(/\b(20\d{2})\b/)?.[1];
+  const now = getBogotaDateParts();
+  const year = yearRaw ? Number.parseInt(yearRaw, 10) : month > now.month ? now.year - 1 : now.year;
+  return { month, year };
 }
 
 function getBogotaDateParts(date = new Date()) {
@@ -278,179 +306,45 @@ function formatSignedPercent(value: number) {
   return `${sign}${Math.abs(value).toLocaleString("es-CO", { maximumFractionDigits: 2 })}%`;
 }
 
+  function clampPercent(value: number) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(-100, Math.min(100, value));
+  }
+
+  function buildDailySalesInsight(data: SalesSnapshot) {
+    const monthDays = getBogotaDateParts().day;
+    const avgDailySales = monthDays > 0 ? data.monthSales / monthDays : 0;
+    const avgDailyTickets = monthDays > 0 ? data.monthTickets / monthDays : 0;
+    const salesGapPct = diffPercent(data.todaySales, avgDailySales);
+    const ticketsGapPct = diffPercent(data.todayTickets, avgDailyTickets);
+
+    let label = "día suave";
+    let explanation = "el ritmo está por debajo del promedio mensual.";
+    if (salesGapPct >= 20 || ticketsGapPct >= 20) {
+      label = "muy buen día";
+      explanation = "el ritmo de hoy está claramente por encima del promedio mensual.";
+    } else if (salesGapPct >= 0 || ticketsGapPct >= 0) {
+      label = "buen día";
+      explanation = "vamos al nivel o ligeramente por encima del promedio mensual.";
+    } else if (salesGapPct <= -30 || ticketsGapPct <= -30) {
+      label = "día flojo";
+      explanation = "el ritmo de hoy está bastante por debajo del promedio mensual.";
+    }
+
+    return {
+      label,
+      explanation,
+      avgDailySales,
+      avgDailyTickets,
+      salesGapPct,
+      ticketsGapPct,
+    };
+  }
+
 function buildDateRangeKeys(from: Date, to: Date) {
   const date_from = getBogotaDateKey(from) ?? "";
   const date_to = getBogotaDateKey(to) ?? "";
   return { date_from, date_to };
-}
-
-function resolvePaymentMethodFromQuery(input: string) {
-  const text = normalizeQuery(input);
-  const methods = [
-    { keys: ["addi"], slug: "addi", label: "Addi" },
-    { keys: ["sistecredito", "sistecredito"], slug: "sistecredito", label: "Sistecrédito" },
-    { keys: ["efectivo", "cash"], slug: "cash", label: "Efectivo" },
-    { keys: ["transferencia", "transfer"], slug: "transferencia", label: "Transferencia" },
-    { keys: ["tarjeta", "card"], slug: "card", label: "Tarjeta" },
-    { keys: ["nequi"], slug: "nequi", label: "Nequi" },
-    { keys: ["daviplata"], slug: "daviplata", label: "Daviplata" },
-  ];
-  const found = methods.find((method) => method.keys.some((key) => text.includes(key)));
-  return found ?? null;
-}
-
-function parseSpecificDate(input: string) {
-  const text = normalizeQuery(input);
-
-  const numeric = text.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/);
-  if (numeric) {
-    const day = Number.parseInt(numeric[1], 10);
-    const month = Number.parseInt(numeric[2], 10);
-    const rawYear = numeric[3];
-    const currentYear = Number.parseInt(
-      new Intl.DateTimeFormat("en-CA", { year: "numeric", timeZone: "America/Bogota" }).format(new Date()),
-      10
-    );
-    let year = rawYear ? Number.parseInt(rawYear, 10) : currentYear;
-    if (year < 100) year += 2000;
-    if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 2020) {
-      const key = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      return { key, day, month, year };
-    }
-  }
-
-  const months: Record<string, number> = {
-    enero: 1,
-    febrero: 2,
-    marzo: 3,
-    abril: 4,
-    mayo: 5,
-    junio: 6,
-    julio: 7,
-    agosto: 8,
-    septiembre: 9,
-    setiembre: 9,
-    octubre: 10,
-    noviembre: 11,
-    diciembre: 12,
-  };
-  const words = text.match(/\b(\d{1,2})\s+de\s+([a-z]+)(?:\s+de\s+(\d{4}))?\b/);
-  if (!words) return null;
-  const day = Number.parseInt(words[1], 10);
-  const month = months[words[2]];
-  if (!month || day < 1 || day > 31) return null;
-  const currentYear = Number.parseInt(
-    new Intl.DateTimeFormat("en-CA", { year: "numeric", timeZone: "America/Bogota" }).format(new Date()),
-    10
-  );
-  let year = words[3] ? Number.parseInt(words[3], 10) : currentYear;
-  const todayMonth = Number.parseInt(
-    new Intl.DateTimeFormat("en-CA", { month: "2-digit", timeZone: "America/Bogota" }).format(new Date()),
-    10
-  );
-  if (!words[3] && month > todayMonth) year = currentYear - 1;
-  const key = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  return { key, day, month, year };
-}
-
-function extractProductHint(input: string) {
-  const text = normalizeQuery(input);
-  const match = text.match(/(?:de|del)\s+([a-z0-9\s-]{2,})$/i);
-  if (!match) return "";
-  const candidate = match[1]
-    .replace(/\b(producto|sku)\b/g, "")
-    .trim();
-  const blocked = new Set(["ayer", "hoy", "mes", "venta", "ventas", "reporte", "reportes"]);
-  if (!candidate || blocked.has(candidate)) return "";
-  return candidate;
-}
-
-function extractProductCode(input: string) {
-  const raw = input.trim();
-  const directCode = raw.match(/(?:sku|codigo|código|barcode|barra)\s*[:#-]?\s*([a-z0-9._-]{3,})/i);
-  if (directCode?.[1]) return directCode[1].trim();
-
-  const inQuotes = raw.match(/["“]([^"”]{2,})["”]/);
-  if (inQuotes?.[1]) return inQuotes[1].trim();
-  return "";
-}
-
-function extractProductTerm(input: string) {
-  const normalized = normalizeQuery(input);
-
-  // Captura común en preguntas tipo: "cual fue la ultima cabina que vendimos"
-  const beforeSold = normalized.match(/ultima\s+(.+?)\s+que\s+vend/i);
-  if (beforeSold?.[1]) {
-    const candidate = beforeSold[1].trim();
-    if (candidate) return candidate;
-  }
-
-  const byDe = normalized.match(/(?:de|del|producto)\s+([a-z0-9\s._-]{2,})$/i);
-  if (byDe?.[1]) return byDe[1].trim();
-
-  const stopwords = new Set([
-    "cual",
-    "cuál",
-    "cuales",
-    "cuáles",
-    "que",
-    "qué",
-    "como",
-    "cómo",
-    "fue",
-    "fueron",
-    "la",
-    "el",
-    "los",
-    "las",
-    "un",
-    "una",
-    "unos",
-    "unas",
-    "de",
-    "del",
-    "al",
-    "en",
-    "por",
-    "para",
-    "con",
-    "venta",
-    "ventas",
-    "vendimos",
-    "vendi",
-    "vendio",
-    "vendió",
-    "ultima",
-    "última",
-    "ultimo",
-    "último",
-    "vez",
-    "producto",
-    "productos",
-    "grupo",
-    "codigo",
-    "código",
-    "sku",
-    "hoy",
-    "ayer",
-    "mes",
-    "dia",
-    "día",
-    "tal",
-  ]);
-
-  const lexicalTokens = normalized
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 3 && !stopwords.has(token))
-    .map((token) => {
-      // simplificación leve para plural común: "cabinas" -> "cabina"
-      if (token.length > 4 && token.endsWith("s")) return token.slice(0, -1);
-      return token;
-    });
-
-  if (!lexicalTokens.length) return "";
-  return lexicalTokens.slice(0, 3).join(" ");
 }
 
 function buildFindSaleActions(productHint: string): KoraAction[] {
@@ -465,195 +359,110 @@ function buildFindSaleActions(productHint: string): KoraAction[] {
   ];
 }
 
-function detectIntent(input: string): QueryIntent {
-  const text = normalizeQuery(input);
-  const tokens = tokenizeQuery(input);
-  if (!text) return "unknown";
-  const asksHow = hasPhrase(text, ["como", "cómo", "de que forma", "de qué forma"]) || hasTokenStartingWith(tokens, ["como", "cómo"]);
-  const hasSalesVerb = hasTokenStartingWith(tokens, ["vent", "vend"]);
-  const hasProductNoun = hasTokenStartingWith(tokens, ["produc", "articul", "item"]);
-  const hasCreateVerb = hasTokenStartingWith(tokens, ["crea", "regist", "agreg", "alta", "mont", "nuev"]);
-  const hasReportNoun = hasTokenStartingWith(tokens, ["report", "inform"]);
-  const hasPaymentNoun = hasTokenStartingWith(tokens, ["pago", "metod", "medio", "tarjet", "efect"]);
-  const hasIncreaseNoun = hasTokenStartingWith(tokens, ["increment", "aument", "crec", "compar", "mas", "más", "diferen"]);
-  const hasMonthToken = hasTokenStartingWith(tokens, ["mes"]);
-  const hasYearToken = hasTokenStartingWith(tokens, ["ano", "año", "year"]);
-  const hasDate = !!parseSpecificDate(text);
-  const hasCodeNoun = hasTokenStartingWith(tokens, ["sku", "codig", "codigo", "barra", "barcode"]);
-  const hasGroupNoun = hasTokenStartingWith(tokens, ["grupo", "categori"]);
-  const hasBelongVerb = hasTokenStartingWith(tokens, ["pertenec", "clasif"]);
-  const hasLastToken = hasPhrase(text, ["ultima vez", "última vez"]) || hasTokenStartingWith(tokens, ["ultim"]);
-  const hasTodayToken = hasTokenStartingWith(tokens, ["hoy", "dia", "día"]);
-  const hasTicketToken = hasTokenStartingWith(tokens, ["ticket"]);
-  const hasPendingToken = hasTokenStartingWith(tokens, ["pendient"]);
-  const asksWhichProduct = hasPhrase(text, [
-    "cual producto fue",
-    "cuál producto fue",
-    "que producto fue",
-    "qué producto fue",
-    "cual fue",
-    "cuál fue",
-    "que fue",
-    "qué fue",
-  ]) && hasTokenStartingWith(tokens, ["produc", "cual", "cuál", "que", "qué"]);
-  const asksPreviousOne =
-    hasPhrase(text, ["antes de este", "antes de ese", "el anterior", "la anterior", "y antes", "y el anterior"]) ||
-    (tokens.includes("antes") && (tokens.includes("este") || tokens.includes("ese") || tokens.includes("anterior")));
-
-  if (hasPhrase(text, ["hola", "buenos dias", "buenas tardes", "buenas noches"])) return "greeting";
-  if (hasPhrase(text, ["ayuda", "que haces", "que puedes", "como funciona", "cómo funciona"])) return "help";
-
-  if (hasReportNoun && (asksHow || hasTokenStartingWith(tokens, ["ver", "gener", "sac", "consult"]))) {
-    return "how_reports";
-  }
-  if (hasProductNoun && hasCreateVerb) {
-    return "how_create_product";
-  }
-  if (hasSalesVerb && hasPhrase(text, ["ayer", "buscar", "encontrar"])) {
-    return "how_find_sale";
-  }
-  if (hasSalesVerb && hasMonthToken && hasPhrase(text, ["hasta ahora", "mismo corte", "mes anterior", "mes pasado"]) && hasIncreaseNoun) {
-    return "sales_mtd_comparison";
-  }
-  if (hasSalesVerb && hasMonthToken && hasIncreaseNoun && !!resolvePaymentMethodFromQuery(text)) {
-    return "sales_method_month_comparison";
-  }
-  if (hasSalesVerb && hasYearToken && hasIncreaseNoun && !!resolvePaymentMethodFromQuery(text)) {
-    return "sales_method_year_comparison";
-  }
-  if ((hasPhrase(text, ["producto mas vendido", "producto más vendido", "top producto", "mas vendido del mes", "más vendido del mes"])) || (hasProductNoun && hasSalesVerb && hasMonthToken)) {
-    return "top_product_current_month";
-  }
-  if (hasPaymentNoun && hasDate) {
-    return "payment_methods_by_date";
-  }
-  if (hasSalesVerb && hasMonthToken && hasPhrase(text, ["mes anterior", "mes pasado"])) {
-    return "sales_previous_month";
-  }
-  if (hasSalesVerb && hasDate) {
-    return "sales_specific_date";
-  }
-  if ((hasProductNoun || hasCodeNoun) && (hasGroupNoun || hasBelongVerb)) {
-    return "product_group_lookup";
-  }
-  if ((hasProductNoun || hasCodeNoun) && (hasPhrase(text, ["cual es", "cuál es", "info", "detalle"]) || hasTokenStartingWith(tokens, ["mostr", "dime", "busc"]))) {
-    return "product_by_code";
-  }
-  if (hasLastToken && hasSalesVerb) {
-    return "last_sale_product";
-  }
-  if (asksWhichProduct) {
-    return "last_sale_followup_product";
-  }
-  if (asksPreviousOne) {
-    return "last_sale_followup_previous";
-  }
-
-  if (text.includes("inventario") || text.includes("stock") || text.includes("reposicion")) {
-    if (text.includes("critico")) return "inventory_critical";
-    if (text.includes("bajo")) return "inventory_low";
-    return "inventory_overview";
-  }
-  if (text.includes("separado") || (hasPendingToken && !text.includes("pago web"))) return "separated_pending";
-  if (hasSalesVerb || hasTicketToken || hasTodayToken || hasMonthToken) {
-    if (hasTicketToken) return "sales_tickets";
-    if (hasTodayToken) return "sales_today";
-    if (hasMonthToken) return "sales_month";
-    return "sales_overview";
-  }
-  if (text.includes("comercio web") || text.includes("orden web") || text.includes("pedido web") || text.includes("pago web")) {
-    if (text.includes("pendiente")) return "web_pending";
-    if (text.includes("proceso") || text.includes("procesando")) return "web_processing";
-    return "web_overview";
-  }
-  return "unknown";
+function tryGetValueFromUnknownRecord(value: unknown, key: string) {
+  if (!value || typeof value !== "object") return undefined;
+  return (value as Record<string, unknown>)[key];
 }
 
-function resolveIntentWithContext(input: string, lastTopic: KoraTopic): QueryIntent {
-  const direct = detectIntent(input);
-  if (direct !== "unknown") return direct;
+function pickByHash(seed: string, options: string[]) {
+  if (!options.length) return "";
+  const hash = [...seed].reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return options[Math.abs(hash) % options.length] ?? options[0];
+}
 
-  const text = normalizeQuery(input);
-  const followUp = text.startsWith("y ") || text.startsWith("y si") || text.startsWith("entonces");
-  if (!followUp || !lastTopic) return "unknown";
+function startsWithGreetingOrWelcome(text: string) {
+  const normalized = normalizeQuery(text);
+  return (
+    normalized.includes("en que te ayudo hoy") ||
+    normalized.startsWith("hola") ||
+    normalized.startsWith("buenos dias") ||
+    normalized.startsWith("buenas tardes") ||
+    normalized.startsWith("buenas noches")
+  );
+}
 
-  if (lastTopic === "sales") {
-    if (text.includes("antes")) return "last_sale_followup_previous";
-    if (text.includes("producto") || text.includes("cual fue") || text.includes("que fue")) return "last_sale_followup_product";
-    if (text.includes("mes")) return "sales_month";
-    if (text.includes("hoy") || text.includes("dia")) return "sales_today";
-    if (text.includes("ticket")) return "sales_tickets";
-    if (text.includes("separado") || text.includes("pendiente")) return "separated_pending";
-    return "sales_overview";
-  }
+function buildConversationalLead(text: string, toneMode: KoraToneMode, lastIntent: QueryIntent | null) {
+  const normalized = normalizeQuery(text);
+  if (!normalized || startsWithGreetingOrWelcome(text)) return "";
 
-  if (lastTopic === "inventory") {
-    if (text.includes("critico")) return "inventory_critical";
-    if (text.includes("bajo")) return "inventory_low";
-    return "inventory_overview";
-  }
+  const isRecovery =
+    normalized.startsWith("no pude") ||
+    normalized.startsWith("no encontre") ||
+    normalized.startsWith("indicame") ||
+    normalized.startsWith("primero preguntame");
+  const isGuide = text.includes("1.") || normalized.startsWith("para ");
+  const isNegativeSignal =
+    text.includes("Diferencia: -") ||
+    normalized.includes("dia flojo") ||
+    normalized.includes("por debajo del promedio");
+  const isInsightIntent =
+    lastIntent === "sales_overview" ||
+    lastIntent === "sales_day_reading" ||
+    lastIntent === "sales_best_month" ||
+    lastIntent === "sales_best_day" ||
+    lastIntent === "inventory_overview" ||
+    lastIntent === "top_product_current_month" ||
+    lastIntent === "top_products_current_month" ||
+    lastIntent === "top_products_previous_month" ||
+    lastIntent === "top_products_specific_month";
 
-  if (lastTopic === "web") {
-    if (text.includes("pendiente")) return "web_pending";
-    if (text.includes("proceso") || text.includes("procesando") || text.includes("lista")) return "web_processing";
-    return "web_overview";
-  }
-
-  return "unknown";
+  const professional = {
+    recovery: ["Entiendo, vamos a resolverlo.", "Vamos paso a paso para dejarlo listo."],
+    guide: ["Claro, te guío paso a paso.", "Perfecto, vamos por partes."],
+    negative: ["Ojo, hay una señal importante para revisar.", "Te dejo la alerta principal para actuar rápido."],
+    insight: ["Aquí tienes el resumen clave.", "Te comparto el dato principal."],
+    default: ["Listo.", "Perfecto."],
+  };
+  const friendly = {
+    recovery: ["Tranqui, lo resolvemos ahora.", "Vamos con calma, yo te guío."],
+    guide: ["De una, te guío paso a paso.", "Listo, vamos por partes."],
+    negative: ["Ojo con este dato, vale la pena revisarlo.", "Hay una alerta aquí; mejor actuar rápido."],
+    insight: ["Te cuento rápido lo clave.", "Aquí va el resumen en corto."],
+    default: ["Dale, listo.", "Perfecto, ahí te va."],
+  };
+  const voice = toneMode === "friendly" ? friendly : professional;
+  if (isRecovery) return pickByHash(normalized, voice.recovery);
+  if (isGuide) return pickByHash(normalized, voice.guide);
+  if (isNegativeSignal) return pickByHash(normalized, voice.negative);
+  if (isInsightIntent) return pickByHash(normalized, voice.insight);
+  return pickByHash(normalized, voice.default);
 }
 
 function intentLabel(intent: QueryIntent) {
   const labels: Partial<Record<QueryIntent, string>> = {
+    module_guide: "Guía de módulo",
+    module_connection: "Conexión entre módulos",
+    module_playbook_task: "Guía de tarea",
+    cross_module_compare: "Cruce Inicio vs Reportes",
+    kpi_drop_diagnostic: "Diagnóstico de caída KPI",
     how_reports: "Ver reportes",
     how_create_product: "Crear producto",
+    how_create_hr_employee: "Crear empleado RRHH",
+    last_created_product: "Último producto creado",
     payment_methods_by_date: "Métodos de pago por fecha",
     sales_specific_date: "Ventas por fecha",
     sales_mtd_comparison: "Comparativo mes vs anterior",
     sales_method_month_comparison: "Comparativo por método (mes)",
     sales_method_year_comparison: "Comparativo por método (año)",
+    sales_best_month: "Mes con mayor venta",
+    sales_best_day: "Día con mayor venta",
     top_product_current_month: "Producto más vendido del mes",
+    top_products_current_month: "Top productos del mes",
+    top_products_previous_month: "Top productos del mes anterior",
+    top_products_specific_month: "Top productos por mes",
     product_by_code: "Buscar producto por código",
+    product_price_lookup: "Consultar precio por SKU",
     product_group_lookup: "Consultar grupo de producto",
+    product_restock_advice: "Recomendación de reposición",
     last_sale_product: "Última venta de producto",
     sales_overview: "Resumen comercial",
+    sales_day_reading: "Lectura del día",
     inventory_overview: "Resumen inventario",
     web_overview: "Resumen comercio web",
   };
   return labels[intent] ?? "Consulta";
 }
 
-function buildIntentCandidates(input: string): IntentCandidate[] {
-  const text = normalizeQuery(input);
-  const tokens = tokenizeQuery(input);
-  const candidates: IntentCandidate[] = [];
-  const push = (intent: QueryIntent, score: number) => candidates.push({ intent, score });
-
-  const hasSales = hasTokenStartingWith(tokens, ["vent", "vend"]);
-  const hasDate = !!parseSpecificDate(text);
-  const hasPayment = hasTokenStartingWith(tokens, ["pago", "metod", "medio", "tarjet", "efect"]);
-  const hasMonth = hasTokenStartingWith(tokens, ["mes"]);
-  const hasIncrease = hasTokenStartingWith(tokens, ["increment", "aument", "crec", "compar", "diferen", "mas", "más"]);
-  const hasYear = hasTokenStartingWith(tokens, ["ano", "año", "year"]);
-  const hasMethod = !!resolvePaymentMethodFromQuery(text);
-  const hasProduct = hasTokenStartingWith(tokens, ["produc", "item", "articul", "sku", "codig", "codigo"]);
-  const hasGroup = hasTokenStartingWith(tokens, ["grupo", "categori", "pertenec"]);
-  const hasLast = hasPhrase(text, ["ultima vez", "última vez", "ultimo", "último"]);
-  const asksHow = hasTokenStartingWith(tokens, ["como", "cómo"]) || hasPhrase(text, ["de que forma", "de qué forma"]);
-
-  if (hasSales && hasDate) push("sales_specific_date", 82);
-  if (hasPayment && hasDate) push("payment_methods_by_date", 88);
-  if (hasSales && hasMonth && hasIncrease) push("sales_mtd_comparison", 80);
-  if (hasSales && hasMonth && hasIncrease && hasMethod) push("sales_method_month_comparison", 90);
-  if (hasSales && hasYear && hasIncrease && hasMethod) push("sales_method_year_comparison", 90);
-  if (hasProduct && hasGroup) push("product_group_lookup", 84);
-  if (hasProduct && hasTokenStartingWith(tokens, ["cual", "cuál", "dime", "muestr", "busc", "info", "detalle"])) push("product_by_code", 78);
-  if (hasLast && hasSales) push("last_sale_product", 86);
-  if (hasPhrase(text, ["producto mas vendido", "producto más vendido", "top producto"])) push("top_product_current_month", 92);
-  if (hasProduct && hasTokenStartingWith(tokens, ["crea", "regist", "agreg", "nuev"])) push("how_create_product", 85);
-  if (asksHow && hasTokenStartingWith(tokens, ["report", "inform"])) push("how_reports", 85);
-
-  return candidates.sort((a, b) => b.score - a.score);
-}
 
 function buildFallbackSuggestions(input: string): { text: string; actions: KoraAction[] } {
   const text = normalizeQuery(input);
@@ -678,6 +487,29 @@ function buildFallbackSuggestions(input: string): { text: string; actions: KoraA
     return {
       text: "Tu consulta parece de productos. Te sugiero reformular así:",
       actions,
+    };
+  }
+
+  const moduleKey = resolveModuleFromQuery(text);
+  if (moduleKey) {
+    const guide = MODULE_GUIDES[moduleKey];
+    return {
+      text: `Puedo guiarte en ${guide.title}. Elige cómo quieres continuar:`,
+      actions: [
+        { id: "fb-module-task", label: `Paso a paso en ${guide.title}`, intent: "module_playbook_task", inputOverride: input },
+        { id: "fb-module-guide", label: `Cómo usar ${guide.title}`, intent: "module_guide", inputOverride: `como usar ${guide.title}` },
+        ...guide.actions.slice(0, 2),
+      ],
+    };
+  }
+
+  if (text.includes("ticket") || text.includes("kpi") || text.includes("indicador")) {
+    return {
+      text: "Puedo ayudarte a diagnosticar ese indicador. Elige una ruta:",
+      actions: [
+        { id: "fb-kpi-diagnostic", label: "Diagnóstico ticket promedio", intent: "kpi_drop_diagnostic", inputOverride: input },
+        { id: "fb-cross-module", label: "Cruce Inicio vs Reportes", intent: "cross_module_compare", inputOverride: input },
+      ],
     };
   }
 
@@ -708,7 +540,11 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
   const monthlySalesCacheRef = useRef<Map<number, { at: number; data: MonthlySalesPoint[] }>>(new Map());
   const lastTopicRef = useRef<KoraTopic>(null);
   const lastSaleLookupRef = useRef<LastSaleLookupContext>(null);
+  const lastEntityRef = useRef<KoraEntityContext>({});
   const pendingConfirmationRef = useRef<{ input: string; candidates: IntentCandidate[] } | null>(null);
+  const toneModeRef = useRef<KoraToneMode>("professional");
+  const lastIntentRef = useRef<QueryIntent | null>(null);
+  const lastUserInputRef = useRef("");
 
   useEffect(() => {
     if (!open) return;
@@ -742,8 +578,46 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
   }
 
+  function updateToneModeFromUserInput(input: string) {
+    const text = normalizeQuery(input);
+    if (!text) return;
+    const casualMarkers = [
+      "hola",
+      "gracias",
+      "porfa",
+      "parce",
+      "bro",
+      "jaja",
+      "jajaja",
+      "dale",
+      "ok",
+      "vale",
+      "bacano",
+      "chevere",
+      "chévere",
+    ];
+    const formalMarkers = ["por favor", "podrias", "podrías", "requiero", "necesito", "agradezco"];
+    if (casualMarkers.some((marker) => text.includes(marker))) {
+      toneModeRef.current = "friendly";
+      return;
+    }
+    if (formalMarkers.some((marker) => text.includes(marker))) {
+      toneModeRef.current = "professional";
+    }
+  }
+
   function pushMessage(role: KoraMessage["role"], text: string, actions?: KoraAction[]) {
-    setMessages((current) => [...current, { id: nextIdRef.current++, role, text, actions }]);
+    const finalText =
+      role === "kora"
+        ? (() => {
+            const lead = buildConversationalLead(text, toneModeRef.current, lastIntentRef.current);
+            if (!lead) return text;
+            const normalizedText = normalizeQuery(text);
+            if (normalizedText.startsWith(normalizeQuery(lead))) return text;
+            return `${lead}\n\n${text}`;
+          })()
+        : text;
+    setMessages((current) => [...current, { id: nextIdRef.current++, role, text: finalText, actions }]);
   }
 
   function formatMoney(value: number) {
@@ -849,6 +723,597 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     return Array.isArray(json.top_products) ? json.top_products : [];
   }
 
+  async function readSalesBySingleDate(dateKey: string) {
+    const params = new URLSearchParams({
+      date_from: dateKey,
+      date_to: dateKey,
+      skip: "0",
+      limit: "250",
+    });
+    const history = await fetchSalesHistory(params);
+    return history.items ?? [];
+  }
+
+  function buildPaymentSummary(rows: SalesHistoryItem[]) {
+    const byMethod = new Map<string, { tickets: number; total: number }>();
+    for (const sale of rows) {
+      const saleTotal = sale.total ?? 0;
+      const nestedPayments = sale.payments ?? [];
+      if (nestedPayments.length) {
+        for (const payment of nestedPayments) {
+          const method = (payment.method || "").trim().toLowerCase() || "sin_metodo";
+          const amount = payment.amount ?? 0;
+          const prev = byMethod.get(method) ?? { tickets: 0, total: 0 };
+          byMethod.set(method, { tickets: prev.tickets + 1, total: prev.total + amount });
+        }
+      } else {
+        const fallback = (sale.payment_method || "sin_metodo").trim().toLowerCase();
+        const prev = byMethod.get(fallback) ?? { tickets: 0, total: 0 };
+        byMethod.set(fallback, { tickets: prev.tickets + 1, total: prev.total + saleTotal });
+      }
+    }
+    return [...byMethod.entries()].map(([method, value]) => ({ method, ...value }));
+  }
+
+  function formatBogotaDateTime(value?: string | null) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("es-CO", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Bogota",
+    }).format(date);
+  }
+
+  function answerModuleGuide(input: string) {
+    const moduleKey = resolveModuleFromQuery(input) || lastEntityRef.current.moduleKey || null;
+    if (!moduleKey) {
+      pushMessage(
+        "kora",
+        "Puedo guiarte por módulo. Dime cuál: Productos, Movimientos, Reportes, Comercio Web, Recursos Humanos o Configuración."
+      );
+      return;
+    }
+    const guide = MODULE_GUIDES[moduleKey];
+    lastEntityRef.current = { ...lastEntityRef.current, moduleKey };
+    if (moduleKey === "productos" || moduleKey === "movimientos" || moduleKey === "etiquetas" || moduleKey === "etiquetado_beta") {
+      lastTopicRef.current = "inventory";
+    }
+    if (moduleKey === "reportes" || moduleKey === "inicio" || moduleKey === "pos") {
+      lastTopicRef.current = "sales";
+    }
+    if (moduleKey === "comercio_web") {
+      lastTopicRef.current = "web";
+    }
+    pushMessage("kora", buildModuleGuideMessage(moduleKey), guide.actions);
+  }
+
+  function answerModuleConnection(input: string) {
+    const moduleKey = resolveModuleFromQuery(input) || lastEntityRef.current.moduleKey || null;
+    if (!moduleKey) {
+      pushMessage(
+        "kora",
+        "Te explico la conexión entre módulos. Ejemplo: “cómo se conecta Productos con Movimientos” o “cómo se relaciona Reportes con POS”."
+      );
+      return;
+    }
+    const map: Partial<Record<KoraModuleKey, string>> = {
+      productos:
+        "Productos se conecta con Movimientos (stock), POS (venta), Etiquetas (impresión) y Comercio Web (catálogo publicado).",
+      movimientos:
+        "Movimientos alimenta inventario operativo. Impacta Productos (stock visible), POS (disponibilidad) y Reportes.",
+      documentos:
+        "Documentos centraliza soportes que respaldan operación en Movimientos, RRHH y procesos administrativos.",
+      pos:
+        "POS / Caja consume catálogo de Productos, descuenta inventario vía Movimientos y alimenta métricas en Reportes.",
+      etiquetas:
+        "Etiquetas toma información de Productos (SKU, nombre, precio) para operación física y control en tienda.",
+      etiquetado_beta:
+        "Etiquetado (beta) usa el mismo catálogo de Productos, pero en un flujo experimental de impresión y validación.",
+      reportes:
+        "Reportes consolida datos de POS, Movimientos y Comercio Web para análisis comercial y operativo.",
+      comercio_web:
+        "Comercio Web usa catálogo de Productos y genera órdenes que terminan en ventas/fulfillment, visibles en Reportes.",
+      rrhh:
+        "Recursos Humanos soporta operación interna (equipo/roles). Se complementa con Configuración para permisos.",
+      configuracion:
+        "Configuración define reglas globales de operación que afectan POS, usuarios, seguridad y módulos administrativos.",
+    };
+    const response = map[moduleKey] ?? `${MODULE_GUIDES[moduleKey].title} se integra con el flujo operativo del panel.`;
+    pushMessage("kora", response, MODULE_GUIDES[moduleKey].actions);
+  }
+
+  function answerModulePlaybookTask(input: string) {
+    const text = normalizeQuery(input);
+    const moduleKey = resolveModuleFromQuery(text) || lastEntityRef.current.moduleKey || null;
+    if (!moduleKey) {
+      pushMessage("kora", "Dime el módulo para darte el paso a paso. Ejemplo: “cómo crear producto en Productos”.");
+      return;
+    }
+
+    lastEntityRef.current = { ...lastEntityRef.current, moduleKey };
+
+    if (moduleKey === "productos") {
+      if (text.includes("precio") || text.includes("editar") || text.includes("actualizar") || text.includes("cambiar")) {
+        pushMessage(
+          "kora",
+          "Actualizar precio en Productos:\n1. Abre Productos.\n2. Busca por nombre/SKU.\n3. Edita el producto.\n4. Cambia precio y guarda.\n5. Verifica reflejo en catálogo/venta.",
+          buildModuleTaskActions("productos")
+        );
+        return;
+      }
+      if (text.includes("desactivar") || text.includes("inactivar") || text.includes("activar")) {
+        pushMessage(
+          "kora",
+          "Activar/Inactivar producto:\n1. Abre Productos.\n2. Busca el producto.\n3. Cambia estado Activo.\n4. Guarda y valida visibilidad en venta/web.",
+          buildModuleTaskActions("productos")
+        );
+        return;
+      }
+      pushMessage(
+        "kora",
+        "Crear producto en Productos:\n1. Abre Productos.\n2. Clic en crear nuevo.\n3. Completa nombre, SKU, grupo, precio y costo.\n4. Guarda y valida stock inicial.",
+        buildModuleTaskActions("productos")
+      );
+      return;
+    }
+
+    if (moduleKey === "movimientos") {
+      if (text.includes("entrada") || text.includes("ingreso") || text.includes("compra")) {
+        pushMessage(
+          "kora",
+          "Registrar entrada de inventario:\n1. Abre Movimientos.\n2. Crea documento/lote de entrada.\n3. Agrega productos y cantidades.\n4. Confirma y revisa stock.",
+          buildModuleTaskActions("movimientos")
+        );
+        return;
+      }
+      if (text.includes("ajuste") || text.includes("reconteo") || text.includes("conteo")) {
+        pushMessage(
+          "kora",
+          "Ajuste o reconteo:\n1. Abre Movimientos.\n2. Crea reconteo o ajuste manual.\n3. Captura cantidades reales.\n4. Confirma diferencias y guarda.",
+          buildModuleTaskActions("movimientos")
+        );
+        return;
+      }
+      pushMessage(
+        "kora",
+        "Consultar trazabilidad en Movimientos:\n1. Abre Movimientos.\n2. Filtra por producto/fecha/tipo.\n3. Revisa documento y responsable del movimiento.",
+        buildModuleTaskActions("movimientos")
+      );
+      return;
+    }
+
+    if (moduleKey === "documentos") {
+      if (text.includes("buscar") || text.includes("filtrar") || text.includes("encontrar")) {
+        pushMessage(
+          "kora",
+          "Buscar documentos operativos:\n1. Abre Documentos.\n2. Filtra por fecha, tipo o referencia.\n3. Abre el documento para validar detalle y estado.",
+          buildModuleTaskActions("documentos")
+        );
+        return;
+      }
+      pushMessage(
+        "kora",
+        "Gestión básica en Documentos:\n1. Abre Documentos.\n2. Revisa registros recientes.\n3. Entra al detalle para trazabilidad y soporte de auditoría.",
+        buildModuleTaskActions("documentos")
+      );
+      return;
+    }
+
+    if (moduleKey === "pos") {
+      if (text.includes("devolucion") || text.includes("devolución")) {
+        pushMessage(
+          "kora",
+          "Para devoluciones de POS lo trabajaremos en una fase dedicada del asistente POS. Por ahora te recomiendo abrir POS/Caja y gestionar el flujo actual manualmente.",
+          buildModuleTaskActions("pos")
+        );
+        return;
+      }
+      if (text.includes("venta") || text.includes("cobro") || text.includes("pago")) {
+        pushMessage(
+          "kora",
+          "Registrar venta en POS:\n1. Abre POS / Caja.\n2. Busca y agrega productos.\n3. Verifica totales y descuentos.\n4. Selecciona método de pago.\n5. Confirma venta y entrega comprobante.",
+          buildModuleTaskActions("pos")
+        );
+        return;
+      }
+      pushMessage(
+        "kora",
+        "Operación rápida de POS:\n1. Abre POS / Caja.\n2. Valida estación y vendedor.\n3. Ejecuta venta/cobro.\n4. Revisa cierre y reporte diario.",
+        buildModuleTaskActions("pos")
+      );
+      return;
+    }
+
+    if (moduleKey === "etiquetas" || moduleKey === "etiquetado_beta") {
+      const target = moduleKey === "etiquetas" ? "etiquetas" : "etiquetado (beta)";
+      if (text.includes("imprimir") || text.includes("etiqueta")) {
+        pushMessage(
+          "kora",
+          `Impresión en ${target}:\n1. Abre ${MODULE_GUIDES[moduleKey].title}.\n2. Busca producto por nombre/SKU.\n3. Selecciona formato y cantidad.\n4. Previsualiza y envía a impresión.`,
+          buildModuleTaskActions(moduleKey)
+        );
+        return;
+      }
+      pushMessage("kora", buildModuleGuideMessage(moduleKey), MODULE_GUIDES[moduleKey].actions);
+      return;
+    }
+
+    if (moduleKey === "comercio_web") {
+      if (text.includes("pendiente") || text.includes("pago")) {
+        pushMessage(
+          "kora",
+          "Gestionar pagos pendientes en Comercio Web:\n1. Abre Comercio Web.\n2. Filtra por estado pendiente de pago.\n3. Revisa orden y contacto cliente.\n4. Confirma pago o seguimiento comercial.",
+          buildModuleTaskActions("comercio_web")
+        );
+        return;
+      }
+      if (text.includes("procesar") || text.includes("alist") || text.includes("entrega")) {
+        pushMessage(
+          "kora",
+          "Procesar pedidos web:\n1. Abre Comercio Web.\n2. Filtra órdenes pagadas/en proceso.\n3. Actualiza fulfillment (processing/ready).\n4. Confirma entrega o conversión a venta.",
+          buildModuleTaskActions("comercio_web")
+        );
+        return;
+      }
+      if (text.includes("convertir") || text.includes("venta")) {
+        pushMessage(
+          "kora",
+          "Convertir orden web a venta:\n1. Abre Comercio Web.\n2. Entra a la orden objetivo.\n3. Ejecuta acción de conversión a venta.\n4. Verifica documento generado en historial.",
+          buildModuleTaskActions("comercio_web")
+        );
+        return;
+      }
+      pushMessage("kora", buildModuleGuideMessage("comercio_web"), MODULE_GUIDES.comercio_web.actions);
+      return;
+    }
+
+    if (moduleKey === "inversion") {
+      if (text.includes("margen") || text.includes("rentabilidad")) {
+        pushMessage(
+          "kora",
+          "Revisar margen/rentabilidad:\n1. Abre Inversión.\n2. Filtra por periodo y producto.\n3. Ordena por margen o utilidad.\n4. Detecta productos con menor rendimiento.",
+          buildModuleTaskActions("inversion")
+        );
+        return;
+      }
+      if (text.includes("corte") || text.includes("cerrar") || text.includes("cierre")) {
+        pushMessage(
+          "kora",
+          "Flujo de corte en Inversión:\n1. Abre Inversión.\n2. Revisa movimientos pendientes.\n3. Genera/valida corte del periodo.\n4. Guarda para trazabilidad contable.",
+          buildModuleTaskActions("inversion")
+        );
+        return;
+      }
+      pushMessage("kora", buildModuleGuideMessage("inversion"), MODULE_GUIDES.inversion.actions);
+      return;
+    }
+
+    if (moduleKey === "rrhh") {
+      if (text.includes("documento") || text.includes("contrato") || text.includes("archivo")) {
+        pushMessage(
+          "kora",
+          "Cargar documentos de empleado:\n1. Abre Recursos Humanos.\n2. Entra al perfil del empleado.\n3. Sube documento y agrega nota.\n4. Guarda y valida en historial.",
+          buildModuleTaskActions("rrhh")
+        );
+        return;
+      }
+      pushMessage(
+        "kora",
+        "Crear empleado en RRHH:\n1. Abre Recursos Humanos.\n2. Clic en nuevo empleado.\n3. Completa datos, cargo y contacto.\n4. Guarda y confirma en listado.",
+        buildModuleTaskActions("rrhh")
+      );
+      return;
+    }
+
+    if (moduleKey === "reportes") {
+      if (text.includes("kpi") || text.includes("indicador") || text.includes("ticket promedio")) {
+        pushMessage(
+          "kora",
+          "Revisar KPIs en Reportes:\n1. Abre Reportes.\n2. Define rango de fechas.\n3. Revisa total ventas, tickets y ticket promedio.\n4. Compara con periodo anterior para detectar variaciones.",
+          buildModuleTaskActions("reportes")
+        );
+        return;
+      }
+      if (text.includes("comparar") || text.includes("vs") || text.includes("contra")) {
+        pushMessage(
+          "kora",
+          "Comparar periodos en Reportes:\n1. Abre Reportes.\n2. Selecciona periodo actual.\n3. Activa comparación con periodo anterior.\n4. Analiza diferencia en valor y porcentaje.",
+          buildModuleTaskActions("reportes")
+        );
+        return;
+      }
+      if (text.includes("exportar") || text.includes("descargar") || text.includes("excel") || text.includes("pdf")) {
+        pushMessage(
+          "kora",
+          "Exportar análisis de Reportes:\n1. Abre Reportes (o Reporte detallado).\n2. Ajusta filtros y rango.\n3. Usa opción de exportar/descargar.\n4. Valida que el archivo conserve los filtros aplicados.",
+          buildModuleTaskActions("reportes")
+        );
+        return;
+      }
+      pushMessage(
+        "kora",
+        "Flujo recomendado en Reportes:\n1. Define pregunta de negocio (qué quieres medir).\n2. Ajusta rango y filtros.\n3. Revisa KPIs y tendencia.\n4. Baja a detalle para explicar la causa.",
+        buildModuleTaskActions("reportes")
+      );
+      return;
+    }
+
+    if (moduleKey === "configuracion") {
+      if (text.includes("usuario") || text.includes("permiso") || text.includes("rol")) {
+        pushMessage(
+          "kora",
+          "Gestionar usuarios/permisos:\n1. Abre Configuración.\n2. Entra al bloque de usuarios.\n3. Crea o edita usuario.\n4. Ajusta permisos por módulo y guarda.",
+          buildModuleTaskActions("configuracion")
+        );
+        return;
+      }
+      if (text.includes("estacion") || text.includes("estación") || text.includes("caja") || text.includes("pos")) {
+        pushMessage(
+          "kora",
+          "Configurar estación POS:\n1. Abre Configuración.\n2. Entra a bloque POS/estaciones.\n3. Crea o edita estación.\n4. Ajusta correo de cierre y reglas.\n5. Guarda y valida desde POS.",
+          buildModuleTaskActions("configuracion")
+        );
+        return;
+      }
+      if (text.includes("politica") || text.includes("política") || text.includes("parametro") || text.includes("parámetro")) {
+        pushMessage(
+          "kora",
+          "Ajustar políticas/parámetros:\n1. Abre Configuración.\n2. Ubica el bloque de políticas.\n3. Cambia el parámetro requerido.\n4. Guarda y comunica el cambio al equipo.",
+          buildModuleTaskActions("configuracion")
+        );
+        return;
+      }
+      pushMessage(
+        "kora",
+        "Ajuste general en Configuración:\n1. Abre Configuración.\n2. Selecciona el bloque requerido.\n3. Cambia parámetros.\n4. Guarda y valida impacto operativo.",
+        buildModuleTaskActions("configuracion")
+      );
+      return;
+    }
+
+    if (moduleKey === "inicio") {
+      if (text.includes("kpi") || text.includes("indicador") || text.includes("ticket promedio")) {
+        pushMessage(
+          "kora",
+          "Lectura de KPIs en Inicio:\n1. Revisa venta hoy, venta mes y tickets.\n2. Valida ticket promedio y variación.\n3. Si algo cae, abre Reportes para detalle por fecha/método.",
+          buildModuleTaskActions("inicio")
+        );
+        return;
+      }
+      if (text.includes("tendencia") || text.includes("semana") || text.includes("mes")) {
+        pushMessage(
+          "kora",
+          "Analizar tendencia desde Inicio:\n1. Revisa gráfica semanal/mensual.\n2. Detecta picos y caídas por día.\n3. Cruza hallazgo con métodos de pago y top productos en Reportes.",
+          buildModuleTaskActions("inicio")
+        );
+        return;
+      }
+      pushMessage(
+        "kora",
+        "Lectura rápida del Inicio:\n1. Revisa ventas/tickets del día y mes.\n2. Compara tendencia semanal.\n3. Usa refrescar para sincronizar con POS.",
+        buildModuleTaskActions("inicio")
+      );
+      return;
+    }
+
+    // Cobertura exhaustiva por módulo en los bloques anteriores.
+    // Este fallback evita que TypeScript infiera `never` en acceso dinámico.
+    pushMessage(
+      "kora",
+      "Puedo ayudarte con ese flujo. Dime el módulo exacto para darte el paso a paso.",
+      [
+        { id: "fallback-open-dashboard", label: "Abrir Inicio", href: "/dashboard" },
+        { id: "fallback-open-reports", label: "Abrir Reportes", href: "/dashboard/reports" },
+      ]
+    );
+  }
+
+  async function answerCrossModuleCompare() {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "sales";
+    lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "reportes" };
+    try {
+      const sales = await readSales();
+      const avgToday = sales.todayTickets > 0 ? sales.todaySales / sales.todayTickets : 0;
+      const avgMonth = sales.monthTickets > 0 ? sales.monthSales / sales.monthTickets : 0;
+      const diff = avgToday - avgMonth;
+      const diffPct = diffPercent(avgToday, avgMonth);
+      pushMessage(
+        "kora",
+        `Cruce Inicio vs Reportes (lectura operativa):\n1. Inicio te da señal rápida del día.\n2. Reportes confirma causa por periodo, método y producto.\n3. Ticket promedio hoy: ${formatMoney(avgToday)} COP vs mes: ${formatMoney(avgMonth)} COP (${formatSignedMoney(diff)} COP, ${formatSignedPercent(diffPct)}).\n4. Si hay desvío, baja a Reporte detallado para explicar el cambio.`,
+        CROSS_MODULE_ACTIONS
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible cruzar Inicio y Reportes.";
+      pushMessage("kora", `No pude construir el cruce ahora. ${message}`, CROSS_MODULE_ACTIONS);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerKpiDropDiagnostic() {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "sales";
+    lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "reportes" };
+    try {
+      const sales = await readSales();
+      const { year, month, day } = getBogotaDateParts();
+      const todayKey = getBogotaDateKey(new Date()) ?? `${year}-${pad2(month)}-${pad2(day)}`;
+      const monthFrom = `${year}-${pad2(month)}-01`;
+      const monthTo = todayKey;
+      const [todayRows, topProducts, addiMonth, sisteMonth] = await Promise.all([
+        todayKey ? readSalesBySingleDate(todayKey) : Promise.resolve([]),
+        fetchQuickInsights(`${year}-${pad2(month)}`),
+        sumSalesForRange(monthFrom, monthTo, "addi"),
+        sumSalesForRange(monthFrom, monthTo, "sistecredito"),
+      ]);
+
+      const avgToday = sales.todayTickets > 0 ? sales.todaySales / sales.todayTickets : 0;
+      const avgMonth = sales.monthTickets > 0 ? sales.monthSales / sales.monthTickets : 0;
+      const gap = avgToday - avgMonth;
+      const gapPct = diffPercent(avgToday, avgMonth);
+
+      const paymentToday = buildPaymentSummary(todayRows);
+      const financeToday = paymentToday
+        .filter((row) => row.method.includes("addi") || row.method.includes("sistecredito"))
+        .reduce((acc, row) => acc + row.total, 0);
+      const financeMonth = addiMonth.totalAmount + sisteMonth.totalAmount;
+      const financeShareToday = sales.todaySales > 0 ? (financeToday / sales.todaySales) * 100 : 0;
+      const financeShareMonth = sales.monthSales > 0 ? (financeMonth / sales.monthSales) * 100 : 0;
+      const financeShareGap = financeShareToday - financeShareMonth;
+
+      const avgDailyTicketsMonth = day > 0 ? sales.monthTickets / day : 0;
+      const ticketsVsAvgDailyPct = avgDailyTicketsMonth > 0 ? diffPercent(sales.todayTickets, avgDailyTicketsMonth) : 0;
+
+      const topMonthProduct = topProducts[0]?.name?.trim() ?? "";
+      const topProductSoldTodayCount = topMonthProduct
+        ? todayRows.reduce((acc, sale) => {
+            const items = sale.items ?? [];
+            const count = items.filter((item) =>
+              normalizeQuery(item.product_name || item.name || "").includes(normalizeQuery(topMonthProduct))
+            ).length;
+            return acc + count;
+          }, 0)
+        : 0;
+
+      const factors: Array<{ title: string; detail: string; impact: number }> = [];
+      if (gap < 0) {
+        factors.push({
+          title: "Caída de ticket promedio",
+          detail: `Ticket hoy ${formatMoney(avgToday)} COP vs mes ${formatMoney(avgMonth)} COP (${formatSignedMoney(gap)} COP, ${formatSignedPercent(gapPct)}).`,
+          impact: Math.abs(clampPercent(gapPct)),
+        });
+      }
+      if (sales.todayTickets < avgDailyTicketsMonth) {
+        factors.push({
+          title: "Menor volumen de tickets hoy",
+          detail: `Tickets hoy ${sales.todayTickets} vs promedio diario del mes ${avgDailyTicketsMonth.toFixed(1)} (${formatSignedPercent(ticketsVsAvgDailyPct)}).`,
+          impact: Math.abs(clampPercent(ticketsVsAvgDailyPct)),
+        });
+      }
+      if (financeShareGap < 0) {
+        factors.push({
+          title: "Menor peso de financiación (Addi/Sistecrédito)",
+          detail: `Participación hoy ${financeShareToday.toFixed(1)}% vs mes ${financeShareMonth.toFixed(1)}% (${formatSignedPercent(financeShareGap)}).`,
+          impact: Math.abs(clampPercent(financeShareGap)),
+        });
+      }
+      if (topMonthProduct && topProductSoldTodayCount === 0) {
+        factors.push({
+          title: "No se vendió hoy el producto top del mes",
+          detail: `Top del mes: ${topMonthProduct}. Ventas hoy detectadas: 0.`,
+          impact: 18,
+        });
+      }
+
+      const ranked = factors
+        .sort((a, b) => b.impact - a.impact)
+        .slice(0, 4)
+        .map((factor, index) => `${index + 1}. ${factor.title} (impacto estimado: ${factor.impact.toFixed(1)}%)\n   ${factor.detail}`)
+        .join("\n");
+
+      if (!ranked) {
+        pushMessage(
+          "kora",
+          `No detecté señales fuertes de deterioro en el corte actual.\n- Ticket hoy: ${formatMoney(avgToday)} COP\n- Ticket mes: ${formatMoney(avgMonth)} COP\n- Diferencia: ${formatSignedMoney(gap)} COP (${formatSignedPercent(gapPct)}).`,
+          CROSS_MODULE_ACTIONS
+        );
+        return;
+      }
+
+      pushMessage(
+        "kora",
+        `Diagnóstico de causa probable (ranking):\n${ranked}\n\nCorte actual:\n- Ticket hoy: ${formatMoney(avgToday)} COP\n- Ticket mes: ${formatMoney(avgMonth)} COP\n- Diferencia: ${formatSignedMoney(gap)} COP (${formatSignedPercent(gapPct)}).`,
+        CROSS_MODULE_ACTIONS
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible calcular diagnóstico de ticket.";
+      pushMessage("kora", `No pude armar el diagnóstico ahora. ${message}`, CROSS_MODULE_ACTIONS);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerLastCreatedProduct() {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "inventory";
+    try {
+      const apiBase = getApiBase();
+      const res = await fetch(`${apiBase}/products/audit/recent?limit=30`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Error ${res.status} al consultar historial de productos.`);
+      const rows = ((await res.json()) as KoraProductAuditEntry[]) ?? [];
+      const created =
+        rows.find((row) => ["create", "snapshot"].includes((row.action || "").toLowerCase())) ?? rows[0] ?? null;
+      if (!created) {
+        pushMessage("kora", "No encontré registros recientes de creación de productos.", PRODUCT_ACTIONS);
+        return;
+      }
+
+      const after = tryGetValueFromUnknownRecord(created.changes, "after");
+      const before = tryGetValueFromUnknownRecord(created.changes, "before");
+      const source = (after && typeof after === "object" ? after : before && typeof before === "object" ? before : null) as
+        | Record<string, unknown>
+        | null;
+      const productName =
+        (source && typeof source.name === "string" && source.name.trim()) ||
+        "Producto sin nombre legible";
+      const productSku = source && typeof source.sku === "string" ? source.sku.trim() : "";
+      const createdAt = formatBogotaDateTime(created.created_at);
+
+      const detail = [
+        `Último producto creado/registrado: ${productName}${productSku ? ` (SKU ${productSku})` : " (sin SKU asignado)"}.`,
+        createdAt ? `Fecha: ${createdAt}.` : "",
+        created.actor_name ? `Usuario: ${created.actor_name}.` : "",
+        productSku ? "Tip: puedes consultarlo por SKU para trazabilidad rápida." : "Tip: este producto aún no tiene SKU; conviene asignarlo para trazabilidad.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      pushMessage("kora", detail, PRODUCT_ACTIONS);
+      lastEntityRef.current = {
+        ...lastEntityRef.current,
+        moduleKey: "productos",
+        productTerm: productSku || null,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible consultar el último producto creado.";
+      pushMessage("kora", `No pude consultar ese dato ahora. ${message}`, PRODUCT_ACTIONS);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function askKoraFallback(query: string): Promise<KoraApiAskResponse | null> {
+    if (!token) return null;
+    try {
+      const apiBase = getApiBase();
+      const res = await fetch(`${apiBase}/kora/ask`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query,
+          context: { topic: lastTopicRef.current ?? undefined },
+        }),
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as KoraApiAskResponse;
+    } catch {
+      return null;
+    }
+  }
+
   async function sumSalesForRange(dateFrom: string, dateTo: string, paymentMethod?: string | null) {
     const limit = 200;
     const maxPages = 8;
@@ -890,18 +1355,22 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     const normalizedTerm = normalizeQuery(term);
     const exact = items.find((item) => {
       const sku = normalizeQuery(item.sku ?? "");
-      const barcode = normalizeQuery(item.barcode ?? "");
-      return sku === normalizedTerm || barcode === normalizedTerm;
+      return sku === normalizedTerm;
     });
     if (exact) return exact;
 
     const starts = items.find((item) => {
       const sku = normalizeQuery(item.sku ?? "");
-      const barcode = normalizeQuery(item.barcode ?? "");
       const name = normalizeQuery(item.product_name ?? "");
-      return sku.startsWith(normalizedTerm) || barcode.startsWith(normalizedTerm) || name.startsWith(normalizedTerm);
+      return sku.startsWith(normalizedTerm) || name.startsWith(normalizedTerm);
     });
-    return starts ?? items[0] ?? null;
+    if (starts) return starts;
+
+    const containsSku = items.find((item) => normalizeQuery(item.sku ?? "").includes(normalizedTerm));
+    if (containsSku) return containsSku;
+
+    const containsName = items.find((item) => normalizeQuery(item.product_name ?? "").includes(normalizedTerm));
+    return containsName ?? null;
   }
 
   async function answerInventory(kind: "overview" | "critical" | "low") {
@@ -954,7 +1423,6 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     lastTopicRef.current = "sales";
     try {
       const data = await readSales();
-
       if (kind === "today") {
         pushMessage(
           "kora",
@@ -995,6 +1463,26 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     } catch (error) {
       const message = error instanceof Error ? error.message : "No fue posible cargar ventas.";
       pushMessage("kora", `No pude consultar ventas en este momento. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerSalesDayReading() {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "sales";
+    try {
+      const data = await readSales();
+      const insight = buildDailySalesInsight(data);
+      pushMessage(
+        "kora",
+        `Lectura KORA del día:\n- Estado: ${insight.label}\n- Comentario: ${insight.explanation}\n- Ventas hoy: ${formatMoney(data.todaySales)} COP (${formatSignedPercent(insight.salesGapPct)} vs promedio diario del mes)\n- Tickets hoy: ${data.todayTickets} (${formatSignedPercent(insight.ticketsGapPct)} vs promedio diario del mes)\n- Promedio diario mes (ventas): ${formatMoney(insight.avgDailySales)} COP\n- Promedio diario mes (tickets): ${insight.avgDailyTickets.toFixed(1)}`,
+        SALES_ACTIONS
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible construir la lectura del día.";
+      pushMessage("kora", `No pude generar la lectura del día ahora. ${message}`);
     } finally {
       setBusy(false);
     }
@@ -1060,6 +1548,120 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
   }
 
+  async function answerBestSalesMonth() {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "sales";
+    try {
+      const { year: currentYear } = getBogotaDateParts();
+      const fromYear = Math.max(2023, currentYear - 3);
+      const yearlySeries = await Promise.all(
+        Array.from({ length: currentYear - fromYear + 1 }, (_, index) => readMonthlySeries(fromYear + index))
+      );
+
+      let best: { year: number; month: number; total: number; tickets: number } | null = null;
+      for (let index = 0; index < yearlySeries.length; index += 1) {
+        const year = fromYear + index;
+        for (const row of yearlySeries[index] ?? []) {
+          if (!best || (row.total ?? 0) > best.total) {
+            best = {
+              year,
+              month: row.month,
+              total: row.total ?? 0,
+              tickets: row.tickets ?? 0,
+            };
+          }
+        }
+      }
+
+      if (!best || best.total <= 0) {
+        pushMessage("kora", "No encontré suficiente histórico para determinar el mes con mayor venta.", SALES_ACTIONS);
+        return;
+      }
+
+      const avgTicket = best.tickets > 0 ? best.total / best.tickets : 0;
+      pushMessage(
+        "kora",
+        `El mes con mayor venta (últimos ${currentYear - fromYear + 1} años) fue ${monthLabel(best.month)} ${best.year}:\n- Total vendido: ${formatMoney(best.total)} COP\n- Tickets: ${best.tickets}\n- Ticket promedio: ${formatMoney(avgTicket)} COP`,
+        SALES_ACTIONS
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible calcular el mes con mayor venta.";
+      pushMessage("kora", `No pude calcular el mes con mayor venta ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerBestSalesDay() {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "sales";
+    try {
+      const limit = 200;
+      const maxPages = 14;
+      const toDate = new Date();
+      const fromDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+      const dateFrom = getBogotaDateKey(fromDate) ?? "";
+      const dateTo = getBogotaDateKey(toDate) ?? "";
+      const byDay = new Map<string, { total: number; tickets: number }>();
+
+      for (let page = 0; page < maxPages; page += 1) {
+        const params = new URLSearchParams({
+          date_from: dateFrom,
+          date_to: dateTo,
+          skip: String(page * limit),
+          limit: String(limit),
+        });
+        const history = await fetchSalesHistory(params);
+        const rows = history.items ?? [];
+        for (const sale of rows) {
+          const key = getBogotaDateKey(new Date(sale.created_at ?? "")) ?? "";
+          if (!key) continue;
+          const previous = byDay.get(key) ?? { total: 0, tickets: 0 };
+          byDay.set(key, {
+            total: previous.total + (sale.total ?? 0),
+            tickets: previous.tickets + 1,
+          });
+        }
+        if (rows.length < limit) break;
+      }
+
+      let bestKey = "";
+      let bestTotal = 0;
+      let bestTickets = 0;
+      for (const [key, value] of byDay.entries()) {
+        if (value.total > bestTotal) {
+          bestKey = key;
+          bestTotal = value.total;
+          bestTickets = value.tickets;
+        }
+      }
+
+      if (!bestKey || bestTotal <= 0) {
+        pushMessage("kora", "No encontré suficiente histórico para determinar el día con mayor venta.", SALES_ACTIONS);
+        return;
+      }
+
+      const [year, month, day] = bestKey.split("-").map((part) => Number.parseInt(part, 10));
+      const avgTicket = bestTickets > 0 ? bestTotal / bestTickets : 0;
+      lastEntityRef.current = { ...lastEntityRef.current, dateKey: bestKey, moduleKey: "reportes" };
+      pushMessage(
+        "kora",
+        `El día con mayor venta (últimos 12 meses) fue ${day} de ${monthLabel(month)} de ${year}:\n- Total vendido: ${formatMoney(bestTotal)} COP\n- Tickets: ${bestTickets}\n- Ticket promedio: ${formatMoney(avgTicket)} COP`,
+        [
+          { id: "best-day-open-sales", label: "Abrir ventas de ese día", href: `/dashboard/sales?saleDate=${bestKey}` },
+          ...SALES_ACTIONS,
+        ]
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible calcular el día con mayor venta.";
+      pushMessage("kora", `No pude calcular el día con mayor venta ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function answerSalesMonthToDateComparison() {
     if (!ensureToken()) return;
     setBusy(true);
@@ -1106,6 +1708,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
     setBusy(true);
     lastTopicRef.current = "sales";
+    lastEntityRef.current = { ...lastEntityRef.current, paymentMethodSlug: paymentMethod.slug, moduleKey: "reportes" };
     try {
       const { year, month, day } = getBogotaDateParts();
       const currentFrom = new Date(Date.UTC(year, month - 1, 1));
@@ -1148,6 +1751,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
     setBusy(true);
     lastTopicRef.current = "sales";
+    lastEntityRef.current = { ...lastEntityRef.current, paymentMethodSlug: paymentMethod.slug, moduleKey: "reportes" };
     try {
       const { year, month, day } = getBogotaDateParts();
       const currentFrom = new Date(Date.UTC(year, 0, 1));
@@ -1203,15 +1807,156 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
   }
 
+  async function answerTopProductsCurrentMonth(input: string) {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "sales";
+    try {
+      const { year, month } = getBogotaDateParts();
+      const monthKey = `${year}-${pad2(month)}`;
+      const requestedRaw = normalizeQuery(input).match(/\b(\d{1,2})\b/)?.[1] ?? "10";
+      const requested = Number.parseInt(requestedRaw, 10);
+      const limit = Math.max(1, Math.min(20, Number.isFinite(requested) ? requested : 10));
+      const topProducts = await fetchQuickInsights(monthKey);
+      lastEntityRef.current = {
+        ...lastEntityRef.current,
+        moduleKey: "reportes",
+        topProductsQueryActive: true,
+        topProductsLimit: limit,
+      };
+      if (!topProducts.length) {
+        pushMessage("kora", "No encontré ventas suficientes este mes para construir el ranking de productos.", SALES_ACTIONS);
+        return;
+      }
+      const rows = topProducts.slice(0, limit);
+      const lines = rows
+        .map((row, index) => `${index + 1}. ${row.name} · ${Math.max(0, Math.trunc(row.units))} und · ${formatMoney(row.total)} COP`)
+        .join("\n");
+      const missing = limit - rows.length;
+      pushMessage(
+        "kora",
+        `Top ${rows.length} productos más vendidos de ${monthLabel(month)} ${year}:\n${lines}${
+          missing > 0 ? `\n\nNota: solo encontré ${rows.length} productos con ventas en el periodo.` : ""
+        }`,
+        SALES_ACTIONS
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible consultar el ranking de productos del mes.";
+      pushMessage("kora", `No pude consultar el top de productos ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerTopProductsPreviousMonth(input: string) {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "sales";
+    try {
+      const { year, month } = getBogotaDateParts();
+      const previousMonthDate = new Date(Date.UTC(year, month - 2, 1));
+      const targetYear = previousMonthDate.getUTCFullYear();
+      const targetMonth = previousMonthDate.getUTCMonth() + 1;
+      const monthKey = `${targetYear}-${pad2(targetMonth)}`;
+      const requestedRaw = normalizeQuery(input).match(/\b(\d{1,2})\b/)?.[1] ?? "";
+      const requested = Number.parseInt(requestedRaw, 10);
+      const fallbackLimit = lastEntityRef.current.topProductsLimit ?? 10;
+      const limit = Math.max(1, Math.min(20, Number.isFinite(requested) ? requested : fallbackLimit));
+      const topProducts = await fetchQuickInsights(monthKey);
+      lastEntityRef.current = {
+        ...lastEntityRef.current,
+        moduleKey: "reportes",
+        topProductsQueryActive: true,
+        topProductsLimit: limit,
+      };
+      if (!topProducts.length) {
+        pushMessage("kora", `No encontré ventas suficientes en ${monthLabel(targetMonth)} ${targetYear} para construir el ranking.`, SALES_ACTIONS);
+        return;
+      }
+      const rows = topProducts.slice(0, limit);
+      const lines = rows
+        .map((row, index) => `${index + 1}. ${row.name} · ${Math.max(0, Math.trunc(row.units))} und · ${formatMoney(row.total)} COP`)
+        .join("\n");
+      const missing = limit - rows.length;
+      pushMessage(
+        "kora",
+        `Top ${rows.length} productos más vendidos de ${monthLabel(targetMonth)} ${targetYear}:\n${lines}${
+          missing > 0 ? `\n\nNota: solo encontré ${rows.length} productos con ventas en el periodo.` : ""
+        }`,
+        SALES_ACTIONS
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible consultar el ranking del mes anterior.";
+      pushMessage("kora", `No pude consultar el top del mes anterior ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerTopProductsSpecificMonth(input: string) {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "sales";
+    try {
+      const parsed = parseMonthFromInput(input);
+      if (!parsed) {
+        pushMessage("kora", "Indícame el mes. Ejemplo: top 10 productos de febrero 2026.");
+        return;
+      }
+      const monthKey = `${parsed.year}-${pad2(parsed.month)}`;
+      const requestedRaw = normalizeQuery(input).match(/\b(\d{1,2})\b/)?.[1] ?? "";
+      const requested = Number.parseInt(requestedRaw, 10);
+      const fallbackLimit = lastEntityRef.current.topProductsLimit ?? 10;
+      const limit = Math.max(1, Math.min(20, Number.isFinite(requested) ? requested : fallbackLimit));
+      const topProducts = await fetchQuickInsights(monthKey);
+      lastEntityRef.current = {
+        ...lastEntityRef.current,
+        moduleKey: "reportes",
+        topProductsQueryActive: true,
+        topProductsLimit: limit,
+      };
+      if (!topProducts.length) {
+        pushMessage("kora", `No encontré ventas suficientes en ${monthLabel(parsed.month)} ${parsed.year} para construir el ranking.`, SALES_ACTIONS);
+        return;
+      }
+      const rows = topProducts.slice(0, limit);
+      const lines = rows
+        .map((row, index) => `${index + 1}. ${row.name} · ${Math.max(0, Math.trunc(row.units))} und · ${formatMoney(row.total)} COP`)
+        .join("\n");
+      const missing = limit - rows.length;
+      pushMessage(
+        "kora",
+        `Top ${rows.length} productos más vendidos de ${monthLabel(parsed.month)} ${parsed.year}:\n${lines}${
+          missing > 0 ? `\n\nNota: solo encontré ${rows.length} productos con ventas en el periodo.` : ""
+        }`,
+        SALES_ACTIONS
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible consultar el ranking por mes.";
+      pushMessage("kora", `No pude consultar ese top ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function answerSalesBySpecificDate(input: string) {
     if (!ensureToken()) return;
-    const parsed = parseSpecificDate(input);
+    const parsed =
+      parseSpecificDate(input) ??
+      (() => {
+        const key = lastEntityRef.current.dateKey || "";
+        if (!key) return null;
+        const [year, month, day] = key.split("-").map((part) => Number.parseInt(part, 10));
+        if (!year || !month || !day) return null;
+        return { key, year, month, day };
+      })();
     if (!parsed) {
       pushMessage("kora", "No pude interpretar esa fecha. Prueba por ejemplo: 3 de febrero o 03/02/2026.");
       return;
     }
     setBusy(true);
     lastTopicRef.current = "sales";
+    lastEntityRef.current = { ...lastEntityRef.current, dateKey: parsed.key, moduleKey: "reportes" };
     try {
       const params = new URLSearchParams({
         date_from: parsed.key,
@@ -1247,7 +1992,15 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
   async function answerPaymentMethodsByDate(input: string) {
     if (!ensureToken()) return;
-    const parsed = parseSpecificDate(input);
+    const parsed =
+      parseSpecificDate(input) ??
+      (() => {
+        const key = lastEntityRef.current.dateKey || "";
+        if (!key) return null;
+        const [year, month, day] = key.split("-").map((part) => Number.parseInt(part, 10));
+        if (!year || !month || !day) return null;
+        return { key, year, month, day };
+      })();
     if (!parsed) {
       pushMessage("kora", "No pude interpretar esa fecha. Prueba por ejemplo: 21 de febrero o 21/02/2026.");
       return;
@@ -1255,6 +2008,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
     setBusy(true);
     lastTopicRef.current = "sales";
+    lastEntityRef.current = { ...lastEntityRef.current, dateKey: parsed.key, moduleKey: "reportes" };
     try {
       const params = new URLSearchParams({
         date_from: parsed.key,
@@ -1322,24 +2076,32 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
   async function answerProductByCode(input: string) {
     if (!ensureToken()) return;
-    const code = extractProductCode(input);
+    const normalizedInput = normalizeQuery(input);
+    if (/\bid\s+\d+\b/.test(normalizedInput)) {
+      pushMessage("kora", "En KORA trabajamos por SKU. Envíame el SKU del producto (ejemplo: SKU 100045).", PRODUCT_ACTIONS);
+      return;
+    }
+    const codeRaw = extractProductCode(input);
+    const code = codeRaw || (lastEntityRef.current.productTerm ?? "");
     if (!code) {
-      pushMessage("kora", "Para buscar por código, escríbeme algo como: producto código ABC123 o SKU 100045.");
+      pushMessage("kora", "Para buscar por SKU, escríbeme algo como: SKU 100045.");
       return;
     }
     setBusy(true);
     lastTopicRef.current = "inventory";
+    lastEntityRef.current = { ...lastEntityRef.current, productTerm: code || null, moduleKey: "productos" };
     try {
       const product = await findProductRecord(code);
       if (!product) {
-        pushMessage("kora", `No encontré un producto con código ${code}.`, PRODUCT_ACTIONS);
+        pushMessage("kora", `No encontré un producto con SKU/código ${code}.`, PRODUCT_ACTIONS);
         return;
       }
       pushMessage(
         "kora",
-        `Producto encontrado:\n- Nombre: ${product.product_name}\n- SKU: ${product.sku ?? "—"}\n- Código barras: ${product.barcode ?? "—"}\n- Grupo: ${product.group_name ?? "Sin grupo"}\n- Stock: ${product.qty_on_hand}`,
+        `Producto encontrado:\n- Nombre: ${product.product_name}\n- SKU: ${product.sku ?? "Sin SKU"}\n- Código barras: ${product.barcode ?? "—"}\n- Grupo: ${product.group_name ?? "Sin grupo"}\n- Stock: ${product.qty_on_hand}`,
         PRODUCT_ACTIONS
       );
+      lastEntityRef.current = { ...lastEntityRef.current, productTerm: product.sku || product.product_name, moduleKey: "productos" };
     } catch (error) {
       const message = error instanceof Error ? error.message : "No fue posible consultar productos.";
       pushMessage("kora", `No pude buscar ese código ahora. ${message}`);
@@ -1350,13 +2112,14 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
   async function answerProductGroup(input: string) {
     if (!ensureToken()) return;
-    const codeOrTerm = extractProductCode(input) || extractProductTerm(input);
+    const codeOrTerm = extractProductCode(input) || extractProductTerm(input) || (lastEntityRef.current.productTerm ?? "");
     if (!codeOrTerm) {
-      pushMessage("kora", "Dime el producto o código. Ejemplo: ¿a qué grupo pertenece SKU 100045?");
+      pushMessage("kora", "Dime el SKU o producto. Ejemplo: ¿a qué grupo pertenece SKU 100045?");
       return;
     }
     setBusy(true);
     lastTopicRef.current = "inventory";
+    lastEntityRef.current = { ...lastEntityRef.current, productTerm: codeOrTerm || null, moduleKey: "productos" };
     try {
       const product = await findProductRecord(codeOrTerm);
       if (!product) {
@@ -1365,12 +2128,46 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       }
       pushMessage(
         "kora",
-        `${product.product_name} pertenece al grupo: ${product.group_name ?? "Sin grupo asignado"}.`,
+        `${product.product_name} ${product.sku ? `(SKU ${product.sku}) ` : ""}pertenece al grupo: ${product.group_name ?? "Sin grupo asignado"}.`,
         PRODUCT_ACTIONS
       );
+      lastEntityRef.current = { ...lastEntityRef.current, productTerm: product.sku || null, moduleKey: "productos" };
     } catch (error) {
       const message = error instanceof Error ? error.message : "No fue posible consultar el grupo del producto.";
       pushMessage("kora", `No pude consultar ese grupo ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerProductPrice(input: string) {
+    if (!ensureToken()) return;
+    const directCode = extractProductCode(input);
+    const extractedTerm = extractProductTerm(input);
+    const genericPriceTerms = new Set(["precio", "valor", "costo", "coste"]);
+    const safeTerm = extractedTerm && !genericPriceTerms.has(normalizeQuery(extractedTerm)) ? extractedTerm : "";
+    const code = directCode || safeTerm || (lastEntityRef.current.productTerm ?? "");
+    if (!code) {
+      pushMessage("kora", "Indícame el SKU para consultar precio. Ejemplo: SKU 100045.");
+      return;
+    }
+    setBusy(true);
+    lastTopicRef.current = "inventory";
+    try {
+      const product = await findProductRecord(code);
+      if (!product) {
+        pushMessage("kora", `No encontré un producto con SKU/código ${code}.`, PRODUCT_ACTIONS);
+        return;
+      }
+      pushMessage(
+        "kora",
+        `Precio de ${product.product_name}${product.sku ? ` (SKU ${product.sku})` : ""}:\n- Precio venta: ${formatMoney(product.price)} COP\n- Costo: ${formatMoney(product.cost)} COP\n- Estado: ${product.status === "critical" ? "Stock crítico" : product.status === "low" ? "Stock bajo" : "Stock OK"}`,
+        PRODUCT_ACTIONS
+      );
+      lastEntityRef.current = { ...lastEntityRef.current, productTerm: product.sku || product.product_name, moduleKey: "productos" };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible consultar el precio del producto.";
+      pushMessage("kora", `No pude consultar ese precio ahora. ${message}`);
     } finally {
       setBusy(false);
     }
@@ -1417,15 +2214,50 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     return [{ id: `sales-open-${sale.id}`, label: "Abrir esa venta", href: `/dashboard/sales?${params.toString()}` }];
   }
 
+  function resolveProductTermFromInput(input: string) {
+    const normalizedInput = normalizeQuery(input);
+    const contextProductTerm = (lastEntityRef.current.productTerm ?? "").trim();
+    const extractedProductTerm = (extractProductCode(input) || extractProductTerm(input) || "").trim();
+    const referencesCurrentProduct =
+      normalizedInput.includes("este producto") ||
+      normalizedInput.includes("ese producto") ||
+      normalizedInput.includes("este sku") ||
+      normalizedInput.includes("ese sku") ||
+      normalizedInput.includes("este articulo") ||
+      normalizedInput.includes("ese articulo") ||
+      normalizedInput.includes("este item") ||
+      normalizedInput.includes("ese item");
+    const genericReferenceTerms = new Set([
+      "producto",
+      "productos",
+      "este producto",
+      "ese producto",
+      "sku",
+      "este sku",
+      "ese sku",
+      "articulo",
+      "articulos",
+      "este articulo",
+      "ese articulo",
+      "item",
+      "items",
+      "este item",
+      "ese item",
+    ]);
+    const safeExtractedTerm = genericReferenceTerms.has(normalizeQuery(extractedProductTerm)) ? "" : extractedProductTerm;
+    return (referencesCurrentProduct ? contextProductTerm : "") || safeExtractedTerm || contextProductTerm;
+  }
+
   async function answerLastSaleForProduct(input: string) {
     if (!ensureToken()) return;
-    const productTerm = extractProductCode(input) || extractProductTerm(input);
+    const productTerm = resolveProductTermFromInput(input);
     if (!productTerm) {
       pushMessage("kora", "Indícame el producto. Ejemplo: ¿cuándo fue la última vez que vendimos cabina 8A?");
       return;
     }
     setBusy(true);
     lastTopicRef.current = "sales";
+    lastEntityRef.current = { ...lastEntityRef.current, productTerm, moduleKey: "reportes" };
     try {
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - 540);
@@ -1479,6 +2311,12 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         matches,
         currentIndex: 0,
       };
+      lastEntityRef.current = {
+        ...lastEntityRef.current,
+        productTerm,
+        dateKey: getBogotaDateKey(new Date(found.created_at)) ?? null,
+        moduleKey: "reportes",
+      };
       const productsPreview = resolveMatchedProductsText(found, productTerm);
       pushMessage(
         "kora",
@@ -1488,6 +2326,97 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     } catch (error) {
       const message = error instanceof Error ? error.message : "No fue posible buscar la última venta.";
       pushMessage("kora", `No pude consultar esa última venta ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerProductRestockAdvice(input: string) {
+    if (!ensureToken()) return;
+    const productTerm = resolveProductTermFromInput(input);
+    if (!productTerm) {
+      pushMessage("kora", "Para recomendar reposición, indícame el producto o SKU. Ejemplo: ¿debemos pedir más del SKU 1000?");
+      return;
+    }
+    setBusy(true);
+    lastTopicRef.current = "inventory";
+    lastEntityRef.current = { ...lastEntityRef.current, productTerm, moduleKey: "productos" };
+    try {
+      const product = await findProductRecord(productTerm);
+      if (!product) {
+        pushMessage("kora", `No encontré ese producto (${productTerm}) para recomendar reposición.`, PRODUCT_ACTIONS);
+        return;
+      }
+
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 30);
+      const dateFrom = getBogotaDateKey(fromDate) ?? "";
+      const maxPages = 4;
+      const limit = 100;
+      const queryTerm = (product.sku || product.product_name || productTerm).trim();
+      let sales30d = 0;
+      let tickets30d = 0;
+      let units30d = 0;
+
+      for (let page = 0; page < maxPages; page += 1) {
+        const params = new URLSearchParams({
+          date_from: dateFrom,
+          skip: String(page * limit),
+          limit: String(limit),
+          term: queryTerm,
+        });
+        const history = await fetchSalesHistory(params);
+        const rows = history.items ?? [];
+        for (const row of rows) {
+          if (!rowContainsProduct(row, queryTerm)) continue;
+          tickets30d += 1;
+          sales30d += row.total ?? 0;
+          const matchedUnits = (row.items ?? [])
+            .filter((item) => {
+              const name = normalizeQuery(item.product_name || item.name || "");
+              const sku = normalizeQuery(item.product_sku || "");
+              const target = normalizeQuery(queryTerm);
+              return !!target && (name.includes(target) || sku.includes(target));
+            })
+            .reduce((acc, item) => acc + Math.max(0, Number(item.quantity ?? 0)), 0);
+          units30d += matchedUnits;
+        }
+        if (rows.length < limit) break;
+      }
+
+      const stock = Math.max(0, Number(product.qty_on_hand ?? 0));
+      const dailyUnits = units30d / 30;
+      const coverageDays = dailyUnits > 0 ? stock / dailyUnits : Number.POSITIVE_INFINITY;
+      let recommendation = "No priorizar reposición por ahora.";
+      let reason = "no hay suficiente rotación reciente para justificar compra inmediata.";
+
+      if ((stock <= 0 || (product.status ?? "") === "critical") && units30d > 0) {
+        recommendation = "Sí, pedir ya.";
+        reason = "tiene quiebre/estado crítico y sí hubo movimiento reciente.";
+      } else if (dailyUnits > 0 && coverageDays <= 7) {
+        recommendation = "Sí, pedir ya.";
+        reason = `la cobertura estimada es de ~${coverageDays.toFixed(1)} días.`;
+      } else if (dailyUnits > 0 && coverageDays <= 15) {
+        recommendation = "Conviene reponer esta semana.";
+        reason = `la cobertura estimada es de ~${coverageDays.toFixed(1)} días.`;
+      } else if (units30d > 0) {
+        recommendation = "No urgente; monitorear.";
+        reason = `tiene cobertura aproximada de ${coverageDays.toFixed(1)} días al ritmo actual.`;
+      }
+
+      pushMessage(
+        "kora",
+        `Recomendación de reposición para ${product.product_name}${product.sku ? ` (SKU ${product.sku})` : ""}:\n- Stock actual: ${stock}\n- Ventas 30 días: ${formatMoney(sales30d)} COP\n- Tickets 30 días: ${tickets30d}\n- Unidades estimadas 30 días: ${units30d}\n- Cobertura estimada: ${Number.isFinite(coverageDays) ? `${coverageDays.toFixed(1)} días` : "sin consumo reciente"}\n\nConclusión KORA: ${recommendation}\nMotivo: ${reason}`,
+        PRODUCT_ACTIONS
+      );
+      lastEntityRef.current = {
+        ...lastEntityRef.current,
+        productTerm: product.sku || product.product_name || productTerm,
+        moduleKey: "productos",
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible construir la recomendación de reposición.";
+      pushMessage("kora", `No pude recomendar reposición ahora. ${message}`, PRODUCT_ACTIONS);
     } finally {
       setBusy(false);
     }
@@ -1540,6 +2469,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
   }
 
   async function dispatchIntent(intent: QueryIntent, input: string) {
+    lastIntentRef.current = intent;
     if (intent === "greeting") {
       pushMessage("kora", `${resolveGreetingByBogotaTime()}, aquí estoy para ayudarte.`);
       return "handled" as const;
@@ -1549,6 +2479,30 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         "kora",
         "Puedo ayudarte con operación diaria de Metrik. Ejemplos: “cómo ver reportes”, “cómo crear un producto”, “buscar venta de ayer de cabina”, “críticos de inventario”, “ventas hoy”."
       );
+      return "handled" as const;
+    }
+    if (intent === "module_guide") {
+      answerModuleGuide(input);
+      return "handled" as const;
+    }
+    if (intent === "module_connection") {
+      answerModuleConnection(input);
+      return "handled" as const;
+    }
+    if (intent === "module_playbook_task") {
+      answerModulePlaybookTask(input);
+      return "handled" as const;
+    }
+    if (intent === "cross_module_compare") {
+      await answerCrossModuleCompare();
+      return "handled" as const;
+    }
+    if (intent === "kpi_drop_diagnostic") {
+      await answerKpiDropDiagnostic();
+      return "handled" as const;
+    }
+    if (intent === "last_created_product") {
+      await answerLastCreatedProduct();
       return "handled" as const;
     }
     if (intent === "last_sale_followup_product") {
@@ -1570,10 +2524,30 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
     if (intent === "how_create_product") {
       lastTopicRef.current = "inventory";
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "productos" };
+      const text = normalizeQuery(input);
+      const asksVariants =
+        text.includes("variante") ||
+        text.includes("variantes") ||
+        text.includes("color") ||
+        text.includes("talla") ||
+        text.includes("referencia") ||
+        text.includes("modelo");
       pushMessage(
         "kora",
-        "Para crear un producto:\n1. Ve a Productos.\n2. Clic en crear nuevo producto.\n3. Completa nombre, SKU, categoría y precio.\n4. Guarda y valida inventario inicial.",
+        asksVariants
+          ? "Para crear producto con variantes:\n1. Ve a Productos y crea el producto base.\n2. Define atributos de variante (ej. color, tamaño o modelo).\n3. Crea cada variante con su SKU, precio y stock.\n4. Guarda y valida que cada variante quede visible para venta."
+          : "Para crear un producto:\n1. Ve a Productos.\n2. Clic en crear nuevo producto.\n3. Completa nombre, SKU, categoría y precio.\n4. Guarda y valida inventario inicial.",
         PRODUCT_GUIDE_ACTIONS
+      );
+      return "handled" as const;
+    }
+    if (intent === "how_create_hr_employee") {
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "rrhh" };
+      pushMessage(
+        "kora",
+        "Para crear un nuevo empleado en Recursos Humanos:\n1. Abre Recursos Humanos.\n2. Clic en “Nuevo empleado”.\n3. Completa datos personales, cargo y contacto.\n4. Guarda y valida que aparezca en el listado.",
+        MODULE_GUIDES.rrhh.actions
       );
       return "handled" as const;
     }
@@ -1606,8 +2580,28 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       await answerSalesMethodYearComparison(input);
       return "handled" as const;
     }
+    if (intent === "sales_best_month") {
+      await answerBestSalesMonth();
+      return "handled" as const;
+    }
+    if (intent === "sales_best_day") {
+      await answerBestSalesDay();
+      return "handled" as const;
+    }
     if (intent === "top_product_current_month") {
       await answerTopProductCurrentMonth();
+      return "handled" as const;
+    }
+    if (intent === "top_products_current_month") {
+      await answerTopProductsCurrentMonth(input);
+      return "handled" as const;
+    }
+    if (intent === "top_products_previous_month") {
+      await answerTopProductsPreviousMonth(input);
+      return "handled" as const;
+    }
+    if (intent === "top_products_specific_month") {
+      await answerTopProductsSpecificMonth(input);
       return "handled" as const;
     }
     if (intent === "sales_previous_month") {
@@ -1622,8 +2616,16 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       await answerProductByCode(input);
       return "handled" as const;
     }
+    if (intent === "product_price_lookup") {
+      await answerProductPrice(input);
+      return "handled" as const;
+    }
     if (intent === "product_group_lookup") {
       await answerProductGroup(input);
+      return "handled" as const;
+    }
+    if (intent === "product_restock_advice") {
+      await answerProductRestockAdvice(input);
       return "handled" as const;
     }
     if (intent === "last_sale_product") {
@@ -1644,6 +2646,10 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
     if (intent === "sales_overview") {
       await answerSales("overview");
+      return "handled" as const;
+    }
+    if (intent === "sales_day_reading") {
+      await answerSalesDayReading();
       return "handled" as const;
     }
     if (intent === "sales_today") {
@@ -1682,12 +2688,14 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     if (busy) return;
     const input = draft.trim();
     if (!input) return;
+    lastUserInputRef.current = input;
+    updateToneModeFromUserInput(input);
     const startedAt = Date.now();
 
     pushMessage("user", input);
     setDraft("");
 
-    const intent = resolveIntentWithContext(input, lastTopicRef.current);
+    const intent = resolveIntentWithContext(input, lastTopicRef.current, lastEntityRef.current, resolveModuleFromQuery);
     if (intent !== "unknown") {
       const status = await dispatchIntent(intent, input);
       logMetric({
@@ -1701,8 +2709,40 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       return;
     }
 
-    const candidates = buildIntentCandidates(input);
+    const apiFallback = await askKoraFallback(input);
+    if (apiFallback?.handled && apiFallback.answer.trim()) {
+      lastIntentRef.current = "unknown";
+      const apiActions: KoraAction[] = (apiFallback.actions ?? [])
+        .filter((action) => !!action.label)
+        .map((action, index) => ({
+          id: `api-fallback-${Date.now()}-${index}`,
+          label: action.label,
+          href: action.href ?? undefined,
+        }));
+
+      const suggestionsText = (apiFallback.suggestions ?? [])
+        .slice(0, 3)
+        .map((entry) => `- ${entry}`)
+        .join("\n");
+      const finalAnswer = suggestionsText
+        ? `${apiFallback.answer}\n\nSugerencias:\n${suggestionsText}`
+        : apiFallback.answer;
+      pushMessage("kora", finalAnswer, apiActions.length ? apiActions : undefined);
+
+      logMetric({
+        at: new Date().toISOString(),
+        source: "message",
+        input,
+        intent: "unknown",
+        status: "handled",
+        latencyMs: Date.now() - startedAt,
+      });
+      return;
+    }
+
+    const candidates = buildIntentCandidates(input, resolveModuleFromQuery);
     if (candidates.length >= 2 && candidates[0].score - candidates[1].score <= 8) {
+      lastIntentRef.current = "unknown";
       pendingConfirmationRef.current = { input, candidates: candidates.slice(0, 2) };
       pushMessage(
         "kora",
@@ -1726,6 +2766,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
 
     const fallback = buildFallbackSuggestions(input);
+    lastIntentRef.current = "unknown";
     pushMessage("kora", fallback.text, fallback.actions);
     logMetric({
       at: new Date().toISOString(),
@@ -1739,6 +2780,8 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
   async function handleAction(action: KoraAction) {
     const startedAt = Date.now();
+    lastUserInputRef.current = action.label;
+    updateToneModeFromUserInput(action.label);
     pushMessage("user", action.label);
     if (action.intent) {
       const intentInput = action.inputOverride || action.label;
@@ -1756,10 +2799,33 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     if (!action.href) return;
     if (action.href.startsWith("/dashboard/movements") || action.href.startsWith("/dashboard/products")) {
       lastTopicRef.current = "inventory";
+      lastEntityRef.current = {
+        ...lastEntityRef.current,
+        moduleKey: action.href.startsWith("/dashboard/movements") ? "movimientos" : "productos",
+      };
+    } else if (action.href.startsWith("/dashboard/labels-pilot")) {
+      lastTopicRef.current = "inventory";
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "etiquetado_beta" };
+    } else if (action.href.startsWith("/dashboard/labels")) {
+      lastTopicRef.current = "inventory";
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "etiquetas" };
+    } else if (action.href.startsWith("/dashboard/pos")) {
+      lastTopicRef.current = "sales";
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "pos" };
+    } else if (action.href.startsWith("/dashboard/documents")) {
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "documentos" };
     } else if (action.href.startsWith("/dashboard/reports") || action.href.startsWith("/dashboard/sales")) {
       lastTopicRef.current = "sales";
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "reportes" };
     } else if (action.href.startsWith("/dashboard/comercio-web")) {
       lastTopicRef.current = "web";
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "comercio_web" };
+    } else if (action.href.startsWith("/dashboard/investment")) {
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "inversion" };
+    } else if (action.href.startsWith("/dashboard/hr")) {
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "rrhh" };
+    } else if (action.href.startsWith("/dashboard/settings")) {
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "configuracion" };
     }
     router.push(action.href);
     setOpen(false);
@@ -1770,7 +2836,11 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     setDraft("");
     lastTopicRef.current = null;
     lastSaleLookupRef.current = null;
+    lastEntityRef.current = {};
     pendingConfirmationRef.current = null;
+    toneModeRef.current = "professional";
+    lastIntentRef.current = null;
+    lastUserInputRef.current = "";
     nextIdRef.current = 2;
   }
 
