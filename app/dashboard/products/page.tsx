@@ -259,31 +259,19 @@ function buildAuditMessages(entry: ProductAuditEntry): string[] {
     const withValue = fields.filter(([, value]) => !isAuditEmptyValue(value));
     const empty = fields.filter(([, value]) => isAuditEmptyValue(value));
 
-    const withValuePreview = withValue
-      .slice(0, 8)
-      .map(
-        ([field, value]) =>
-          `${formatAuditFieldLabel(field)}: "${formatAuditValue(value)}"`
-      );
-    const withValueExtra =
-      withValue.length > withValuePreview.length
-        ? ` y ${withValue.length - withValuePreview.length} más`
-        : "";
+    const withValuePreview = withValue.map(
+      ([field, value]) =>
+        `${formatAuditFieldLabel(field)}: "${formatAuditValue(value)}"`
+    );
 
-    const emptyPreview = empty
-      .slice(0, 8)
-      .map(([field]) => formatAuditFieldLabel(field));
-    const emptyExtra =
-      empty.length > emptyPreview.length
-        ? ` y ${empty.length - emptyPreview.length} más`
-        : "";
+    const emptyPreview = empty.map(([field]) => formatAuditFieldLabel(field));
 
     const lines: string[] = [];
     if (withValuePreview.length > 0) {
-      lines.push(`Campos con valor: ${withValuePreview.join(", ")}${withValueExtra}.`);
+      lines.push(`Campos con valor: ${withValuePreview.join(", ")}.`);
     }
     if (emptyPreview.length > 0) {
-      lines.push(`Campos vacíos: ${emptyPreview.join(", ")}${emptyExtra}.`);
+      lines.push(`Campos vacíos: ${emptyPreview.join(", ")}.`);
     }
     if (sourceLabel) {
       lines.unshift(`Origen: ${sourceLabel}.`);
