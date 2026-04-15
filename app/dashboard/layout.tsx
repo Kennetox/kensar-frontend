@@ -777,7 +777,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const displayName = profile?.name?.trim() || user?.name || "Usuario";
   const displayRole = profile?.role ?? user?.role ?? "";
-  const isKoraEnabled = !posPreview && displayRole === "Administrador";
+  const isKoraEnabled = !posPreview;
   const avatarUrl = profile?.avatar_url ?? "";
   const resolvedAvatarUrl = avatarUrl.startsWith("/")
     ? `${getApiBase()}${avatarUrl}`

@@ -261,7 +261,22 @@ type KoraMetricEntry = {
   latencyMs: number;
 };
 
+type KoraFeedbackEntry = {
+  id: string;
+  at: string;
+  source: "message" | "action";
+  input: string;
+  answer: string;
+  intent: string;
+  status: "handled" | "fallback";
+  moduleKey?: string | null;
+  pathname?: string | null;
+  userName?: string | null;
+  feedback: "yes" | "no";
+};
+
 const KORA_METRICS_KEY = "kora_ops_metrics_v1";
+const KORA_FEEDBACK_KEY = "kora_ops_feedback_v1";
 
 type StationControlRow = {
   stationId: string | null;
@@ -762,6 +777,8 @@ export default function SettingsPage() {
   const [adminClosureError, setAdminClosureError] = useState<string | null>(null);
   const [koraMetrics, setKoraMetrics] = useState<KoraMetricEntry[]>([]);
   const [koraMetricsLoaded, setKoraMetricsLoaded] = useState(false);
+  const [koraFeedback, setKoraFeedback] = useState<KoraFeedbackEntry[]>([]);
+  const [koraFeedbackLoaded, setKoraFeedbackLoaded] = useState(false);
   const isAdmin = user?.role === "Administrador";
   const resolveStationId = useCallback(
     (stationId?: string | null, posName?: string | null) => {
@@ -833,6 +850,39 @@ export default function SettingsPage() {
     }
     setKoraMetrics([]);
     setKoraMetricsLoaded(true);
+  }, []);
+
+  const loadKoraFeedback = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(KORA_FEEDBACK_KEY);
+      const parsed = raw ? (JSON.parse(raw) as KoraFeedbackEntry[]) : [];
+      const safe = Array.isArray(parsed)
+        ? parsed.filter(
+            (entry) =>
+              entry &&
+              typeof entry.input === "string" &&
+              typeof entry.answer === "string" &&
+              (entry.feedback === "yes" || entry.feedback === "no")
+          )
+        : [];
+      setKoraFeedback(safe);
+    } catch {
+      setKoraFeedback([]);
+    } finally {
+      setKoraFeedbackLoaded(true);
+    }
+  }, []);
+
+  const clearKoraFeedback = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.removeItem(KORA_FEEDBACK_KEY);
+    } catch {
+      // no-op
+    }
+    setKoraFeedback([]);
+    setKoraFeedbackLoaded(true);
   }, []);
 
   const loadControlData = useCallback(async () => {
@@ -2032,7 +2082,8 @@ export default function SettingsPage() {
   useEffect(() => {
     if (activeTab !== "kora") return;
     loadKoraMetrics();
-  }, [activeTab, loadKoraMetrics]);
+    loadKoraFeedback();
+  }, [activeTab, loadKoraMetrics, loadKoraFeedback]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4484,6 +4535,22 @@ export default function SettingsPage() {
     () => sortedKoraMetrics.filter((row) => row.status === "fallback").slice(0, 8),
     [sortedKoraMetrics]
   );
+  const sortedKoraFeedback = useMemo(
+    () =>
+      [...koraFeedback].sort(
+        (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
+      ),
+    [koraFeedback]
+  );
+  const koraNoFeedbackCases = useMemo(
+    () => sortedKoraFeedback.filter((row) => row.feedback === "no").slice(0, 20),
+    [sortedKoraFeedback]
+  );
+  const koraFeedbackRate = useMemo(() => {
+    if (!sortedKoraFeedback.length) return 0;
+    const positive = sortedKoraFeedback.filter((row) => row.feedback === "yes").length;
+    return (positive / sortedKoraFeedback.length) * 100;
+  }, [sortedKoraFeedback]);
 
   const koraContent = (
     <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-4">
@@ -4498,7 +4565,10 @@ export default function SettingsPage() {
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={loadKoraMetrics}
+            onClick={() => {
+              loadKoraMetrics();
+              loadKoraFeedback();
+            }}
             className="px-3 py-2 rounded-lg border border-emerald-500/60 text-emerald-200 text-xs hover:bg-emerald-500/10"
           >
             Refrescar
@@ -4509,6 +4579,13 @@ export default function SettingsPage() {
             className="px-3 py-2 rounded-lg border border-rose-500/70 text-rose-200 text-xs hover:bg-rose-500/10"
           >
             Limpiar historial
+          </button>
+          <button
+            type="button"
+            onClick={clearKoraFeedback}
+            className="px-3 py-2 rounded-lg border border-fuchsia-500/70 text-fuchsia-200 text-xs hover:bg-fuchsia-500/10"
+          >
+            Limpiar feedback
           </button>
         </div>
       </div>
@@ -4531,6 +4608,21 @@ export default function SettingsPage() {
           <p className="text-[11px] uppercase tracking-wide text-slate-400">Confirmación / Latencia</p>
           <p className="mt-1 text-2xl font-semibold text-sky-300">{koraConfirmCount}</p>
           <p className="text-xs text-slate-400">{Math.round(koraAvgLatency)} ms prom.</p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Feedback total</p>
+          <p className="mt-1 text-2xl font-semibold text-indigo-300">{sortedKoraFeedback.length}</p>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Útil (Sí)</p>
+          <p className="mt-1 text-2xl font-semibold text-emerald-300">{koraFeedbackRate.toFixed(1)}%</p>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Casos por mejorar (No)</p>
+          <p className="mt-1 text-2xl font-semibold text-rose-300">{koraNoFeedbackCases.length}</p>
         </div>
       </div>
 
@@ -4560,6 +4652,42 @@ export default function SettingsPage() {
                     <td className="px-3 py-2 text-slate-200">{row.input || "—"}</td>
                     <td className="px-3 py-2 text-slate-400">{row.intent || "unknown"}</td>
                     <td className="px-3 py-2 text-right text-slate-300">{Math.max(0, row.latencyMs || 0)} ms</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl border border-slate-800/70 overflow-hidden">
+        <div className="px-4 py-2 border-b border-slate-800 bg-slate-950/40">
+          <p className="text-xs text-slate-300 font-semibold">Consultas marcadas como “No era lo que buscaba”</p>
+        </div>
+        {!koraFeedbackLoaded ? (
+          <div className="px-4 py-6 text-xs text-slate-400">Cargando feedback...</div>
+        ) : koraNoFeedbackCases.length === 0 ? (
+          <div className="px-4 py-6 text-xs text-slate-500">No hay casos marcados para mejora.</div>
+        ) : (
+          <div className="max-h-[360px] overflow-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-950/40 text-slate-400">
+                <tr>
+                  <th className="px-3 py-2">Fecha</th>
+                  <th className="px-3 py-2">Consulta</th>
+                  <th className="px-3 py-2">Respuesta de KORA</th>
+                  <th className="px-3 py-2">Intent</th>
+                  <th className="px-3 py-2">Módulo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {koraNoFeedbackCases.map((row, index) => (
+                  <tr key={`${row.id}-${index}`} className="border-t border-slate-800/70 align-top">
+                    <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{formatDateLabel(row.at)}</td>
+                    <td className="px-3 py-2 text-slate-200">{row.input || "—"}</td>
+                    <td className="px-3 py-2 text-slate-300">{row.answer || "—"}</td>
+                    <td className="px-3 py-2 text-slate-400">{row.intent || "unknown"}</td>
+                    <td className="px-3 py-2 text-slate-400">{row.moduleKey || row.pathname || "—"}</td>
                   </tr>
                 ))}
               </tbody>

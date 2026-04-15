@@ -43,6 +43,18 @@ test("detectIntent employee create", () => {
   assertIntent("como crear empleado en recursos humanos", "how_create_hr_employee");
 });
 
+test("detectIntent identity question who are you", () => {
+  assertIntent("quien eres?", "help");
+});
+
+test("detectIntent identity question who created you", () => {
+  assertIntent("quien te creo?", "help");
+});
+
+test("detectIntent identity question purpose", () => {
+  assertIntent("para que sirves?", "help");
+});
+
 test("detectIntent payment by date", () => {
   assertIntent("metodos de pago del 21/02/2026", "payment_methods_by_date");
 });

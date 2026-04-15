@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   fetchInventoryOverview,
@@ -137,6 +137,33 @@ type KoraMetricEntry = {
   latencyMs: number;
 };
 
+type KoraFeedbackEntry = {
+  id: string;
+  at: string;
+  source: "message" | "action";
+  input: string;
+  answer: string;
+  intent: QueryIntent | "unknown";
+  status: "handled" | "fallback";
+  moduleKey?: KoraModuleKey | null;
+  pathname?: string | null;
+  userName?: string | null;
+  feedback: "yes" | "no";
+};
+
+type PendingKoraFeedback = {
+  id: string;
+  at: string;
+  source: "message" | "action";
+  input: string;
+  answer: string;
+  intent: QueryIntent | "unknown";
+  status: "handled" | "fallback";
+  moduleKey?: KoraModuleKey | null;
+  pathname?: string | null;
+  userName?: string | null;
+} | null;
+
 type KoraApiAskResponse = {
   handled: boolean;
   answer: string;
@@ -166,6 +193,11 @@ type KoraProductAuditEntry = {
 const CACHE_TTL_MS = 45_000;
 const KORA_METRICS_KEY = "kora_ops_metrics_v1";
 const KORA_MAX_METRICS = 200;
+const KORA_FEEDBACK_KEY = "kora_ops_feedback_v1";
+const KORA_MAX_FEEDBACK = 300;
+const KORA_SESSION_NUDGE_KEY_PREFIX = "kora_ops_session_nudge_seen_v1";
+const KORA_NUDGE_VISIBLE_MS = 20_000;
+const KORA_NUDGE_REPEAT_MS = 30 * 60 * 1000;
 
 const INVENTORY_ACTIONS: KoraAction[] = [
   { id: "go-movements", label: "Abrir Movimientos", href: "/dashboard/movements" },
@@ -236,7 +268,15 @@ function buildWelcomeMessage(userName?: string | null) {
   const firstName = resolveFirstName(userName);
   const greeting = resolveGreetingByBogotaTime();
   const recipient = firstName ? ` ${firstName}` : "";
-  return `${greeting}${recipient}, soy KORA. ¿En qué te ayudo hoy?`;
+  return `${greeting}${recipient}, soy KORA. Estoy en fase inicial y aprendiendo cada día para ayudarte mejor. ¿Qué quieres probar hoy?`;
+}
+
+function buildKoraIdentityMessage() {
+  return "Soy KORA, asistente operativo de Metrik.\n\nMe creó Kenneth para apoyar al equipo del negocio en tareas reales del día a día.\n\nEstoy en fase inicial y en mejora continua para ayudarte cada vez mejor.";
+}
+
+function buildKoraCapabilitiesMessage() {
+  return "Soy KORA, asistente operativo de Metrik.\n\nEsto es lo que puedo hacer hoy:\n\nVentas:\n- \"ventas de hoy\"\n- \"cuánto vendimos el mes pasado\"\n- \"cuál fue el mejor día de ventas\"\n\nProductos e inventario:\n- \"buscar SKU 100045\"\n- \"qué precio tiene el SKU 100045\"\n- \"deberíamos pedir más de este producto\"\n\nClientes:\n- \"tenemos clientes garcía\"\n- \"buscar cliente por documento 12345678\"\n- \"qué ventas tiene juan ricardo\"\n\nMódulos y operación:\n- \"qué estoy viendo\"\n- \"cómo usar Comercio Web\"\n- \"paso a paso para crear producto\"\n\nTambién puedo guiarte con acciones directas dentro del módulo donde estás.";
 }
 
 function saleLabel(sale: SalesHistoryItem) {
@@ -580,6 +620,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
   const pathname = usePathname();
   const welcomeMessage = buildWelcomeMessage(userName);
   const [open, setOpen] = useState(false);
+  const [showSessionNudge, setShowSessionNudge] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<KoraMessage[]>([{ id: 1, role: "kora", text: welcomeMessage }]);
@@ -598,6 +639,12 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
   const toneModeRef = useRef<KoraToneMode>("professional");
   const lastIntentRef = useRef<QueryIntent | null>(null);
   const lastUserInputRef = useRef("");
+  const pendingFeedbackRef = useRef<PendingKoraFeedback>(null);
+  const lastKoraReplyRef = useRef<{ text: string; at: string } | null>(null);
+  const sessionNudgeKeyRef = useRef<string>("");
+  const sessionNudgeOpenedRef = useRef(false);
+  const nudgeHideTimeoutRef = useRef<number | null>(null);
+  const nudgeReappearTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -617,6 +664,51 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     return () => window.removeEventListener("pointerdown", handlePointerDown, true);
   }, [enabled, open]);
 
+  const clearNudgeTimers = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (nudgeHideTimeoutRef.current != null) {
+      window.clearTimeout(nudgeHideTimeoutRef.current);
+      nudgeHideTimeoutRef.current = null;
+    }
+    if (nudgeReappearTimeoutRef.current != null) {
+      window.clearTimeout(nudgeReappearTimeoutRef.current);
+      nudgeReappearTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleNudgeCycle = useCallback(() => {
+    if (typeof window === "undefined" || sessionNudgeOpenedRef.current) return;
+    clearNudgeTimers();
+    setShowSessionNudge(true);
+    nudgeHideTimeoutRef.current = window.setTimeout(() => {
+      setShowSessionNudge(false);
+      if (sessionNudgeOpenedRef.current) return;
+      nudgeReappearTimeoutRef.current = window.setTimeout(() => {
+        scheduleNudgeCycle();
+      }, KORA_NUDGE_REPEAT_MS);
+    }, KORA_NUDGE_VISIBLE_MS);
+  }, [clearNudgeTimers]);
+
+  useEffect(() => {
+    if (!enabled || typeof window === "undefined") return;
+    const userKey =
+      normalizeQuery(userName || "usuario").replace(/\s+/g, "-").slice(0, 40) || "usuario";
+    const tokenTail = (token || "").slice(-12) || "no-token";
+    const sessionKey = `${KORA_SESSION_NUDGE_KEY_PREFIX}:${userKey}:${tokenTail}`;
+    sessionNudgeKeyRef.current = sessionKey;
+    const opened = window.sessionStorage.getItem(sessionKey) === "1";
+    sessionNudgeOpenedRef.current = opened;
+    if (opened) {
+      setShowSessionNudge(false);
+      clearNudgeTimers();
+      return;
+    }
+    scheduleNudgeCycle();
+    return () => {
+      clearNudgeTimers();
+    };
+  }, [enabled, token, userName, clearNudgeTimers, scheduleNudgeCycle]);
+
   if (!enabled) return null;
 
   function logMetric(entry: KoraMetricEntry) {
@@ -629,6 +721,35 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     } catch {
       // no-op
     }
+  }
+
+  function logFeedback(entry: KoraFeedbackEntry) {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(KORA_FEEDBACK_KEY);
+      const current = raw ? (JSON.parse(raw) as KoraFeedbackEntry[]) : [];
+      const next = [...current.slice(-(KORA_MAX_FEEDBACK - 1)), entry];
+      window.localStorage.setItem(KORA_FEEDBACK_KEY, JSON.stringify(next));
+    } catch {
+      // no-op
+    }
+  }
+
+  function markSessionNudgeSeen() {
+    if (typeof window === "undefined") return;
+    const key = sessionNudgeKeyRef.current;
+    if (!key) {
+      setShowSessionNudge(false);
+      return;
+    }
+    try {
+      window.sessionStorage.setItem(key, "1");
+    } catch {
+      // no-op
+    }
+    sessionNudgeOpenedRef.current = true;
+    clearNudgeTimers();
+    setShowSessionNudge(false);
   }
 
   function updateToneModeFromUserInput(input: string) {
@@ -659,7 +780,12 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
   }
 
-  function pushMessage(role: KoraMessage["role"], text: string, actions?: KoraAction[]) {
+  function pushMessage(
+    role: KoraMessage["role"],
+    text: string,
+    actions?: KoraAction[],
+    options?: { trackAsReply?: boolean }
+  ) {
     const finalText =
       role === "kora"
         ? (() => {
@@ -670,7 +796,47 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
             return `${lead}\n\n${text}`;
           })()
         : text;
+    if (role === "kora" && (options?.trackAsReply ?? true)) {
+      lastKoraReplyRef.current = { text: finalText, at: new Date().toISOString() };
+    }
     setMessages((current) => [...current, { id: nextIdRef.current++, role, text: finalText, actions }]);
+  }
+
+  function queueFeedbackPrompt(meta: Omit<NonNullable<PendingKoraFeedback>, "id" | "at">) {
+    const feedbackId = `kora-fb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    pendingFeedbackRef.current = {
+      id: feedbackId,
+      at: new Date().toISOString(),
+      ...meta,
+    };
+    pushMessage(
+      "kora",
+      "¿Te sirvió esta respuesta?",
+      [
+        { id: `kora-feedback-yes-${feedbackId}`, label: "Sí, me sirvió" },
+        { id: `kora-feedback-no-${feedbackId}`, label: "No, no era lo que buscaba" },
+      ],
+      { trackAsReply: false }
+    );
+  }
+
+  function commitPendingFeedback(decision: "yes" | "no") {
+    const pending = pendingFeedbackRef.current;
+    if (!pending) return false;
+    logFeedback({
+      ...pending,
+      feedback: decision,
+    });
+    pendingFeedbackRef.current = null;
+    pushMessage(
+      "kora",
+      decision === "yes"
+        ? "Qué bien, gracias por confirmarlo."
+        : "Gracias por avisarme. Ya dejé este caso marcado para mejora en Calidad KORA.",
+      undefined,
+      { trackAsReply: false }
+    );
+    return true;
   }
 
   function resolveBinaryConfirmation(input: string): "yes" | "no" | null {
@@ -2913,9 +3079,32 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       return "handled" as const;
     }
     if (intent === "help") {
+      const text = normalizeQuery(input);
+      const asksIdentity =
+        text.includes("quien eres") ||
+        text.includes("quién eres") ||
+        text.includes("quien te creo") ||
+        text.includes("quién te creó") ||
+        text.includes("quien te hizo") ||
+        text.includes("quién te hizo") ||
+        text.includes("de donde saliste") ||
+        text.includes("de dónde saliste");
+      const asksCapabilities =
+        text.includes("que puedes hacer") ||
+        text.includes("qué puedes hacer") ||
+        text.includes("en que puedes ayudar") ||
+        text.includes("en qué puedes ayudar") ||
+        text.includes("para que sirves") ||
+        text.includes("para qué sirves") ||
+        text.includes("que eres capaz de hacer") ||
+        text.includes("qué eres capaz de hacer");
       pushMessage(
         "kora",
-        "Puedo ayudarte con operación diaria de Metrik. Ejemplos: “cómo ver reportes”, “cómo crear un producto”, “buscar venta de ayer de cabina”, “críticos de inventario”, “ventas hoy”."
+        asksIdentity && !asksCapabilities
+          ? buildKoraIdentityMessage()
+          : asksCapabilities
+            ? buildKoraCapabilitiesMessage()
+            : `${buildKoraIdentityMessage()}\n\n${buildKoraCapabilitiesMessage()}`
       );
       return "handled" as const;
     }
@@ -3183,6 +3372,14 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       }
     }
 
+    if (pendingFeedbackRef.current) {
+      const feedbackDecision = resolveBinaryConfirmation(input);
+      if (feedbackDecision === "yes" || feedbackDecision === "no") {
+        const handledFeedback = commitPendingFeedback(feedbackDecision);
+        if (handledFeedback) return;
+      }
+    }
+
     const intent = resolveIntentWithContext(input, lastTopicRef.current, lastEntityRef.current, resolveModuleFromQuery);
     if (intent !== "unknown") {
       const status = await dispatchIntent(intent, input);
@@ -3194,6 +3391,21 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         status,
         latencyMs: Date.now() - startedAt,
       });
+      if (status === "handled" || status === "fallback") {
+        const answer = lastKoraReplyRef.current?.text || "";
+        if (answer.trim()) {
+          queueFeedbackPrompt({
+            source: "message",
+            input,
+            answer,
+            intent,
+            status,
+            moduleKey: resolveModuleFromPathname(pathname) || lastEntityRef.current.moduleKey || null,
+            pathname,
+            userName: userName ?? null,
+          });
+        }
+      }
       return;
     }
 
@@ -3224,6 +3436,16 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         intent: "unknown",
         status: "handled",
         latencyMs: Date.now() - startedAt,
+      });
+      queueFeedbackPrompt({
+        source: "message",
+        input,
+        answer: finalAnswer,
+        intent: "unknown",
+        status: "handled",
+        moduleKey: resolveModuleFromPathname(pathname) || lastEntityRef.current.moduleKey || null,
+        pathname,
+        userName: userName ?? null,
       });
       return;
     }
@@ -3267,9 +3489,30 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       status: "fallback",
       latencyMs: Date.now() - startedAt,
     });
+    queueFeedbackPrompt({
+      source: "message",
+      input,
+      answer: fallback.text,
+      intent: "unknown",
+      status: "fallback",
+      moduleKey: resolveModuleFromPathname(pathname) || lastEntityRef.current.moduleKey || null,
+      pathname,
+      userName: userName ?? null,
+    });
   }
 
   async function handleAction(action: KoraAction) {
+    if (action.id.startsWith("kora-feedback-yes-")) {
+      pushMessage("user", action.label);
+      commitPendingFeedback("yes");
+      return;
+    }
+    if (action.id.startsWith("kora-feedback-no-")) {
+      pushMessage("user", action.label);
+      commitPendingFeedback("no");
+      return;
+    }
+
     const startedAt = Date.now();
     pendingCustomerSalesNavigationRef.current = null;
     lastUserInputRef.current = action.label;
@@ -3286,6 +3529,21 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         status,
         latencyMs: Date.now() - startedAt,
       });
+      if (status === "handled" || status === "fallback") {
+        const answer = lastKoraReplyRef.current?.text || "";
+        if (answer.trim()) {
+          queueFeedbackPrompt({
+            source: "action",
+            input: intentInput,
+            answer,
+            intent: action.intent,
+            status,
+            moduleKey: resolveModuleFromPathname(pathname) || lastEntityRef.current.moduleKey || null,
+            pathname,
+            userName: userName ?? null,
+          });
+        }
+      }
       return;
     }
     if (!action.href) return;
@@ -3337,6 +3595,8 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     lastEntityRef.current = {};
     pendingConfirmationRef.current = null;
     pendingCustomerSalesNavigationRef.current = null;
+    pendingFeedbackRef.current = null;
+    lastKoraReplyRef.current = null;
     toneModeRef.current = "professional";
     lastIntentRef.current = null;
     lastUserInputRef.current = "";
@@ -3345,9 +3605,34 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
   return (
     <div ref={rootRef} className="fixed right-5 bottom-5 z-[140] md:right-6 md:bottom-6">
+      {showSessionNudge && !open ? (
+        <div
+          className="fixed right-3 z-[145] w-[min(320px,calc(100vw-24px))] rounded-xl border px-3 py-2.5 shadow-lg md:right-6"
+          style={{
+            bottom: "calc(76px + env(safe-area-inset-bottom))",
+            borderColor: "rgba(16,185,129,0.35)",
+            background: "#ecfdf5",
+            color: "#065f46",
+            boxShadow: "0 20px 34px -24px rgba(6,95,70,0.7)",
+          }}
+        >
+          <p className="text-xs font-semibold">Hola, soy KORA.</p>
+          <p className="mt-1 text-xs leading-relaxed">
+            Estoy en fase inicial y feliz de aprender contigo. Pruébame con una consulta y ayúdame a mejorar.
+          </p>
+        </div>
+      ) : null}
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          setOpen((current) => {
+            const next = !current;
+            if (next) {
+              markSessionNudgeSeen();
+            }
+            return next;
+          });
+        }}
         className="h-12 w-[78px] md:h-12 md:w-[82px] rounded-full border text-sm font-bold tracking-[0.08em] transition hover:translate-y-[-1px]"
         style={{
           borderColor: "rgba(255,255,255,0.55)",

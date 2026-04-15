@@ -343,7 +343,31 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
       (text.includes("mas") || text.includes("más") || text.includes("mejor")));
 
   if (hasPhrase(text, ["hola", "buenos dias", "buenas tardes", "buenas noches"])) return "greeting";
-  if (hasPhrase(text, ["ayuda", "que haces", "que puedes", "como funciona", "cómo funciona"])) return "help";
+  if (
+    hasPhrase(text, [
+      "ayuda",
+      "que haces",
+      "que puedes",
+      "como funciona",
+      "cómo funciona",
+      "quien eres",
+      "quién eres",
+      "para que sirves",
+      "para qué sirves",
+      "quien te creo",
+      "quién te creó",
+      "quien te creo a ti",
+      "quién te creó a ti",
+      "quien te hizo",
+      "quién te hizo",
+      "quien te desarrollo",
+      "quién te desarrolló",
+      "de donde saliste",
+      "de dónde saliste",
+    ])
+  ) {
+    return "help";
+  }
   if (asksCurrentModuleContext) return "current_module_context";
   if (asksCustomerSales) return "customer_sales_lookup";
   if (asksCustomerLookup) return "customer_lookup";
