@@ -2454,7 +2454,9 @@ export default function ProductsPage() {
                     key={p.id}
                     onDoubleClick={() => openEdit(p)}
                     className={`border-b dashboard-border transition cursor-pointer ${
-                      rowIndex % 2 === 0
+                      !p.active
+                        ? "bg-rose-100/70 hover:bg-rose-100"
+                        : rowIndex % 2 === 0
                         ? "dashboard-row-zebra"
                         : "dashboard-row-zebra-alt"
                     }`}
