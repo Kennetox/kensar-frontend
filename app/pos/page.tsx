@@ -4749,6 +4749,26 @@ const matchesStationLabel = useCallback(
     [products]
   );
 
+  const productBySku = useMemo(() => {
+    const map = new Map<string, Product>();
+    for (const product of products) {
+      const sku = (product.sku ?? "").trim();
+      if (!sku || map.has(sku)) continue;
+      map.set(sku, product);
+    }
+    return map;
+  }, [products]);
+
+  const productByBarcode = useMemo(() => {
+    const map = new Map<string, Product>();
+    for (const product of products) {
+      const barcode = (product.barcode ?? "").trim();
+      if (!barcode || map.has(barcode)) continue;
+      map.set(barcode, product);
+    }
+    return map;
+  }, [products]);
+
   const filteredBySearch = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return structuredProducts;
@@ -4777,10 +4797,8 @@ const matchesStationLabel = useCallback(
       return;
     }
 
-    // Buscar por código de barras o SKU
-    const product = products.find(
-      (p) => p.barcode === code || p.sku === code
-    );
+    // Regla de desempate: priorizar SKU exacto sobre código de barras exacto.
+    const product = productBySku.get(code) ?? productByBarcode.get(code);
 
     if (!product) {
       showSearchMissToast();
