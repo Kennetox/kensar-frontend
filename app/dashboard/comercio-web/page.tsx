@@ -716,10 +716,10 @@ function MetricCard({
           ? "text-rose-600"
           : "text-slate-900";
   return (
-    <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</p>
-      <p className={`mt-2 text-2xl font-semibold ${toneClasses}`}>{value}</p>
-      {hint ? <p className="mt-1.5 text-[11px] text-slate-500">{hint}</p> : null}
+    <article className="rounded-2xl border border-slate-200 bg-white px-5 py-3.5 shadow-sm">
+      <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{label}</p>
+      <p className={`mt-1.5 text-[2rem] leading-none font-semibold ${toneClasses}`}>{value}</p>
+      {hint ? <p className="mt-1 text-[11px] text-slate-500">{hint}</p> : null}
     </article>
   );
 }
@@ -2456,171 +2456,186 @@ export default function ComercioWebPage() {
               />
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="grid gap-2 lg:grid-cols-[1.4fr,1fr,1fr,auto,auto]">
-                <input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") setSearch(searchInput);
-                  }}
-                  placeholder="Buscar por OW, cliente, correo o teléfono"
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                />
-                <select
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none"
-                >
-                  {ORDER_STATUS_OPTIONS.map((item) => (
-                    <option key={item.value || "all"} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={paymentStatus}
-                  onChange={(event) => setPaymentStatus(event.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none"
-                >
-                  {PAYMENT_STATUS_OPTIONS.map((item) => (
-                    <option key={item.value || "all"} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setSearch(searchInput)}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-400"
-                >
-                  Aplicar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void loadOrders();
-                  }}
-                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
-                >
-                  Refrescar
-                </button>
+            <section className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
+                <label className="flex flex-col gap-1 lg:w-[320px] lg:flex-none">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Buscar
+                  </span>
+                  <input
+                    value={searchInput}
+                    onChange={(event) => setSearchInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") setSearch(searchInput);
+                    }}
+                    placeholder="Buscar por OW, cliente, correo o teléfono"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 lg:w-[190px] lg:flex-none">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Estado
+                  </span>
+                  <select
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none"
+                  >
+                    {ORDER_STATUS_OPTIONS.map((item) => (
+                      <option key={item.value || "all"} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 lg:w-[190px] lg:flex-none">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Pago
+                  </span>
+                  <select
+                    value={paymentStatus}
+                    onChange={(event) => setPaymentStatus(event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none"
+                  >
+                    {PAYMENT_STATUS_OPTIONS.map((item) => (
+                      <option key={item.value || "all"} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex items-end lg:ml-1">
+                  <button
+                    type="button"
+                    onClick={() => setSearch(searchInput)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-slate-400"
+                  >
+                    Aplicar
+                  </button>
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void loadOrders();
+                    }}
+                    className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                  >
+                    Refrescar
+                  </button>
+                </div>
               </div>
               {orderError ? <p className="mt-2 text-sm text-rose-600">{orderError}</p> : null}
             </section>
 
-          <section className="grid gap-4 xl:grid-cols-[1.15fr,0.85fr]">
-            <div className="space-y-6">
-              <SectionCard
-                title="Cola operativa"
-                subtitle="Lo que el equipo debe resolver hoy dentro del canal web."
-              >
-                <div className="grid gap-4 md:grid-cols-3">
-                  <SummaryBox
-                    title="Por cobrar"
-                    value={pendingPaymentOrders.length}
-                    caption="Órdenes aún sin pago aprobado."
-                    tone="warning"
-                  />
-                  <SummaryBox
-                    title="Por convertir"
-                    value={readyToConvertOrders.length}
-                    caption="Pago aprobado, falta ticket V."
-                    tone="info"
-                  />
-                  <SummaryBox
-                    title="En fulfillment"
-                    value={fulfillmentQueue.length}
-                    caption="Órdenes en proceso o listas."
-                    tone="success"
-                  />
-                </div>
-              </SectionCard>
+          <section className="grid gap-4 xl:grid-cols-2">
+            <SectionCard
+              title="Cola operativa"
+              subtitle="Lo que el equipo debe resolver hoy dentro del canal web."
+            >
+              <div className="grid gap-4 md:grid-cols-3">
+                <SummaryBox
+                  title="Por cobrar"
+                  value={pendingPaymentOrders.length}
+                  caption="Órdenes aún sin pago aprobado."
+                  tone="warning"
+                />
+                <SummaryBox
+                  title="Por convertir"
+                  value={readyToConvertOrders.length}
+                  caption="Pago aprobado, falta ticket V."
+                  tone="info"
+                />
+                <SummaryBox
+                  title="En fulfillment"
+                  value={fulfillmentQueue.length}
+                  caption="Órdenes en proceso o listas."
+                  tone="success"
+                />
+              </div>
+            </SectionCard>
 
-              <SectionCard
-                title="Pendientes inmediatos"
-                subtitle="Una vista táctica para iniciar operación sin revisar orden por orden."
-              >
-                <div className="space-y-5">
-                  <QueueList
-                    title="Cobros pendientes"
-                    emptyMessage="No hay cobros pendientes."
-                    orders={pendingPaymentOrders}
-                    onSelect={setSelectedId}
-                    onJump={() => requestTabChange("orders")}
-                    highlight="warning"
-                  />
-                  <QueueList
-                    title="Órdenes listas para convertir"
-                    emptyMessage="No hay órdenes con pago aprobado pendientes de ticket."
-                    orders={readyToConvertOrders}
-                    onSelect={setSelectedId}
-                    onJump={() => requestTabChange("orders")}
-                    highlight="info"
-                  />
-                  <QueueList
-                    title="Fulfillment activo"
-                    emptyMessage="No hay órdenes en preparación o listas para entrega."
-                    orders={fulfillmentQueue}
-                    onSelect={setSelectedId}
-                    onJump={() => requestTabChange("orders")}
-                    highlight="success"
-                  />
-                </div>
-              </SectionCard>
-            </div>
+            <SectionCard
+              title="Pendientes inmediatos"
+              subtitle="Una vista táctica para iniciar operación sin revisar orden por orden."
+            >
+              <div className="space-y-5">
+                <QueueList
+                  title="Cobros pendientes"
+                  emptyMessage="No hay cobros pendientes."
+                  orders={pendingPaymentOrders}
+                  onSelect={setSelectedId}
+                  onJump={() => requestTabChange("orders")}
+                  highlight="warning"
+                />
+                <QueueList
+                  title="Órdenes listas para convertir"
+                  emptyMessage="No hay órdenes con pago aprobado pendientes de ticket."
+                  orders={readyToConvertOrders}
+                  onSelect={setSelectedId}
+                  onJump={() => requestTabChange("orders")}
+                  highlight="info"
+                />
+                <QueueList
+                  title="Fulfillment activo"
+                  emptyMessage="No hay órdenes en preparación o listas para entrega."
+                  orders={fulfillmentQueue}
+                  onSelect={setSelectedId}
+                  onJump={() => requestTabChange("orders")}
+                  highlight="success"
+                />
+              </div>
+            </SectionCard>
 
-            <div className="space-y-6">
-              <SectionCard
-                title="Distribución documental"
-                subtitle="Cómo se mueve el canal web dentro del flujo operativo."
-              >
-                <div className="space-y-3">
-                  <DistributionRow
-                    label="Pendiente de pago"
-                    count={orders.filter((order) => order.status === "pending_payment").length}
-                    total={orders.length}
-                    color="bg-amber-500"
-                  />
-                  <DistributionRow
-                    label="Pagada"
-                    count={orders.filter((order) => order.status === "paid").length}
-                    total={orders.length}
-                    color="bg-emerald-500"
-                  />
-                  <DistributionRow
-                    label="En proceso"
-                    count={orders.filter((order) => order.status === "processing").length}
-                    total={orders.length}
-                    color="bg-sky-500"
-                  />
-                  <DistributionRow
-                    label="Lista"
-                    count={orders.filter((order) => order.status === "ready").length}
-                    total={orders.length}
-                    color="bg-violet-500"
-                  />
-                  <DistributionRow
-                    label="Entregada"
-                    count={orders.filter((order) => order.status === "fulfilled").length}
-                    total={orders.length}
-                    color="bg-slate-700"
-                  />
-                </div>
-              </SectionCard>
+            <SectionCard
+              title="Distribución documental"
+              subtitle="Cómo se mueve el canal web dentro del flujo operativo."
+            >
+              <div className="space-y-3">
+                <DistributionRow
+                  label="Pendiente de pago"
+                  count={orders.filter((order) => order.status === "pending_payment").length}
+                  total={orders.length}
+                  color="bg-amber-500"
+                />
+                <DistributionRow
+                  label="Pagada"
+                  count={orders.filter((order) => order.status === "paid").length}
+                  total={orders.length}
+                  color="bg-emerald-500"
+                />
+                <DistributionRow
+                  label="En proceso"
+                  count={orders.filter((order) => order.status === "processing").length}
+                  total={orders.length}
+                  color="bg-sky-500"
+                />
+                <DistributionRow
+                  label="Lista"
+                  count={orders.filter((order) => order.status === "ready").length}
+                  total={orders.length}
+                  color="bg-violet-500"
+                />
+                <DistributionRow
+                  label="Entregada"
+                  count={orders.filter((order) => order.status === "fulfilled").length}
+                  total={orders.length}
+                  color="bg-slate-700"
+                />
+              </div>
+            </SectionCard>
 
-              <SectionCard
-                title="Salud del catálogo"
-                subtitle="Estado comercial del subconjunto publicado en tienda."
-              >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <MetricCard label="Publicados" value={String(catalogMetrics.published)} />
-                  <MetricCard label="Destacados" value={String(catalogMetrics.featured)} />
-                  <MetricCard label="Con descuento" value={String(catalogMetrics.discounted)} />
-                  <MetricCard label="Solo consultar" value={String(catalogMetrics.consult)} />
-                </div>
-              </SectionCard>
-            </div>
+            <SectionCard
+              title="Salud del catálogo"
+              subtitle="Estado comercial del subconjunto publicado en tienda."
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <MetricCard label="Publicados" value={String(catalogMetrics.published)} />
+                <MetricCard label="Destacados" value={String(catalogMetrics.featured)} />
+                <MetricCard label="Con descuento" value={String(catalogMetrics.discounted)} />
+                <MetricCard label="Solo consultar" value={String(catalogMetrics.consult)} />
+              </div>
+            </SectionCard>
           </section>
           </section>
         ) : null}
