@@ -4071,7 +4071,7 @@ export default function ComercioWebPage() {
                                   type="button"
                                   onClick={() =>
                                     setCatalogAssetPreviewOpenUrl(
-                                      resolveAssetUrl(row.image_url) || row.image_url
+                                      resolveAssetUrl(row.image_url) || row.image_url || null
                                     )
                                   }
                                   className="inline-flex h-8 w-8 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-100 transition hover:border-slate-300"
