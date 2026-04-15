@@ -90,6 +90,8 @@ export type ComercioWebCatalogCategory = {
   name: string;
   image_url?: string | null;
   tile_color?: string | null;
+  home_featured: boolean;
+  home_featured_order: number;
   sort_order: number;
   is_active: boolean;
   product_count: number;
@@ -102,6 +104,8 @@ export type ComercioWebCatalogCategoryCreate = {
   name: string;
   image_url?: string | null;
   tile_color?: string | null;
+  home_featured?: boolean;
+  home_featured_order?: number;
   sort_order?: number;
   is_active?: boolean;
 };

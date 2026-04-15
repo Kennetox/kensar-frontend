@@ -110,6 +110,10 @@ type DiscountCodeEditorState = {
 type CategoryEditorState = {
   key: string;
   name: string;
+  image_url: string;
+  tile_color: string;
+  home_featured: boolean;
+  home_featured_order: string;
   sort_order: string;
   is_active: boolean;
 };
@@ -147,6 +151,11 @@ type CatalogActionConfirmState = {
   product: ComercioWebCatalogProduct;
   action: CatalogTableAction;
 } | null;
+
+type PendingCatalogExitAction =
+  | { type: "close_composer" }
+  | { type: "switch_workspace"; view: CatalogWorkspaceView }
+  | { type: "switch_tab"; tab: CommerceTab };
 
 const COMMERCE_WEB_ACTIVE_TAB_STORAGE_KEY = "commerce_web_active_tab";
 const COMMERCE_WEB_DRAFT_STORAGE_KEY = "commerce_web_catalog_draft_v1";
@@ -196,6 +205,7 @@ const WARRANTY_PRESET_OPTIONS: Array<{ value: string; label: string }> = [
 const SHORT_DESCRIPTION_MAX_CHARS = 96;
 const CATALOG_TABLE_PAGE_SIZE = 50;
 const DISCOUNT_CODE_TABLE_PAGE_SIZE = 50;
+const MAX_HOME_FEATURED_CATEGORIES = 5;
 const EMPTY_CATALOG_STATS: ComercioWebCatalogPublicationStats = {
   configured: 0,
   published: 0,
@@ -258,6 +268,10 @@ const DISCOUNT_PERIOD_OPTIONS: Array<{ value: DiscountCodePeriodOption; label: s
 const emptyCategoryEditorState: CategoryEditorState = {
   key: "",
   name: "",
+  image_url: "",
+  tile_color: "",
+  home_featured: false,
+  home_featured_order: "0",
   sort_order: "0",
   is_active: true,
 };
@@ -778,6 +792,9 @@ export default function ComercioWebPage() {
   const [catalogSaving, setCatalogSaving] = useState(false);
   const [catalogImageUploading, setCatalogImageUploading] = useState(false);
   const [catalogSavePublishPromptOpen, setCatalogSavePublishPromptOpen] = useState(false);
+  const [catalogExitPromptOpen, setCatalogExitPromptOpen] = useState(false);
+  const [pendingCatalogExitAction, setPendingCatalogExitAction] =
+    useState<PendingCatalogExitAction | null>(null);
   const [catalogActionConfirm, setCatalogActionConfirm] = useState<CatalogActionConfirmState>(null);
   const [catalogActionSubmitting, setCatalogActionSubmitting] = useState(false);
   const [discountCodeRows, setDiscountCodeRows] = useState<ComercioWebDiscountCode[]>([]);
@@ -798,12 +815,21 @@ export default function ComercioWebPage() {
     emptyCategoryEditorState
   );
   const [catalogCategoryEditingId, setCatalogCategoryEditingId] = useState<number | null>(null);
+  const [catalogCategoryEditorOpen, setCatalogCategoryEditorOpen] = useState(false);
+  const [catalogCategoryImageUploading, setCatalogCategoryImageUploading] = useState(false);
+  const [catalogAssetPreviewOpenUrl, setCatalogAssetPreviewOpenUrl] = useState<string | null>(null);
+  const [draggedGalleryIndex, setDraggedGalleryIndex] = useState<number | null>(null);
+  const [dragOverGalleryIndex, setDragOverGalleryIndex] = useState<number | null>(null);
+  const [draggedCategoryId, setDraggedCategoryId] = useState<number | null>(null);
+  const [dragOverCategoryId, setDragOverCategoryId] = useState<number | null>(null);
+  const [dragOverCategoryPosition, setDragOverCategoryPosition] = useState<"before" | "after" | null>(null);
   const [catalogCategoryKeyTouched, setCatalogCategoryKeyTouched] = useState(false);
   const [catalogCategorySaving, setCatalogCategorySaving] = useState(false);
   const [toast, setToast] = useState<InlineToast | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const catalogImageInputRef = useRef<HTMLInputElement | null>(null);
+  const categoryImageInputRef = useRef<HTMLInputElement | null>(null);
   const draftHydratedRef = useRef(false);
 
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(defaultRolePermissions);
@@ -1012,6 +1038,28 @@ export default function ComercioWebPage() {
       ),
     [catalogCategories]
   );
+  const homeFeaturedCategoryCount = useMemo(
+    () => catalogCategories.filter((item) => item.home_featured).length,
+    [catalogCategories]
+  );
+  const nextAvailableHomeFeaturedOrder = useCallback(
+    (excludeId?: number | null) => {
+      const usedOrders = new Set<number>();
+      catalogCategories.forEach((item) => {
+        if (!item.home_featured) return;
+        if (excludeId && item.id === excludeId) return;
+        const order = Number(item.home_featured_order || 0);
+        if (Number.isFinite(order) && order >= 1 && order <= MAX_HOME_FEATURED_CATEGORIES) {
+          usedOrders.add(order);
+        }
+      });
+      for (let order = 1; order <= MAX_HOME_FEATURED_CATEGORIES; order += 1) {
+        if (!usedOrders.has(order)) return order;
+      }
+      return null;
+    },
+    [catalogCategories]
+  );
   const suggestedCatalogCategoryKey = useMemo(
     () => normalizeCategoryKey(catalogCategoryEditor.name),
     [catalogCategoryEditor.name]
@@ -1189,6 +1237,69 @@ export default function ComercioWebPage() {
     setCatalogSearchExecuted(false);
     setCatalogDirty(false);
   }, [loadCatalogCategories]);
+
+  const executeCatalogExitAction = useCallback(
+    (action: PendingCatalogExitAction | null) => {
+      if (!action) return;
+      if (action.type === "close_composer") {
+        resetCatalogComposer();
+        return;
+      }
+      if (action.type === "switch_workspace") {
+        if (catalogComposerOpen) {
+          resetCatalogComposer();
+        }
+        setCatalogWorkspaceView(action.view);
+        return;
+      }
+      if (catalogComposerOpen) {
+        resetCatalogComposer();
+      }
+      setActiveTab(action.tab);
+    },
+    [catalogComposerOpen, resetCatalogComposer]
+  );
+
+  const requestCatalogExit = useCallback(
+    (action: PendingCatalogExitAction) => {
+      if (catalogSaving) return;
+      const hasUnsavedCatalogChanges =
+        activeTab === "catalog" &&
+        catalogWorkspaceView === "publications" &&
+        catalogComposerOpen &&
+        catalogDirty;
+      if (hasUnsavedCatalogChanges) {
+        setPendingCatalogExitAction(action);
+        setCatalogExitPromptOpen(true);
+        return;
+      }
+      executeCatalogExitAction(action);
+    },
+    [
+      activeTab,
+      catalogComposerOpen,
+      catalogDirty,
+      catalogSaving,
+      catalogWorkspaceView,
+      executeCatalogExitAction,
+    ]
+  );
+
+  const requestTabChange = useCallback(
+    (nextTab: CommerceTab) => {
+      if (nextTab === activeTab) return;
+      requestCatalogExit({ type: "switch_tab", tab: nextTab });
+    },
+    [activeTab, requestCatalogExit]
+  );
+
+  const requestWorkspaceChange = useCallback(
+    (nextView: CatalogWorkspaceView) => {
+      if (nextView === catalogWorkspaceView) return;
+      requestCatalogExit({ type: "switch_workspace", view: nextView });
+    },
+    [catalogWorkspaceView, requestCatalogExit]
+  );
 
   const paymentRows = useMemo<PaymentRow[]>(
     () =>
@@ -1511,6 +1622,25 @@ export default function ComercioWebPage() {
     moveCatalogGalleryImage(index, 0);
   }
 
+  function handleGalleryDragStart(index: number) {
+    setDraggedGalleryIndex(index);
+    setDragOverGalleryIndex(index);
+  }
+
+  function handleGalleryDrop(dropIndex: number) {
+    if (draggedGalleryIndex === null) return;
+    if (draggedGalleryIndex !== dropIndex) {
+      moveCatalogGalleryImage(draggedGalleryIndex, dropIndex);
+    }
+    setDraggedGalleryIndex(null);
+    setDragOverGalleryIndex(null);
+  }
+
+  function shouldSkipRowDrag(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return false;
+    return Boolean(target.closest("button, a, input, textarea, select, label"));
+  }
+
   async function handleCatalogImageFileChange(file: File) {
     const galleryUrls = catalogEditor.web_gallery_urls ?? [];
     if (!token) {
@@ -1569,12 +1699,15 @@ export default function ComercioWebPage() {
     }
   }
 
-  async function handleSaveCatalogProduct(overridePublished?: boolean) {
-    if (!token || !selectedProduct) return;
+  async function handleSaveCatalogProduct(
+    overridePublished?: boolean,
+    onSaved?: () => void
+  ): Promise<boolean> {
+    if (!token || !selectedProduct) return false;
     if (!catalogEditor.web_category_key.trim()) {
       setCatalogError("Debes elegir una categoría web para la publicación.");
       showToast("Debes elegir una categoría web.", "error");
-      return;
+      return false;
     }
     const parsedComparePrice = parseThousandsWithDots(catalogEditor.web_compare_price);
     const autoComparePrice =
@@ -1630,14 +1763,17 @@ export default function ComercioWebPage() {
         prev.map((row) => (row.id === updated.id ? updated : row))
       );
       resetCatalogComposer();
+      onSaved?.();
       showToast(
         updated.web_published
           ? "Publicación guardada y publicada con éxito."
           : "Publicación guardada con éxito."
       );
+      return true;
     } catch (err) {
       setCatalogError(err instanceof Error ? err.message : "No se pudo guardar el producto");
       showToast("No se pudo guardar la publicación.", "error");
+      return false;
     } finally {
       setCatalogSaving(false);
     }
@@ -1917,15 +2053,33 @@ export default function ComercioWebPage() {
     setCatalogCategoryKeyTouched(false);
   }
 
+  function openCreateCatalogCategoryEditor() {
+    resetCategoryEditor();
+    setCatalogCategoryError(null);
+    setCatalogCategoryEditorOpen(true);
+  }
+
   function editCategoryRow(row: ComercioWebCatalogCategory) {
+    const shouldFeature = Boolean(row.home_featured);
+    const rawHomeOrder = Number(row.home_featured_order ?? 0);
+    const normalizedHomeOrder =
+      shouldFeature && rawHomeOrder <= 0
+        ? nextAvailableHomeFeaturedOrder(row.id) || 0
+        : rawHomeOrder;
     setCatalogCategoryEditingId(row.id);
     setCatalogCategoryEditor({
       key: row.key,
       name: row.name,
+      image_url: row.image_url || "",
+      tile_color: row.tile_color || "",
+      home_featured: shouldFeature,
+      home_featured_order: String(normalizedHomeOrder),
       sort_order: String(row.sort_order ?? 0),
       is_active: Boolean(row.is_active),
     });
     setCatalogCategoryKeyTouched(false);
+    setCatalogCategoryError(null);
+    setCatalogCategoryEditorOpen(true);
   }
 
   function handleCatalogCategoryNameChange(value: string) {
@@ -1954,13 +2108,128 @@ export default function ComercioWebPage() {
     }));
   }
 
+  async function handleCategoryImageFileChange(file: File) {
+    if (!token) {
+      showToast("Debes iniciar sesión para subir la imagen.", "error");
+      return;
+    }
+    setCatalogCategoryImageUploading(true);
+    setCatalogCategoryError(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const uploadRes = await fetch(`${getApiBase()}/uploads/product-images`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+        body: formData,
+      });
+
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json().catch(() => null);
+        const msg =
+          (data && (data.detail as string)) ||
+          `Error al subir imagen (código ${uploadRes.status})`;
+        throw new Error(msg);
+      }
+
+      const data: UploadProductImageResponse = await uploadRes.json();
+      setCatalogCategoryEditor((prev) => ({
+        ...prev,
+        image_url: data.url || "",
+      }));
+      showToast("Imagen de categoría cargada con éxito.");
+    } catch (err) {
+      setCatalogCategoryError(
+        err instanceof Error ? err.message : "No se pudo subir la imagen de categoría"
+      );
+      showToast("No se pudo subir la imagen de categoría.", "error");
+    } finally {
+      setCatalogCategoryImageUploading(false);
+      if (categoryImageInputRef.current) categoryImageInputRef.current.value = "";
+    }
+  }
+
   async function handleSaveCatalogCategory() {
     if (!token || !canManage) return;
     const key = normalizeCategoryKey(catalogCategoryEditor.key.trim());
     const name = catalogCategoryEditor.name.trim();
+    const imageUrl = catalogCategoryEditor.image_url.trim();
+    const tileColor = catalogCategoryEditor.tile_color.trim();
+    let homeFeaturedOrder = Number(catalogCategoryEditor.home_featured_order || "0");
+    const featuredCountExcludingCurrent = catalogCategories.filter(
+      (item) => item.home_featured && item.id !== catalogCategoryEditingId
+    ).length;
     if (!key || !name) {
       setCatalogCategoryError("Debes completar clave y nombre.");
       return;
+    }
+    if (catalogCategoryEditor.home_featured && !catalogCategoryEditor.is_active) {
+      setCatalogCategoryError(
+        "Una categoría destacada en inicio debe estar visible en web."
+      );
+      return;
+    }
+    if (catalogCategoryEditor.home_featured && !imageUrl) {
+      setCatalogCategoryError(
+        "Para destacar una categoría en inicio debes configurar su imagen."
+      );
+      return;
+    }
+    if (featuredCountExcludingCurrent >= MAX_HOME_FEATURED_CATEGORIES && !catalogCategoryEditingId) {
+      setCatalogCategoryError(
+        `Solo se permiten ${MAX_HOME_FEATURED_CATEGORIES} categorías destacadas en inicio.`
+      );
+      return;
+    }
+    if (catalogCategoryEditor.home_featured && featuredCountExcludingCurrent >= MAX_HOME_FEATURED_CATEGORIES) {
+      const current = catalogCategories.find((item) => item.id === catalogCategoryEditingId);
+      if (!current?.home_featured) {
+        setCatalogCategoryError(
+          `Solo se permiten ${MAX_HOME_FEATURED_CATEGORIES} categorías destacadas en inicio.`
+        );
+        return;
+      }
+    }
+    if (Number.isNaN(homeFeaturedOrder) || homeFeaturedOrder < 0) {
+      setCatalogCategoryError("El orden en inicio debe ser un número igual o mayor que 0.");
+      return;
+    }
+    if (catalogCategoryEditor.home_featured) {
+      if (homeFeaturedOrder === 0) {
+        const nextOrder = nextAvailableHomeFeaturedOrder(catalogCategoryEditingId);
+        if (!nextOrder) {
+          setCatalogCategoryError(
+            `No hay posiciones disponibles. Máximo ${MAX_HOME_FEATURED_CATEGORIES} destacadas.`
+          );
+          return;
+        }
+        homeFeaturedOrder = nextOrder;
+      }
+      if (homeFeaturedOrder < 1 || homeFeaturedOrder > MAX_HOME_FEATURED_CATEGORIES) {
+        setCatalogCategoryError(
+          `El orden en inicio debe estar entre 1 y ${MAX_HOME_FEATURED_CATEGORIES}.`
+        );
+        return;
+      }
+      const conflictingCategory = catalogCategories.find(
+        (item) =>
+          item.id !== catalogCategoryEditingId &&
+          item.home_featured &&
+          Number(item.home_featured_order || 0) === homeFeaturedOrder
+      );
+      if (conflictingCategory) {
+        setCatalogCategoryError(
+          `La posición ${homeFeaturedOrder} ya está ocupada por "${conflictingCategory.name}".`
+        );
+        return;
+      }
+    } else {
+      homeFeaturedOrder = 0;
     }
     try {
       setCatalogCategorySaving(true);
@@ -1968,6 +2237,10 @@ export default function ComercioWebPage() {
       const payload = {
         key,
         name,
+        image_url: imageUrl || undefined,
+        tile_color: tileColor || undefined,
+        home_featured: catalogCategoryEditor.home_featured,
+        home_featured_order: homeFeaturedOrder,
         sort_order: Number(catalogCategoryEditor.sort_order || "0"),
         is_active: catalogCategoryEditor.is_active,
       };
@@ -1979,6 +2252,7 @@ export default function ComercioWebPage() {
         showToast("Categoría creada.");
       }
       resetCategoryEditor();
+      setCatalogCategoryEditorOpen(false);
       await loadCatalogCategories();
     } catch (err) {
       setCatalogCategoryError(err instanceof Error ? err.message : "No se pudo guardar la categoría");
@@ -2058,6 +2332,51 @@ export default function ComercioWebPage() {
     }
   }
 
+  async function handleReorderCatalogCategoriesByDrag(
+    sourceId: number,
+    targetId: number,
+    position: "before" | "after" = "before"
+  ) {
+    if (!token || !canManage || sourceId === targetId) return;
+    const rows = [...orderedCatalogCategories];
+    const sourceIndex = rows.findIndex((item) => item.id === sourceId);
+    const targetIndex = rows.findIndex((item) => item.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+
+    const [moved] = rows.splice(sourceIndex, 1);
+    const targetIndexAfterRemoval = rows.findIndex((item) => item.id === targetId);
+    if (targetIndexAfterRemoval < 0) return;
+    const insertAt = position === "after" ? targetIndexAfterRemoval + 1 : targetIndexAfterRemoval;
+    rows.splice(insertAt, 0, moved);
+
+    try {
+      setCatalogCategorySaving(true);
+      setCatalogCategoryError(null);
+
+      const updates = rows
+        .map((item, index) => ({ id: item.id, sort_order: index * 10 }))
+        .filter((item) => {
+          const current = orderedCatalogCategories.find((row) => row.id === item.id);
+          return (current?.sort_order ?? 0) !== item.sort_order;
+        });
+
+      await Promise.all(
+        updates.map((item) =>
+          updateComercioWebCatalogCategory(token, item.id, { sort_order: item.sort_order })
+        )
+      );
+      await loadCatalogCategories();
+    } catch (err) {
+      setCatalogCategoryError(err instanceof Error ? err.message : "No se pudo reordenar.");
+      showToast("No se pudo reordenar las categorías.", "error");
+    } finally {
+      setCatalogCategorySaving(false);
+      setDraggedCategoryId(null);
+      setDragOverCategoryId(null);
+      setDragOverCategoryPosition(null);
+    }
+  }
+
   const selectedRemaining = selectedOrder
     ? Math.max(0, Number(selectedOrder.total || 0) - sumApprovedPayments(selectedOrder))
     : 0;
@@ -2070,6 +2389,12 @@ export default function ComercioWebPage() {
     [selectedCheckoutContext]
   );
   const catalogActionMeta = getCatalogActionMeta(catalogActionConfirm);
+  const completePendingCatalogExit = useCallback(() => {
+    if (!pendingCatalogExitAction) return;
+    const action = pendingCatalogExitAction;
+    setPendingCatalogExitAction(null);
+    executeCatalogExitAction(action);
+  }, [executeCatalogExitAction, pendingCatalogExitAction]);
 
   return (
     <main className="flex-1 min-h-screen bg-slate-50 px-4 py-4 lg:px-5 lg:py-5">
@@ -2091,7 +2416,7 @@ export default function ComercioWebPage() {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => requestTabChange(tab.id)}
                 aria-current={activeTab === tab.id ? "page" : undefined}
                 className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
                   activeTab === tab.id
@@ -2222,7 +2547,7 @@ export default function ComercioWebPage() {
                     emptyMessage="No hay cobros pendientes."
                     orders={pendingPaymentOrders}
                     onSelect={setSelectedId}
-                    onJump={() => setActiveTab("orders")}
+                    onJump={() => requestTabChange("orders")}
                     highlight="warning"
                   />
                   <QueueList
@@ -2230,7 +2555,7 @@ export default function ComercioWebPage() {
                     emptyMessage="No hay órdenes con pago aprobado pendientes de ticket."
                     orders={readyToConvertOrders}
                     onSelect={setSelectedId}
-                    onJump={() => setActiveTab("orders")}
+                    onJump={() => requestTabChange("orders")}
                     highlight="info"
                   />
                   <QueueList
@@ -2238,7 +2563,7 @@ export default function ComercioWebPage() {
                     emptyMessage="No hay órdenes en preparación o listas para entrega."
                     orders={fulfillmentQueue}
                     onSelect={setSelectedId}
-                    onJump={() => setActiveTab("orders")}
+                    onJump={() => requestTabChange("orders")}
                     highlight="success"
                   />
                 </div>
@@ -2306,7 +2631,7 @@ export default function ComercioWebPage() {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => setCatalogWorkspaceView("publications")}
+                onClick={() => requestWorkspaceChange("publications")}
                 className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
                   catalogWorkspaceView === "publications"
                     ? "border-slate-900 bg-slate-900 text-white"
@@ -2317,7 +2642,7 @@ export default function ComercioWebPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setCatalogWorkspaceView("discount_codes")}
+                onClick={() => requestWorkspaceChange("discount_codes")}
                 className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
                   catalogWorkspaceView === "discount_codes"
                     ? "border-slate-900 bg-slate-900 text-white"
@@ -2328,7 +2653,7 @@ export default function ComercioWebPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setCatalogWorkspaceView("categories")}
+                onClick={() => requestWorkspaceChange("categories")}
                 className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
                   catalogWorkspaceView === "categories"
                     ? "border-slate-900 bg-slate-900 text-white"
@@ -2506,10 +2831,13 @@ export default function ComercioWebPage() {
                       <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
                         <tr>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Producto</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Imagen</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">SKU</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Marca / Grupo</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Precio</th>
-                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Estado</th>
+                          <th className="sticky top-0 z-10 w-[10rem] max-w-[10rem] bg-slate-50 px-4 py-3">
+                            Estado
+                          </th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-right">Acciones</th>
                         </tr>
                       </thead>
@@ -2534,6 +2862,38 @@ export default function ComercioWebPage() {
                                 </p>
                               </div>
                             </td>
+                            <td className="px-4 py-3">
+                              {product.image_thumb_url || product.image_url ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCatalogAssetPreviewOpenUrl(
+                                      resolveAssetUrl(product.image_thumb_url || product.image_url) ||
+                                        product.image_thumb_url ||
+                                        product.image_url ||
+                                        null
+                                    )
+                                  }
+                                  className="inline-flex h-8 w-8 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-100 transition hover:border-slate-300"
+                                  aria-label={`Ver imagen principal de ${getCatalogDisplayName(product)}`}
+                                  title="Ver imagen principal"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={
+                                      resolveAssetUrl(product.image_thumb_url || product.image_url) ||
+                                      product.image_thumb_url ||
+                                      product.image_url ||
+                                      ""
+                                    }
+                                    alt={`Miniatura ${getCatalogDisplayName(product)}`}
+                                    className="h-full w-full object-cover"
+                                  />
+                                </button>
+                              ) : (
+                                <span className="text-xs text-slate-400">-</span>
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-slate-700">
                               {product.sku || "sin SKU"}
                             </td>
@@ -2557,10 +2917,11 @@ export default function ComercioWebPage() {
                                 </p>
                               ) : null}
                             </td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-1.5">
+                            <td className="w-[10rem] max-w-[10rem] px-4 py-3">
+                              <div className="w-[10rem] max-w-[10rem] overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                <div className="inline-flex min-w-max items-center gap-1">
                                 <span
-                                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] font-medium leading-4 ${
                                     product.web_published
                                       ? "border-emerald-300 bg-emerald-50 text-emerald-700"
                                       : "border-amber-300 bg-amber-50 text-amber-700"
@@ -2569,20 +2930,21 @@ export default function ComercioWebPage() {
                                   {product.web_published ? "publicado" : "pausado"}
                                 </span>
                                 {product.web_featured ? (
-                                  <span className="rounded-full border border-sky-300 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700">
+                                  <span className="rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-medium leading-4 text-sky-700">
                                     destacado
                                   </span>
                                 ) : null}
                                 {product.web_badge_text ? (
-                                  <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                                  <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium leading-4 text-amber-700">
                                     {product.web_badge_text}
                                   </span>
                                 ) : null}
                                 {getDiscountBadgeTextFromProduct(product) ? (
-                                  <span className="rounded-full border border-blue-300 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700">
+                                  <span className="rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[10px] font-medium leading-4 text-blue-700">
                                     {getDiscountBadgeTextFromProduct(product)}
                                   </span>
                                 ) : null}
+                                </div>
                               </div>
                             </td>
                             <td className="px-4 py-3">
@@ -2716,7 +3078,7 @@ export default function ComercioWebPage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => resetCatalogComposer()}
+                      onClick={() => requestCatalogExit({ type: "close_composer" })}
                       className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
                     >
                       Volver a publicaciones
@@ -3087,8 +3449,9 @@ export default function ComercioWebPage() {
                               {catalogImageUploading ? "Subiendo..." : "Agregar imagen"}
                             </button>
                             <span className="text-xs text-slate-500">
-                              JPG, PNG o WebP. Máximo 3 imágenes. La primera será la principal.
+                              JPG, PNG o WebP. Recomendado: 1200x1200 px (1:1), hasta 3 imágenes. La primera será la principal.
                             </span>
+                            <span className="text-xs text-slate-500">Arrastra para reordenar.</span>
                           </div>
                           <input
                             ref={catalogImageInputRef}
@@ -3107,7 +3470,25 @@ export default function ComercioWebPage() {
                                 {(catalogEditor.web_gallery_urls ?? []).map((imageUrl, index) => (
                                   <div
                                     key={`${imageUrl}-${index}`}
-                                    className="rounded-xl border border-slate-200 bg-slate-50 p-2"
+                                    draggable
+                                    onDragStart={() => handleGalleryDragStart(index)}
+                                    onDragOver={(event) => {
+                                      event.preventDefault();
+                                      setDragOverGalleryIndex(index);
+                                    }}
+                                    onDrop={(event) => {
+                                      event.preventDefault();
+                                      handleGalleryDrop(index);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggedGalleryIndex(null);
+                                      setDragOverGalleryIndex(null);
+                                    }}
+                                    className={`rounded-xl border bg-slate-50 p-2 transition ${
+                                      dragOverGalleryIndex === index
+                                        ? "border-blue-300 ring-1 ring-blue-200"
+                                        : "border-slate-200"
+                                    }`}
                                   >
                                     <div className="relative h-28 overflow-hidden rounded-lg border border-slate-200 bg-white">
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -3516,74 +3897,24 @@ export default function ComercioWebPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    {catalogCategoryEditingId ? "Editar categoría" : "Crear categoría"}
+                    Gestión rápida
                   </p>
-                  <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <input
-                      value={catalogCategoryEditor.name}
-                      onChange={(event) => handleCatalogCategoryNameChange(event.target.value)}
-                      placeholder="Nombre visible"
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                    />
-                    <input
-                      value={catalogCategoryEditor.key}
-                      onChange={(event) => handleCatalogCategoryKeyChange(event.target.value)}
-                      placeholder="Clave sugerida (ej: audio-profesional)"
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                    />
-                    <input
-                      type="number"
-                      value={catalogCategoryEditor.sort_order}
-                      onChange={(event) =>
-                        setCatalogCategoryEditor((prev) => ({
-                          ...prev,
-                          sort_order: event.target.value,
-                        }))
-                      }
-                      placeholder="Orden"
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                    />
-                    <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={catalogCategoryEditor.is_active}
-                        onChange={(event) =>
-                          setCatalogCategoryEditor((prev) => ({
-                            ...prev,
-                            is_active: event.target.checked,
-                          }))
-                        }
-                      />
-                      Visible en web
-                    </label>
-                  </div>
-                  {suggestedCatalogCategoryKey &&
-                  suggestedCatalogCategoryKey !== catalogCategoryEditor.key ? (
-                    <div className="mt-2 text-xs text-slate-500">
-                      Sugerida:{" "}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCatalogCategoryEditor((prev) => ({
-                            ...prev,
-                            key: suggestedCatalogCategoryKey,
-                          }));
-                          setCatalogCategoryKeyTouched(false);
-                        }}
-                        className="font-semibold text-emerald-700 underline decoration-dotted underline-offset-2"
-                      >
-                        {suggestedCatalogCategoryKey}
-                      </button>
-                    </div>
-                  ) : null}
-                  <p className="mt-2 text-xs text-slate-500">
-                    Al desactivar una categoría, se oculta en el catálogo web junto con sus productos.
+                  <p className="mt-2 text-sm text-slate-600">
+                    Destacadas en inicio:{" "}
+                    <strong className="font-semibold text-slate-800">{homeFeaturedCategoryCount}</strong>{" "}
+                    · Máximo: {MAX_HOME_FEATURED_CATEGORIES} categorías.
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Doble click sobre cualquier fila para editar más rápido.
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    También puedes arrastrar filas para cambiar el orden en catálogo.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
                       disabled={!canManage || catalogCategorySaving}
-                      onClick={() => void handleSaveCatalogCategory()}
+                      onClick={openCreateCatalogCategoryEditor}
                       className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
                       style={{
                         backgroundColor: canManage ? "#2563eb" : "#bfdbfe",
@@ -3591,21 +3922,8 @@ export default function ComercioWebPage() {
                         color: canManage ? "#ffffff" : "#1e3a8a",
                       }}
                     >
-                      {catalogCategorySaving
-                        ? "Guardando..."
-                        : catalogCategoryEditingId
-                          ? "Guardar cambios"
-                          : "+ Crear categoría"}
+                      + Nueva categoría
                     </button>
-                    {catalogCategoryEditingId ? (
-                      <button
-                        type="button"
-                        onClick={resetCategoryEditor}
-                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
-                      >
-                        Cancelar edición
-                      </button>
-                    ) : null}
                     <button
                       type="button"
                       onClick={() => void loadCatalogCategories()}
@@ -3615,8 +3933,12 @@ export default function ComercioWebPage() {
                     </button>
                   </div>
                   {catalogCategoryError ? (
-                    <p className="mt-2 text-sm text-rose-600">{catalogCategoryError}</p>
-                  ) : null}
+                    <p className="mt-2 text-xs text-rose-600">{catalogCategoryError}</p>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Los errores de validación se muestran dentro del modal de creación/edición.
+                    </p>
+                  )}
                 </div>
 
                 <div className="max-h-[30rem] overflow-auto rounded-2xl border border-slate-200">
@@ -3632,7 +3954,10 @@ export default function ComercioWebPage() {
                         <tr>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Clave</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Nombre</th>
-                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Orden</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Destacada inicio</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Prioridad inicio</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Imagen</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Orden catálogo</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Productos</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Estado</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3 text-right">Acciones</th>
@@ -3640,9 +3965,130 @@ export default function ComercioWebPage() {
                       </thead>
                       <tbody>
                         {orderedCatalogCategories.map((row, index) => (
-                          <tr key={row.id} className="border-b border-slate-100">
+                          <tr
+                            key={row.id}
+                            draggable={!catalogCategorySaving}
+                            onDragStart={(event) => {
+                              if (shouldSkipRowDrag(event.target)) {
+                                event.preventDefault();
+                                return;
+                              }
+                              setDraggedCategoryId(row.id);
+                              setDragOverCategoryId(row.id);
+                              setDragOverCategoryPosition("before");
+                              event.dataTransfer.effectAllowed = "move";
+                              const ghost = document.createElement("div");
+                              ghost.style.position = "fixed";
+                              ghost.style.top = "-1000px";
+                              ghost.style.left = "-1000px";
+                              ghost.style.padding = "10px 14px";
+                              ghost.style.borderRadius = "10px";
+                              ghost.style.border = "1px solid #93c5fd";
+                              ghost.style.background = "#eff6ff";
+                              ghost.style.color = "#1e3a8a";
+                              ghost.style.fontSize = "13px";
+                              ghost.style.fontWeight = "600";
+                              ghost.style.boxShadow = "0 8px 18px -10px rgba(15,23,42,0.55)";
+                              ghost.textContent = `${row.name} (${row.key})`;
+                              document.body.appendChild(ghost);
+                              event.dataTransfer.setDragImage(ghost, 16, 16);
+                              window.setTimeout(() => {
+                                if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+                              }, 0);
+                            }}
+                            onDragOver={(event) => {
+                              event.preventDefault();
+                              if (draggedCategoryId !== null && draggedCategoryId !== row.id) {
+                                setDragOverCategoryId(row.id);
+                                const rect = event.currentTarget.getBoundingClientRect();
+                                const isAfter = event.clientY > rect.top + rect.height / 2;
+                                setDragOverCategoryPosition(isAfter ? "after" : "before");
+                              }
+                            }}
+                            onDragLeave={(event) => {
+                              if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                                if (dragOverCategoryId === row.id) {
+                                  setDragOverCategoryPosition(null);
+                                }
+                              }
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              if (draggedCategoryId !== null) {
+                                void handleReorderCatalogCategoriesByDrag(
+                                  draggedCategoryId,
+                                  row.id,
+                                  dragOverCategoryPosition || "before"
+                                );
+                              }
+                            }}
+                            onDragEnd={() => {
+                              setDraggedCategoryId(null);
+                              setDragOverCategoryId(null);
+                              setDragOverCategoryPosition(null);
+                            }}
+                            className={`border-b border-slate-100 hover:bg-slate-50/50 ${
+                              draggedCategoryId === row.id
+                                ? "bg-blue-50/60 opacity-80 ring-1 ring-blue-200"
+                                : ""
+                            } ${
+                              dragOverCategoryId === row.id && draggedCategoryId !== row.id
+                                ? "bg-blue-50/60"
+                                : ""
+                            } ${
+                              dragOverCategoryId === row.id &&
+                              draggedCategoryId !== row.id &&
+                              dragOverCategoryPosition === "before"
+                                ? "border-t-4 border-t-blue-400"
+                                : ""
+                            } ${
+                              dragOverCategoryId === row.id &&
+                              draggedCategoryId !== row.id &&
+                              dragOverCategoryPosition === "after"
+                                ? "border-b-4 border-b-blue-400"
+                                : ""
+                            }`}
+                            onDoubleClick={() => editCategoryRow(row)}
+                            title="Doble click para editar"
+                          >
                             <td className="px-4 py-3 font-mono text-xs text-slate-700">{row.key}</td>
                             <td className="px-4 py-3 font-medium text-slate-900">{row.name}</td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                                  row.home_featured
+                                    ? "border-amber-300 bg-amber-100 text-amber-800"
+                                    : "border-slate-300 bg-slate-100 text-slate-600"
+                                }`}
+                              >
+                                {row.home_featured ? "sí" : "no"}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">{row.home_featured_order ?? 0}</td>
+                            <td className="px-4 py-3 text-slate-700">
+                              {row.image_url ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCatalogAssetPreviewOpenUrl(
+                                      resolveAssetUrl(row.image_url) || row.image_url
+                                    )
+                                  }
+                                  className="inline-flex h-8 w-8 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-100 transition hover:border-slate-300"
+                                  aria-label={`Ver imagen de ${row.name}`}
+                                  title="Ver imagen"
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={resolveAssetUrl(row.image_url) || row.image_url}
+                                    alt={`Miniatura ${row.name}`}
+                                    className="h-full w-full object-cover"
+                                  />
+                                </button>
+                              ) : (
+                                "Sin imagen"
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-slate-700">{row.sort_order}</td>
                             <td className="px-4 py-3 text-slate-700">{row.product_count}</td>
                             <td className="px-4 py-3">
@@ -4300,7 +4746,7 @@ export default function ComercioWebPage() {
                     type="button"
                     onClick={() => {
                       setSelectedId(payment.orderId);
-                      setActiveTab("orders");
+                      requestTabChange("orders");
                     }}
                     className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-slate-300"
                   >
@@ -4343,7 +4789,7 @@ export default function ComercioWebPage() {
                               type="button"
                               onClick={() => {
                                 setSelectedId(payment.orderId);
-                                setActiveTab("orders");
+                                requestTabChange("orders");
                               }}
                               className="font-medium text-slate-900 hover:text-emerald-700"
                             >
@@ -4434,6 +4880,333 @@ export default function ComercioWebPage() {
           </section>
         ) : null}
 
+        {catalogCategoryEditorOpen ? (
+          <div
+            className="fixed inset-0 z-[998] flex items-center justify-center bg-slate-900/35 px-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="w-full max-w-4xl rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">
+                    {catalogCategoryEditingId ? "Editar categoría" : "Crear categoría"}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Configura visibilidad, orden e imagen para el catálogo y el inicio.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCatalogCategoryEditorOpen(false);
+                    resetCategoryEditor();
+                    setCatalogCategoryError(null);
+                  }}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grid gap-1">
+                  <label className="text-xs font-medium text-slate-600">Nombre visible</label>
+                  <input
+                    value={catalogCategoryEditor.name}
+                    onChange={(event) => handleCatalogCategoryNameChange(event.target.value)}
+                    placeholder="Ej: Audio profesional"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-xs font-medium text-slate-600">Clave de categoría</label>
+                  <input
+                    value={catalogCategoryEditor.key}
+                    onChange={(event) => handleCatalogCategoryKeyChange(event.target.value)}
+                    placeholder="Ej: audio-profesional"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-xs font-medium text-slate-600">Orden en catálogo</label>
+                  <input
+                    type="number"
+                    value={catalogCategoryEditor.sort_order}
+                    onChange={(event) =>
+                      setCatalogCategoryEditor((prev) => ({
+                        ...prev,
+                        sort_order: event.target.value,
+                      }))
+                    }
+                    placeholder="0"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  />
+                </div>
+
+                <div className="md:col-span-2 xl:col-span-2 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-slate-600">Imagen de la categoría</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={catalogCategoryImageUploading}
+                        onClick={() => categoryImageInputRef.current?.click()}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {catalogCategoryImageUploading ? "Subiendo..." : "Subir imagen"}
+                      </button>
+                      {catalogCategoryEditor.image_url ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCatalogCategoryEditor((prev) => ({
+                              ...prev,
+                              image_url: "",
+                            }))
+                          }
+                          className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300"
+                        >
+                          Quitar
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Formatos: JPG, PNG o WebP. Recomendado: 1200x1200 px (1:1) para mejor ajuste en tarjetas.
+                  </p>
+                  <input
+                    ref={categoryImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      void handleCategoryImageFileChange(file);
+                    }}
+                  />
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="h-14 w-14 shrink-0 rounded-lg border border-slate-200 bg-slate-100 bg-cover bg-center bg-no-repeat"
+                      style={
+                        catalogCategoryEditor.image_url
+                          ? {
+                              backgroundImage: `url('${resolveAssetUrl(catalogCategoryEditor.image_url) || catalogCategoryEditor.image_url}')`,
+                            }
+                          : undefined
+                      }
+                      aria-hidden="true"
+                    />
+                    <p className="min-w-0 truncate text-xs text-slate-500">
+                      {catalogCategoryEditor.image_url || "Sin imagen cargada"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                  <label className="text-xs font-medium text-slate-600">Color del mosaico</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={catalogCategoryEditor.tile_color || "#e8eef8"}
+                      onChange={(event) =>
+                        setCatalogCategoryEditor((prev) => ({
+                          ...prev,
+                          tile_color: event.target.value,
+                        }))
+                      }
+                      className="h-9 w-12 cursor-pointer rounded-md border border-slate-200 bg-white p-1"
+                    />
+                    <span className="text-xs text-slate-500">
+                      {catalogCategoryEditor.tile_color || "#E8EEF8"}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {["#E8EEF8", "#E2ECFF", "#E8F3E8", "#FFF1CC", "#FCE7E7"].map((swatch) => (
+                      <button
+                        key={swatch}
+                        type="button"
+                        onClick={() =>
+                          setCatalogCategoryEditor((prev) => ({
+                            ...prev,
+                            tile_color: swatch,
+                          }))
+                        }
+                        className="h-6 w-6 rounded-full border border-slate-200"
+                        style={{ backgroundColor: swatch }}
+                        aria-label={`Seleccionar color ${swatch}`}
+                        title={swatch}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-1">
+                  <label className="text-xs font-medium text-slate-600">Orden en inicio</label>
+                  <select
+                    value={catalogCategoryEditor.home_featured_order}
+                    onChange={(event) =>
+                      setCatalogCategoryEditor((prev) => ({
+                        ...prev,
+                        home_featured_order: event.target.value,
+                      }))
+                    }
+                    disabled={!catalogCategoryEditor.home_featured}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  >
+                    {Array.from({ length: MAX_HOME_FEATURED_CATEGORIES }, (_, index) => {
+                      const value = String(index + 1);
+                      return (
+                        <option key={`home-order-${value}`} value={value}>
+                          Posición {value}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={catalogCategoryEditor.home_featured}
+                    onChange={(event) => {
+                      const shouldFeature = event.target.checked;
+                      if (!shouldFeature) {
+                        setCatalogCategoryEditor((prev) => ({
+                          ...prev,
+                          home_featured: false,
+                          home_featured_order: "0",
+                        }));
+                        setCatalogCategoryError(null);
+                        return;
+                      }
+                      const featuredCountExcludingCurrent = catalogCategories.filter(
+                        (item) => item.home_featured && item.id !== catalogCategoryEditingId
+                      ).length;
+                      const currentRow = catalogCategories.find(
+                        (item) => item.id === catalogCategoryEditingId
+                      );
+                      if (
+                        featuredCountExcludingCurrent >= MAX_HOME_FEATURED_CATEGORIES &&
+                        !currentRow?.home_featured
+                      ) {
+                        setCatalogCategoryError(
+                          `Solo se permiten ${MAX_HOME_FEATURED_CATEGORIES} categorías destacadas en inicio.`
+                        );
+                        return;
+                      }
+                      const nextOrder = nextAvailableHomeFeaturedOrder(catalogCategoryEditingId);
+                      setCatalogCategoryEditor((prev) => ({
+                        ...prev,
+                        home_featured: true,
+                        home_featured_order:
+                          prev.home_featured_order !== "0"
+                            ? prev.home_featured_order
+                            : String(nextOrder || 1),
+                      }));
+                      setCatalogCategoryError(null);
+                    }}
+                  />
+                  Destacar en inicio
+                </label>
+                <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={catalogCategoryEditor.is_active}
+                    onChange={(event) =>
+                      setCatalogCategoryEditor((prev) => ({
+                        ...prev,
+                        is_active: event.target.checked,
+                      }))
+                    }
+                  />
+                  Visible en web
+                </label>
+              </div>
+
+              {suggestedCatalogCategoryKey &&
+              suggestedCatalogCategoryKey !== catalogCategoryEditor.key ? (
+                <div className="mt-2 text-xs text-slate-500">
+                  Sugerida:{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCatalogCategoryEditor((prev) => ({
+                        ...prev,
+                        key: suggestedCatalogCategoryKey,
+                      }));
+                      setCatalogCategoryKeyTouched(false);
+                    }}
+                    className="font-semibold text-emerald-700 underline decoration-dotted underline-offset-2"
+                  >
+                    {suggestedCatalogCategoryKey}
+                  </button>
+                </div>
+              ) : null}
+
+              {catalogCategoryError ? (
+                <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {catalogCategoryError}
+                </p>
+              ) : null}
+
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCatalogCategoryEditorOpen(false);
+                    resetCategoryEditor();
+                    setCatalogCategoryError(null);
+                  }}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={!canManage || catalogCategorySaving}
+                  onClick={() => void handleSaveCatalogCategory()}
+                  className="rounded-xl border border-blue-700 bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-500"
+                >
+                  {catalogCategorySaving
+                    ? "Guardando..."
+                    : catalogCategoryEditingId
+                      ? "Guardar cambios"
+                      : "Crear categoría"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {catalogAssetPreviewOpenUrl ? (
+          <div
+            className="fixed inset-0 z-[998] flex items-center justify-center bg-slate-900/45 px-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+              <div className="mb-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setCatalogAssetPreviewOpenUrl(null)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cerrar
+                </button>
+              </div>
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={catalogAssetPreviewOpenUrl}
+                  alt="Preview imagen"
+                  className="h-auto max-h-[70vh] w-full object-contain"
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {catalogActionConfirm && catalogActionMeta ? (
           <div
             className="fixed inset-0 z-[998] flex items-center justify-center bg-slate-900/35 px-4"
@@ -4483,7 +5256,10 @@ export default function ComercioWebPage() {
                 <button
                   type="button"
                   disabled={catalogSaving}
-                  onClick={() => setCatalogSavePublishPromptOpen(false)}
+                  onClick={() => {
+                    setCatalogSavePublishPromptOpen(false);
+                    setPendingCatalogExitAction(null);
+                  }}
                   className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Cancelar
@@ -4493,7 +5269,10 @@ export default function ComercioWebPage() {
                   disabled={catalogSaving}
                   onClick={() => {
                     setCatalogSavePublishPromptOpen(false);
-                    void handleSaveCatalogProduct(false);
+                    void handleSaveCatalogProduct(
+                      false,
+                      pendingCatalogExitAction ? completePendingCatalogExit : undefined
+                    );
                   }}
                   className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -4504,11 +5283,73 @@ export default function ComercioWebPage() {
                   disabled={catalogSaving}
                   onClick={() => {
                     setCatalogSavePublishPromptOpen(false);
-                    void handleSaveCatalogProduct(true);
+                    void handleSaveCatalogProduct(
+                      true,
+                      pendingCatalogExitAction ? completePendingCatalogExit : undefined
+                    );
                   }}
                   className="rounded-xl border border-blue-700 bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-500"
                 >
                   Guardar y publicar
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {catalogExitPromptOpen ? (
+          <div
+            className="fixed inset-0 z-[998] flex items-center justify-center bg-slate-900/35 px-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+              <h3 className="text-base font-semibold text-slate-900">Tienes cambios sin guardar</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                ¿Quieres guardar antes de salir del editor de publicación?
+              </p>
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={catalogSaving}
+                  onClick={() => {
+                    setCatalogExitPromptOpen(false);
+                    setPendingCatalogExitAction(null);
+                  }}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={catalogSaving}
+                  onClick={() => {
+                    const nextAction = pendingCatalogExitAction;
+                    setCatalogExitPromptOpen(false);
+                    setPendingCatalogExitAction(null);
+                    executeCatalogExitAction(nextAction);
+                  }}
+                  className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-700 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Descartar cambios
+                </button>
+                <button
+                  type="button"
+                  disabled={catalogSaving}
+                  onClick={() => {
+                    setCatalogExitPromptOpen(false);
+                    if (shouldPromptPublishOnSave()) {
+                      setCatalogSavePublishPromptOpen(true);
+                      return;
+                    }
+                    void handleSaveCatalogProduct(
+                      undefined,
+                      pendingCatalogExitAction ? completePendingCatalogExit : undefined
+                    );
+                  }}
+                  className="rounded-xl border border-blue-700 bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-500"
+                >
+                  Guardar y salir
                 </button>
               </div>
             </div>
