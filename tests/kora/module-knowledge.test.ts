@@ -24,6 +24,16 @@ test("resolveModuleFromQuery resolves rrhh aliases", () => {
   assert.equal(got, "rrhh");
 });
 
+test("resolveModuleFromQuery resolves horarios aliases", () => {
+  const got = resolveModuleFromQuery("publicar horarios de esta semana");
+  assert.equal(got, "horarios");
+});
+
+test("resolveModuleFromQuery resolves perfil aliases", () => {
+  const got = resolveModuleFromQuery("quiero editar mi perfil");
+  assert.equal(got, "perfil");
+});
+
 test("resolveModuleFromQuery returns null when unmatched", () => {
   const got = resolveModuleFromQuery("meteorologia de bogota");
   assert.equal(got, null);
@@ -49,6 +59,7 @@ test("MODULE_GUIDES keeps all expected keys", () => {
     "productos",
     "movimientos",
     "documentos",
+    "clientes",
     "pos",
     "etiquetas",
     "etiquetado_beta",
@@ -56,6 +67,8 @@ test("MODULE_GUIDES keeps all expected keys", () => {
     "comercio_web",
     "inversion",
     "rrhh",
+    "horarios",
+    "perfil",
     "configuracion",
   ];
   for (const key of expected) {

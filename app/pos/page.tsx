@@ -4797,8 +4797,9 @@ const matchesStationLabel = useCallback(
       return;
     }
 
-    // Regla de desempate: priorizar SKU exacto sobre código de barras exacto.
-    const product = productBySku.get(code) ?? productByBarcode.get(code);
+    // En flujo POS con escáner USB, priorizamos coincidencia exacta por código de barras.
+    // Si no existe, caemos a SKU exacto.
+    const product = productByBarcode.get(code) ?? productBySku.get(code);
 
     if (!product) {
       showSearchMissToast();

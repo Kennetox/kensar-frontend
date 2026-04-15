@@ -12,6 +12,7 @@ import type { KoraModuleKey } from "./module-knowledge.ts";
 export type QueryIntent =
   | "greeting"
   | "help"
+  | "current_module_context"
   | "module_guide"
   | "module_connection"
   | "module_playbook_task"
@@ -39,6 +40,8 @@ export type QueryIntent =
   | "product_group_lookup"
   | "product_restock_advice"
   | "last_sale_product"
+  | "customer_lookup"
+  | "customer_sales_lookup"
   | "last_sale_followup_product"
   | "last_sale_followup_previous"
   | "inventory_overview"
@@ -64,6 +67,8 @@ export type KoraEntityContext = {
   dateKey?: string | null;
   topProductsQueryActive?: boolean;
   topProductsLimit?: number | null;
+  customerTerm?: string | null;
+  customerId?: number | null;
 };
 
 export type IntentCandidate = {
@@ -156,6 +161,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   const hasTodayToken = hasTokenStartingWith(tokens, ["hoy", "dia", "día"]);
   const hasTicketToken = hasTokenStartingWith(tokens, ["ticket"]);
   const hasPendingToken = hasTokenStartingWith(tokens, ["pendient"]);
+  const hasCustomerNoun = hasTokenStartingWith(tokens, ["client"]) || hasPhrase(text, ["cliente", "clientes"]);
   const asksWhichProduct = hasPhrase(text, [
     "cual producto fue",
     "cuál producto fue",
@@ -181,7 +187,56 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   const asksModuleConnection =
     hasPhrase(text, ["como se conecta", "cómo se conecta", "como se relaciona", "cómo se relaciona", "interconect", "flujo entre", "relacion entre", "relación entre"]) &&
     hasModule;
+  const asksCurrentModuleContext =
+    hasPhrase(text, [
+      "que estoy viendo",
+      "qué estoy viendo",
+      "donde estoy",
+      "dónde estoy",
+      "en que pagina estoy",
+      "en qué página estoy",
+      "en que modulo estoy",
+      "en qué módulo estoy",
+      "en que ventana estoy",
+      "en qué ventana estoy",
+      "que pagina es esta",
+      "qué página es esta",
+      "que modulo es este",
+      "qué módulo es este",
+      "que puedo hacer aqui",
+      "qué puedo hacer aquí",
+      "que puedo hacer en este modulo",
+      "qué puedo hacer en este módulo",
+    ]) ||
+    ((text.includes("donde") || text.includes("dónde") || text.includes("modulo") || text.includes("módulo")) &&
+      (text.includes("estoy") || text.includes("viendo")));
   const asksModuleTask = hasModule && detectTaskSignal(text);
+  const asksCustomerLookup =
+    (hasCustomerNoun ||
+      ((text.includes("documento") || text.includes("cedula") || text.includes("cédula") || text.includes("nombre")) &&
+        hasTokenStartingWith(tokens, ["busc", "encuentr", "localiz", "consult", "muestr", "dime", "ver", "dam", "tra"]))) &&
+    (hasTokenStartingWith(tokens, ["busc", "encuentr", "localiz", "consult", "muestr", "dime", "ver", "dam", "tra"]) ||
+      ((text.includes("tenemos") || text.includes("hay") || text.includes("existe") || text.includes("tienen") || text.includes("tiene")) &&
+        (text.includes("cliente") || text.includes("clientes")) &&
+        tokens.some((token) => token.length >= 3 && !["tenemos", "hay", "existe", "tienen", "tiene", "cliente", "clientes", "con", "nombre", "apellido", "si", "sí"].includes(token))) ||
+      hasPhrase(text, [
+        "buscar cliente",
+        "busca cliente",
+        "cliente con",
+        "datos del cliente",
+        "quien es cliente",
+        "quién es cliente",
+        "dame todos los que tienen nombre",
+        "estoy buscando el que tiene documento",
+      ]) ||
+      /\b\d{6,}\b/.test(text));
+  const asksCustomerSales =
+    (text.includes("venta") || text.includes("ventas") || text.includes("vendio") || text.includes("vendió")) &&
+    (text.includes("cliente") ||
+      text.includes("ese cliente") ||
+      text.includes("este cliente") ||
+      text.includes("del cliente") ||
+      /\b(que|qué)\s+ventas?\s+(tiene|tienen|tuvo)\s+/.test(text));
   const asksCrossModuleCompare =
     hasPhrase(text, [
       "inicio vs reportes",
@@ -289,6 +344,9 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
 
   if (hasPhrase(text, ["hola", "buenos dias", "buenas tardes", "buenas noches"])) return "greeting";
   if (hasPhrase(text, ["ayuda", "que haces", "que puedes", "como funciona", "cómo funciona"])) return "help";
+  if (asksCurrentModuleContext) return "current_module_context";
+  if (asksCustomerSales) return "customer_sales_lookup";
+  if (asksCustomerLookup) return "customer_lookup";
   if (asksLastCreatedProduct) return "last_created_product";
   if (asksHowCreateEmployee) return "how_create_hr_employee";
   if (asksProductPrice) return "product_price_lookup";
@@ -394,6 +452,36 @@ export function resolveIntentWithContext(
   resolveModuleFromQuery: ResolveModuleFromQuery
 ): QueryIntent {
   const text = normalizeQuery(input);
+  const asksAnySales =
+    text.includes("venta") ||
+    text.includes("ventas") ||
+    text.includes("vendio") ||
+    text.includes("vendió");
+  const hasCustomerReference =
+    text.includes("ese cliente") ||
+    text.includes("este cliente") ||
+    text.includes("del cliente") ||
+    text.includes("de ese cliente") ||
+    text.includes("de este cliente") ||
+    text.includes("de ella") ||
+    text.includes("de el") ||
+    text.includes("de él");
+  const asksCustomerSalesRecentFollowUp =
+    !!lastEntity.customerTerm &&
+    (text.startsWith("y ") || text.startsWith("muestrame") || text.startsWith("dame") || text.startsWith("ver")) &&
+    (text.includes("ultimas") || text.includes("últimas") || text.includes("ultimos") || text.includes("últimos")) &&
+    /\b\d{1,2}\b/.test(text);
+  const asksCustomerSalesShortFollowUp =
+    !!lastEntity.customerTerm &&
+    (asksCustomerSalesRecentFollowUp ||
+      (asksAnySales &&
+        (text.split(" ").length <= 6 ||
+          text.startsWith("y ") ||
+          /^((que|qué)\s+ventas?\s+tiene\??)$/.test(text) ||
+          /^((que|qué)\s+ventas?\s+tienen\??)$/.test(text))) ||
+      (hasCustomerReference && text.split(" ").length <= 6) ||
+      /^((y\s+)?de\s+(ella|el|él|ese cliente|este cliente)\??)$/.test(text));
+  if (asksCustomerSalesShortFollowUp) return "customer_sales_lookup";
   const asksBestSalesMonth =
     hasPhrase(text, [
       "mes que mas hemos vendido",
@@ -438,6 +526,11 @@ export function resolveIntentWithContext(
       text.includes("ese sku")) &&
     (text.includes("venta") || text.includes("ventas") || text.includes("vendimos"));
   if (asksSalesForCurrentProduct) return "last_sale_product";
+  const asksSalesForCurrentCustomer =
+    !!lastEntity.customerTerm &&
+    hasCustomerReference &&
+    (text.includes("venta") || text.includes("ventas") || text.includes("vendio") || text.includes("vendió"));
+  if (asksSalesForCurrentCustomer) return "customer_sales_lookup";
   const asksRestockForCurrentProduct =
     !!lastEntity.productTerm &&
     (text.includes("pedir") || text.includes("comprar") || text.includes("reponer")) &&
@@ -580,10 +673,59 @@ export function buildIntentCandidates(input: string, resolveModuleFromQuery: Res
   const hasYear = hasTokenStartingWith(tokens, ["ano", "año", "year"]);
   const hasMethod = !!resolvePaymentMethodFromQuery(text);
   const hasProduct = hasTokenStartingWith(tokens, ["produc", "item", "articul", "sku", "codig", "codigo"]);
+  const hasCustomer = hasTokenStartingWith(tokens, ["client"]);
   const hasPrice = hasTokenStartingWith(tokens, ["preci", "valor", "cuanto", "cuánto"]);
   const hasGroup = hasTokenStartingWith(tokens, ["grupo", "categori", "pertenec"]);
   const hasLast = hasPhrase(text, ["ultima vez", "última vez", "ultimo", "último"]);
   const asksHow = hasTokenStartingWith(tokens, ["como", "cómo"]) || hasPhrase(text, ["de que forma", "de qué forma"]);
+  const asksCurrentModuleContext =
+    hasPhrase(text, [
+      "que estoy viendo",
+      "qué estoy viendo",
+      "donde estoy",
+      "dónde estoy",
+      "en que pagina estoy",
+      "en qué página estoy",
+      "en que modulo estoy",
+      "en qué módulo estoy",
+      "en que ventana estoy",
+      "en qué ventana estoy",
+      "que pagina es esta",
+      "qué página es esta",
+      "que modulo es este",
+      "qué módulo es este",
+      "que puedo hacer aqui",
+      "qué puedo hacer aquí",
+      "que puedo hacer en este modulo",
+      "qué puedo hacer en este módulo",
+    ]) ||
+    ((text.includes("donde") || text.includes("dónde") || text.includes("modulo") || text.includes("módulo")) &&
+      (text.includes("estoy") || text.includes("viendo")));
+  const asksCustomerLookup =
+    (hasCustomer ||
+      hasPhrase(text, ["cliente", "clientes"]) ||
+      ((text.includes("documento") || text.includes("cedula") || text.includes("cédula") || text.includes("nombre")) &&
+        hasTokenStartingWith(tokens, ["busc", "encuentr", "localiz", "consult", "muestr", "dime", "ver", "dam", "tra"]))) &&
+    (hasTokenStartingWith(tokens, ["busc", "encuentr", "localiz", "consult", "muestr", "dime", "ver", "dam", "tra"]) ||
+      ((text.includes("tenemos") || text.includes("hay") || text.includes("existe") || text.includes("tienen") || text.includes("tiene")) &&
+        (text.includes("cliente") || text.includes("clientes")) &&
+        tokens.some((token) => token.length >= 3 && !["tenemos", "hay", "existe", "tienen", "tiene", "cliente", "clientes", "con", "nombre", "apellido", "si", "sí"].includes(token))) ||
+      hasPhrase(text, [
+        "buscar cliente",
+        "busca cliente",
+        "cliente con",
+        "datos del cliente",
+        "dame todos los que tienen nombre",
+        "estoy buscando el que tiene documento",
+      ]) ||
+      /\b\d{6,}\b/.test(text));
+  const asksCustomerSales =
+    (text.includes("venta") || text.includes("ventas") || text.includes("vendio") || text.includes("vendió")) &&
+    (text.includes("cliente") ||
+      text.includes("ese cliente") ||
+      text.includes("este cliente") ||
+      text.includes("del cliente") ||
+      /\b(que|qué)\s+ventas?\s+(tiene|tienen|tuvo)\s+/.test(text));
   const hasMethodExplicit = !!resolvePaymentMethodFromQuery(text);
   const hasMonthNameReference = /(?:^|\s)(ene(?:ro)?|feb(?:rero)?|mar(?:zo)?|abr(?:il)?|may(?:o)?|jun(?:io)?|jul(?:io)?|ago(?:sto)?|sep(?:tiembre)?|set(?:iembre)?|oct(?:ubre)?|nov(?:iembre)?|dic(?:iembre)?)(?:\s|$)/.test(text);
   const asksSalesReading =
@@ -651,6 +793,9 @@ export function buildIntentCandidates(input: string, resolveModuleFromQuery: Res
       (text.includes("mas") || text.includes("más") || text.includes("mejor")));
 
   if (hasSales && hasDate) push("sales_specific_date", 84);
+  if (asksCurrentModuleContext) push("current_module_context", 96);
+  if (asksCustomerLookup) push("customer_lookup", 90);
+  if (asksCustomerSales) push("customer_sales_lookup", 91);
   if (hasPayment && hasDate) push("payment_methods_by_date", 90);
   if (hasSales && hasMonth && hasIncrease) push("sales_mtd_comparison", 80);
   if (hasSales && hasMonth && hasIncrease && hasMethod) push("sales_method_month_comparison", 90);

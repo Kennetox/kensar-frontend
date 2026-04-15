@@ -1,10 +1,12 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   fetchInventoryOverview,
   fetchInventoryProducts,
+  fetchPosCustomers,
+  type PosCustomerRead,
   type InventoryOverview,
 } from "@/lib/api/inventory";
 import { getApiBase } from "@/lib/api/base";
@@ -35,6 +37,7 @@ import {
   resolveModuleFromQuery,
   type KoraModuleKey,
 } from "./kora/module-knowledge";
+import { getModuleSystemKnowledge } from "./kora/system-knowledge";
 
 type KoraOpsAssistantProps = {
   enabled: boolean;
@@ -108,6 +111,12 @@ type LastSaleLookupContext = {
   currentIndex: number;
 } | null;
 
+type PendingCustomerSalesNavigation = {
+  customerTerm: string;
+  salesHref: string;
+  documentsHref: string;
+} | null;
+
 type KoraEntityContext = {
   moduleKey?: KoraModuleKey | null;
   productTerm?: string | null;
@@ -115,6 +124,8 @@ type KoraEntityContext = {
   dateKey?: string | null;
   topProductsQueryActive?: boolean;
   topProductsLimit?: number | null;
+  customerTerm?: string | null;
+  customerId?: number | null;
 };
 
 type KoraMetricEntry = {
@@ -180,6 +191,26 @@ const CROSS_MODULE_ACTIONS: KoraAction[] = [
   { id: "cross-open-reports", label: "Abrir Reportes", href: "/dashboard/reports" },
   { id: "cross-open-reports-detailed", label: "Abrir Reporte detallado", href: "/dashboard/reports/detailed" },
 ];
+
+function resolveModuleFromPathname(pathname: string | null | undefined): KoraModuleKey | null {
+  if (!pathname) return null;
+  if (pathname === "/dashboard" || pathname === "/dashboard/") return "inicio";
+  if (pathname.startsWith("/dashboard/products")) return "productos";
+  if (pathname.startsWith("/dashboard/movements")) return "movimientos";
+  if (pathname.startsWith("/dashboard/documents")) return "documentos";
+  if (pathname.startsWith("/dashboard/customers")) return "clientes";
+  if (pathname.startsWith("/dashboard/pos")) return "pos";
+  if (pathname.startsWith("/dashboard/labels-pilot")) return "etiquetado_beta";
+  if (pathname.startsWith("/dashboard/labels")) return "etiquetas";
+  if (pathname.startsWith("/dashboard/reports")) return "reportes";
+  if (pathname.startsWith("/dashboard/comercio-web")) return "comercio_web";
+  if (pathname.startsWith("/dashboard/investment")) return "inversion";
+  if (pathname.startsWith("/dashboard/hr")) return "rrhh";
+  if (pathname.startsWith("/dashboard/schedule")) return "horarios";
+  if (pathname.startsWith("/dashboard/profile")) return "perfil";
+  if (pathname.startsWith("/dashboard/settings")) return "configuracion";
+  return null;
+}
 
 function resolveFirstName(value?: string | null) {
   const cleaned = (value || "").trim();
@@ -455,6 +486,8 @@ function intentLabel(intent: QueryIntent) {
     product_group_lookup: "Consultar grupo de producto",
     product_restock_advice: "Recomendación de reposición",
     last_sale_product: "Última venta de producto",
+    customer_lookup: "Buscar cliente",
+    customer_sales_lookup: "Ventas por cliente",
     sales_overview: "Resumen comercial",
     sales_day_reading: "Lectura del día",
     inventory_overview: "Resumen inventario",
@@ -464,7 +497,7 @@ function intentLabel(intent: QueryIntent) {
 }
 
 
-function buildFallbackSuggestions(input: string): { text: string; actions: KoraAction[] } {
+function buildFallbackSuggestions(input: string, moduleKey?: KoraModuleKey | null): { text: string; actions: KoraAction[] } {
   const text = normalizeQuery(input);
   const actions: KoraAction[] = [];
 
@@ -489,15 +522,33 @@ function buildFallbackSuggestions(input: string): { text: string; actions: KoraA
       actions,
     };
   }
+  if (text.includes("cliente")) {
+    actions.push(
+      { id: "fb-customer-find", label: "Buscar cliente", intent: "customer_lookup", inputOverride: input },
+      { id: "fb-customer-sales", label: "Ver ventas de ese cliente", intent: "customer_sales_lookup", inputOverride: input },
+      { id: "fb-customer-open", label: "Abrir Gestión de clientes", href: "/dashboard/customers" }
+    );
+    return {
+      text: "Tu consulta parece de clientes. Puedo buscar por nombre, documento o teléfono:",
+      actions,
+    };
+  }
 
-  const moduleKey = resolveModuleFromQuery(text);
-  if (moduleKey) {
-    const guide = MODULE_GUIDES[moduleKey];
+  const contextualModuleKey = moduleKey || resolveModuleFromQuery(text);
+  if (contextualModuleKey) {
+    const guide = MODULE_GUIDES[contextualModuleKey];
+    const knowledge = getModuleSystemKnowledge(contextualModuleKey);
     return {
       text: `Puedo guiarte en ${guide.title}. Elige cómo quieres continuar:`,
       actions: [
         { id: "fb-module-task", label: `Paso a paso en ${guide.title}`, intent: "module_playbook_task", inputOverride: input },
         { id: "fb-module-guide", label: `Cómo usar ${guide.title}`, intent: "module_guide", inputOverride: `como usar ${guide.title}` },
+        ...knowledge.suggestedPrompts.slice(0, 2).map((prompt, idx) => ({
+          id: `fb-module-prompt-${contextualModuleKey}-${idx}`,
+          label: prompt,
+          intent: "module_playbook_task" as const,
+          inputOverride: prompt,
+        })),
         ...guide.actions.slice(0, 2),
       ],
     };
@@ -526,6 +577,7 @@ function buildFallbackSuggestions(input: string): { text: string; actions: KoraA
 
 export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAssistantProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const welcomeMessage = buildWelcomeMessage(userName);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -542,6 +594,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
   const lastSaleLookupRef = useRef<LastSaleLookupContext>(null);
   const lastEntityRef = useRef<KoraEntityContext>({});
   const pendingConfirmationRef = useRef<{ input: string; candidates: IntentCandidate[] } | null>(null);
+  const pendingCustomerSalesNavigationRef = useRef<PendingCustomerSalesNavigation>(null);
   const toneModeRef = useRef<KoraToneMode>("professional");
   const lastIntentRef = useRef<QueryIntent | null>(null);
   const lastUserInputRef = useRef("");
@@ -618,6 +671,20 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
           })()
         : text;
     setMessages((current) => [...current, { id: nextIdRef.current++, role, text: finalText, actions }]);
+  }
+
+  function resolveBinaryConfirmation(input: string): "yes" | "no" | null {
+    const text = normalizeQuery(input).trim();
+    if (!text) return null;
+    if (
+      /^(si|sí|s|ok|okay|dale|de una|claro|listo|hagale|hágale|por favor)$/.test(text)
+    ) {
+      return "yes";
+    }
+    if (/^(no|nop|negativo)$/.test(text)) {
+      return "no";
+    }
+    return null;
   }
 
   function formatMoney(value: number) {
@@ -792,6 +859,64 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     pushMessage("kora", buildModuleGuideMessage(moduleKey), guide.actions);
   }
 
+  function answerCurrentModuleContext() {
+    const moduleByPath = resolveModuleFromPathname(pathname);
+    const moduleKey = moduleByPath || lastEntityRef.current.moduleKey || null;
+    if (!moduleKey) {
+      pushMessage(
+        "kora",
+        "No logré identificar el módulo actual desde esta vista. Si me dices el nombre del módulo, te explico dónde estás y qué puedes hacer."
+      );
+      return;
+    }
+
+    const guide = MODULE_GUIDES[moduleKey];
+    const knowledge = getModuleSystemKnowledge(moduleKey);
+    lastEntityRef.current = { ...lastEntityRef.current, moduleKey };
+    if (moduleKey === "productos" || moduleKey === "movimientos" || moduleKey === "etiquetas" || moduleKey === "etiquetado_beta") {
+      lastTopicRef.current = "inventory";
+    }
+    if (moduleKey === "reportes" || moduleKey === "inicio" || moduleKey === "pos") {
+      lastTopicRef.current = "sales";
+    }
+    if (moduleKey === "comercio_web") {
+      lastTopicRef.current = "web";
+    }
+
+    const actions: KoraAction[] = [
+      ...guide.actions.slice(0, 2).map((action) => ({
+        id: `current-module-${action.id}`,
+        label: action.label,
+        href: action.href,
+      })),
+      {
+        id: `current-module-help-${moduleKey}`,
+        label: `Ayuda en ${guide.title}`,
+        intent: "module_playbook_task",
+        inputOverride: `como usar ${guide.title}`,
+      },
+      ...knowledge.suggestedPrompts.slice(0, 2).map((prompt, idx) => ({
+        id: `current-module-prompt-${moduleKey}-${idx}`,
+        label: prompt,
+        intent: "module_playbook_task" as const,
+        inputOverride: prompt,
+      })),
+    ];
+
+    pushMessage(
+      "kora",
+      `Estás en ${guide.title}.\n${guide.summary}\n\nAquí puedes:\n${guide.steps
+        .map((step, index) => `${index + 1}. ${step}`)
+        .join("\n")}\n\nTe puedo ayudar con:\n${knowledge.operatorCapabilities
+        .slice(0, 3)
+        .map((item, index) => `${index + 1}. ${item}`)
+        .join("\n")}\n\nCobertura técnica del módulo:\n- UI: ${knowledge.frontendSurface.join(", ")}\n- API: ${knowledge.backendCapabilities
+        .slice(0, 4)
+        .join(", ")}\n\nSi quieres, te ayudo con una tarea concreta de este módulo.`,
+      actions
+    );
+  }
+
   function answerModuleConnection(input: string) {
     const moduleKey = resolveModuleFromQuery(input) || lastEntityRef.current.moduleKey || null;
     if (!moduleKey) {
@@ -820,6 +945,12 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         "Comercio Web usa catálogo de Productos y genera órdenes que terminan en ventas/fulfillment, visibles en Reportes.",
       rrhh:
         "Recursos Humanos soporta operación interna (equipo/roles). Se complementa con Configuración para permisos.",
+      clientes:
+        "Clientes conecta ventas POS y seguimiento comercial. Sus datos mejoran historial, búsqueda y atención recurrente.",
+      horarios:
+        "Horarios organiza turnos del equipo y se cruza con RRHH para asignación operativa por semana.",
+      perfil:
+        "Perfil centraliza tus datos de usuario y documentos; influye en trazabilidad y contacto interno.",
       configuracion:
         "Configuración define reglas globales de operación que afectan POS, usuarios, seguridad y módulos administrativos.",
     };
@@ -901,6 +1032,19 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         "Gestión básica en Documentos:\n1. Abre Documentos.\n2. Revisa registros recientes.\n3. Entra al detalle para trazabilidad y soporte de auditoría.",
         buildModuleTaskActions("documentos")
       );
+      return;
+    }
+
+    if (moduleKey === "clientes") {
+      if (text.includes("buscar") || text.includes("encontrar") || text.includes("cliente")) {
+        pushMessage(
+          "kora",
+          "Buscar cliente en Gestión de clientes:\n1. Abre Gestión de clientes.\n2. Escribe nombre, documento o teléfono en el buscador.\n3. Abre el registro y valida datos de contacto.",
+          buildModuleTaskActions("clientes")
+        );
+        return;
+      }
+      pushMessage("kora", buildModuleGuideMessage("clientes"), buildModuleTaskActions("clientes"));
       return;
     }
 
@@ -2074,6 +2218,300 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
   }
 
+  function compactDigits(value?: string | null) {
+    return (value || "").replace(/\D+/g, "");
+  }
+
+  function parseCustomerLookup(input: string) {
+    const text = normalizeQuery(input);
+    const wantsAll =
+      text.includes("todos los que") ||
+      text.includes("todas las que") ||
+      text.includes("lista de") ||
+      text.includes("dame todos");
+    const byDocument = text.includes("documento") || text.includes("cedula") || text.includes("cédula");
+    const byPhone = text.includes("telefono") || text.includes("teléfono") || text.includes("celular") || text.includes("phone");
+    const byName = text.includes("nombre") || (!byDocument && !byPhone);
+    const digits = compactDigits(text);
+    let term = text
+      .replace(
+        /^(buscar|busca|buscame|encuentra|encontrar|localiza|consulta|consultar|muestrame|dime|ver|trae|dame)\s+/,
+        ""
+      )
+      .replace(/^(tenemos|hay|existe|tienen|tiene)\s+/, "")
+      .replace(/^un[oa]?\s+/, "")
+      .replace(/^estoy buscando\s+/, "")
+      .replace(/^si\s+/, "")
+      .replace(/^(el|la|al|del)\s+/, "")
+      .replace(/^cliente\s+/, "")
+      .replace(/^clientes\s+/, "")
+      .replace(/^el que tiene\s+/, "")
+      .replace(/^los que tienen\s+/, "")
+      .replace(/^con\s+/, "")
+      .replace(/^(nombre|documento|cedula|cédula|telefono|teléfono|celular)\s+/, "")
+      .trim();
+    const fieldValueMatch = text.match(
+      /(?:nombre|documento|cedula|cédula|telefono|teléfono|celular)\s*(?:es|sea|igual a|=|:)?\s+(.+)$/
+    );
+    if (fieldValueMatch?.[1]) {
+      term = fieldValueMatch[1].trim();
+    }
+    term = term
+      .replace(/^(de(l)?\s+)?cliente\s+/, "")
+      .replace(/^(con\s+)?(nombre|documento|cedula|cédula|telefono|teléfono|celular)\s+/, "")
+      .trim();
+    if (!term && digits.length >= 6) term = digits;
+    return { text, term, digits, wantsAll, byDocument, byPhone, byName };
+  }
+
+  function formatCustomerLine(customer: PosCustomerRead) {
+    const fields = [
+      customer.name?.trim() || "Cliente sin nombre",
+      customer.phone ? `Tel: ${customer.phone}` : "",
+      customer.tax_id ? `Doc: ${customer.tax_id}` : "",
+      customer.email ? `Email: ${customer.email}` : "",
+      customer.is_active ? "Activo" : "Inactivo",
+    ].filter(Boolean);
+    return `- ${fields.join(" | ")}`;
+  }
+
+  function sortCustomersByRelevance(rows: PosCustomerRead[], lookupText: string) {
+    const normalizedLookup = normalizeQuery(lookupText);
+    const lookupDigits = compactDigits(lookupText);
+    const tokenize = (value: string) => value.split(/\s+/).filter(Boolean);
+    const lookupTokens = tokenize(normalizedLookup);
+
+    const scoreRow = (row: PosCustomerRead) => {
+      const name = normalizeQuery(row.name || "");
+      const phone = compactDigits(row.phone || "");
+      const taxId = compactDigits(row.tax_id || "");
+      let score = row.is_active ? 6 : 0;
+      if (normalizedLookup && name === normalizedLookup) score += 120;
+      if (normalizedLookup && name.startsWith(normalizedLookup)) score += 70;
+      if (normalizedLookup && name.includes(normalizedLookup)) score += 50;
+      if (lookupTokens.length) {
+        const tokenHits = lookupTokens.filter((token) => token.length >= 2 && name.includes(token)).length;
+        score += tokenHits * 10;
+      }
+      if (lookupDigits) {
+        if (taxId === lookupDigits || phone === lookupDigits) score += 140;
+        if (taxId.includes(lookupDigits) || phone.includes(lookupDigits)) score += 60;
+      }
+      return score;
+    };
+
+    return [...rows].sort((a, b) => scoreRow(b) - scoreRow(a));
+  }
+
+  async function answerCustomerLookup(input: string) {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "clientes" };
+    try {
+      const lookup = parseCustomerLookup(input);
+      const search = lookup.term;
+      if (!search || search.length < 2) {
+        pushMessage(
+          "kora",
+          "Para buscar un cliente, dame al menos 2 caracteres del nombre, documento o teléfono. Ejemplo: “buscar cliente juan”.",
+          [{ id: "customer-open-module", label: "Abrir Gestión de clientes", href: "/dashboard/customers" }]
+        );
+        return;
+      }
+      let rows = await fetchPosCustomers(token as string, {
+        search,
+        limit: lookup.wantsAll ? 30 : 15,
+        include_inactive: true,
+      });
+      if (!rows.length && lookup.byName) {
+        const firstWord = search.split(/\s+/)[0] || "";
+        if (firstWord.length >= 3) {
+          rows = await fetchPosCustomers(token as string, {
+            search: firstWord,
+            limit: 20,
+            include_inactive: true,
+          });
+        }
+      }
+      if (!rows.length) {
+        pushMessage(
+          "kora",
+          `No encontré clientes con “${search}”. Prueba con otra parte del nombre, documento o teléfono.`,
+          [{ id: "customer-open-empty", label: "Abrir Gestión de clientes", href: "/dashboard/customers" }]
+        );
+        return;
+      }
+
+      const sorted = sortCustomersByRelevance(rows, search);
+      const exactRows = sorted.filter((row) => {
+        const name = normalizeQuery(row.name || "");
+        const phone = compactDigits(row.phone || "");
+        const doc = compactDigits(row.tax_id || "");
+        if (lookup.byDocument && lookup.digits) return doc === lookup.digits;
+        if (lookup.byPhone && lookup.digits) return phone === lookup.digits;
+        if (lookup.byName) {
+          if (name === normalizeQuery(search)) return true;
+          const wanted = normalizeQuery(search)
+            .split(/\s+/)
+            .filter((part) => part.length >= 2);
+          return wanted.length > 0 && wanted.every((part) => name.includes(part));
+        }
+        return false;
+      });
+      const resultRows = exactRows.length ? exactRows : sorted;
+      const top = resultRows[0] ?? null;
+      if (top) {
+        lastEntityRef.current = {
+          ...lastEntityRef.current,
+          moduleKey: "clientes",
+          customerTerm: top.name || search,
+          customerId: top.id,
+        };
+      }
+      const limit = lookup.wantsAll ? 12 : 5;
+      const preview = resultRows.slice(0, limit).map((row) => formatCustomerLine(row)).join("\n");
+      const overflow = resultRows.length > limit ? `\n...y ${resultRows.length - limit} más.` : "";
+      const exactNote = exactRows.length
+        ? `Coincidencia exacta: ${exactRows.length} resultado(s).`
+        : `No encontré exacto, pero sí resultados parecidos a “${search}”.`;
+      pushMessage(
+        "kora",
+        `${exactNote}\nEncontré ${resultRows.length} cliente(s):\n${preview}${overflow}`,
+        [{ id: "customer-open-results", label: "Abrir Gestión de clientes", href: "/dashboard/customers" }]
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible consultar clientes.";
+      pushMessage(
+        "kora",
+        `No pude completar la búsqueda de cliente ahora. ${message}`,
+        [{ id: "customer-open-error", label: "Abrir Gestión de clientes", href: "/dashboard/customers" }]
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function extractCustomerSalesTerm(input: string) {
+    const text = normalizeQuery(input);
+    const explicit = text
+      .replace(/^(dame|dime|mostrar|muestrame|ver|trae|busca|buscar)\s+/, "")
+      .replace(/^(que|qué)\s+ventas?\s+(tiene|tienen|tuvo)(\s+|$|\?)/, "")
+      .replace(/^(y\s+)?de\s+(ella|el|él|ese\s+cliente|este\s+cliente)(\s+|$|\?)/, "")
+      .replace(/^(muestrame|mostrar|dame|ver)\s+/, "")
+      .replace(/^las?\s+ultim[oa]s?\s+\d{1,2}\s+/, "")
+      .replace(/^las?\s+ventas\s+/, "")
+      .replace(/^de(l)?\s+/, "")
+      .replace(/^ese\s+cliente$/, "")
+      .replace(/^este\s+cliente$/, "")
+      .replace(/^cliente\s+/, "")
+      .replace(/^ventas?\s*(de|del)?\s*$/, "")
+      .trim();
+    if (
+      explicit &&
+      explicit !== "cliente" &&
+      explicit !== "que ventas tiene" &&
+      explicit !== "que ventas tienen" &&
+      explicit !== "de ella" &&
+      explicit !== "de el" &&
+      explicit !== "de él" &&
+      explicit !== "de ese cliente" &&
+      explicit !== "de este cliente" &&
+      !/^ultim[oa]s?\s+\d{1,2}$/.test(explicit)
+    ) {
+      return explicit;
+    }
+    return lastEntityRef.current.customerTerm || "";
+  }
+
+  function extractCustomerSalesLimit(input: string): number | null {
+    const text = normalizeQuery(input);
+    const raw =
+      text.match(/\bultim[oa]s?\s+(\d{1,2})\b/)?.[1] ||
+      text.match(/\b(\d{1,2})\s+ultim[oa]s?\b/)?.[1] ||
+      null;
+    if (!raw) return null;
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(1, Math.min(20, parsed));
+  }
+
+  async function answerCustomerSalesLookup(input: string) {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "sales";
+    try {
+      const customerTerm = extractCustomerSalesTerm(input);
+      if (!customerTerm || customerTerm.length < 2) {
+        pushMessage(
+          "kora",
+          "Para consultar ventas por cliente, dime el nombre/documento o primero búscalo. Ejemplo: “dame las ventas del cliente juan”.",
+          [{ id: "customer-sales-open-customers", label: "Abrir Gestión de clientes", href: "/dashboard/customers" }]
+        );
+        return;
+      }
+      const params = new URLSearchParams({
+        customer: customerTerm,
+        skip: "0",
+        limit: "30",
+      });
+      const history = await fetchSalesHistory(params);
+      const rows = [...(history.items ?? [])].sort((a, b) => {
+        const atA = a.created_at ? Date.parse(a.created_at) : 0;
+        const atB = b.created_at ? Date.parse(b.created_at) : 0;
+        return atB - atA;
+      });
+      const previewLimit = extractCustomerSalesLimit(input) ?? 5;
+      const salesHref = `/dashboard/sales?term=${encodeURIComponent(customerTerm)}`;
+      const documentsHref = `/dashboard/documents?term=${encodeURIComponent(customerTerm)}`;
+      if (!rows.length) {
+        pendingCustomerSalesNavigationRef.current = {
+          customerTerm,
+          salesHref,
+          documentsHref,
+        };
+        pushMessage(
+          "kora",
+          `No encontré ventas para “${customerTerm}”. Si quieres, puedo llevarte a Documentos para revisar manualmente.`,
+          [
+            { id: "customer-sales-open-sales-empty", label: "Ver en historial de ventas", href: salesHref },
+            { id: "customer-sales-open-docs-empty", label: "Ver en Documentos", href: documentsHref },
+          ]
+        );
+        return;
+      }
+      const total = rows.reduce((acc, row) => acc + (row.total ?? 0), 0);
+      const preview = rows
+        .slice(0, previewLimit)
+        .map((sale) => {
+          const at = sale.created_at ? formatBogotaDateTime(sale.created_at) : "fecha no disponible";
+          return `- ${saleLabel(sale)} | ${at} | ${formatMoney(sale.total ?? 0)} COP`;
+        })
+        .join("\n");
+      lastEntityRef.current = {
+        ...lastEntityRef.current,
+        customerTerm,
+      };
+      pendingCustomerSalesNavigationRef.current = {
+        customerTerm,
+        salesHref,
+        documentsHref,
+      };
+      pushMessage(
+        "kora",
+        `Ventas encontradas para “${customerTerm}”:\n- Registros: ${rows.length}\n- Total: ${formatMoney(total)} COP\n- Mostrando: ${Math.min(previewLimit, rows.length)} más recientes\n\nDetalle:\n${preview}\n\n¿Quieres verlas en Documentos?`,
+        [
+          { id: "customer-sales-open-sales", label: "Ver en historial de ventas", href: salesHref },
+          { id: "customer-sales-open-docs", label: "Ver en Documentos", href: documentsHref },
+        ]
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible consultar ventas por cliente.";
+      pushMessage("kora", `No pude consultar ventas de ese cliente ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function answerProductByCode(input: string) {
     if (!ensureToken()) return;
     const normalizedInput = normalizeQuery(input);
@@ -2485,6 +2923,10 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       answerModuleGuide(input);
       return "handled" as const;
     }
+    if (intent === "current_module_context") {
+      answerCurrentModuleContext();
+      return "handled" as const;
+    }
     if (intent === "module_connection") {
       answerModuleConnection(input);
       return "handled" as const;
@@ -2566,6 +3008,14 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
     if (intent === "payment_methods_by_date") {
       await answerPaymentMethodsByDate(input);
+      return "handled" as const;
+    }
+    if (intent === "customer_lookup") {
+      await answerCustomerLookup(input);
+      return "handled" as const;
+    }
+    if (intent === "customer_sales_lookup") {
+      await answerCustomerSalesLookup(input);
       return "handled" as const;
     }
     if (intent === "sales_mtd_comparison") {
@@ -2695,6 +3145,44 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     pushMessage("user", input);
     setDraft("");
 
+    const pendingCustomerNav = pendingCustomerSalesNavigationRef.current;
+    if (pendingCustomerNav) {
+      const decision = resolveBinaryConfirmation(input);
+      if (decision === "yes") {
+        pendingCustomerSalesNavigationRef.current = null;
+        pushMessage("kora", `Perfecto, te llevo a Documentos para "${pendingCustomerNav.customerTerm}".`);
+        lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "documentos" };
+        router.push(pendingCustomerNav.documentsHref);
+        setOpen(false);
+        logMetric({
+          at: new Date().toISOString(),
+          source: "message",
+          input,
+          intent: "customer_sales_lookup",
+          status: "handled",
+          latencyMs: Date.now() - startedAt,
+        });
+        return;
+      }
+      if (decision === "no") {
+        pendingCustomerSalesNavigationRef.current = null;
+        pushMessage(
+          "kora",
+          `Listo, no te redirijo. Si quieres, puedo abrir historial de ventas para "${pendingCustomerNav.customerTerm}".`,
+          [{ id: "customer-sales-open-sales-no", label: "Ver en historial de ventas", href: pendingCustomerNav.salesHref }]
+        );
+        logMetric({
+          at: new Date().toISOString(),
+          source: "message",
+          input,
+          intent: "customer_sales_lookup",
+          status: "handled",
+          latencyMs: Date.now() - startedAt,
+        });
+        return;
+      }
+    }
+
     const intent = resolveIntentWithContext(input, lastTopicRef.current, lastEntityRef.current, resolveModuleFromQuery);
     if (intent !== "unknown") {
       const status = await dispatchIntent(intent, input);
@@ -2765,7 +3253,10 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       return;
     }
 
-    const fallback = buildFallbackSuggestions(input);
+    const fallback = buildFallbackSuggestions(
+      input,
+      resolveModuleFromPathname(pathname) || lastEntityRef.current.moduleKey || null
+    );
     lastIntentRef.current = "unknown";
     pushMessage("kora", fallback.text, fallback.actions);
     logMetric({
@@ -2780,6 +3271,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
   async function handleAction(action: KoraAction) {
     const startedAt = Date.now();
+    pendingCustomerSalesNavigationRef.current = null;
     lastUserInputRef.current = action.label;
     updateToneModeFromUserInput(action.label);
     pushMessage("user", action.label);
@@ -2824,6 +3316,12 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "inversion" };
     } else if (action.href.startsWith("/dashboard/hr")) {
       lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "rrhh" };
+    } else if (action.href.startsWith("/dashboard/schedule")) {
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "horarios" };
+    } else if (action.href.startsWith("/dashboard/customers")) {
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "clientes" };
+    } else if (action.href.startsWith("/dashboard/profile")) {
+      lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "perfil" };
     } else if (action.href.startsWith("/dashboard/settings")) {
       lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "configuracion" };
     }
@@ -2838,6 +3336,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     lastSaleLookupRef.current = null;
     lastEntityRef.current = {};
     pendingConfirmationRef.current = null;
+    pendingCustomerSalesNavigationRef.current = null;
     toneModeRef.current = "professional";
     lastIntentRef.current = null;
     lastUserInputRef.current = "";

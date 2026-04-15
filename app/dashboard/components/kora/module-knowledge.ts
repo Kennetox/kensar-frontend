@@ -5,6 +5,7 @@ export type KoraModuleKey =
   | "productos"
   | "movimientos"
   | "documentos"
+  | "clientes"
   | "pos"
   | "etiquetas"
   | "etiquetado_beta"
@@ -12,6 +13,8 @@ export type KoraModuleKey =
   | "comercio_web"
   | "inversion"
   | "rrhh"
+  | "horarios"
+  | "perfil"
   | "configuracion";
 
 export type ModuleGuideAction = {
@@ -67,6 +70,13 @@ export const MODULE_GUIDES: Record<KoraModuleKey, ModuleGuide> = {
     steps: ["Abre Documentos.", "Busca por fecha o tipo.", "Abre el detalle para validar información."],
     actions: [{ id: "module-documentos", label: "Abrir Documentos", href: "/dashboard/documents" }],
   },
+  clientes: {
+    title: "Clientes",
+    aliases: ["cliente", "clientes", "customer", "customers", "gestion clientes", "gestión clientes"],
+    summary: "Administra el directorio comercial de clientes para operación de ventas y seguimiento.",
+    steps: ["Abre Gestión de clientes.", "Busca por nombre o documento.", "Edita datos de contacto y guarda cambios."],
+    actions: [{ id: "module-clientes", label: "Abrir Gestión de clientes", href: "/dashboard/customers" }],
+  },
   pos: {
     title: "POS / Caja",
     aliases: ["pos", "caja", "venta rapida", "venta rápida", "facturacion", "facturación"],
@@ -118,6 +128,20 @@ export const MODULE_GUIDES: Record<KoraModuleKey, ModuleGuide> = {
       { id: "module-rrhh", label: "Abrir Recursos Humanos", href: "/dashboard/hr" },
       { id: "module-rrhh-new", label: "Crear nuevo empleado", href: "/dashboard/hr/new" },
     ],
+  },
+  horarios: {
+    title: "Horarios",
+    aliases: ["horario", "horarios", "turno", "turnos", "agenda", "schedule"],
+    summary: "Planifica semanas, turnos y plantillas operativas del equipo.",
+    steps: ["Abre Horarios.", "Selecciona semana.", "Crea/edita turnos o aplica plantilla.", "Publica la semana."],
+    actions: [{ id: "module-horarios", label: "Abrir Horarios", href: "/dashboard/schedule" }],
+  },
+  perfil: {
+    title: "Perfil",
+    aliases: ["perfil", "mi perfil", "cuenta", "usuario", "mis datos"],
+    summary: "Gestiona tus datos personales, avatar y documentos de usuario.",
+    steps: ["Abre Perfil.", "Actualiza datos base.", "Sube avatar/documentos si aplica.", "Guarda cambios."],
+    actions: [{ id: "module-perfil", label: "Abrir Perfil", href: "/dashboard/profile" }],
   },
   configuracion: {
     title: "Configuración",
