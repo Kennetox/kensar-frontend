@@ -2375,7 +2375,9 @@ export default function ProductsPage() {
               <table ref={tableRef} className="min-w-full text-sm">
                 <thead className="dashboard-table-head products-table-head">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold">ID</th>
+                    {isAdmin && (
+                      <th className="px-4 py-3 text-left font-semibold">ID</th>
+                    )}
                     <th className="px-4 py-3 text-left font-semibold">SKU</th>
                     <th className="px-4 py-3 text-left font-semibold min-w-[260px]">
                       Nombre
@@ -2450,7 +2452,7 @@ export default function ProductsPage() {
                     }`}
                   >
 
-                    <td className="px-4 py-3">{p.id}</td>
+                    {isAdmin && <td className="px-4 py-3">{p.id}</td>}
                     <td className="px-4 py-3">{p.sku}</td>
                     <td className="px-4 py-3 min-w-[260px]">{p.name}</td>
                     <td className="px-4 py-3">{p.group_name}</td>
@@ -2543,7 +2545,7 @@ export default function ProductsPage() {
                 {paginatedProducts.length === 0 && (
                   <tr>
                     <td
-                      colSpan={21}
+                      colSpan={isAdmin ? 21 : 20}
                       className="px-4 py-6 text-center text-slate-500"
                     >
                       No hay productos que coincidan con la búsqueda.
