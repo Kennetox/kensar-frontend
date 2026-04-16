@@ -18,6 +18,8 @@ type ApiCustomer = {
   email?: string | null;
   tax_id?: string | null;
   address?: string | null;
+  is_active?: boolean;
+  created_at?: string;
 };
 
 type CustomerForm = {
@@ -33,6 +35,15 @@ type CustomerPanelProps = {
   onCustomerSelected?: (customer: PosCustomer) => void;
 };
 
+type StatusFilter = "active" | "inactive" | "all";
+type SegmentFilter =
+  | "all"
+  | "with_email"
+  | "with_phone"
+  | "with_tax_id"
+  | "web_guest"
+  | "without_contact";
+
 const EMPTY_FORM: CustomerForm = {
   name: "",
   phone: "",
@@ -40,6 +51,15 @@ const EMPTY_FORM: CustomerForm = {
   tax_id: "",
   address: "",
 };
+
+function isGuestWebCustomer(customer: ApiCustomer): boolean {
+  const email = (customer.email ?? "").toLowerCase();
+  return email.includes("__guest_checkout__");
+}
+
+function hasAnyContact(customer: ApiCustomer): boolean {
+  return Boolean(customer.phone || customer.email);
+}
 
 export default function CustomerPanel({
   variant = "sidebar",
@@ -52,6 +72,8 @@ export default function CustomerPanel({
   const [hasMore, setHasMore] = useState(false);
   const [form, setForm] = useState<CustomerForm>(EMPTY_FORM);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>("all");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
@@ -68,7 +90,7 @@ export default function CustomerPanel({
   );
   const apiBase = getApiBase();
   const lastQueryRef = useRef("");
-  const PAGE_SIZE = 7;
+  const PAGE_SIZE = 20;
 
   const mapCustomer = useCallback((customer: ApiCustomer): PosCustomer => {
     return {
@@ -82,7 +104,7 @@ export default function CustomerPanel({
   }, []);
 
   const fetchCustomers = useCallback(
-    async (term: string, page = 0) => {
+    async (term: string, page = 0, includeInactive = false) => {
       if (!authHeaders) return;
       try {
         setLoading(true);
@@ -92,6 +114,10 @@ export default function CustomerPanel({
           skip: String(page * PAGE_SIZE),
           limit: PAGE_SIZE.toString(),
         });
+        params.set("include_web_customers", "false");
+        if (includeInactive) {
+          params.set("include_inactive", "true");
+        }
         const res = await fetch(`${apiBase}/pos/customers?${params}`, {
           headers: authHeaders,
           credentials: "include",
@@ -125,21 +151,24 @@ export default function CustomerPanel({
 
   useEffect(() => {
     if (!authHeaders) return;
-    void fetchCustomers("", 0);
-  }, [authHeaders, fetchCustomers]);
+    const includeInactive = variant === "page" && statusFilter !== "active";
+    void fetchCustomers("", 0, includeInactive);
+  }, [authHeaders, fetchCustomers, statusFilter, variant]);
 
   useEffect(() => {
     if (mode === "new") return;
     const handler = setTimeout(() => {
-      void fetchCustomers(search, 0);
+      const includeInactive = variant === "page" && statusFilter !== "active";
+      void fetchCustomers(search, 0, includeInactive);
     }, 400);
     return () => clearTimeout(handler);
-  }, [mode, search, fetchCustomers]);
+  }, [mode, search, fetchCustomers, statusFilter, variant]);
 
   function handlePageChange(nextPage: number) {
     if (nextPage < 0) return;
     if (!hasMore && nextPage > pageIndex) return;
-    void fetchCustomers(lastQueryRef.current, nextPage);
+    const includeInactive = variant === "page" && statusFilter !== "active";
+    void fetchCustomers(lastQueryRef.current, nextPage, includeInactive);
   }
 
   function handleSelectCustomer(customer: ApiCustomer) {
@@ -209,7 +238,8 @@ export default function CustomerPanel({
       if (onCustomerSelected) {
         onCustomerSelected(mapped);
       }
-      void fetchCustomers(search, 0);
+      const includeInactive = variant === "page" && statusFilter !== "active";
+      void fetchCustomers(search, 0, includeInactive);
     } catch (err) {
       console.error(err);
       setFeedback(
@@ -234,6 +264,8 @@ export default function CustomerPanel({
     onCustomerSelected,
     search,
     setSelectedCustomer,
+    statusFilter,
+    variant,
   ]);
 
   async function handleCreateCustomer(event: React.FormEvent) {
@@ -374,6 +406,7 @@ export default function CustomerPanel({
             skip: "0",
             limit: "15",
           });
+          params.set("include_web_customers", "false");
           const res = await fetch(`${apiBase}/pos/customers?${params}`, {
             headers: authHeaders,
             credentials: "include",
@@ -407,6 +440,32 @@ export default function CustomerPanel({
     variant === "page"
       ? "flex-1 min-h-[22rem] max-h-[22rem] overflow-y-auto rounded-2xl border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
       : "flex-1 min-h-[12rem] overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60";
+
+  const filteredCustomers = useMemo(() => {
+    if (variant !== "page") {
+      return customers;
+    }
+    return customers.filter((customer) => {
+      const isActive = customer.is_active !== false;
+      if (statusFilter === "active" && !isActive) return false;
+      if (statusFilter === "inactive" && isActive) return false;
+      if (segmentFilter === "with_email" && !customer.email) return false;
+      if (segmentFilter === "with_phone" && !customer.phone) return false;
+      if (segmentFilter === "with_tax_id" && !customer.tax_id) return false;
+      if (segmentFilter === "web_guest" && !isGuestWebCustomer(customer)) return false;
+      if (segmentFilter === "without_contact" && hasAnyContact(customer)) return false;
+      return true;
+    });
+  }, [customers, segmentFilter, statusFilter, variant]);
+
+  const summary = useMemo(() => {
+    if (variant !== "page") return null;
+    const active = customers.filter((c) => c.is_active !== false).length;
+    const withEmail = customers.filter((c) => Boolean(c.email)).length;
+    const withPhone = customers.filter((c) => Boolean(c.phone)).length;
+    const guests = customers.filter((c) => isGuestWebCustomer(c)).length;
+    return { active, withEmail, withPhone, guests };
+  }, [customers, variant]);
 
   return (
     <section className={containerClass}>
@@ -472,6 +531,58 @@ export default function CustomerPanel({
                   Nuevo cliente
                 </button>
               </div>
+              {variant === "page" && (
+                <>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="text-xs text-slate-400">Estado</label>
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => {
+                          setStatusFilter(e.target.value as StatusFilter);
+                          setPageIndex(0);
+                        }}
+                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-sky-400"
+                      >
+                        <option value="active">Activos</option>
+                        <option value="inactive">Inactivos</option>
+                        <option value="all">Todos</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400">Segmento</label>
+                      <select
+                        value={segmentFilter}
+                        onChange={(e) => setSegmentFilter(e.target.value as SegmentFilter)}
+                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-sky-400"
+                      >
+                        <option value="all">Todos</option>
+                        <option value="with_email">Con correo</option>
+                        <option value="with_phone">Con teléfono</option>
+                        <option value="with_tax_id">Con documento</option>
+                        <option value="without_contact">Sin contacto</option>
+                        <option value="web_guest">Invitados web</option>
+                      </select>
+                    </div>
+                  </div>
+                  {summary && (
+                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-300 md:grid-cols-4">
+                      <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 px-3 py-2">
+                        Activos: <span className="font-semibold text-slate-100">{summary.active}</span>
+                      </div>
+                      <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 px-3 py-2">
+                        Con correo: <span className="font-semibold text-slate-100">{summary.withEmail}</span>
+                      </div>
+                      <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 px-3 py-2">
+                        Con teléfono: <span className="font-semibold text-slate-100">{summary.withPhone}</span>
+                      </div>
+                      <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 px-3 py-2">
+                        Invitados web: <span className="font-semibold text-slate-100">{summary.guests}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
               <div>
                 <label className="text-xs text-slate-400">Buscar</label>
                 <input
@@ -485,16 +596,16 @@ export default function CustomerPanel({
                 />
               </div>
               <div className={listContainerClass}>
-                {loading && customers.length === 0 ? (
+                {loading && filteredCustomers.length === 0 ? (
                   <div className="p-4 text-xs text-slate-400">
                     Cargando clientes...
                   </div>
-                ) : customers.length === 0 ? (
+                ) : filteredCustomers.length === 0 ? (
                   <div className="p-4 text-xs text-slate-500">
-                    No hay clientes que coincidan con la búsqueda.
+                    No hay clientes que coincidan con los filtros.
                   </div>
                 ) : (
-                  customers.map((customer) => (
+                  filteredCustomers.map((customer) => (
                     <div
                       key={customer.id}
                       className="group flex items-center justify-between gap-3 p-4 hover:bg-slate-900/60 transition"
@@ -507,8 +618,12 @@ export default function CustomerPanel({
                         <div className="font-semibold text-base text-slate-100">
                           {customer.name}
                         </div>
-                        <div className="text-xs text-slate-400">
-                          {customer.phone ?? "Sin teléfono"}
+                        <div className="text-xs text-slate-400 flex flex-wrap gap-2">
+                          <span>{customer.phone ?? "Sin teléfono"}</span>
+                          <span>{customer.email ?? "Sin correo"}</span>
+                          {variant === "page" && customer.is_active === false && (
+                            <span className="text-amber-300">Inactivo</span>
+                          )}
                         </div>
                       </button>
                       <button
@@ -537,16 +652,29 @@ export default function CustomerPanel({
                   Anterior
                 </button>
                 <span className="text-xs text-slate-400">
-                  Página {pageIndex + 1}
+                  Página {pageIndex + 1} · {filteredCustomers.length} en vista
                 </span>
-                <button
-                  type="button"
-                  onClick={() => handlePageChange(pageIndex + 1)}
-                  className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 hover:border-emerald-400 disabled:opacity-40"
-                  disabled={loading || !hasMore}
-                >
-                  Siguiente
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const includeInactive = variant === "page" && statusFilter !== "active";
+                      void fetchCustomers(lastQueryRef.current, pageIndex, includeInactive);
+                    }}
+                    className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 hover:border-slate-500 disabled:opacity-40"
+                    disabled={loading}
+                  >
+                    Refrescar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(pageIndex + 1)}
+                    className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 hover:border-emerald-400 disabled:opacity-40"
+                    disabled={loading || !hasMore}
+                  >
+                    Siguiente
+                  </button>
+                </div>
               </div>
             </div>
           )}

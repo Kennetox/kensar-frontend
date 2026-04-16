@@ -45,6 +45,7 @@ export default function PosCustomerSelectorPage() {
           min_sales: "6",
           limit: "12",
         });
+        params.set("include_web_customers", "false");
         const res = await fetch(
           `${apiBase}/pos/customers/frequent?${params}`,
           {

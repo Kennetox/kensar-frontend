@@ -2180,7 +2180,11 @@ export default function ComercioWebPage() {
       );
       return;
     }
-    if (featuredCountExcludingCurrent >= MAX_HOME_FEATURED_CATEGORIES && !catalogCategoryEditingId) {
+    if (
+      catalogCategoryEditor.home_featured &&
+      featuredCountExcludingCurrent >= MAX_HOME_FEATURED_CATEGORIES &&
+      !catalogCategoryEditingId
+    ) {
       setCatalogCategoryError(
         `Solo se permiten ${MAX_HOME_FEATURED_CATEGORIES} categorías destacadas en inicio.`
       );
