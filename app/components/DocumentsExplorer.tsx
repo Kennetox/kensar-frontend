@@ -46,6 +46,15 @@ import {
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
 const DOCUMENTS_CACHE_PREFIX = "kensar_documents_cache:";
 const DOCUMENTS_CACHE_TTL_MS = 2 * 60 * 1000;
+const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
+
+function sanitizeSaleNotesForDisplay(notes?: string | null): string {
+  const raw = (notes ?? "").trim();
+  if (!raw) return "";
+  const markerIndex = raw.indexOf(CHECKOUT_CONTEXT_NOTE_MARKER);
+  if (markerIndex < 0) return raw;
+  return raw.slice(0, markerIndex).trim();
+}
 
 type DashboardRole = PosUserRecord["role"];
 
@@ -2941,7 +2950,9 @@ useEffect(() => {
     return notes.join("\n");
   }, [documentAdjustments]);
   const combinedSaleNotes = useMemo(() => {
-    const base = (selectedDetails as SaleRecord | null)?.notes?.trim();
+    const base = sanitizeSaleNotesForDisplay(
+      (selectedDetails as SaleRecord | null)?.notes
+    );
     if (base && adjustmentNotes) return `${base}\n${adjustmentNotes}`;
     return base || adjustmentNotes || "";
   }, [adjustmentNotes, selectedDetails]);
@@ -3211,7 +3222,9 @@ useEffect(() => {
       items: ticketItems,
       payments,
       changeAmount,
-      notes: combinedSaleNotes || selectedSaleDocument.notes,
+      notes:
+        combinedSaleNotes ||
+        sanitizeSaleNotesForDisplay(selectedSaleDocument.notes),
       posName: selectedSaleDocument.pos_name ?? undefined,
       vendorName: selectedSaleDocument.vendor_name ?? undefined,
       settings: posSettings,
