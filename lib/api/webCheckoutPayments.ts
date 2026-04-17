@@ -65,11 +65,6 @@ async function parseError(res: Response): Promise<Error> {
   return error;
 }
 
-export function resolveProviderForCheckoutMethod(method: WebCheckoutMethod): WebCheckoutProvider {
-  if (method === "card") return "mercadopago";
-  return "wompi";
-}
-
 export async function startCheckoutByMethod(
   token: string,
   input: {
@@ -81,41 +76,33 @@ export async function startCheckoutByMethod(
     customerEmail?: string;
     customerPhone?: string;
     customerFullName?: string;
+    payer?: {
+      email?: string;
+      first_name?: string;
+      last_name?: string;
+      identification?: { type?: string; number?: string };
+    };
+    acceptanceToken?: string;
+    acceptPersonalAuth?: string;
   }
 ): Promise<WebPaymentCheckoutResult> {
-  const provider = resolveProviderForCheckoutMethod(input.method);
-
-  if (provider === "mercadopago") {
-    const res = await fetch(`${getApiBase()}/web/payments/mercadopago/checkout`, {
-      method: "POST",
-      headers: buildHeaders(token),
-      credentials: "include",
-      body: JSON.stringify({
-        order_id: input.orderId,
-        checkout_context: input.checkoutContext,
-      }),
-    });
-    if (!res.ok) throw await parseError(res);
-    return (await res.json()) as WebPaymentCheckoutResult;
-  }
-
-  const wompiMethod = input.method as "pse" | "nequi";
   const paymentMethodData =
-    wompiMethod === "pse"
-      ? input.wompiPseData
-      : input.wompiNequiData;
+    input.method === "pse" ? input.wompiPseData : input.method === "nequi" ? input.wompiNequiData : undefined;
 
-  const res = await fetch(`${getApiBase()}/web/payments/wompi/checkout`, {
+  const res = await fetch(`${getApiBase()}/web/payments/checkout`, {
     method: "POST",
     headers: buildHeaders(token),
     credentials: "include",
     body: JSON.stringify({
       order_id: input.orderId,
-      payment_method: wompiMethod,
+      payment_method: input.method,
       payment_method_data: paymentMethodData ?? {},
       customer_email: input.customerEmail,
       customer_phone: input.customerPhone,
       customer_full_name: input.customerFullName,
+      payer: input.payer,
+      acceptance_token: input.acceptanceToken,
+      accept_personal_auth: input.acceptPersonalAuth,
       checkout_context: input.checkoutContext,
     }),
   });
@@ -138,11 +125,10 @@ export async function fetchCheckoutOrderStatus(
   token: string,
   input: {
     orderId: number;
-    provider: WebCheckoutProvider;
+    provider?: WebCheckoutProvider;
   }
 ): Promise<Record<string, unknown>> {
-  const providerPath = input.provider === "wompi" ? "wompi" : "mercadopago";
-  const res = await fetch(`${getApiBase()}/web/payments/${providerPath}/orders/${input.orderId}/status`, {
+  const res = await fetch(`${getApiBase()}/web/payments/orders/${input.orderId}/status`, {
     headers: buildHeaders(token),
     credentials: "include",
   });
