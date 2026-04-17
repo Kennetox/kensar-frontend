@@ -159,6 +159,13 @@ type PendingCatalogExitAction =
 
 const COMMERCE_WEB_ACTIVE_TAB_STORAGE_KEY = "commerce_web_active_tab";
 const COMMERCE_WEB_DRAFT_STORAGE_KEY = "commerce_web_catalog_draft_v1";
+const COMMERCE_WEB_ORDERS_AUTO_REFRESH_MS = 20_000;
+const COMMERCE_WEB_LIVE_ORDER_TABS: CommerceTab[] = [
+  "overview",
+  "orders",
+  "payments",
+  "customers",
+];
 
 const TABS: Array<{ id: CommerceTab; label: string }> = [
   { id: "overview", label: "Resumen" },
@@ -828,6 +835,7 @@ export default function ComercioWebPage() {
   const [toast, setToast] = useState<InlineToast | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
+  const ordersFetchInFlightRef = useRef(false);
   const catalogImageInputRef = useRef<HTMLInputElement | null>(null);
   const categoryImageInputRef = useRef<HTMLInputElement | null>(null);
   const draftHydratedRef = useRef(false);
@@ -1389,11 +1397,16 @@ export default function ComercioWebPage() {
     [orders]
   );
 
-  const loadOrders = useCallback(async () => {
+  const loadOrders = useCallback(async (options?: { silent?: boolean }) => {
     if (!token) return;
+    if (ordersFetchInFlightRef.current) return;
+    const silent = Boolean(options?.silent);
     try {
-      setLoadingOrders(true);
-      setOrderError(null);
+      ordersFetchInFlightRef.current = true;
+      if (!silent) {
+        setLoadingOrders(true);
+        setOrderError(null);
+      }
       const rows = await fetchComercioWebOrders(token, {
         status: status || undefined,
         payment_status: paymentStatus || undefined,
@@ -1403,9 +1416,14 @@ export default function ComercioWebPage() {
       setOrders(rows);
       setSelectedId((prev) => prev ?? rows[0]?.id ?? null);
     } catch (err) {
-      setOrderError(err instanceof Error ? err.message : "No se pudo cargar Comercio Web");
+      if (!silent) {
+        setOrderError(err instanceof Error ? err.message : "No se pudo cargar Comercio Web");
+      }
     } finally {
-      setLoadingOrders(false);
+      if (!silent) {
+        setLoadingOrders(false);
+      }
+      ordersFetchInFlightRef.current = false;
     }
   }, [paymentStatus, search, status, token]);
 
@@ -1507,6 +1525,17 @@ export default function ComercioWebPage() {
   useEffect(() => {
     void loadOrders();
   }, [loadOrders]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (!COMMERCE_WEB_LIVE_ORDER_TABS.includes(activeTab)) return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (busyAction) return;
+      void loadOrders({ silent: true });
+    }, COMMERCE_WEB_ORDERS_AUTO_REFRESH_MS);
+    return () => window.clearInterval(interval);
+  }, [activeTab, busyAction, loadOrders, token]);
 
   useEffect(() => {
     if (activeTab !== "catalog") return;
