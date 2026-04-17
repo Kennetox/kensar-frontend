@@ -48,6 +48,7 @@ type PaymentRow = {
   customerEmail: string;
   method: string;
   provider: string;
+  providerReference: string;
   amount: number;
   status: string;
   createdAt: string;
@@ -160,6 +161,7 @@ type PendingCatalogExitAction =
 const COMMERCE_WEB_ACTIVE_TAB_STORAGE_KEY = "commerce_web_active_tab";
 const COMMERCE_WEB_DRAFT_STORAGE_KEY = "commerce_web_catalog_draft_v1";
 const COMMERCE_WEB_ORDERS_AUTO_REFRESH_MS = 20_000;
+const COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE = 15;
 const COMMERCE_WEB_LIVE_ORDER_TABS: CommerceTab[] = [
   "overview",
   "orders",
@@ -425,6 +427,22 @@ function translatePaymentStatus(status: string): string {
   }
 }
 
+function formatPaymentLabel(value: string): string {
+  const normalized = (value || "").trim().toLowerCase();
+  if (!normalized) return "Sin definir";
+  if (normalized === "mercadopago") return "Mercado Pago";
+  if (normalized === "wompi") return "Wompi";
+  if (normalized === "manual_backoffice") return "Backoffice";
+  if (normalized === "card") return "Tarjeta";
+  if (normalized === "pse") return "PSE";
+  if (normalized === "nequi") return "Nequi";
+  return normalized
+    .split(/[_\s-]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function translateFulfillmentStatus(status: string): string {
   switch (status) {
     case "pending":
@@ -514,6 +532,16 @@ function sumApprovedPayments(order: ComercioWebOrder): number {
   return order.payments
     .filter((payment) => payment.status === "approved")
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+}
+
+function paymentStatusPriority(status: string): number {
+  const normalized = (status || "").trim().toLowerCase();
+  if (normalized === "approved") return 5;
+  if (normalized === "refunded") return 4;
+  if (normalized === "cancelled") return 3;
+  if (normalized === "failed") return 2;
+  if (normalized === "pending") return 1;
+  return 0;
 }
 
 function getPrimaryContact(order: ComercioWebOrder): string {
@@ -769,6 +797,7 @@ export default function ComercioWebPage() {
   const [paymentStatus, setPaymentStatus] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [paymentsLedgerPage, setPaymentsLedgerPage] = useState(1);
 
   const [publishedCatalogProducts, setPublishedCatalogProducts] = useState<
     ComercioWebCatalogProduct[]
@@ -1312,8 +1341,65 @@ export default function ComercioWebPage() {
   const paymentRows = useMemo<PaymentRow[]>(
     () =>
       orders
-        .flatMap((order) =>
-          order.payments.map((payment) => ({
+        .flatMap((order) => {
+          const sortedPayments = [...order.payments].sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+
+          // 1) Consolidar cambios de estado de una misma referencia externa.
+          const byExternalReference = new Map<string, ComercioWebOrderPayment>();
+          const withoutExternalReference: ComercioWebOrderPayment[] = [];
+          sortedPayments.forEach((payment) => {
+            const provider = (payment.provider || "").trim().toLowerCase();
+            const providerReference = (payment.provider_reference || "").trim();
+            if (!providerReference) {
+              withoutExternalReference.push(payment);
+              return;
+            }
+            const key = `${provider}::${providerReference}`;
+            const existing = byExternalReference.get(key);
+            if (!existing) {
+              byExternalReference.set(key, payment);
+              return;
+            }
+            const currentRank = paymentStatusPriority(payment.status);
+            const existingRank = paymentStatusPriority(existing.status);
+            if (currentRank > existingRank) {
+              byExternalReference.set(key, payment);
+              return;
+            }
+            if (currentRank === existingRank) {
+              const currentTs = new Date(payment.created_at).getTime();
+              const existingTs = new Date(existing.created_at).getTime();
+              if (currentTs >= existingTs) {
+                byExternalReference.set(key, payment);
+              }
+            }
+          });
+
+          const compacted = [...byExternalReference.values(), ...withoutExternalReference].sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+
+          // 2) Ocultar pendientes de inicialización cuando ya existe resultado final
+          // para la misma orden/proveedor/monto (caso típico: checkout creado + webhook aprobado).
+          const consolidated = compacted.filter((payment) => {
+            if (payment.status !== "pending") return true;
+            const pendingProvider = (payment.provider || "").trim().toLowerCase();
+            const pendingAmount = Number(payment.amount || 0);
+            const pendingCreatedAt = new Date(payment.created_at).getTime();
+            return !compacted.some((candidate) => {
+              if (candidate.id === payment.id) return false;
+              if (candidate.status === "pending") return false;
+              const candidateProvider = (candidate.provider || "").trim().toLowerCase();
+              if (candidateProvider !== pendingProvider) return false;
+              if (Math.abs(Number(candidate.amount || 0) - pendingAmount) > 0.01) return false;
+              const candidateCreatedAt = new Date(candidate.created_at).getTime();
+              return candidateCreatedAt >= pendingCreatedAt;
+            });
+          });
+
+          return consolidated.map((payment) => ({
             paymentId: payment.id,
             orderId: order.id,
             orderDocument: order.document_number || `Orden #${order.id}`,
@@ -1321,14 +1407,38 @@ export default function ComercioWebPage() {
             customerEmail: order.customer_email || "Sin correo",
             method: payment.method || "Sin método",
             provider: payment.provider || "Sin proveedor",
+            providerReference: payment.provider_reference || "Sin referencia",
             amount: Number(payment.amount || 0),
             status: payment.status,
             createdAt: payment.created_at,
-          }))
-        )
+          }));
+        })
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [orders]
   );
+  const paymentsLedgerTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(paymentRows.length / COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE)),
+    [paymentRows.length]
+  );
+  const paymentsLedgerStart = paymentRows.length
+    ? (paymentsLedgerPage - 1) * COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE + 1
+    : 0;
+  const paymentsLedgerEnd = paymentRows.length
+    ? Math.min(paymentsLedgerPage * COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE, paymentRows.length)
+    : 0;
+  const paginatedPaymentRows = useMemo(() => {
+    const start = (paymentsLedgerPage - 1) * COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE;
+    const end = start + COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE;
+    return paymentRows.slice(start, end);
+  }, [paymentRows, paymentsLedgerPage]);
+  useEffect(() => {
+    if (paymentsLedgerPage > paymentsLedgerTotalPages) {
+      setPaymentsLedgerPage(paymentsLedgerTotalPages);
+    }
+  }, [paymentsLedgerPage, paymentsLedgerTotalPages]);
+  useEffect(() => {
+    setPaymentsLedgerPage(1);
+  }, [search, status, paymentStatus, paymentRows.length]);
 
   const customerRows = useMemo<CustomerRow[]>(() => {
     const map = new Map<string, CustomerRow>();
@@ -4799,8 +4909,12 @@ export default function ComercioWebPage() {
                     className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-slate-300"
                   >
                     <div>
-                      <p className="text-sm font-medium text-slate-900">{payment.orderDocument} · {payment.method}</p>
-                      <p className="mt-1 text-xs text-slate-500">{payment.customerName} · {payment.provider}</p>
+                      <p className="text-sm font-medium text-slate-900">
+                        {payment.orderDocument} · {formatPaymentLabel(payment.method)}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {payment.customerName} · {formatPaymentLabel(payment.provider)}
+                      </p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold text-slate-900">{formatMoney(payment.amount)}</p>
@@ -4815,21 +4929,52 @@ export default function ComercioWebPage() {
               {paymentRows.length === 0 ? (
                 <div className="text-sm text-slate-500">Aún no hay pagos registrados.</div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  <p>
+                    Mostrando <strong>{paymentsLedgerStart}</strong>–<strong>{paymentsLedgerEnd}</strong> de{" "}
+                    <strong>{paymentRows.length}</strong> pagos consolidados.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentsLedgerPage((current) => Math.max(1, current - 1))}
+                      disabled={paymentsLedgerPage <= 1}
+                      className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Anterior
+                    </button>
+                    <span className="rounded-md border border-slate-200 bg-white px-2 py-1">
+                      Página {paymentsLedgerPage} / {paymentsLedgerTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPaymentsLedgerPage((current) => Math.min(paymentsLedgerTotalPages, current + 1))
+                      }
+                      disabled={paymentsLedgerPage >= paymentsLedgerTotalPages}
+                      className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
                   <table className="min-w-full text-sm">
-                    <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
+                    <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-[0.18em] text-slate-500">
                       <tr>
                         <th className="px-3 py-3">Fecha</th>
                         <th className="px-3 py-3">Documento</th>
                         <th className="px-3 py-3">Cliente</th>
                         <th className="px-3 py-3">Método</th>
                         <th className="px-3 py-3">Proveedor</th>
+                        <th className="px-3 py-3">Referencia</th>
                         <th className="px-3 py-3">Estado</th>
                         <th className="px-3 py-3 text-right">Monto</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {paymentRows.map((payment) => (
+                      {paginatedPaymentRows.map((payment) => (
                         <tr key={payment.paymentId} className="border-b border-slate-100 hover:bg-slate-50">
                           <td className="px-3 py-3 text-slate-600">{formatDateTime(payment.createdAt)}</td>
                           <td className="px-3 py-3">
@@ -4848,8 +4993,17 @@ export default function ComercioWebPage() {
                             {payment.customerName}
                             <div className="text-xs text-slate-500">{payment.customerEmail}</div>
                           </td>
-                          <td className="px-3 py-3 text-slate-700">{payment.method}</td>
-                          <td className="px-3 py-3 text-slate-700">{payment.provider}</td>
+                          <td className="px-3 py-3 text-slate-700">
+                            <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium">
+                              {formatPaymentLabel(payment.method)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-slate-700">
+                            <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium">
+                              {formatPaymentLabel(payment.provider)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-xs font-mono text-slate-600">{payment.providerReference}</td>
                           <td className="px-3 py-3">
                             <span className={`rounded-full border px-2 py-1 text-[11px] font-medium ${statusBadgeClass(payment.status)}`}>{translatePaymentStatus(payment.status)}</span>
                           </td>
@@ -4859,6 +5013,7 @@ export default function ComercioWebPage() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </SectionCard>
           </section>
