@@ -69,6 +69,7 @@ type CustomerRow = {
 type CatalogEditorState = {
   web_name: string;
   web_slug: string;
+  brand: string;
   web_category_key: string;
   web_published: boolean;
   web_featured: boolean;
@@ -239,6 +240,7 @@ const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
 const emptyCatalogEditorState: CatalogEditorState = {
   web_name: "",
   web_slug: "",
+  brand: "",
   web_category_key: "",
   web_published: false,
   web_featured: false,
@@ -699,6 +701,7 @@ function buildEditorState(product: ComercioWebCatalogProduct | null): CatalogEdi
   return {
     web_name: product.web_name || product.name || "",
     web_slug: product.web_slug || generateSuggestedSlug(product.web_name || product.name || ""),
+    brand: product.brand || "",
     web_category_key: product.web_category_key || "",
     web_published: Boolean(product.web_published),
     web_featured: Boolean(product.web_featured),
@@ -874,12 +877,14 @@ export default function ComercioWebPage() {
   const [dragOverCategoryPosition, setDragOverCategoryPosition] = useState<"before" | "after" | null>(null);
   const [catalogCategoryKeyTouched, setCatalogCategoryKeyTouched] = useState(false);
   const [catalogCategorySaving, setCatalogCategorySaving] = useState(false);
+  const [brandSuggestionsOpen, setBrandSuggestionsOpen] = useState(false);
   const [toast, setToast] = useState<InlineToast | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const ordersFetchInFlightRef = useRef(false);
   const catalogImageInputRef = useRef<HTMLInputElement | null>(null);
   const categoryImageInputRef = useRef<HTMLInputElement | null>(null);
+  const brandAutocompleteRef = useRef<HTMLDivElement | null>(null);
   const draftHydratedRef = useRef(false);
 
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(defaultRolePermissions);
@@ -986,6 +991,21 @@ export default function ComercioWebPage() {
   }, []);
 
   useEffect(() => {
+    if (!brandSuggestionsOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (!brandAutocompleteRef.current?.contains(target)) {
+        setBrandSuggestionsOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [brandSuggestionsOpen]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     if (!draftHydratedRef.current) return;
     const draft: CommerceWebDraftState = {
@@ -1075,6 +1095,25 @@ export default function ComercioWebPage() {
       null,
     [catalogSearchResults, publishedCatalogProducts, selectedProductId]
   );
+  const catalogBrandOptions = useMemo(() => {
+    const normalizedByKey = new Map<string, string>();
+    [...publishedCatalogProducts, ...catalogSearchResults].forEach((product) => {
+      const raw = (product.brand || "").trim();
+      if (!raw) return;
+      const key = raw.toLocaleLowerCase("es");
+      if (!normalizedByKey.has(key)) {
+        normalizedByKey.set(key, raw);
+      }
+    });
+    return [...normalizedByKey.values()].sort((a, b) => a.localeCompare(b, "es"));
+  }, [catalogSearchResults, publishedCatalogProducts]);
+  const filteredCatalogBrandOptions = useMemo(() => {
+    const search = catalogEditor.brand.trim().toLocaleLowerCase("es");
+    if (!search) return catalogBrandOptions.slice(0, 8);
+    return catalogBrandOptions
+      .filter((option) => option.toLocaleLowerCase("es").includes(search))
+      .slice(0, 8);
+  }, [catalogBrandOptions, catalogEditor.brand]);
   const categoryLabelMap = useMemo(() => {
     const next = new Map<string, string>();
     catalogCategories.forEach((item) => {
@@ -1892,6 +1931,7 @@ export default function ComercioWebPage() {
     const payload: ComercioWebCatalogProductUpdate = {
       web_name: catalogEditor.web_name.trim() || undefined,
       web_slug: catalogEditor.web_slug.trim() || undefined,
+      brand: catalogEditor.brand.trim() || null,
       web_category_key: catalogEditor.web_category_key.trim() || undefined,
       web_published:
         typeof overridePublished === "boolean" ? overridePublished : catalogEditor.web_published,
@@ -3566,6 +3606,41 @@ export default function ComercioWebPage() {
                             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
                           />
                         </LabeledField>
+                        <LabeledField label="Marca">
+                          <div ref={brandAutocompleteRef} className="relative">
+                            <input
+                              value={catalogEditor.brand}
+                              onFocus={() => setBrandSuggestionsOpen(true)}
+                              onChange={(event) => {
+                                handleCatalogField("brand", event.target.value);
+                                setBrandSuggestionsOpen(true);
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") setBrandSuggestionsOpen(false);
+                              }}
+                              placeholder="Ej: Spain, Pro DJ, Yamaha"
+                              className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                            />
+                            {brandSuggestionsOpen && filteredCatalogBrandOptions.length > 0 ? (
+                              <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-lg">
+                                {filteredCatalogBrandOptions.map((brandOption) => (
+                                  <button
+                                    key={brandOption}
+                                    type="button"
+                                    onMouseDown={(event) => {
+                                      event.preventDefault();
+                                      handleCatalogField("brand", brandOption);
+                                      setBrandSuggestionsOpen(false);
+                                    }}
+                                    className="block w-full border-b border-slate-200 px-3 py-2 text-left text-sm text-slate-800 transition last:border-b-0 hover:bg-slate-100"
+                                  >
+                                    {brandOption}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </LabeledField>
                         <LabeledField label="Categoría web" required>
                           <select
                             value={catalogEditor.web_category_key}
@@ -3997,6 +4072,11 @@ export default function ComercioWebPage() {
                                       <span className="rounded-full bg-blue-50 px-2 py-1 text-[8px] font-semibold tracking-[0.08em] text-blue-700">
                                         {getWebCategoryLabel(catalogEditor.web_category_key) || "Sin categoría"}
                                       </span>
+                                      {catalogEditor.brand.trim() ? (
+                                        <span className="text-[11px] font-semibold tracking-[0.08em] text-slate-500">
+                                          {catalogEditor.brand.trim()}
+                                        </span>
+                                      ) : null}
                                     </div>
                                     <h3 className="mt-2 text-[0.92rem] font-semibold leading-tight text-slate-900">
                                       {catalogEditor.web_name.trim() || selectedProduct.name}
@@ -4066,7 +4146,7 @@ export default function ComercioWebPage() {
                           <div className="grid grid-cols-[11rem_minmax(0,1fr)] items-start gap-x-5">
                             <span>Marca</span>
                             <span className="font-medium leading-snug break-words text-slate-800">
-                              {selectedProduct.brand || "Sin marca"}
+                              {catalogEditor.brand.trim() || "Sin marca"}
                             </span>
                           </div>
                           <div className="grid grid-cols-[11rem_minmax(0,1fr)] items-start gap-x-5">
