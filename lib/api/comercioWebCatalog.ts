@@ -192,6 +192,8 @@ export async function fetchComercioWebCatalogPublicationsPage(
     status_filter?: "all" | "featured" | "discounted" | "consult";
     featured_filter?: "all" | "featured" | "standard";
     badge_filter?: "all" | "with_badge" | "without_badge";
+    order?: "newest" | "oldest" | "alphabetical";
+    active_only?: boolean;
     skip?: number;
     limit?: number;
   }
@@ -202,6 +204,10 @@ export async function fetchComercioWebCatalogPublicationsPage(
   if (params?.status_filter) qs.set("status_filter", params.status_filter);
   if (params?.featured_filter) qs.set("featured_filter", params.featured_filter);
   if (params?.badge_filter) qs.set("badge_filter", params.badge_filter);
+  if (params?.order) qs.set("order", params.order);
+  if (typeof params?.active_only === "boolean") {
+    qs.set("active_only", String(params.active_only));
+  }
   qs.set("skip", String(params?.skip ?? 0));
   qs.set("limit", String(params?.limit ?? 50));
 

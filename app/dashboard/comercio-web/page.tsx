@@ -134,6 +134,8 @@ type CommerceWebDraftState = {
   publishedCatalogStatusFilter?: string;
   publishedCatalogFeaturedFilter?: string;
   publishedCatalogBadgeFilter?: string;
+  publishedCatalogOrderFilter?: "newest" | "oldest" | "alphabetical";
+  publishedCatalogActiveOnly?: boolean;
   discountCodeComposerOpen?: boolean;
   discountCodeEditingId?: number | null;
   discountCodeEditor?: DiscountCodeEditorState;
@@ -823,6 +825,10 @@ export default function ComercioWebPage() {
   const [publishedCatalogStatusFilter, setPublishedCatalogStatusFilter] = useState("all");
   const [publishedCatalogFeaturedFilter, setPublishedCatalogFeaturedFilter] = useState("all");
   const [publishedCatalogBadgeFilter, setPublishedCatalogBadgeFilter] = useState("all");
+  const [publishedCatalogOrderFilter, setPublishedCatalogOrderFilter] = useState<
+    "newest" | "oldest" | "alphabetical"
+  >("newest");
+  const [publishedCatalogActiveOnly, setPublishedCatalogActiveOnly] = useState(true);
   const [publishedCatalogPage, setPublishedCatalogPage] = useState(1);
   const [catalogWorkspaceView, setCatalogWorkspaceView] =
     useState<CatalogWorkspaceView>("publications");
@@ -941,6 +947,16 @@ export default function ComercioWebPage() {
       if (typeof draft.publishedCatalogBadgeFilter === "string") {
         setPublishedCatalogBadgeFilter(draft.publishedCatalogBadgeFilter);
       }
+      if (
+        draft.publishedCatalogOrderFilter === "newest" ||
+        draft.publishedCatalogOrderFilter === "oldest" ||
+        draft.publishedCatalogOrderFilter === "alphabetical"
+      ) {
+        setPublishedCatalogOrderFilter(draft.publishedCatalogOrderFilter);
+      }
+      if (typeof draft.publishedCatalogActiveOnly === "boolean") {
+        setPublishedCatalogActiveOnly(draft.publishedCatalogActiveOnly);
+      }
       if (typeof draft.discountCodeComposerOpen === "boolean") {
         setDiscountCodeComposerOpen(draft.discountCodeComposerOpen);
       }
@@ -987,6 +1003,8 @@ export default function ComercioWebPage() {
       publishedCatalogStatusFilter,
       publishedCatalogFeaturedFilter,
       publishedCatalogBadgeFilter,
+      publishedCatalogOrderFilter,
+      publishedCatalogActiveOnly,
       discountCodeComposerOpen,
       discountCodeEditingId,
       discountCodeEditor,
@@ -1009,6 +1027,8 @@ export default function ComercioWebPage() {
     publishedCatalogStatusFilter,
     publishedCatalogFeaturedFilter,
     publishedCatalogBadgeFilter,
+    publishedCatalogOrderFilter,
+    publishedCatalogActiveOnly,
     discountCodeComposerOpen,
     discountCodeEditingId,
     discountCodeEditor,
@@ -1161,6 +1181,8 @@ export default function ComercioWebPage() {
     publishedCatalogStatusFilter,
     publishedCatalogFeaturedFilter,
     publishedCatalogBadgeFilter,
+    publishedCatalogOrderFilter,
+    publishedCatalogActiveOnly,
   ]);
 
   useEffect(() => {
@@ -1567,6 +1589,8 @@ export default function ComercioWebPage() {
           publishedCatalogBadgeFilter === "all"
             ? undefined
             : (publishedCatalogBadgeFilter as "with_badge" | "without_badge"),
+        order: publishedCatalogOrderFilter,
+        active_only: publishedCatalogActiveOnly,
         skip: (publishedCatalogPage - 1) * CATALOG_TABLE_PAGE_SIZE,
         limit: CATALOG_TABLE_PAGE_SIZE,
       });
@@ -1590,6 +1614,8 @@ export default function ComercioWebPage() {
     publishedCatalogFeaturedFilter,
     publishedCatalogFieldFilter,
     publishedCatalogFilter,
+    publishedCatalogOrderFilter,
+    publishedCatalogActiveOnly,
     publishedCatalogPage,
     publishedCatalogStatusFilter,
     token,
@@ -2853,83 +2879,109 @@ export default function ComercioWebPage() {
                   </div>
                 </div>
 
-                <div className="flex w-full flex-col gap-3 xl:items-end">
-                  <div className="flex w-full flex-wrap items-end justify-end gap-2.5">
-                    <div className="flex flex-1 flex-wrap items-end gap-2.5 xl:flex-nowrap">
-                        <label className="block">
-                          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                            Buscar
-                          </span>
-                          <input
-                            value={publishedCatalogFilter}
-                            onChange={(event) => setPublishedCatalogFilter(event.target.value)}
-                            placeholder="Nombre, SKU, marca, grupo o badge"
-                            className="w-full min-w-[13rem] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                            Campo
-                          </span>
-                          <select
-                            value={publishedCatalogFieldFilter}
-                            onChange={(event) => setPublishedCatalogFieldFilter(event.target.value)}
-                            className="w-full min-w-[9rem] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                          >
-                            <option value="all">Todo</option>
-                            <option value="name">Nombre</option>
-                            <option value="sku">SKU</option>
-                            <option value="brand">Marca</option>
-                            <option value="group">Grupo</option>
-                            <option value="badge">Badge</option>
-                          </select>
-                        </label>
-                        <label className="block">
-                          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                            Estado
-                          </span>
-                          <select
-                            value={publishedCatalogStatusFilter}
-                            onChange={(event) => setPublishedCatalogStatusFilter(event.target.value)}
-                            className="w-full min-w-[9rem] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                          >
-                            <option value="all">Todas</option>
-                            <option value="featured">Con destaque</option>
-                            <option value="discounted">Con descuento</option>
-                            <option value="consult">Modo consultar</option>
-                          </select>
-                        </label>
-                        <label className="block">
-                          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                            Destacado
-                          </span>
-                          <select
-                            value={publishedCatalogFeaturedFilter}
-                            onChange={(event) => setPublishedCatalogFeaturedFilter(event.target.value)}
-                            className="w-full min-w-[9rem] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                          >
-                            <option value="all">Todos</option>
-                            <option value="featured">Solo destacados</option>
-                            <option value="standard">No destacados</option>
-                          </select>
-                        </label>
-                        <label className="block">
-                          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                            Badge
-                          </span>
-                          <select
-                            value={publishedCatalogBadgeFilter}
-                            onChange={(event) => setPublishedCatalogBadgeFilter(event.target.value)}
-                            className="w-full min-w-[9rem] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                          >
-                            <option value="all">Todos</option>
-                            <option value="with_badge">Con badge</option>
-                            <option value="without_badge">Sin badge</option>
-                          </select>
-                        </label>
-                    </div>
+                <div className="w-full space-y-3">
+                  <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-7">
+                    <label className="block md:col-span-2 xl:col-span-2">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Buscar
+                      </span>
+                      <input
+                        value={publishedCatalogFilter}
+                        onChange={(event) => setPublishedCatalogFilter(event.target.value)}
+                        placeholder="Nombre, SKU, marca, grupo o badge"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Campo
+                      </span>
+                      <select
+                        value={publishedCatalogFieldFilter}
+                        onChange={(event) => setPublishedCatalogFieldFilter(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      >
+                        <option value="all">Todo</option>
+                        <option value="name">Nombre</option>
+                        <option value="sku">SKU</option>
+                        <option value="brand">Marca</option>
+                        <option value="group">Grupo</option>
+                        <option value="badge">Badge</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Estado
+                      </span>
+                      <select
+                        value={publishedCatalogStatusFilter}
+                        onChange={(event) => setPublishedCatalogStatusFilter(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      >
+                        <option value="all">Todas</option>
+                        <option value="featured">Con destaque</option>
+                        <option value="discounted">Con descuento</option>
+                        <option value="consult">Modo consultar</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Destacado
+                      </span>
+                      <select
+                        value={publishedCatalogFeaturedFilter}
+                        onChange={(event) => setPublishedCatalogFeaturedFilter(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      >
+                        <option value="all">Todos</option>
+                        <option value="featured">Solo destacados</option>
+                        <option value="standard">No destacados</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Badge
+                      </span>
+                      <select
+                        value={publishedCatalogBadgeFilter}
+                        onChange={(event) => setPublishedCatalogBadgeFilter(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      >
+                        <option value="all">Todos</option>
+                        <option value="with_badge">Con badge</option>
+                        <option value="without_badge">Sin badge</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Orden
+                      </span>
+                      <select
+                        value={publishedCatalogOrderFilter}
+                        onChange={(event) =>
+                          setPublishedCatalogOrderFilter(
+                            event.target.value as "newest" | "oldest" | "alphabetical"
+                          )
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                      >
+                        <option value="newest">Más reciente</option>
+                        <option value="oldest">Más antiguo</option>
+                        <option value="alphabetical">Alfabético</option>
+                      </select>
+                    </label>
+                    <label className="inline-flex min-h-[2.5rem] items-center gap-2 self-end rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 md:col-span-2 xl:col-span-1">
+                      <input
+                        type="checkbox"
+                        checked={publishedCatalogActiveOnly}
+                        onChange={(event) => setPublishedCatalogActiveOnly(event.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      Mostrar solo activos
+                    </label>
+                  </div>
 
-                    <div className="flex flex-wrap items-end justify-end gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -2938,6 +2990,8 @@ export default function ComercioWebPage() {
                           setPublishedCatalogStatusFilter("all");
                           setPublishedCatalogFeaturedFilter("all");
                           setPublishedCatalogBadgeFilter("all");
+                          setPublishedCatalogOrderFilter("newest");
+                          setPublishedCatalogActiveOnly(true);
                         }}
                         className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
                       >
@@ -2963,7 +3017,6 @@ export default function ComercioWebPage() {
                     >
                       Refrescar publicaciones
                     </button>
-                    </div>
                   </div>
                 </div>
               </div>
