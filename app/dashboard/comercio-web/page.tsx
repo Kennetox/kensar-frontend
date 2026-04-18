@@ -112,6 +112,7 @@ type DiscountCodeEditorState = {
 type CategoryEditorState = {
   key: string;
   name: string;
+  parent_key: string;
   image_url: string;
   tile_color: string;
   home_featured: boolean;
@@ -281,6 +282,7 @@ const DISCOUNT_PERIOD_OPTIONS: Array<{ value: DiscountCodePeriodOption; label: s
 const emptyCategoryEditorState: CategoryEditorState = {
   key: "",
   name: "",
+  parent_key: "",
   image_url: "",
   tile_color: "",
   home_featured: false,
@@ -1129,6 +1131,25 @@ export default function ComercioWebPage() {
         .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es")),
     [catalogCategories]
   );
+  const categoryChildrenCount = useMemo(() => {
+    const map = new Map<string, number>();
+    catalogCategories.forEach((item) => {
+      const parentKey = (item.parent_key || "").trim().toLowerCase();
+      if (!parentKey) return;
+      map.set(parentKey, (map.get(parentKey) || 0) + 1);
+    });
+    return map;
+  }, [catalogCategories]);
+  const leafActiveCatalogCategories = useMemo(
+    () =>
+      activeCatalogCategories.filter((item) => {
+        const key = (item.key || "").trim().toLowerCase();
+        if (!key) return false;
+        const hasChildren = Boolean(item.has_children) || (categoryChildrenCount.get(key) || 0) > 0;
+        return !hasChildren;
+      }),
+    [activeCatalogCategories, categoryChildrenCount]
+  );
   const selectedCatalogCategory = useMemo(() => {
     const key = (catalogEditor.web_category_key || "").trim().toLowerCase();
     if (!key) return null;
@@ -1140,6 +1161,11 @@ export default function ComercioWebPage() {
         (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es")
       ),
     [catalogCategories]
+  );
+  const availableParentCatalogCategories = useMemo(
+    () =>
+      orderedCatalogCategories.filter((item) => item.id !== catalogCategoryEditingId),
+    [catalogCategoryEditingId, orderedCatalogCategories]
   );
   const homeFeaturedCategoryCount = useMemo(
     () => catalogCategories.filter((item) => item.home_featured).length,
@@ -2282,6 +2308,7 @@ export default function ComercioWebPage() {
     setCatalogCategoryEditor({
       key: row.key,
       name: row.name,
+      parent_key: row.parent_key || "",
       image_url: row.image_url || "",
       tile_color: row.tile_color || "",
       home_featured: shouldFeature,
@@ -2369,6 +2396,7 @@ export default function ComercioWebPage() {
   async function handleSaveCatalogCategory() {
     if (!token || !canManage) return;
     const key = normalizeCategoryKey(catalogCategoryEditor.key.trim());
+    const parentKey = normalizeCategoryKey(catalogCategoryEditor.parent_key.trim());
     const name = catalogCategoryEditor.name.trim();
     const imageUrl = catalogCategoryEditor.image_url.trim();
     const tileColor = catalogCategoryEditor.tile_color.trim();
@@ -2453,6 +2481,7 @@ export default function ComercioWebPage() {
       const payload = {
         key,
         name,
+        parent_key: parentKey || undefined,
         image_url: imageUrl || undefined,
         tile_color: tileColor || undefined,
         home_featured: catalogCategoryEditor.home_featured,
@@ -3641,7 +3670,7 @@ export default function ComercioWebPage() {
                             ) : null}
                           </div>
                         </LabeledField>
-                        <LabeledField label="Categoría web" required>
+                        <LabeledField label="Categoría web (subcategoría)" required>
                           <select
                             value={catalogEditor.web_category_key}
                             onChange={(event) =>
@@ -3653,9 +3682,9 @@ export default function ComercioWebPage() {
                             <option value="">
                               {catalogCategoryLoading ? "Cargando categorías..." : "Selecciona una categoría"}
                             </option>
-                            {activeCatalogCategories.map((option) => (
+                            {leafActiveCatalogCategories.map((option) => (
                               <option key={option.id} value={option.key}>
-                                {option.name}
+                                {option.parent_name ? `${option.parent_name} / ${option.name}` : option.name}
                               </option>
                             ))}
                             {selectedCatalogCategory && !selectedCatalogCategory.is_active ? (
@@ -4350,7 +4379,14 @@ export default function ComercioWebPage() {
                             title="Doble click para editar"
                           >
                             <td className="px-4 py-3 font-mono text-xs text-slate-700">{row.key}</td>
-                            <td className="px-4 py-3 font-medium text-slate-900">{row.name}</td>
+                            <td className="px-4 py-3 font-medium text-slate-900">
+                              <span>{row.level && row.level > 1 ? "↳ " : ""}{row.name}</span>
+                              {row.parent_name ? (
+                                <p className="mt-0.5 text-xs font-normal text-slate-500">
+                                  Padre: {row.parent_name}
+                                </p>
+                              ) : null}
+                            </td>
                             <td className="px-4 py-3">
                               <span
                                 className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
@@ -5270,6 +5306,26 @@ export default function ComercioWebPage() {
                     placeholder="Ej: audio-profesional"
                     className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
                   />
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-xs font-medium text-slate-600">Categoría padre</label>
+                  <select
+                    value={catalogCategoryEditor.parent_key}
+                    onChange={(event) =>
+                      setCatalogCategoryEditor((prev) => ({
+                        ...prev,
+                        parent_key: event.target.value,
+                      }))
+                    }
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  >
+                    <option value="">Sin categoría padre (principal)</option>
+                    {availableParentCatalogCategories.map((option) => (
+                      <option key={option.id} value={option.key}>
+                        {option.parent_name ? `${option.parent_name} / ${option.name}` : option.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid gap-1">
                   <label className="text-xs font-medium text-slate-600">Orden en catálogo</label>

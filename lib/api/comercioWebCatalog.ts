@@ -87,6 +87,10 @@ export type ComercioWebCatalogPublicationPage = {
 export type ComercioWebCatalogCategory = {
   id: number;
   key: string;
+  parent_key?: string | null;
+  parent_name?: string | null;
+  level?: number;
+  has_children?: boolean;
   name: string;
   image_url?: string | null;
   tile_color?: string | null;
@@ -102,6 +106,7 @@ export type ComercioWebCatalogCategory = {
 export type ComercioWebCatalogCategoryCreate = {
   key: string;
   name: string;
+  parent_key?: string | null;
   image_url?: string | null;
   tile_color?: string | null;
   home_featured?: boolean;
