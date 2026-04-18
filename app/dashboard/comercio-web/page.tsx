@@ -1131,25 +1131,6 @@ export default function ComercioWebPage() {
         .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es")),
     [catalogCategories]
   );
-  const categoryChildrenCount = useMemo(() => {
-    const map = new Map<string, number>();
-    catalogCategories.forEach((item) => {
-      const parentKey = (item.parent_key || "").trim().toLowerCase();
-      if (!parentKey) return;
-      map.set(parentKey, (map.get(parentKey) || 0) + 1);
-    });
-    return map;
-  }, [catalogCategories]);
-  const leafActiveCatalogCategories = useMemo(
-    () =>
-      activeCatalogCategories.filter((item) => {
-        const key = (item.key || "").trim().toLowerCase();
-        if (!key) return false;
-        const hasChildren = Boolean(item.has_children) || (categoryChildrenCount.get(key) || 0) > 0;
-        return !hasChildren;
-      }),
-    [activeCatalogCategories, categoryChildrenCount]
-  );
   const selectedCatalogCategory = useMemo(() => {
     const key = (catalogEditor.web_category_key || "").trim().toLowerCase();
     if (!key) return null;
@@ -3670,7 +3651,7 @@ export default function ComercioWebPage() {
                             ) : null}
                           </div>
                         </LabeledField>
-                        <LabeledField label="Categoría web (subcategoría)" required>
+                        <LabeledField label="Categoría web" required>
                           <select
                             value={catalogEditor.web_category_key}
                             onChange={(event) =>
@@ -3682,7 +3663,7 @@ export default function ComercioWebPage() {
                             <option value="">
                               {catalogCategoryLoading ? "Cargando categorías..." : "Selecciona una categoría"}
                             </option>
-                            {leafActiveCatalogCategories.map((option) => (
+                            {activeCatalogCategories.map((option) => (
                               <option key={option.id} value={option.key}>
                                 {option.parent_name ? `${option.parent_name} / ${option.name}` : option.name}
                               </option>
