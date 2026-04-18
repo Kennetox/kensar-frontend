@@ -3093,7 +3093,7 @@ export default function ComercioWebPage() {
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Producto</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Imagen</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">SKU</th>
-                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Marca / Grupo</th>
+                          <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Marca / Cat. web</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Precio</th>
                           <th className="sticky top-0 z-10 w-[10rem] max-w-[10rem] bg-slate-50 px-4 py-3">
                             Estado
@@ -3161,7 +3161,7 @@ export default function ComercioWebPage() {
                               <div>
                                 <p>{product.brand || "sin marca"}</p>
                                 <p className="mt-1 text-xs text-slate-500">
-                                  {product.group_name || "sin grupo"}
+                                  {getWebCategoryLabel(product.web_category_key) || "sin categoría web"}
                                 </p>
                               </div>
                             </td>
