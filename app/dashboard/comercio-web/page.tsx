@@ -2880,8 +2880,8 @@ export default function ComercioWebPage() {
                 </div>
 
                 <div className="w-full space-y-3">
-                  <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-7">
-                    <label className="block md:col-span-2 xl:col-span-2">
+                  <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-[minmax(16rem,1.5fr)_repeat(5,minmax(8.5rem,1fr))]">
+                    <label className="block md:col-span-2 xl:col-span-1">
                       <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                         Buscar
                       </span>
@@ -2970,7 +2970,10 @@ export default function ComercioWebPage() {
                         <option value="alphabetical">Alfabético</option>
                       </select>
                     </label>
-                    <label className="inline-flex min-h-[2.5rem] items-center gap-2 self-end rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 md:col-span-2 xl:col-span-1">
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="inline-flex min-h-[2.5rem] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
                       <input
                         type="checkbox"
                         checked={publishedCatalogActiveOnly}
@@ -2979,9 +2982,7 @@ export default function ComercioWebPage() {
                       />
                       Mostrar solo activos
                     </label>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -3017,6 +3018,7 @@ export default function ComercioWebPage() {
                     >
                       Refrescar publicaciones
                     </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -5549,7 +5551,7 @@ export default function ComercioWebPage() {
                       pendingCatalogExitAction ? completePendingCatalogExit : undefined
                     );
                   }}
-                  className="rounded-xl border border-blue-700 bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-500"
+                  className="button-primary rounded-xl px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Guardar y publicar
                 </button>
