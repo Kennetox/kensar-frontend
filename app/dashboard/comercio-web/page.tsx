@@ -762,17 +762,24 @@ function MetricCard({
 function SectionCard({
   title,
   subtitle,
+  headerActions,
   children,
 }: {
   title: string;
   subtitle?: string;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-        {subtitle ? <p className="mt-1 text-xs text-slate-500">{subtitle}</p> : null}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+            {subtitle ? <p className="mt-1 text-xs text-slate-500">{subtitle}</p> : null}
+          </div>
+          {headerActions ? <div className="shrink-0">{headerActions}</div> : null}
+        </div>
       </div>
       <div className="p-4">{children}</div>
     </section>
@@ -3220,30 +3227,17 @@ export default function ComercioWebPage() {
                   ? "Cómo se presenta realmente el producto en la tienda, distinto al dato operativo interno."
                   : "Busca en la base maestra y selecciona el producto que vas a convertir en publicación."
               }
+              headerActions={
+                <button
+                  type="button"
+                  onClick={() => requestCatalogExit({ type: "close_composer" })}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Volver a publicaciones
+                </button>
+              }
             >
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">
-                      {selectedProduct ? "Producto seleccionado" : "Flujo de creación"}
-                    </p>
-                    <p className="mt-1 text-sm text-emerald-900/80">
-                      {selectedProduct
-                        ? `${getCatalogDisplayName(selectedProduct)} · ${selectedProduct.sku || "sin SKU"}`
-                        : "Primero busca el producto en la base maestra y luego termina su configuración comercial."}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => requestCatalogExit({ type: "close_composer" })}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
-                    >
-                      Volver a publicaciones
-                    </button>
-                  </div>
-                </div>
-
                 <div className="grid gap-5">
                   {catalogComposerMode === "create" && !selectedProduct ? (
                   <div className="space-y-3">
@@ -3295,7 +3289,7 @@ export default function ComercioWebPage() {
                             : "Busca un producto para empezar"}
                         </span>
                       </div>
-                      <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+                      <div className="max-h-[34rem] space-y-1 overflow-y-auto pr-1">
                         {!catalogSearchExecuted ? (
                           <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-sm text-slate-500">
                             La base maestra no se lista completa. Busca el producto que quieras convertir en publicación.
@@ -3305,70 +3299,81 @@ export default function ComercioWebPage() {
                             No encontramos productos para ese criterio.
                           </div>
                         ) : (
-                          catalogSearchResults.map((product) => (
-                            <div
-                              key={`search-${product.id}`}
-                              className={`rounded-3xl border px-4 py-4 transition ${
-                                selectedProductId === product.id
-                                  ? "border-emerald-300 bg-emerald-50/70"
-                                  : "border-slate-200 bg-white hover:border-slate-300"
-                              }`}
-                            >
+                          catalogSearchResults.map((product) => {
+                            const isPublished = Boolean(product.web_published);
+                            const isSelectable = !isPublished;
+                            return (
+                              <div
+                                key={`search-${product.id}`}
+                                className={`rounded-xl border px-2 py-1.5 transition ${
+                                  selectedProductId === product.id
+                                    ? "border-emerald-300 bg-emerald-50/70"
+                                    : isSelectable
+                                      ? "border-slate-200 bg-white hover:border-slate-300"
+                                      : "border-slate-200 bg-slate-50/70"
+                                }`}
+                              >
                               <button
                                 type="button"
-                                onClick={() => setSelectedProductId(product.id)}
-                                className="w-full text-left"
+                                onClick={() => {
+                                  if (!isSelectable) return;
+                                  setSelectedProductId(product.id);
+                                }}
+                                disabled={!isSelectable}
+                                className={`w-full text-left ${isSelectable ? "" : "cursor-not-allowed opacity-80"}`}
                               >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <span className="text-base font-semibold text-slate-900">
+                                <div className="flex items-start justify-between gap-1.5">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <span className="truncate text-[13px] font-semibold leading-4 text-slate-900">
                                         {getCatalogDisplayName(product)}
                                       </span>
-                                      {product.web_published ? (
-                                        <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                                      {isPublished ? (
+                                        <span className="rounded-full border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-emerald-700">
                                           ya publicado
                                         </span>
                                       ) : (
-                                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+                                        <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-slate-600">
                                           no publicado
                                         </span>
                                       )}
                                     </div>
-                                    <p className="mt-2 text-sm text-slate-700">
+                                    <p className="mt-0.5 truncate text-[12px] leading-4 text-slate-700">
                                       {product.sku || "sin SKU"} · {product.brand || "sin marca"} ·{" "}
                                       {product.group_name || "sin grupo"}
                                     </p>
-                                    <p className="mt-1 text-xs text-slate-500">
-                                      {product.web_short_description || "Sin descripción comercial"}
-                                    </p>
                                   </div>
-                                  <div className="text-right">
-                                    <p className="text-sm font-semibold text-slate-900">
+                                  <div className="shrink-0 text-right">
+                                    <p className="text-[13px] font-semibold leading-4 text-slate-900">
                                       {formatMoney(resolveWebSalePriceFromProduct(product))}
                                     </p>
                                   </div>
                                 </div>
                               </button>
-                              <div className="mt-4 flex flex-wrap gap-2">
+                              <div className="mt-1 flex flex-wrap gap-1">
                                 <button
                                   type="button"
-                                  onClick={() => setSelectedProductId(product.id)}
-                                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition"
+                                  onClick={() => {
+                                    if (!isSelectable) return;
+                                    setSelectedProductId(product.id);
+                                  }}
+                                  disabled={!isSelectable}
+                                  className="rounded-lg border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   Seleccionar
                                 </button>
                                 <button
                                   type="button"
-                                  disabled={!canManage}
+                                  disabled={!canManage || isPublished}
                                   onClick={() => void handlePublishFromSearch(product)}
-                                  className="rounded-2xl bg-slate-900 px-3 py-2 text-xs font-medium text-white transition disabled:cursor-not-allowed disabled:bg-slate-300"
+                                  className="rounded-lg bg-slate-900 px-1.5 py-0.5 text-[10px] font-medium text-white transition disabled:cursor-not-allowed disabled:bg-slate-300"
                                 >
-                                  {product.web_published ? "Mantener publicado" : "Crear publicación"}
+                                  {isPublished ? "Ya publicado" : "Crear publicación"}
                                 </button>
                               </div>
-                            </div>
-                          ))
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     </div>
