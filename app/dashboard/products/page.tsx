@@ -128,7 +128,13 @@ function resolveImageUrl(url: string | null): string | null {
   }
 }
 
-type SortOption = "recent" | "oldest" | "sku_asc" | "name_asc";
+type SortOption =
+  | "recent"
+  | "oldest"
+  | "sku_asc"
+  | "name_asc"
+  | "price_asc"
+  | "price_desc";
 
 function formatAuditDate(value: string): string {
   const date = new Date(value);
@@ -1976,6 +1982,10 @@ export default function ProductsPage() {
         }
         case "name_asc":
           return a.name.localeCompare(b.name, "es");
+        case "price_asc":
+          return a.price - b.price;
+        case "price_desc":
+          return b.price - a.price;
         default:
           return 0;
       }
@@ -2194,6 +2204,8 @@ export default function ProductsPage() {
                 <option value="oldest">Más antiguos</option>
                 <option value="sku_asc">SKU ascendente</option>
                 <option value="name_asc">Nombre A–Z</option>
+                <option value="price_asc">Precio de menor a mayor</option>
+                <option value="price_desc">Precio de mayor a menor</option>
               </select>
             </div>
           </div>
