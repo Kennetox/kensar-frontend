@@ -355,6 +355,7 @@ export default function ProductsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [showOnlyActive, setShowOnlyActive] = useState(false);
+  const [showIdColumn, setShowIdColumn] = useState(false);
   const [selectedGroupFilter, setSelectedGroupFilter] = useState("");
   const [selectedBrand, setSelectedBrand] = useState("");
   const [selectedSupplier, setSelectedSupplier] = useState("");
@@ -470,6 +471,7 @@ export default function ProductsPage() {
           searchInput?: string;
           search?: string;
           showOnlyActive?: boolean;
+          showIdColumn?: boolean;
           selectedGroupFilter?: string;
           selectedBrand?: string;
           selectedSupplier?: string;
@@ -481,6 +483,7 @@ export default function ProductsPage() {
         setSearchInput(parsed.searchInput ?? "");
         setSearch(parsed.search ?? parsed.searchInput ?? "");
         setShowOnlyActive(Boolean(parsed.showOnlyActive));
+        setShowIdColumn(Boolean(parsed.showIdColumn));
         setSelectedGroupFilter(parsed.selectedGroupFilter ?? "");
         setSelectedBrand(parsed.selectedBrand ?? "");
         setSelectedSupplier(parsed.selectedSupplier ?? "");
@@ -508,6 +511,7 @@ export default function ProductsPage() {
       searchInput,
       search,
       showOnlyActive,
+      showIdColumn,
       selectedGroupFilter,
       selectedBrand,
       selectedSupplier,
@@ -526,6 +530,7 @@ export default function ProductsPage() {
     showOnlyActive,
     selectedGroupFilter,
     selectedBrand,
+    showIdColumn,
     selectedSupplier,
     priceMinInput,
     priceMaxInput,
@@ -2213,6 +2218,17 @@ export default function ProductsPage() {
               />
               Mostrar solo activos
             </label>
+            {isAdmin ? (
+              <label className="inline-flex items-center gap-2 text-xs md:text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={showIdColumn}
+                  onChange={(e) => setShowIdColumn(e.target.checked)}
+                  className="rounded border-slate-600 bg-slate-900"
+                />
+                Mostrar ID
+              </label>
+            ) : null}
             <select
               value={selectedGroupFilter}
               onChange={(e) => setSelectedGroupFilter(e.target.value)}
@@ -2375,7 +2391,7 @@ export default function ProductsPage() {
               <table ref={tableRef} className="min-w-full text-sm">
                 <thead className="dashboard-table-head products-table-head">
                   <tr>
-                    {isAdmin && (
+                    {isAdmin && showIdColumn && (
                       <th className="px-4 py-3 text-left font-semibold">ID</th>
                     )}
                     <th className="px-4 py-3 text-left font-semibold">SKU</th>
@@ -2452,7 +2468,7 @@ export default function ProductsPage() {
                     }`}
                   >
 
-                    {isAdmin && <td className="px-4 py-3">{p.id}</td>}
+                    {isAdmin && showIdColumn && <td className="px-4 py-3">{p.id}</td>}
                     <td className="px-4 py-3">{p.sku}</td>
                     <td className="px-4 py-3 min-w-[260px]">{p.name}</td>
                     <td className="px-4 py-3">{p.group_name}</td>
