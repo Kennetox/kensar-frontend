@@ -594,6 +594,72 @@ function normalizeCategoryKey(value: string): string {
   return normalized.slice(0, 64).replace(/-+$/g, "");
 }
 
+function normalizeCategoryLookupKey(value?: string | null): string {
+  return (value || "").trim().toLowerCase();
+}
+
+function compareCatalogCategories(
+  a: ComercioWebCatalogCategory,
+  b: ComercioWebCatalogCategory
+): number {
+  return a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es");
+}
+
+function buildHierarchicalCatalogCategories(
+  categories: ComercioWebCatalogCategory[]
+): ComercioWebCatalogCategory[] {
+  if (categories.length <= 1) return categories;
+
+  const categoryByKey = new Map<string, ComercioWebCatalogCategory>();
+  categories.forEach((item) => {
+    const key = normalizeCategoryLookupKey(item.key);
+    if (key) categoryByKey.set(key, item);
+  });
+
+  const childrenByParentKey = new Map<string, ComercioWebCatalogCategory[]>();
+  const roots: ComercioWebCatalogCategory[] = [];
+
+  categories.forEach((item) => {
+    const parentKey = normalizeCategoryLookupKey(item.parent_key);
+    const ownKey = normalizeCategoryLookupKey(item.key);
+    const isValidParent =
+      parentKey && parentKey !== ownKey && categoryByKey.has(parentKey);
+
+    if (!isValidParent) {
+      roots.push(item);
+      return;
+    }
+
+    const existing = childrenByParentKey.get(parentKey) || [];
+    existing.push(item);
+    childrenByParentKey.set(parentKey, existing);
+  });
+
+  const visited = new Set<number>();
+  const output: ComercioWebCatalogCategory[] = [];
+
+  const walk = (row: ComercioWebCatalogCategory) => {
+    if (visited.has(row.id)) return;
+    visited.add(row.id);
+    output.push(row);
+
+    const key = normalizeCategoryLookupKey(row.key);
+    const children = (childrenByParentKey.get(key) || []).sort(compareCatalogCategories);
+    children.forEach(walk);
+  };
+
+  [...roots].sort(compareCatalogCategories).forEach(walk);
+
+  if (output.length !== categories.length) {
+    categories
+      .filter((item) => !visited.has(item.id))
+      .sort(compareCatalogCategories)
+      .forEach((item) => output.push(item));
+  }
+
+  return output;
+}
+
 function hasVisibleDiscount(product: ComercioWebCatalogProduct): boolean {
   const webSalePrice = resolveWebSalePriceFromProduct(product);
   return (
@@ -1133,9 +1199,7 @@ export default function ComercioWebPage() {
   }, [catalogCategories]);
   const activeCatalogCategories = useMemo(
     () =>
-      catalogCategories
-        .filter((item) => item.is_active)
-        .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es")),
+      buildHierarchicalCatalogCategories(catalogCategories.filter((item) => item.is_active)),
     [catalogCategories]
   );
   const selectedCatalogCategory = useMemo(() => {
@@ -1144,10 +1208,7 @@ export default function ComercioWebPage() {
     return catalogCategories.find((item) => (item.key || "").trim().toLowerCase() === key) || null;
   }, [catalogCategories, catalogEditor.web_category_key]);
   const orderedCatalogCategories = useMemo(
-    () =>
-      [...catalogCategories].sort(
-        (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es")
-      ),
+    () => buildHierarchicalCatalogCategories(catalogCategories),
     [catalogCategories]
   );
   const availableParentCatalogCategories = useMemo(
