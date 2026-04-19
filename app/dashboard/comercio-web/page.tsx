@@ -880,6 +880,7 @@ export default function ComercioWebPage() {
   const [catalogCategoryKeyTouched, setCatalogCategoryKeyTouched] = useState(false);
   const [catalogCategorySaving, setCatalogCategorySaving] = useState(false);
   const [brandSuggestionsOpen, setBrandSuggestionsOpen] = useState(false);
+  const [catalogBrandLibrary, setCatalogBrandLibrary] = useState<string[]>([]);
   const [toast, setToast] = useState<InlineToast | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
@@ -1099,6 +1100,14 @@ export default function ComercioWebPage() {
   );
   const catalogBrandOptions = useMemo(() => {
     const normalizedByKey = new Map<string, string>();
+    catalogBrandLibrary.forEach((brand) => {
+      const raw = (brand || "").trim();
+      if (!raw) return;
+      const key = raw.toLocaleLowerCase("es");
+      if (!normalizedByKey.has(key)) {
+        normalizedByKey.set(key, raw);
+      }
+    });
     [...publishedCatalogProducts, ...catalogSearchResults].forEach((product) => {
       const raw = (product.brand || "").trim();
       if (!raw) return;
@@ -1108,13 +1117,11 @@ export default function ComercioWebPage() {
       }
     });
     return [...normalizedByKey.values()].sort((a, b) => a.localeCompare(b, "es"));
-  }, [catalogSearchResults, publishedCatalogProducts]);
+  }, [catalogBrandLibrary, catalogSearchResults, publishedCatalogProducts]);
   const filteredCatalogBrandOptions = useMemo(() => {
     const search = catalogEditor.brand.trim().toLocaleLowerCase("es");
-    if (!search) return catalogBrandOptions.slice(0, 8);
-    return catalogBrandOptions
-      .filter((option) => option.toLocaleLowerCase("es").includes(search))
-      .slice(0, 8);
+    if (!search) return catalogBrandOptions;
+    return catalogBrandOptions.filter((option) => option.toLocaleLowerCase("es").includes(search));
   }, [catalogBrandOptions, catalogEditor.brand]);
   const categoryLabelMap = useMemo(() => {
     const next = new Map<string, string>();
@@ -1667,6 +1674,30 @@ export default function ComercioWebPage() {
     token,
   ]);
 
+  const loadCatalogBrands = useCallback(async () => {
+    if (!token) return;
+    try {
+      const rows = await fetchComercioWebCatalogProducts(token, {
+        published_only: true,
+        limit: 5000,
+      });
+      const normalizedByKey = new Map<string, string>();
+      rows.forEach((product) => {
+        const raw = (product.brand || "").trim();
+        if (!raw) return;
+        const key = raw.toLocaleLowerCase("es");
+        if (!normalizedByKey.has(key)) {
+          normalizedByKey.set(key, raw);
+        }
+      });
+      setCatalogBrandLibrary(
+        [...normalizedByKey.values()].sort((a, b) => a.localeCompare(b, "es"))
+      );
+    } catch {
+      // No bloquear la edición si falla la carga de sugerencias.
+    }
+  }, [token]);
+
   const loadDiscountCodes = useCallback(async () => {
     if (!token) return;
     try {
@@ -1746,6 +1777,11 @@ export default function ComercioWebPage() {
     }, 180);
     return () => window.clearTimeout(timer);
   }, [activeTab, catalogWorkspaceView, loadCatalogProducts, loadDiscountCodes, loadCatalogCategories]);
+
+  useEffect(() => {
+    if (activeTab !== "catalog") return;
+    void loadCatalogBrands();
+  }, [activeTab, loadCatalogBrands]);
 
   async function handleApprovePayment(order: ComercioWebOrder) {
     if (!token) return;
@@ -3632,7 +3668,7 @@ export default function ComercioWebPage() {
                               className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
                             />
                             {brandSuggestionsOpen && filteredCatalogBrandOptions.length > 0 ? (
-                              <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border border-slate-300 bg-white shadow-lg">
+                              <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-300 bg-white shadow-lg">
                                 {filteredCatalogBrandOptions.map((brandOption) => (
                                   <button
                                     key={brandOption}
