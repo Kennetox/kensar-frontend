@@ -494,7 +494,11 @@ function extractPersonalizationContextFromOrder(order: ComercioWebOrder | null):
   if (!personalization || typeof personalization !== "object" || Array.isArray(personalization)) {
     return null;
   }
-  return personalization as Record<string, unknown>;
+  const context = { ...(personalization as Record<string, unknown>) };
+  if ("preview_images" in context) {
+    delete context.preview_images;
+  }
+  return context;
 }
 
 function isInstrumentPersonalizationOrder(order: ComercioWebOrder): boolean {
