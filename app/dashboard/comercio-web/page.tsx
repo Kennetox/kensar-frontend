@@ -38,7 +38,7 @@ import {
   type RolePermissionModule,
 } from "@/lib/api/settings";
 
-type CommerceTab = "overview" | "catalog" | "orders" | "payments" | "customers";
+type CommerceTab = "overview" | "catalog" | "orders" | "personalization" | "payments" | "customers";
 
 type PaymentRow = {
   paymentId: number;
@@ -169,6 +169,7 @@ const COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE = 15;
 const COMMERCE_WEB_LIVE_ORDER_TABS: CommerceTab[] = [
   "overview",
   "orders",
+  "personalization",
   "payments",
   "customers",
 ];
@@ -177,6 +178,7 @@ const TABS: Array<{ id: CommerceTab; label: string }> = [
   { id: "overview", label: "Resumen" },
   { id: "catalog", label: "Catálogo Web" },
   { id: "orders", label: "Órdenes" },
+  { id: "personalization", label: "Personalización" },
   { id: "payments", label: "Pagos" },
   { id: "customers", label: "Clientes" },
 ];
@@ -482,6 +484,33 @@ function extractCheckoutContextFromOrderNotes(notes?: string | null): Record<str
     return null;
   }
   return null;
+}
+
+function extractPersonalizationContextFromOrder(order: ComercioWebOrder | null): Record<string, unknown> | null {
+  if (!order) return null;
+  const checkoutContext = extractCheckoutContextFromOrderNotes(order.notes);
+  const personalization = checkoutContext?.personalization;
+  if (!personalization || typeof personalization !== "object" || Array.isArray(personalization)) {
+    return null;
+  }
+  return personalization as Record<string, unknown>;
+}
+
+function isInstrumentPersonalizationOrder(order: ComercioWebOrder): boolean {
+  const personalization = extractPersonalizationContextFromOrder(order);
+  if (!personalization) return false;
+  const type = typeof personalization.type === "string" ? personalization.type.trim().toLowerCase() : "";
+  return type === "instrumento";
+}
+
+function encodeBase64Url(value: string): string {
+  if (typeof window === "undefined") return "";
+  const utf8 = new TextEncoder().encode(value);
+  let binary = "";
+  for (let i = 0; i < utf8.length; i += 1) {
+    binary += String.fromCharCode(utf8[i]);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function flattenCheckoutContextEntries(
@@ -876,6 +905,8 @@ export default function ComercioWebPage() {
   const [status, setStatus] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedPersonalizationId, setSelectedPersonalizationId] = useState<number | null>(null);
+  const [showPersonalizationViewer, setShowPersonalizationViewer] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [paymentsLedgerPage, setPaymentsLedgerPage] = useState(1);
 
@@ -1156,6 +1187,38 @@ export default function ComercioWebPage() {
     () => orders.find((order) => order.id === selectedId) ?? null,
     [orders, selectedId]
   );
+  const personalizationOrders = useMemo(
+    () => orders.filter((order) => isInstrumentPersonalizationOrder(order)),
+    [orders]
+  );
+  const selectedPersonalizationOrder = useMemo(
+    () =>
+      personalizationOrders.find((order) => order.id === selectedPersonalizationId) ??
+      personalizationOrders[0] ??
+      null,
+    [personalizationOrders, selectedPersonalizationId]
+  );
+  const selectedPersonalizationContext = useMemo(
+    () => extractPersonalizationContextFromOrder(selectedPersonalizationOrder),
+    [selectedPersonalizationOrder]
+  );
+  const selectedPersonalizationJson = useMemo(
+    () =>
+      selectedPersonalizationContext
+        ? JSON.stringify(selectedPersonalizationContext, null, 2)
+        : "",
+    [selectedPersonalizationContext]
+  );
+  const personalizationViewerSrc = useMemo(() => {
+    if (!selectedPersonalizationContext) return "";
+    const webBaseUrl = (process.env.NEXT_PUBLIC_KENSAR_WEB_URL || "http://localhost:3000").replace(/\/+$/g, "");
+    const encoded = encodeBase64Url(JSON.stringify(selectedPersonalizationContext));
+    if (!encoded) return "";
+    return `${webBaseUrl}/personaliza/visor?data=${encodeURIComponent(encoded)}`;
+  }, [selectedPersonalizationContext]);
+  useEffect(() => {
+    setShowPersonalizationViewer(false);
+  }, [selectedPersonalizationOrder?.id]);
 
   const selectedProduct = useMemo(
     () =>
@@ -1668,6 +1731,13 @@ export default function ComercioWebPage() {
       });
       setOrders(rows);
       setSelectedId((prev) => prev ?? rows[0]?.id ?? null);
+      setSelectedPersonalizationId((prev) => {
+        if (prev && rows.some((order) => order.id === prev && isInstrumentPersonalizationOrder(order))) {
+          return prev;
+        }
+        const firstPersonalization = rows.find((order) => isInstrumentPersonalizationOrder(order));
+        return firstPersonalization?.id ?? null;
+      });
     } catch (err) {
       if (!silent) {
         setOrderError(err instanceof Error ? err.message : "No se pudo cargar Comercio Web");
@@ -5133,6 +5203,146 @@ export default function ComercioWebPage() {
                   </div>
                   </div>
                 )}
+                </SectionCard>
+              </div>
+            </section>
+          </section>
+        ) : null}
+
+        {activeTab === "personalization" ? (
+          <section className="space-y-4">
+            <section className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-slate-700">
+                  Órdenes detectadas con `checkout_context.personalization.type = instrumento`.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void loadOrders()}
+                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                >
+                  Refrescar
+                </button>
+              </div>
+              {orderError ? <p className="mt-2 text-sm text-rose-600">{orderError}</p> : null}
+            </section>
+
+            <section className="grid gap-4 lg:grid-cols-12">
+              <div className="lg:col-span-4">
+                <SectionCard
+                  title="Órdenes personalizadas"
+                  subtitle={`${personalizationOrders.length} orden(es)`}
+                >
+                  {loadingOrders ? (
+                    <div className="py-8 text-sm text-slate-500">Cargando órdenes…</div>
+                  ) : personalizationOrders.length === 0 ? (
+                    <div className="py-8 text-sm text-slate-500">
+                      No hay órdenes de personalización para los filtros actuales.
+                    </div>
+                  ) : (
+                    <div className="max-h-[68vh] space-y-2 overflow-y-auto pr-1">
+                      {personalizationOrders.map((order) => (
+                        <button
+                          key={order.id}
+                          type="button"
+                          onClick={() => setSelectedPersonalizationId(order.id)}
+                          className={`w-full rounded-2xl border px-3.5 py-3 text-left transition ${
+                            selectedPersonalizationOrder?.id === order.id
+                              ? "border-emerald-300 bg-emerald-50/70"
+                              : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                          }`}
+                        >
+                          <p className="truncate text-sm font-semibold text-slate-900">
+                            {order.document_number || `Orden #${order.id}`}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-slate-600">
+                            {order.customer_name || "Cliente web"} · {getPrimaryContact(order)}
+                          </p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            {formatDateTime(order.created_at)}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-slate-900">{formatMoney(order.total)}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </SectionCard>
+              </div>
+
+              <div className="lg:col-span-8">
+                <SectionCard
+                  title="Detalle de personalización"
+                  subtitle="JSON capturado y vista 3D de referencia"
+                >
+                  {!selectedPersonalizationOrder ? (
+                    <p className="text-sm text-slate-500">
+                      Selecciona una orden de personalización para ver el detalle.
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-4">
+                        <InfoPill
+                          label="Documento"
+                          value={selectedPersonalizationOrder.document_number || `#${selectedPersonalizationOrder.id}`}
+                        />
+                        <InfoPill label="Estado" value={translateOrderStatus(selectedPersonalizationOrder.status)} />
+                        <InfoPill label="Pago" value={translatePaymentStatus(selectedPersonalizationOrder.payment_status)} />
+                        <InfoPill label="Total" value={formatMoney(selectedPersonalizationOrder.total)} />
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Vista 3D
+                        </p>
+                        {!personalizationViewerSrc ? (
+                          <p className="mt-2 text-sm text-slate-500">No hay payload válido para renderizar.</p>
+                        ) : !showPersonalizationViewer ? (
+                          <div className="mt-2 flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setShowPersonalizationViewer(true)}
+                              className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                            >
+                              Ver vista 3D
+                            </button>
+                            <p className="text-xs text-slate-500">
+                              El visor se carga solo bajo demanda para mejorar rendimiento.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="mt-2 space-y-2">
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => setShowPersonalizationViewer(false)}
+                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                              >
+                                Ocultar visor
+                              </button>
+                            </div>
+                            <iframe
+                              src={personalizationViewerSrc}
+                              title={`Vista 3D ${selectedPersonalizationOrder.document_number || selectedPersonalizationOrder.id}`}
+                              className="h-[560px] w-full rounded-xl border border-slate-200 bg-white"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          JSON de personalización
+                        </p>
+                        {!selectedPersonalizationJson ? (
+                          <p className="mt-2 text-sm text-slate-500">No encontramos `checkout_context.personalization` en esta orden.</p>
+                        ) : (
+                          <pre className="mt-2 max-h-[340px] overflow-auto rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-800">
+                            {selectedPersonalizationJson}
+                          </pre>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </SectionCard>
               </div>
             </section>
