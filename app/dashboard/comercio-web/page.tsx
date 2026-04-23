@@ -239,6 +239,7 @@ const OPERATIVE_STATUS_OPTIONS: Array<{
   { value: "cancelled", label: "Cancelar orden" },
 ];
 const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
+const DEFAULT_KENSAR_WEB_URL = "https://kensarelectronic.com";
 
 const emptyCatalogEditorState: CatalogEditorState = {
   web_name: "",
@@ -501,6 +502,34 @@ function isInstrumentPersonalizationOrder(order: ComercioWebOrder): boolean {
   if (!personalization) return false;
   const type = typeof personalization.type === "string" ? personalization.type.trim().toLowerCase() : "";
   return type === "instrumento";
+}
+
+function isApprovedInstrumentPersonalizationOrder(order: ComercioWebOrder): boolean {
+  if ((order.payment_status || "").trim().toLowerCase() !== "approved") return false;
+  return isInstrumentPersonalizationOrder(order);
+}
+
+function resolveKensarWebViewerBaseUrl(): string {
+  const configured = (process.env.NEXT_PUBLIC_KENSAR_WEB_URL || "").trim().replace(/\/+$/g, "");
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      if (
+        typeof window !== "undefined" &&
+        window.location.protocol === "https:" &&
+        parsed.protocol !== "https:"
+      ) {
+        return DEFAULT_KENSAR_WEB_URL;
+      }
+      return configured;
+    } catch {
+      // Ignore malformed env value and fallback.
+    }
+  }
+  if (typeof window !== "undefined" && window.location.protocol === "http:") {
+    return "http://localhost:3000";
+  }
+  return DEFAULT_KENSAR_WEB_URL;
 }
 
 function encodeBase64Url(value: string): string {
@@ -1188,7 +1217,7 @@ export default function ComercioWebPage() {
     [orders, selectedId]
   );
   const personalizationOrders = useMemo(
-    () => orders.filter((order) => isInstrumentPersonalizationOrder(order)),
+    () => orders.filter((order) => isApprovedInstrumentPersonalizationOrder(order)),
     [orders]
   );
   const selectedPersonalizationOrder = useMemo(
@@ -1211,7 +1240,7 @@ export default function ComercioWebPage() {
   );
   const personalizationViewerSrc = useMemo(() => {
     if (!selectedPersonalizationContext) return "";
-    const webBaseUrl = (process.env.NEXT_PUBLIC_KENSAR_WEB_URL || "http://localhost:3000").replace(/\/+$/g, "");
+    const webBaseUrl = resolveKensarWebViewerBaseUrl();
     const encoded = encodeBase64Url(JSON.stringify(selectedPersonalizationContext));
     if (!encoded) return "";
     return `${webBaseUrl}/personaliza/visor?data=${encodeURIComponent(encoded)}`;
@@ -1732,10 +1761,10 @@ export default function ComercioWebPage() {
       setOrders(rows);
       setSelectedId((prev) => prev ?? rows[0]?.id ?? null);
       setSelectedPersonalizationId((prev) => {
-        if (prev && rows.some((order) => order.id === prev && isInstrumentPersonalizationOrder(order))) {
+        if (prev && rows.some((order) => order.id === prev && isApprovedInstrumentPersonalizationOrder(order))) {
           return prev;
         }
-        const firstPersonalization = rows.find((order) => isInstrumentPersonalizationOrder(order));
+        const firstPersonalization = rows.find((order) => isApprovedInstrumentPersonalizationOrder(order));
         return firstPersonalization?.id ?? null;
       });
     } catch (err) {
@@ -5214,7 +5243,7 @@ export default function ComercioWebPage() {
             <section className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-slate-700">
-                  Órdenes detectadas con `checkout_context.personalization.type = instrumento`.
+                  Órdenes aprobadas con `checkout_context.personalization.type = instrumento`.
                 </p>
                 <button
                   type="button"
