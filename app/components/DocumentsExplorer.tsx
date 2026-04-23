@@ -359,6 +359,7 @@ type DocumentRow = {
   refundAmount?: number;
   isAnnulation?: boolean;
   status?: string;
+  paymentStatus?: string;
   closureId?: number | null;
   data:
     | SaleRecord
@@ -1832,6 +1833,7 @@ export default function DocumentsExplorer({
         linkedDocumentNumber: order.sale_document_number ?? undefined,
         linkedDocumentType: order.sale_document_number ? "Venta" : undefined,
         status: order.status,
+        paymentStatus: order.payment_status,
         closureId: null,
         data: order,
       };
@@ -2142,6 +2144,15 @@ export default function DocumentsExplorer({
     if (status === "open") return "Abierto";
     if (status === "cancelled") return "Cancelado";
     return status;
+  };
+  const getWebOrderPaymentStatusLabel = (status?: string) => {
+    if (!status) return null;
+    if (status === "approved") return "Pago aprobado";
+    if (status === "pending") return "Pago pendiente";
+    if (status === "failed") return "Pago fallido";
+    if (status === "cancelled") return "Pago cancelado";
+    if (status === "refunded") return "Pago reembolsado";
+    return getStatusLabel(status);
   };
   const getStatusBadgeClass = (status?: string) => {
     if (
@@ -2468,6 +2479,9 @@ const selectedDetails = selectedDoc?.data;
   }, [selectedSupportFileUrl, selectedSupportFileDownloadUrl, selectedSupportFileName, authHeaders, showToast]);
 
   const selectedDocStatusLabel = getStatusLabel(selectedDoc?.status);
+  const selectedWebOrderPaymentStatusLabel = getWebOrderPaymentStatusLabel(
+    selectedWebOrder?.payment_status
+  );
   const selectedDocIsVoided = selectedDoc?.status === "voided";
 
   const handleExportXlsx = useCallback(async () => {
@@ -3832,6 +3846,10 @@ useEffect(() => {
                         ? "Recuento"
                         : "Cierre";
                     const statusLabel = getStatusLabel(doc.status);
+                    const webOrderPaymentStatusLabel =
+                      doc.type === "orden_web"
+                        ? getWebOrderPaymentStatusLabel(doc.paymentStatus)
+                        : null;
                     const docIsSeparated = !!doc.isSeparated;
                     const saleAdjustments =
                       doc.type === "venta"
@@ -3909,6 +3927,13 @@ useEffect(() => {
                                 className={`px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm whitespace-nowrap ${getStatusBadgeClass(doc.status)}`}
                               >
                                 {statusLabel}
+                              </span>
+                            )}
+                            {webOrderPaymentStatusLabel && (
+                              <span
+                                className={`px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm whitespace-nowrap ${getStatusBadgeClass(doc.paymentStatus)}`}
+                              >
+                                {webOrderPaymentStatusLabel}
                               </span>
                             )}
                           </div>
@@ -4022,7 +4047,9 @@ useEffect(() => {
                 </div>
                 {selectedDocStatusLabel && (
                   <div className="flex justify-between gap-3">
-                    <span className="text-slate-400">Estado</span>
+                    <span className="text-slate-400">
+                      {selectedDoc.type === "orden_web" ? "Estado de orden" : "Estado"}
+                    </span>
                     <span
                       className={`text-right inline-flex items-center px-2.5 py-1 rounded-full border text-xs uppercase font-semibold ${getStatusBadgeClass(selectedDoc.status)}`}
                     >
@@ -4030,6 +4057,17 @@ useEffect(() => {
                     </span>
                   </div>
                 )}
+                {selectedDoc.type === "orden_web" &&
+                  selectedWebOrderPaymentStatusLabel && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-slate-400">Estado de pago</span>
+                      <span
+                        className={`text-right inline-flex items-center px-2.5 py-1 rounded-full border text-xs uppercase font-semibold ${getStatusBadgeClass(selectedWebOrder?.payment_status)}`}
+                      >
+                        {selectedWebOrderPaymentStatusLabel}
+                      </span>
+                    </div>
+                  )}
                 <div className="flex justify-between gap-3">
                   <span className="text-slate-400">Referencia</span>
                   <span className="text-right text-slate-100">
