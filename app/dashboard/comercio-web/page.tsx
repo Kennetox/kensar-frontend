@@ -501,6 +501,43 @@ function extractPersonalizationContextFromOrder(order: ComercioWebOrder | null):
   return context;
 }
 
+function buildPersonalizationTraceLines(context: Record<string, unknown> | null): string[] {
+  if (!context) return [];
+  const lines: string[] = [];
+
+  const appendTextLines = (value: unknown) => {
+    if (typeof value !== "string") return;
+    value
+      .split(/\r?\n/g)
+      .map((line) => line.trim().replace(/^[-•\s]+/, ""))
+      .filter(Boolean)
+      .forEach((line) => lines.push(line));
+  };
+
+  if (Array.isArray(context.entries)) {
+    let index = 0;
+    context.entries.forEach((rawEntry) => {
+      if (!rawEntry || typeof rawEntry !== "object") return;
+      const entry = rawEntry as Record<string, unknown>;
+      const traceText = typeof entry.design_trace_text === "string" ? entry.design_trace_text : "";
+      if (!traceText.trim()) return;
+      index += 1;
+      lines.push(`Configuración ${index}`);
+      appendTextLines(traceText);
+    });
+  }
+
+  if (!lines.length) {
+    appendTextLines(context.design_trace_text);
+  }
+
+  if (!lines.length && typeof context.summary === "string" && context.summary.trim()) {
+    appendTextLines(context.summary);
+  }
+
+  return lines;
+}
+
 function buildPersonalizationViewerPayload(
   context: Record<string, unknown> | null
 ): Record<string, unknown> | null {
@@ -1309,6 +1346,10 @@ export default function ComercioWebPage() {
   );
   const selectedPersonalizationViewerPayload = useMemo(
     () => buildPersonalizationViewerPayload(selectedPersonalizationContext),
+    [selectedPersonalizationContext]
+  );
+  const selectedPersonalizationTraceLines = useMemo(
+    () => buildPersonalizationTraceLines(selectedPersonalizationContext),
     [selectedPersonalizationContext]
   );
   const personalizationViewerSrc = useMemo(() => {
@@ -5457,6 +5498,27 @@ export default function ComercioWebPage() {
                                     {formatMoney(item.line_total)}
                                   </p>
                                 </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Trazabilidad del diseño
+                        </p>
+                        {selectedPersonalizationTraceLines.length === 0 ? (
+                          <p className="mt-2 text-sm text-slate-500">
+                            No hay traza textual disponible en esta orden.
+                          </p>
+                        ) : (
+                          <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                            <div className="divide-y divide-slate-100">
+                              {selectedPersonalizationTraceLines.map((line, index) => (
+                                <p key={`personalization-trace-${index}`} className="px-3 py-2 text-sm text-slate-700">
+                                  {line}
+                                </p>
                               ))}
                             </div>
                           </div>
