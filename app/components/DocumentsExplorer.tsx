@@ -981,7 +981,8 @@ export default function DocumentsExplorer({
         });
       };
 
-      if (!force && typeof window !== "undefined") {
+      const canUseCache = !needsWebOrders;
+      if (!force && canUseCache && typeof window !== "undefined") {
         try {
           const cachedRaw = window.sessionStorage.getItem(cacheKey);
           if (cachedRaw) {

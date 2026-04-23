@@ -501,6 +501,78 @@ function extractPersonalizationContextFromOrder(order: ComercioWebOrder | null):
   return context;
 }
 
+function buildPersonalizationViewerPayload(
+  context: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  if (!context) return null;
+
+  const payload: Record<string, unknown> = {};
+
+  const productRaw = context.product;
+  if (productRaw && typeof productRaw === "object" && !Array.isArray(productRaw)) {
+    const product = productRaw as Record<string, unknown>;
+    payload.product = {
+      id: typeof product.id === "string" ? product.id : "campana",
+      campana_type: typeof product.campana_type === "string" ? product.campana_type : null,
+      campana_bell_type:
+        typeof product.campana_bell_type === "string" ? product.campana_bell_type : null,
+    };
+  }
+
+  const paintRaw = context.paint;
+  if (paintRaw && typeof paintRaw === "object" && !Array.isArray(paintRaw)) {
+    const paint = paintRaw as Record<string, unknown>;
+    if (paint.mode === "gradient") {
+      payload.paint = {
+        mode: "gradient",
+        startColor: typeof paint.startColor === "string" ? paint.startColor : "#f97316",
+        endColor: typeof paint.endColor === "string" ? paint.endColor : "#dc2626",
+        angle: Number(paint.angle) || 90,
+        position: Number(paint.position) || 50,
+      };
+    } else {
+      payload.paint = {
+        mode: "solid",
+        color: typeof paint.color === "string" ? paint.color : "#1f2937",
+      };
+    }
+  }
+
+  if (Array.isArray(context.text_layers)) {
+    payload.text_layers = context.text_layers
+      .filter((entry) => entry && typeof entry === "object")
+      .slice(0, 8)
+      .map((entry, index) => {
+        const layer = entry as Record<string, unknown>;
+        const transformRaw =
+          layer.transform && typeof layer.transform === "object" && !Array.isArray(layer.transform)
+            ? (layer.transform as Record<string, unknown>)
+            : {};
+        return {
+          id: typeof layer.id === "string" ? layer.id : `layer-${index + 1}`,
+          text: typeof layer.text === "string" ? layer.text.slice(0, 160) : "",
+          color: typeof layer.color === "string" ? layer.color : "#ffffff",
+          font_family: typeof layer.font_family === "string" ? layer.font_family : "Arial, sans-serif",
+          font_weight: Number(layer.font_weight) || 700,
+          face: typeof layer.face === "string" ? layer.face : "front_up",
+          transform: {
+            scaleX: Number(transformRaw.scaleX) || 100,
+            scaleY: Number(transformRaw.scaleY) || 100,
+            offsetX: Number(transformRaw.offsetX) || 0,
+            offsetY: Number(transformRaw.offsetY) || 0,
+            rotation: Number(transformRaw.rotation) || 0,
+          },
+        };
+      });
+  }
+
+  if (typeof context.summary === "string" && context.summary.trim()) {
+    payload.summary = context.summary.slice(0, 500);
+  }
+
+  return Object.keys(payload).length > 0 ? payload : null;
+}
+
 function isInstrumentPersonalizationOrder(order: ComercioWebOrder): boolean {
   const personalization = extractPersonalizationContextFromOrder(order);
   if (!personalization) return false;
@@ -1235,20 +1307,18 @@ export default function ComercioWebPage() {
     () => extractPersonalizationContextFromOrder(selectedPersonalizationOrder),
     [selectedPersonalizationOrder]
   );
-  const selectedPersonalizationJson = useMemo(
-    () =>
-      selectedPersonalizationContext
-        ? JSON.stringify(selectedPersonalizationContext, null, 2)
-        : "",
+  const selectedPersonalizationViewerPayload = useMemo(
+    () => buildPersonalizationViewerPayload(selectedPersonalizationContext),
     [selectedPersonalizationContext]
   );
   const personalizationViewerSrc = useMemo(() => {
-    if (!selectedPersonalizationContext) return "";
+    if (!showPersonalizationViewer) return "";
+    if (!selectedPersonalizationViewerPayload) return "";
     const webBaseUrl = resolveKensarWebViewerBaseUrl();
-    const encoded = encodeBase64Url(JSON.stringify(selectedPersonalizationContext));
+    const encoded = encodeBase64Url(JSON.stringify(selectedPersonalizationViewerPayload));
     if (!encoded) return "";
     return `${webBaseUrl}/personaliza/visor?data=${encodeURIComponent(encoded)}`;
-  }, [selectedPersonalizationContext]);
+  }, [selectedPersonalizationViewerPayload, showPersonalizationViewer]);
   useEffect(() => {
     setShowPersonalizationViewer(false);
   }, [selectedPersonalizationOrder?.id]);
@@ -5244,22 +5314,6 @@ export default function ComercioWebPage() {
 
         {activeTab === "personalization" ? (
           <section className="space-y-4">
-            <section className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm text-slate-700">
-                  Órdenes aprobadas con `checkout_context.personalization.type = instrumento`.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void loadOrders()}
-                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800"
-                >
-                  Refrescar
-                </button>
-              </div>
-              {orderError ? <p className="mt-2 text-sm text-rose-600">{orderError}</p> : null}
-            </section>
-
             <section className="grid gap-4 lg:grid-cols-12">
               <div className="lg:col-span-4">
                 <SectionCard
@@ -5305,7 +5359,17 @@ export default function ComercioWebPage() {
               <div className="lg:col-span-8">
                 <SectionCard
                   title="Detalle de personalización"
-                  subtitle="JSON capturado y vista 3D de referencia"
+                  subtitle="Vista 3D de referencia y productos del pedido."
+                  headerActions={
+                    <button
+                      type="button"
+                      onClick={() => void loadOrders()}
+                      disabled={loadingOrders}
+                      className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {loadingOrders ? "Actualizando..." : "Refrescar"}
+                    </button>
+                  }
                 >
                   {!selectedPersonalizationOrder ? (
                     <p className="text-sm text-slate-500">
@@ -5313,6 +5377,11 @@ export default function ComercioWebPage() {
                     </p>
                   ) : (
                     <div className="space-y-4">
+                      {orderError ? (
+                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                          {orderError}
+                        </div>
+                      ) : null}
                       <div className="grid gap-3 sm:grid-cols-4">
                         <InfoPill
                           label="Documento"
@@ -5334,7 +5403,7 @@ export default function ComercioWebPage() {
                             <button
                               type="button"
                               onClick={() => setShowPersonalizationViewer(true)}
-                              className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                              className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
                             >
                               Ver vista 3D
                             </button>
@@ -5348,7 +5417,7 @@ export default function ComercioWebPage() {
                               <button
                                 type="button"
                                 onClick={() => setShowPersonalizationViewer(false)}
-                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                                className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-100"
                               >
                                 Ocultar visor
                               </button>
@@ -5357,6 +5426,7 @@ export default function ComercioWebPage() {
                               src={personalizationViewerSrc}
                               title={`Vista 3D ${selectedPersonalizationOrder.document_number || selectedPersonalizationOrder.id}`}
                               className="h-[560px] w-full rounded-xl border border-slate-200 bg-white"
+                              loading="lazy"
                             />
                           </div>
                         )}
@@ -5364,14 +5434,31 @@ export default function ComercioWebPage() {
 
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          JSON de personalización
+                          Productos de la orden
                         </p>
-                        {!selectedPersonalizationJson ? (
-                          <p className="mt-2 text-sm text-slate-500">No encontramos `checkout_context.personalization` en esta orden.</p>
+                        {selectedPersonalizationOrder.items.length === 0 ? (
+                          <p className="mt-2 text-sm text-slate-500">Esta orden no tiene ítems asociados.</p>
                         ) : (
-                          <pre className="mt-2 max-h-[340px] overflow-auto rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-800">
-                            {selectedPersonalizationJson}
-                          </pre>
+                          <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                            <div className="divide-y divide-slate-100">
+                              {selectedPersonalizationOrder.items.map((item) => (
+                                <div key={item.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-slate-900">
+                                      {item.product_name}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      SKU {item.product_sku || "sin SKU"} · {item.quantity} x{" "}
+                                      {formatMoney(item.unit_price)}
+                                    </p>
+                                  </div>
+                                  <p className="shrink-0 text-sm font-semibold text-slate-900">
+                                    {formatMoney(item.line_total)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
