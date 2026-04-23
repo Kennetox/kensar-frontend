@@ -1319,6 +1319,7 @@ export default function ComercioWebPage() {
     if (!encoded) return "";
     return `${webBaseUrl}/personaliza/visor?data=${encodeURIComponent(encoded)}`;
   }, [selectedPersonalizationViewerPayload, showPersonalizationViewer]);
+  const hasPersonalizationViewerPayload = Boolean(selectedPersonalizationViewerPayload);
   useEffect(() => {
     setShowPersonalizationViewer(false);
   }, [selectedPersonalizationOrder?.id]);
@@ -5396,7 +5397,7 @@ export default function ComercioWebPage() {
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                           Vista 3D
                         </p>
-                        {!personalizationViewerSrc ? (
+                        {!hasPersonalizationViewerPayload ? (
                           <p className="mt-2 text-sm text-slate-500">No hay payload válido para renderizar.</p>
                         ) : !showPersonalizationViewer ? (
                           <div className="mt-2 flex items-center gap-3">
