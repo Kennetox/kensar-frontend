@@ -80,6 +80,7 @@ import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
 const PENDING_ALERT_ACK_STORAGE_KEY = "metrik_pos_pending_ack_v1";
 const HELD_SALE_STORAGE_KEY_BASE = "kensar_pos_held_sale_v1";
 const RESUME_HELD_SALE_KEY_BASE = "kensar_pos_resume_held_sale_v1";
+const POS_NOTICE_HEARTBEAT_MS = 10 * 60 * 1000;
 
 type DiscountScope = "item" | "cart";
 type DiscountMode = "value" | "percent";
@@ -1260,6 +1261,7 @@ const matchesStationLabel = useCallback(
     }
     let cancelled = false;
     const fetchNotice = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
         const res = await fetch(
           `${apiBase}/pos/stations/${activeStationId}/notice`,
@@ -1294,10 +1296,17 @@ const matchesStationLabel = useCallback(
       }
     };
     void fetchNotice();
-    const interval = window.setInterval(fetchNotice, 15000);
+    const interval = window.setInterval(fetchNotice, POS_NOTICE_HEARTBEAT_MS);
+    const handleFocusRefresh = () => {
+      void fetchNotice();
+    };
+    window.addEventListener("focus", handleFocusRefresh);
+    document.addEventListener("visibilitychange", handleFocusRefresh);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocusRefresh);
+      document.removeEventListener("visibilitychange", handleFocusRefresh);
     };
   }, [token, isStationMode, activeStationId, apiBase]);
 
