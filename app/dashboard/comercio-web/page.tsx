@@ -66,6 +66,13 @@ type CustomerRow = {
   lastOrderAt: string;
 };
 
+type PersonalizationConfiguration = {
+  id: string;
+  label: string;
+  traceLines: string[];
+  viewerPayload: Record<string, unknown> | null;
+};
+
 type CatalogEditorState = {
   web_name: string;
   web_slug: string;
@@ -514,28 +521,55 @@ function buildPersonalizationTraceLines(context: Record<string, unknown> | null)
       .forEach((line) => lines.push(line));
   };
 
-  if (Array.isArray(context.entries)) {
-    let index = 0;
-    context.entries.forEach((rawEntry) => {
-      if (!rawEntry || typeof rawEntry !== "object") return;
-      const entry = rawEntry as Record<string, unknown>;
-      const traceText = typeof entry.design_trace_text === "string" ? entry.design_trace_text : "";
-      if (!traceText.trim()) return;
-      index += 1;
-      lines.push(`Configuración ${index}`);
-      appendTextLines(traceText);
-    });
-  }
-
-  if (!lines.length) {
-    appendTextLines(context.design_trace_text);
-  }
+  appendTextLines(context.design_trace_text);
 
   if (!lines.length && typeof context.summary === "string" && context.summary.trim()) {
     appendTextLines(context.summary);
   }
 
   return lines;
+}
+
+function resolvePersonalizationConfigurationLabel(entry: Record<string, unknown>, index: number): string {
+  const productRaw = entry.product;
+  if (productRaw && typeof productRaw === "object" && !Array.isArray(productRaw)) {
+    const product = productRaw as Record<string, unknown>;
+    const name = typeof product.name === "string" ? product.name.trim() : "";
+    const size = typeof product.size_label === "string" ? product.size_label.trim() : "";
+    if (name && size) return `${name} · ${size}`;
+    if (name) return name;
+    if (size) return size;
+  }
+  const summary = typeof entry.summary === "string" ? entry.summary.trim() : "";
+  if (summary) return summary.slice(0, 72);
+  return `Configuración ${index}`;
+}
+
+function buildPersonalizationConfigurations(
+  context: Record<string, unknown> | null
+): PersonalizationConfiguration[] {
+  if (!context) return [];
+  if (Array.isArray(context.entries)) {
+    const entries = context.entries
+      .filter((rawEntry) => rawEntry && typeof rawEntry === "object")
+      .map((rawEntry) => rawEntry as Record<string, unknown>);
+    if (entries.length) {
+      return entries.map((entry, index) => ({
+        id: typeof entry.id === "string" && entry.id.trim() ? entry.id : `cfg-${index + 1}`,
+        label: resolvePersonalizationConfigurationLabel(entry, index + 1),
+        traceLines: buildPersonalizationTraceLines(entry),
+        viewerPayload: buildPersonalizationViewerPayload(entry),
+      }));
+    }
+  }
+  return [
+    {
+      id: typeof context.id === "string" && context.id.trim() ? context.id : "cfg-1",
+      label: resolvePersonalizationConfigurationLabel(context, 1),
+      traceLines: buildPersonalizationTraceLines(context),
+      viewerPayload: buildPersonalizationViewerPayload(context),
+    },
+  ];
 }
 
 function buildPersonalizationViewerPayload(
@@ -1048,6 +1082,7 @@ export default function ComercioWebPage() {
   const [paymentStatus, setPaymentStatus] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedPersonalizationId, setSelectedPersonalizationId] = useState<number | null>(null);
+  const [selectedPersonalizationConfigId, setSelectedPersonalizationConfigId] = useState<string | null>(null);
   const [showPersonalizationViewer, setShowPersonalizationViewer] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [paymentsLedgerPage, setPaymentsLedgerPage] = useState(1);
@@ -1344,13 +1379,26 @@ export default function ComercioWebPage() {
     () => extractPersonalizationContextFromOrder(selectedPersonalizationOrder),
     [selectedPersonalizationOrder]
   );
-  const selectedPersonalizationViewerPayload = useMemo(
-    () => buildPersonalizationViewerPayload(selectedPersonalizationContext),
+  const selectedPersonalizationConfigurations = useMemo(
+    () => buildPersonalizationConfigurations(selectedPersonalizationContext),
     [selectedPersonalizationContext]
   );
+  const selectedPersonalizationConfiguration = useMemo(
+    () =>
+      selectedPersonalizationConfigurations.find(
+        (entry) => entry.id === selectedPersonalizationConfigId
+      ) ??
+      selectedPersonalizationConfigurations[0] ??
+      null,
+    [selectedPersonalizationConfigId, selectedPersonalizationConfigurations]
+  );
+  const selectedPersonalizationViewerPayload = useMemo(
+    () => selectedPersonalizationConfiguration?.viewerPayload ?? null,
+    [selectedPersonalizationConfiguration]
+  );
   const selectedPersonalizationTraceLines = useMemo(
-    () => buildPersonalizationTraceLines(selectedPersonalizationContext),
-    [selectedPersonalizationContext]
+    () => selectedPersonalizationConfiguration?.traceLines ?? [],
+    [selectedPersonalizationConfiguration]
   );
   const personalizationViewerSrc = useMemo(() => {
     if (!showPersonalizationViewer) return "";
@@ -1364,6 +1412,18 @@ export default function ComercioWebPage() {
   useEffect(() => {
     setShowPersonalizationViewer(false);
   }, [selectedPersonalizationOrder?.id]);
+  useEffect(() => {
+    setSelectedPersonalizationConfigId((current) => {
+      if (!selectedPersonalizationConfigurations.length) return null;
+      if (
+        current &&
+        selectedPersonalizationConfigurations.some((configuration) => configuration.id === current)
+      ) {
+        return current;
+      }
+      return selectedPersonalizationConfigurations[0].id;
+    });
+  }, [selectedPersonalizationOrder?.id, selectedPersonalizationConfigurations]);
 
   const selectedProduct = useMemo(
     () =>
@@ -5435,8 +5495,41 @@ export default function ComercioWebPage() {
                       </div>
 
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Configuraciones
+                          </p>
+                          <span className="text-xs text-slate-500">
+                            {selectedPersonalizationConfigurations.length} configuración(es)
+                          </span>
+                        </div>
+                        {selectedPersonalizationConfigurations.length === 0 ? (
+                          <p className="mt-2 text-sm text-slate-500">
+                            Esta orden no incluye configuraciones legibles de personalización.
+                          </p>
+                        ) : (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {selectedPersonalizationConfigurations.map((configuration, index) => (
+                              <button
+                                key={configuration.id}
+                                type="button"
+                                onClick={() => setSelectedPersonalizationConfigId(configuration.id)}
+                                className={`inline-flex items-center rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                                  selectedPersonalizationConfiguration?.id === configuration.id
+                                    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                    : "border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-100"
+                                }`}
+                              >
+                                Configuración {index + 1}: {configuration.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Vista 3D
+                          Vista 3D {selectedPersonalizationConfiguration ? `· ${selectedPersonalizationConfiguration.label}` : ""}
                         </p>
                         {!hasPersonalizationViewerPayload ? (
                           <p className="mt-2 text-sm text-slate-500">No hay payload válido para renderizar.</p>
@@ -5506,7 +5599,7 @@ export default function ComercioWebPage() {
 
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Trazabilidad del diseño
+                          Trazabilidad del diseño {selectedPersonalizationConfiguration ? `· ${selectedPersonalizationConfiguration.label}` : ""}
                         </p>
                         {selectedPersonalizationTraceLines.length === 0 ? (
                           <p className="mt-2 text-sm text-slate-500">
