@@ -615,23 +615,25 @@ function buildPersonalizationViewerPayload(
       .slice(0, 8)
       .map((entry, index) => {
         const layer = entry as Record<string, unknown>;
+        const face = typeof layer.face === "string" ? layer.face : "front_up";
         const transformRaw =
           layer.transform && typeof layer.transform === "object" && !Array.isArray(layer.transform)
             ? (layer.transform as Record<string, unknown>)
             : {};
+        const defaultRotation = face === "left" || face === "right" ? -90 : 0;
         return {
           id: typeof layer.id === "string" ? layer.id : `layer-${index + 1}`,
           text: typeof layer.text === "string" ? layer.text.slice(0, 160) : "",
           color: typeof layer.color === "string" ? layer.color : "#ffffff",
           font_family: typeof layer.font_family === "string" ? layer.font_family : "Arial, sans-serif",
           font_weight: Number(layer.font_weight) || 700,
-          face: typeof layer.face === "string" ? layer.face : "front_up",
+          face,
           transform: {
             scaleX: Number(transformRaw.scaleX) || 100,
             scaleY: Number(transformRaw.scaleY) || 100,
             offsetX: Number(transformRaw.offsetX) || 0,
             offsetY: Number(transformRaw.offsetY) || 0,
-            rotation: Number(transformRaw.rotation) || 0,
+            rotation: Number(transformRaw.rotation) || defaultRotation,
           },
         };
       });
