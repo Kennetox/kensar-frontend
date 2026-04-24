@@ -171,14 +171,12 @@ type PendingCatalogExitAction =
 
 const COMMERCE_WEB_ACTIVE_TAB_STORAGE_KEY = "commerce_web_active_tab";
 const COMMERCE_WEB_DRAFT_STORAGE_KEY = "commerce_web_catalog_draft_v1";
-const COMMERCE_WEB_ORDERS_AUTO_REFRESH_MS = 20_000;
+const COMMERCE_WEB_ORDERS_AUTO_REFRESH_MS = 45_000;
 const COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE = 15;
 const COMMERCE_WEB_LIVE_ORDER_TABS: CommerceTab[] = [
   "overview",
   "orders",
-  "personalization",
   "payments",
-  "customers",
 ];
 
 const TABS: Array<{ id: CommerceTab; label: string }> = [
