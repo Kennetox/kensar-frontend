@@ -143,6 +143,7 @@ type CommerceWebDraftState = {
   publishedCatalogStatusFilter?: string;
   publishedCatalogFeaturedFilter?: string;
   publishedCatalogBadgeFilter?: string;
+  publishedCatalogCategoryFilter?: string;
   publishedCatalogOrderFilter?: "newest" | "oldest" | "alphabetical";
   publishedCatalogActiveOnly?: boolean;
   discountCodeComposerOpen?: boolean;
@@ -1174,6 +1175,7 @@ export default function ComercioWebPage() {
   const [publishedCatalogStatusFilter, setPublishedCatalogStatusFilter] = useState("all");
   const [publishedCatalogFeaturedFilter, setPublishedCatalogFeaturedFilter] = useState("all");
   const [publishedCatalogBadgeFilter, setPublishedCatalogBadgeFilter] = useState("all");
+  const [publishedCatalogCategoryFilter, setPublishedCatalogCategoryFilter] = useState("all");
   const [publishedCatalogOrderFilter, setPublishedCatalogOrderFilter] = useState<
     "newest" | "oldest" | "alphabetical"
   >("newest");
@@ -1299,6 +1301,10 @@ export default function ComercioWebPage() {
       if (typeof draft.publishedCatalogBadgeFilter === "string") {
         setPublishedCatalogBadgeFilter(draft.publishedCatalogBadgeFilter);
       }
+      if (typeof draft.publishedCatalogCategoryFilter === "string") {
+        const nextValue = draft.publishedCatalogCategoryFilter.trim();
+        setPublishedCatalogCategoryFilter(nextValue || "all");
+      }
       if (
         draft.publishedCatalogOrderFilter === "newest" ||
         draft.publishedCatalogOrderFilter === "oldest" ||
@@ -1370,6 +1376,7 @@ export default function ComercioWebPage() {
       publishedCatalogStatusFilter,
       publishedCatalogFeaturedFilter,
       publishedCatalogBadgeFilter,
+      publishedCatalogCategoryFilter,
       publishedCatalogOrderFilter,
       publishedCatalogActiveOnly,
       discountCodeComposerOpen,
@@ -1394,6 +1401,7 @@ export default function ComercioWebPage() {
     publishedCatalogStatusFilter,
     publishedCatalogFeaturedFilter,
     publishedCatalogBadgeFilter,
+    publishedCatalogCategoryFilter,
     publishedCatalogOrderFilter,
     publishedCatalogActiveOnly,
     discountCodeComposerOpen,
@@ -1549,6 +1557,7 @@ export default function ComercioWebPage() {
     () => buildHierarchicalCatalogCategories(catalogCategories),
     [catalogCategories]
   );
+  const allCatalogCategoryOptions = useMemo(() => orderedCatalogCategories, [orderedCatalogCategories]);
   const availableParentCatalogCategories = useMemo(
     () =>
       orderedCatalogCategories.filter((item) => item.id !== catalogCategoryEditingId),
@@ -1626,6 +1635,20 @@ export default function ComercioWebPage() {
       : Math.min(discountCodeStartIndex + discountCodeRows.length - 1, discountCodeTotal);
 
   useEffect(() => {
+    const normalizedCategoryKey = normalizeCategoryLookupKey(publishedCatalogCategoryFilter);
+    if (!normalizedCategoryKey || normalizedCategoryKey === "all") return;
+    const categoryExists = allCatalogCategoryOptions.some(
+      (item) => normalizeCategoryLookupKey(item.key) === normalizedCategoryKey
+    );
+    if (!categoryExists) {
+      setPublishedCatalogCategoryFilter("all");
+    }
+  }, [
+    allCatalogCategoryOptions,
+    publishedCatalogCategoryFilter,
+  ]);
+
+  useEffect(() => {
     setPublishedCatalogPage(1);
   }, [
     publishedCatalogFilter,
@@ -1633,6 +1656,7 @@ export default function ComercioWebPage() {
     publishedCatalogStatusFilter,
     publishedCatalogFeaturedFilter,
     publishedCatalogBadgeFilter,
+    publishedCatalogCategoryFilter,
     publishedCatalogOrderFilter,
     publishedCatalogActiveOnly,
   ]);
@@ -2030,6 +2054,13 @@ export default function ComercioWebPage() {
     try {
       setCatalogLoading(true);
       setCatalogError(null);
+      const normalizedStatusFilter = publishedCatalogStatusFilter as
+        | "all"
+        | "featured"
+        | "discounted"
+        | "consult"
+        | "published"
+        | "paused";
       const page = await fetchComercioWebCatalogPublicationsPage(token, {
         q: publishedCatalogFilter.trim() || undefined,
         field:
@@ -2037,9 +2068,9 @@ export default function ComercioWebPage() {
             ? undefined
             : (publishedCatalogFieldFilter as "name" | "sku" | "brand" | "group" | "badge"),
         status_filter:
-          publishedCatalogStatusFilter === "all"
+          normalizedStatusFilter === "all"
             ? undefined
-            : (publishedCatalogStatusFilter as "featured" | "discounted" | "consult"),
+            : normalizedStatusFilter,
         featured_filter:
           publishedCatalogFeaturedFilter === "all"
             ? undefined
@@ -2048,8 +2079,15 @@ export default function ComercioWebPage() {
           publishedCatalogBadgeFilter === "all"
             ? undefined
             : (publishedCatalogBadgeFilter as "with_badge" | "without_badge"),
+        category_key:
+          publishedCatalogCategoryFilter === "all"
+            ? undefined
+            : publishedCatalogCategoryFilter,
         order: publishedCatalogOrderFilter,
-        active_only: publishedCatalogActiveOnly,
+        active_only:
+          normalizedStatusFilter === "published" || normalizedStatusFilter === "paused"
+            ? undefined
+            : publishedCatalogActiveOnly,
         skip: (publishedCatalogPage - 1) * CATALOG_TABLE_PAGE_SIZE,
         limit: CATALOG_TABLE_PAGE_SIZE,
       });
@@ -2073,6 +2111,7 @@ export default function ComercioWebPage() {
     publishedCatalogFeaturedFilter,
     publishedCatalogFieldFilter,
     publishedCatalogFilter,
+    publishedCatalogCategoryFilter,
     publishedCatalogOrderFilter,
     publishedCatalogActiveOnly,
     publishedCatalogPage,
@@ -3413,6 +3452,8 @@ export default function ComercioWebPage() {
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
                       >
                         <option value="all">Todas</option>
+                        <option value="published">Publicado</option>
+                        <option value="paused">Pausado</option>
                         <option value="featured">Con destaque</option>
                         <option value="discounted">Con descuento</option>
                         <option value="consult">Modo consultar</option>
@@ -3465,17 +3506,35 @@ export default function ComercioWebPage() {
                       </select>
                     </label>
                   </div>
-
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="inline-flex min-h-[2.5rem] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
-                      <input
-                        type="checkbox"
-                        checked={publishedCatalogActiveOnly}
-                        onChange={(event) => setPublishedCatalogActiveOnly(event.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                      />
-                      Mostrar solo activos
-                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="inline-flex min-h-[2.5rem] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+                        <input
+                          type="checkbox"
+                          checked={publishedCatalogActiveOnly}
+                          onChange={(event) => setPublishedCatalogActiveOnly(event.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        Mostrar solo activos
+                      </label>
+                      <label className="inline-flex min-h-[2.5rem] items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800">
+                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Categoría
+                        </span>
+                        <select
+                          value={publishedCatalogCategoryFilter}
+                          onChange={(event) => setPublishedCatalogCategoryFilter(event.target.value)}
+                          className="w-[12rem] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                        >
+                          <option value="all">Todas</option>
+                          {allCatalogCategoryOptions.map((category) => (
+                            <option key={`filter-category-${category.id}`} value={category.key}>
+                              {`${"  ".repeat(Math.max(0, (category.level || 1) - 1))}${category.name}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <button
                         type="button"
@@ -3485,6 +3544,7 @@ export default function ComercioWebPage() {
                           setPublishedCatalogStatusFilter("all");
                           setPublishedCatalogFeaturedFilter("all");
                           setPublishedCatalogBadgeFilter("all");
+                          setPublishedCatalogCategoryFilter("all");
                           setPublishedCatalogOrderFilter("newest");
                           setPublishedCatalogActiveOnly(true);
                         }}

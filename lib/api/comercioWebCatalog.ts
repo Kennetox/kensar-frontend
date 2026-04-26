@@ -194,9 +194,11 @@ export async function fetchComercioWebCatalogPublicationsPage(
   params?: {
     q?: string;
     field?: "all" | "name" | "sku" | "brand" | "group" | "badge";
-    status_filter?: "all" | "featured" | "discounted" | "consult";
+    status_filter?: "all" | "featured" | "discounted" | "consult" | "published" | "paused";
     featured_filter?: "all" | "featured" | "standard";
     badge_filter?: "all" | "with_badge" | "without_badge";
+    category_key?: string;
+    subcategory_key?: string;
     order?: "newest" | "oldest" | "alphabetical";
     active_only?: boolean;
     skip?: number;
@@ -209,6 +211,8 @@ export async function fetchComercioWebCatalogPublicationsPage(
   if (params?.status_filter) qs.set("status_filter", params.status_filter);
   if (params?.featured_filter) qs.set("featured_filter", params.featured_filter);
   if (params?.badge_filter) qs.set("badge_filter", params.badge_filter);
+  if (params?.category_key) qs.set("category_key", params.category_key);
+  if (params?.subcategory_key) qs.set("subcategory_key", params.subcategory_key);
   if (params?.order) qs.set("order", params.order);
   if (typeof params?.active_only === "boolean") {
     qs.set("active_only", String(params.active_only));
