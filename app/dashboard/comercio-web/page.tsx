@@ -758,6 +758,77 @@ function getPrimaryContact(order: ComercioWebOrder): string {
   return order.customer_phone || order.customer_email || "Sin contacto";
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readStringValue(record: Record<string, unknown> | null, key: string): string {
+  if (!record) return "";
+  const raw = record[key];
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+function translateDeliveryModeLabel(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "pickup") return "Retiro en tienda";
+  if (normalized === "shipping") return "Envío a domicilio";
+  return value || "Sin definir";
+}
+
+function translateBillingModeLabel(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "pickup") return "Facturación de retiro";
+  if (normalized === "same_as_shipping") return "Facturación igual a envío";
+  if (normalized === "different") return "Facturación distinta";
+  return value || "Sin definir";
+}
+
+function resolveOrderDeliverySummary(
+  order: ComercioWebOrder | null,
+  checkoutContext: Record<string, unknown> | null
+): {
+  deliveryModeLabel: string;
+  shippingLabel: string;
+  shippingAddress: string;
+  shippingCityState: string;
+  billingModeLabel: string;
+  contactPhone: string;
+} {
+  const context = checkoutContext || null;
+  const shipping = asRecord(context?.shipping);
+  const contact = asRecord(context?.contact);
+  const checkoutResultContext = asRecord(context?.checkout_result_context);
+
+  const deliveryModeRaw =
+    readStringValue(context, "delivery_mode") || readStringValue(checkoutResultContext, "deliveryMode");
+  const shippingLabel =
+    readStringValue(shipping, "label") ||
+    readStringValue(checkoutResultContext, "shippingLabel") ||
+    (deliveryModeRaw.toLowerCase() === "pickup" ? "Retiro en tienda" : "Envío a domicilio");
+  const shippingAddress =
+    readStringValue(shipping, "full_address") ||
+    readStringValue(checkoutResultContext, "shippingAddress") ||
+    (order?.customer_address || "").trim() ||
+    "Sin dirección confirmada";
+  const city = readStringValue(shipping, "city");
+  const state = readStringValue(shipping, "state");
+  const shippingCityState = [city, state].filter(Boolean).join(", ") || "Sin ciudad/departamento";
+  const billingModeRaw = readStringValue(context, "billing_mode");
+  const billingModeLabel = translateBillingModeLabel(billingModeRaw || "Sin definir");
+  const contactPhone =
+    readStringValue(contact, "phone") || (order?.customer_phone || "").trim() || "Sin teléfono";
+
+  return {
+    deliveryModeLabel: translateDeliveryModeLabel(deliveryModeRaw || "Sin definir"),
+    shippingLabel,
+    shippingAddress,
+    shippingCityState,
+    billingModeLabel,
+    contactPhone,
+  };
+}
+
 function isOrderConverted(order: ComercioWebOrder): boolean {
   return Boolean(order.sale_id || order.sale_document_number);
 }
@@ -2982,6 +3053,10 @@ export default function ComercioWebPage() {
   const selectedCheckoutContextEntries = useMemo(
     () => flattenCheckoutContextEntries(selectedCheckoutContext),
     [selectedCheckoutContext]
+  );
+  const selectedDeliverySummary = useMemo(
+    () => resolveOrderDeliverySummary(selectedOrder, selectedCheckoutContext),
+    [selectedOrder, selectedCheckoutContext]
   );
   const catalogActionMeta = getCatalogActionMeta(catalogActionConfirm);
   const completePendingCatalogExit = useCallback(() => {
@@ -5231,6 +5306,48 @@ export default function ComercioWebPage() {
                     <InfoPill label="Estado" value={translateOrderStatus(selectedOrder.status)} />
                     <InfoPill label="Pago" value={translatePaymentStatus(selectedOrder.payment_status)} />
                     <InfoPill label="Fulfillment" value={translateFulfillmentStatus(selectedOrder.fulfillment_status)} />
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <h3 className="text-sm font-semibold text-slate-900">Entrega (checkout)</h3>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Modalidad
+                        </p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">{selectedDeliverySummary.deliveryModeLabel}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Método
+                        </p>
+                        <p className="mt-1 text-sm font-medium text-slate-900">{selectedDeliverySummary.shippingLabel}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Ciudad / Departamento
+                        </p>
+                        <p className="mt-1 text-sm text-slate-800">{selectedDeliverySummary.shippingCityState}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          Teléfono de contacto
+                        </p>
+                        <p className="mt-1 text-sm text-slate-800">{selectedDeliverySummary.contactPhone}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Dirección de entrega
+                      </p>
+                      <p className="mt-1 text-sm text-slate-800">{selectedDeliverySummary.shippingAddress}</p>
+                    </div>
+                    <div className="mt-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Facturación
+                      </p>
+                      <p className="mt-1 text-sm text-slate-800">{selectedDeliverySummary.billingModeLabel}</p>
+                    </div>
                   </div>
 
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
