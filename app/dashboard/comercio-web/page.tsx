@@ -222,7 +222,6 @@ const WARRANTY_PRESET_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "Garantía de 1 año", label: "Garantía de 1 año" },
 ];
 
-const SHORT_DESCRIPTION_MAX_CHARS = 96;
 const CATALOG_TABLE_PAGE_SIZE = 50;
 const DISCOUNT_CODE_TABLE_PAGE_SIZE = 50;
 const MAX_HOME_FEATURED_CATEGORIES = 5;
@@ -2315,8 +2314,6 @@ export default function ComercioWebPage() {
       web_published:
         typeof overridePublished === "boolean" ? overridePublished : catalogEditor.web_published,
       web_featured: catalogEditor.web_featured,
-      web_short_description:
-        catalogEditor.web_short_description.trim().slice(0, SHORT_DESCRIPTION_MAX_CHARS) || undefined,
       web_long_description: catalogEditor.web_long_description.trim() || undefined,
       web_compare_price: autoComparePrice,
       web_price_source: catalogEditor.web_price_source,
@@ -3499,8 +3496,8 @@ export default function ComercioWebPage() {
                                 <p className="font-medium text-slate-900">
                                   {getCatalogDisplayName(product)}
                                 </p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {product.web_short_description || "Sin descripción comercial"}
+                                <p className="mt-1 max-w-[64ch] truncate text-xs text-slate-500">
+                                  {product.web_long_description?.trim() || "Sin descripción comercial"}
                                 </p>
                               </div>
                             </td>
@@ -4049,24 +4046,7 @@ export default function ComercioWebPage() {
                         </LabeledField>
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <LabeledField label="Descripción corta" required>
-                          <textarea
-                            value={catalogEditor.web_short_description}
-                            onChange={(event) =>
-                              handleCatalogField(
-                                "web_short_description",
-                                event.target.value.slice(0, SHORT_DESCRIPTION_MAX_CHARS)
-                              )
-                            }
-                            maxLength={SHORT_DESCRIPTION_MAX_CHARS}
-                            rows={2}
-                            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
-                          />
-                          <p className="mt-1 text-xs text-slate-500">
-                            {catalogEditor.web_short_description.length}/{SHORT_DESCRIPTION_MAX_CHARS} caracteres
-                          </p>
-                        </LabeledField>
+                      <div className="grid gap-3 md:grid-cols-2">
                         <LabeledField label="Descripción larga">
                           <textarea
                             value={catalogEditor.web_long_description}
@@ -4463,8 +4443,9 @@ export default function ComercioWebPage() {
                                     <h3 className="mt-2 text-[0.92rem] font-semibold leading-tight text-slate-900">
                                       {catalogEditor.web_name.trim() || selectedProduct.name}
                                     </h3>
-                                    <p className="mt-2.5 min-h-[36px] text-xs leading-5 text-slate-600">
-                                      {catalogEditor.web_short_description.trim() || "Sin descripción comercial."}
+                                    <p className="mt-2.5 min-h-[40px] line-clamp-2 text-xs leading-5 text-slate-600">
+                                      {catalogEditor.web_long_description.trim() ||
+                                        "Sin descripción comercial."}
                                     </p>
 
                                     <div className="mt-4 flex items-end justify-between gap-3">
