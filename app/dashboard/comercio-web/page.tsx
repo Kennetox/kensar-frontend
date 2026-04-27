@@ -38,6 +38,12 @@ import {
   fetchRolePermissions,
   type RolePermissionModule,
 } from "@/lib/api/settings";
+import {
+  DEFAULT_COMMERCE_DESCRIPTION_CONFIG,
+  generateCommerceWebDescription,
+  type CommerceDescriptionGeneratorConfig,
+  type DescriptionTemplateConfig,
+} from "@/lib/comercioWebDescriptionGenerator";
 
 type CommerceTab = "overview" | "catalog" | "orders" | "personalization" | "payments" | "customers";
 
@@ -74,6 +80,11 @@ type PersonalizationConfiguration = {
   viewerPayload: Record<string, unknown> | null;
 };
 
+type CatalogTechnicalSpec = {
+  type: string;
+  value: string;
+};
+
 type CatalogEditorState = {
   web_name: string;
   web_slug: string;
@@ -92,6 +103,7 @@ type CatalogEditorState = {
   web_price_mode: "visible" | "consultar";
   web_whatsapp_message: string;
   web_warranty_text: string;
+  web_technical_specs: CatalogTechnicalSpec[];
   image_url: string;
   image_thumb_url: string;
   web_gallery_urls: string[];
@@ -104,7 +116,7 @@ type InlineToast = {
 };
 
 type CatalogComposerMode = "create" | "edit";
-type CatalogWorkspaceView = "publications" | "discount_codes" | "categories";
+type CatalogWorkspaceView = "publications" | "discount_codes" | "categories" | "descriptions";
 type DiscountCodePeriodOption = "day" | "week" | "month" | "indefinite" | "custom";
 
 type DiscountCodeEditorState = {
@@ -152,6 +164,7 @@ type CommerceWebDraftState = {
   discountCodeEditor?: DiscountCodeEditorState;
   catalogCategoryEditingId?: number | null;
   catalogCategoryEditor?: CategoryEditorState;
+  descriptionTemplateSelectedId?: string;
 };
 
 type UploadProductImageResponse = {
@@ -173,6 +186,7 @@ type PendingCatalogExitAction =
 
 const COMMERCE_WEB_ACTIVE_TAB_STORAGE_KEY = "commerce_web_active_tab";
 const COMMERCE_WEB_DRAFT_STORAGE_KEY = "commerce_web_catalog_draft_v1";
+const COMMERCE_WEB_DESCRIPTION_CONFIG_STORAGE_KEY = "commerce_web_description_config_v1";
 const COMMERCE_WEB_ORDERS_AUTO_REFRESH_MS = 45_000;
 const COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE = 15;
 const COMMERCE_WEB_LIVE_ORDER_TABS: CommerceTab[] = [
@@ -195,7 +209,12 @@ function isCommerceTab(value: string): value is CommerceTab {
 }
 
 function isCatalogWorkspaceView(value: string): value is CatalogWorkspaceView {
-  return value === "publications" || value === "discount_codes" || value === "categories";
+  return (
+    value === "publications" ||
+    value === "discount_codes" ||
+    value === "categories" ||
+    value === "descriptions"
+  );
 }
 
 const ORDER_STATUS_OPTIONS: Array<{ value: string; label: string }> = [
@@ -223,6 +242,14 @@ const WARRANTY_PRESET_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "Garantía de 6 meses", label: "Garantía de 6 meses" },
   { value: "Garantía de 1 año", label: "Garantía de 1 año" },
 ];
+const TECHNICAL_SPEC_TYPE_OPTIONS = [
+  "Dimensiones",
+  "Longitud",
+  "Potencia",
+  "Conectividad",
+  "Accesorios",
+  "Entradas",
+] as const;
 
 const CATALOG_TABLE_PAGE_SIZE = 50;
 const DISCOUNT_CODE_TABLE_PAGE_SIZE = 50;
@@ -265,6 +292,7 @@ const emptyCatalogEditorState: CatalogEditorState = {
   web_price_mode: "visible",
   web_whatsapp_message: "",
   web_warranty_text: "",
+  web_technical_specs: [],
   image_url: "",
   image_thumb_url: "",
   web_gallery_urls: [],
@@ -1020,6 +1048,102 @@ function parseDiscountPercent(value?: string | number | null): number | null {
   return Math.min(100, Math.max(0, numeric));
 }
 
+function sanitizeCatalogTechnicalSpecs(value: unknown): CatalogTechnicalSpec[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Partial<CatalogTechnicalSpec>;
+      const type = typeof row.type === "string" ? row.type.trim() : "";
+      const fieldValue = typeof row.value === "string" ? row.value.trim() : "";
+      if (!type || !fieldValue) return null;
+      return { type, value: fieldValue };
+    })
+    .filter((item): item is CatalogTechnicalSpec => Boolean(item));
+}
+
+function parseTechnicalSpecsFromShortDescription(raw?: string | null): CatalogTechnicalSpec[] {
+  const source = (raw || "").trim();
+  if (!source) return [];
+  const lines = source
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const parsed = lines
+    .map((line) => {
+      const parts = line.split(":");
+      if (parts.length < 2) return null;
+      const type = parts.shift()?.trim() || "";
+      const value = parts.join(":").trim();
+      if (!type || !value) return null;
+      return { type, value };
+    })
+    .filter((item): item is CatalogTechnicalSpec => Boolean(item));
+  if (parsed.length) return parsed;
+  return [{ type: "Accesorios", value: source }];
+}
+
+function serializeTechnicalSpecsForShortDescription(specs: CatalogTechnicalSpec[]): string {
+  return specs
+    .map((item) => `${item.type.trim()}: ${item.value.trim()}`)
+    .filter((item) => item !== ":")
+    .join("\n")
+    .trim();
+}
+
+function upsertCharacteristicsBlock(description: string, specs: string[]): string {
+  const normalizedSpecs = specs.map((item) => item.trim()).filter(Boolean);
+  const specLines = normalizedSpecs.map((item) => `- ${item}`);
+  const source = description
+    .replace(/\r\n/g, "\n")
+    .replace(/\s*Datos tecnicos relevantes:\s*[^\n]*/gi, "")
+    .replace(/\s*SKU:\s*[^|\n]+/gi, "")
+    .replace(/\s*\|\s*Unidad:\s*[^\n]+/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const lines = source.split("\n");
+
+  const characteristicsIndex = lines.findIndex(
+    (line) => line.trim().toLowerCase() === "caracteristicas:"
+  );
+  if (characteristicsIndex >= 0) {
+    let endIndex = characteristicsIndex + 1;
+    while (endIndex < lines.length && lines[endIndex].trim().startsWith("- ")) {
+      endIndex += 1;
+    }
+    const replacement = specLines.length ? ["Caracteristicas:", ...specLines] : [];
+    return [...lines.slice(0, characteristicsIndex), ...replacement, ...lines.slice(endIndex)]
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  const legacyLineIndex = lines.findIndex((line) =>
+    line.trim().toLowerCase().startsWith("datos tecnicos relevantes:")
+  );
+  if (legacyLineIndex >= 0) {
+    const replacement = specLines.length ? ["Caracteristicas:", ...specLines] : [];
+    return [...lines.slice(0, legacyLineIndex), ...replacement, ...lines.slice(legacyLineIndex + 1)]
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  if (!specLines.length) return source.trim();
+  const block = ["Caracteristicas:", ...specLines];
+  const closingIndex = lines.findIndex((line) =>
+    line.trim().toLowerCase().startsWith("en kensar te asesoramos")
+  );
+  if (closingIndex >= 0) {
+    return [...lines.slice(0, closingIndex), ...block, ...lines.slice(closingIndex)]
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+  return [...lines, ...block].filter(Boolean).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function getDiscountBadgeText(percent: number | null): string | null {
   if (percent === null || percent <= 0) return null;
   const formatted = Number.isInteger(percent) ? String(percent) : percent.toFixed(1).replace(/\.0$/, "");
@@ -1069,6 +1193,7 @@ function buildEditorState(product: ComercioWebCatalogProduct | null): CatalogEdi
     web_price_mode: product.web_price_mode || "visible",
     web_whatsapp_message: product.web_whatsapp_message || "",
     web_warranty_text: product.web_warranty_text || "",
+    web_technical_specs: parseTechnicalSpecsFromShortDescription(product.web_short_description),
     image_url: product.image_url || "",
     image_thumb_url: product.image_thumb_url || "",
     web_gallery_urls:
@@ -1136,6 +1261,44 @@ function SectionCard({
   );
 }
 
+function sanitizeDescriptionTemplateConfig(value: unknown): DescriptionTemplateConfig | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Partial<DescriptionTemplateConfig>;
+  const id = typeof row.id === "string" ? row.id.trim() : "";
+  const label = typeof row.label === "string" ? row.label : "";
+  const assignedCategoryKey =
+    typeof row.assigned_category_key === "string" ? row.assigned_category_key.trim() : "";
+  const paragraph1 = typeof row.paragraph1 === "string" ? row.paragraph1 : "";
+  const paragraph2 = typeof row.paragraph2 === "string" ? row.paragraph2 : "";
+  const paragraph3 = typeof row.paragraph3 === "string" ? row.paragraph3 : "";
+  const closing = typeof row.closing === "string" ? row.closing : "";
+  if (!id || !label) return null;
+  const keywords = Array.isArray(row.keywords)
+    ? row.keywords.filter((item): item is string => typeof item === "string")
+    : [];
+  return {
+    id,
+    label,
+    assigned_category_key: assignedCategoryKey,
+    keywords,
+    paragraph1,
+    paragraph2,
+    paragraph3,
+    closing,
+  };
+}
+
+function sanitizeDescriptionConfig(value: unknown): CommerceDescriptionGeneratorConfig {
+  if (!value || typeof value !== "object") return DEFAULT_COMMERCE_DESCRIPTION_CONFIG;
+  const rawTemplates = (value as { templates?: unknown }).templates;
+  if (!Array.isArray(rawTemplates)) return DEFAULT_COMMERCE_DESCRIPTION_CONFIG;
+  const templates = rawTemplates
+    .map(sanitizeDescriptionTemplateConfig)
+    .filter((item): item is DescriptionTemplateConfig => Boolean(item));
+  if (!templates.length) return DEFAULT_COMMERCE_DESCRIPTION_CONFIG;
+  return { templates };
+}
+
 export default function ComercioWebPage() {
   const { token, user } = useAuth();
   const [activeTab, setActiveTab] = useState<CommerceTab>(() => {
@@ -1195,6 +1358,31 @@ export default function ComercioWebPage() {
   const [catalogImageUploading, setCatalogImageUploading] = useState(false);
   const [catalogSavePublishPromptOpen, setCatalogSavePublishPromptOpen] = useState(false);
   const [catalogExitPromptOpen, setCatalogExitPromptOpen] = useState(false);
+  const [catalogDescriptionGenerating, setCatalogDescriptionGenerating] = useState(false);
+  const [catalogDescriptionSpecsUpdating, setCatalogDescriptionSpecsUpdating] = useState(false);
+  const [catalogDescriptionTemplateId, setCatalogDescriptionTemplateId] = useState("");
+  const [catalogSpecModalOpen, setCatalogSpecModalOpen] = useState(false);
+  const [catalogSpecDraftType, setCatalogSpecDraftType] = useState<string>(
+    TECHNICAL_SPEC_TYPE_OPTIONS[0]
+  );
+  const [catalogSpecDraftValue, setCatalogSpecDraftValue] = useState("");
+  const [descriptionConfig, setDescriptionConfig] = useState<CommerceDescriptionGeneratorConfig>(
+    DEFAULT_COMMERCE_DESCRIPTION_CONFIG
+  );
+  const [descriptionTemplateSelectedId, setDescriptionTemplateSelectedId] = useState<string>(
+    DEFAULT_COMMERCE_DESCRIPTION_CONFIG.templates[0]?.id || "default"
+  );
+  const [descriptionEditorDraft, setDescriptionEditorDraft] = useState<DescriptionTemplateConfig | null>(
+    null
+  );
+  const [descriptionEditorMode, setDescriptionEditorMode] = useState<"create" | "edit">("edit");
+  const [descriptionEditorOriginalId, setDescriptionEditorOriginalId] = useState<string | null>(null);
+  const [descriptionPreviewName, setDescriptionPreviewName] = useState("Cabina Activa 12\" XYZ");
+  const [descriptionPreviewCategory, setDescriptionPreviewCategory] = useState("sonido");
+  const [descriptionPreviewSubcategory, setDescriptionPreviewSubcategory] = useState("cabinas activas");
+  const [descriptionPreviewBrand, setDescriptionPreviewBrand] = useState("Yamaha");
+  const [descriptionPreviewWarranty, setDescriptionPreviewWarranty] = useState("Garantia de 12 meses");
+  const [descriptionPreviewSpecs, setDescriptionPreviewSpecs] = useState("SKU: 12345, Potencia 600W RMS");
   const [pendingCatalogExitAction, setPendingCatalogExitAction] =
     useState<PendingCatalogExitAction | null>(null);
   const [catalogActionConfirm, setCatalogActionConfirm] = useState<CatalogActionConfirmState>(null);
@@ -1277,12 +1465,17 @@ export default function ComercioWebPage() {
         setCatalogDirty(draft.catalogDirty);
       }
       if (draft.catalogEditor) {
+        const draftTechnicalSpecs = sanitizeCatalogTechnicalSpecs(draft.catalogEditor.web_technical_specs);
         setCatalogEditor({
           ...emptyCatalogEditorState,
           ...draft.catalogEditor,
           web_gallery_urls: Array.isArray(draft.catalogEditor.web_gallery_urls)
             ? draft.catalogEditor.web_gallery_urls.filter((item) => typeof item === "string")
             : [],
+          web_technical_specs:
+            draftTechnicalSpecs.length > 0
+              ? draftTechnicalSpecs
+              : parseTechnicalSpecsFromShortDescription(draft.catalogEditor.web_short_description),
         });
       }
       if (typeof draft.catalogSearchTerm === "string") {
@@ -1338,10 +1531,25 @@ export default function ComercioWebPage() {
           ...draft.catalogCategoryEditor,
         });
       }
+      if (typeof draft.descriptionTemplateSelectedId === "string") {
+        setDescriptionTemplateSelectedId(draft.descriptionTemplateSelectedId);
+      }
     } catch {
       // Ignore malformed storage payloads.
     } finally {
       draftHydratedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(COMMERCE_WEB_DESCRIPTION_CONFIG_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      setDescriptionConfig(sanitizeDescriptionConfig(parsed));
+    } catch {
+      // Ignore malformed config payloads.
     }
   }, []);
 
@@ -1386,6 +1594,7 @@ export default function ComercioWebPage() {
       discountCodeEditor,
       catalogCategoryEditingId,
       catalogCategoryEditor,
+      descriptionTemplateSelectedId,
     };
     window.sessionStorage.setItem(COMMERCE_WEB_DRAFT_STORAGE_KEY, JSON.stringify(draft));
   }, [
@@ -1411,7 +1620,16 @@ export default function ComercioWebPage() {
     discountCodeEditor,
     catalogCategoryEditingId,
     catalogCategoryEditor,
+    descriptionTemplateSelectedId,
   ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      COMMERCE_WEB_DESCRIPTION_CONFIG_STORAGE_KEY,
+      JSON.stringify(descriptionConfig)
+    );
+  }, [descriptionConfig]);
 
   useEffect(() => {
     if (!token) return;
@@ -1559,6 +1777,88 @@ export default function ComercioWebPage() {
     () => buildHierarchicalCatalogCategories(catalogCategories),
     [catalogCategories]
   );
+  const categoryPathLabelMap = useMemo(() => {
+    const next = new Map<string, string>();
+    orderedCatalogCategories.forEach((item) => {
+      const key = (item.key || "").trim().toLowerCase();
+      if (!key) return;
+      next.set(key, item.parent_name ? `${item.parent_name} / ${item.name}` : item.name);
+    });
+    return next;
+  }, [orderedCatalogCategories]);
+  const selectedDescriptionTemplate = useMemo(
+    () =>
+      descriptionConfig.templates.find((template) => template.id === descriptionTemplateSelectedId) ||
+      descriptionConfig.templates[0] ||
+      null,
+    [descriptionConfig.templates, descriptionTemplateSelectedId]
+  );
+  const preferredCatalogDescriptionTemplateId = useMemo(() => {
+    if (!descriptionConfig.templates.length) return "";
+    const selectedKey = (selectedCatalogCategory?.key || "").trim().toLowerCase();
+    const parentKey = (selectedCatalogCategory?.parent_key || "").trim().toLowerCase();
+    const subcategoryKey = parentKey ? selectedKey : "";
+    const categoryKey = parentKey || selectedKey;
+    if (subcategoryKey) {
+      const exactSubcategoryTemplate = descriptionConfig.templates.find(
+        (template) => (template.assigned_category_key || "").trim().toLowerCase() === subcategoryKey
+      );
+      if (exactSubcategoryTemplate) return exactSubcategoryTemplate.id;
+    }
+    if (categoryKey) {
+      const categoryTemplate = descriptionConfig.templates.find(
+        (template) => (template.assigned_category_key || "").trim().toLowerCase() === categoryKey
+      );
+      if (categoryTemplate) return categoryTemplate.id;
+    }
+    return descriptionConfig.templates.find((template) => template.id === "default")?.id || descriptionConfig.templates[0].id;
+  }, [descriptionConfig.templates, selectedCatalogCategory?.key, selectedCatalogCategory?.parent_key]);
+  const selectedCatalogDescriptionTemplate = useMemo(
+    () =>
+      descriptionConfig.templates.find((template) => template.id === catalogDescriptionTemplateId) ||
+      null,
+    [catalogDescriptionTemplateId, descriptionConfig.templates]
+  );
+  const descriptionEditorOpen = descriptionEditorDraft !== null;
+  const descriptionPreviewConfig = useMemo<CommerceDescriptionGeneratorConfig>(() => {
+    if (!descriptionEditorDraft) return descriptionConfig;
+    if (descriptionEditorMode === "edit" && descriptionEditorOriginalId) {
+      return {
+        templates: descriptionConfig.templates.map((template) =>
+          template.id === descriptionEditorOriginalId ? descriptionEditorDraft : template
+        ),
+      };
+    }
+    return { templates: [...descriptionConfig.templates, descriptionEditorDraft] };
+  }, [descriptionConfig, descriptionEditorDraft, descriptionEditorMode, descriptionEditorOriginalId]);
+  const descriptionPreviewText = useMemo(() => {
+    try {
+      return generateCommerceWebDescription(
+        {
+          productName: descriptionPreviewName.trim() || "Producto de ejemplo",
+          categoryName: descriptionPreviewCategory,
+          subcategoryName: descriptionPreviewSubcategory,
+          brand: descriptionPreviewBrand,
+          warrantyText: descriptionPreviewWarranty,
+          technicalSpecs: descriptionPreviewSpecs
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+        },
+        descriptionPreviewConfig
+      );
+    } catch {
+      return "No fue posible generar la vista previa con la configuracion actual.";
+    }
+  }, [
+    descriptionPreviewConfig,
+    descriptionPreviewBrand,
+    descriptionPreviewCategory,
+    descriptionPreviewName,
+    descriptionPreviewSpecs,
+    descriptionPreviewSubcategory,
+    descriptionPreviewWarranty,
+  ]);
   const allCatalogCategoryOptions = useMemo(() => orderedCatalogCategories, [orderedCatalogCategories]);
   const availableParentCatalogCategories = useMemo(
     () =>
@@ -1591,6 +1891,22 @@ export default function ComercioWebPage() {
     () => normalizeCategoryKey(catalogCategoryEditor.name),
     [catalogCategoryEditor.name]
   );
+  useEffect(() => {
+    if (!descriptionConfig.templates.length) return;
+    const exists = descriptionConfig.templates.some(
+      (template) => template.id === descriptionTemplateSelectedId
+    );
+    if (!exists) {
+      setDescriptionTemplateSelectedId(descriptionConfig.templates[0].id);
+    }
+  }, [descriptionConfig.templates, descriptionTemplateSelectedId]);
+  useEffect(() => {
+    if (!preferredCatalogDescriptionTemplateId) {
+      setCatalogDescriptionTemplateId("");
+      return;
+    }
+    setCatalogDescriptionTemplateId(preferredCatalogDescriptionTemplateId);
+  }, [preferredCatalogDescriptionTemplateId]);
   const getWebCategoryLabel = useCallback(
     (value?: string | null) => {
       const key = (value || "").trim().toLowerCase();
@@ -1598,6 +1914,14 @@ export default function ComercioWebPage() {
       return categoryLabelMap.get(key) || value || "";
     },
     [categoryLabelMap]
+  );
+  const getWebCategoryPathLabel = useCallback(
+    (value?: string | null) => {
+      const key = (value || "").trim().toLowerCase();
+      if (!key) return "";
+      return categoryPathLabelMap.get(key) || getWebCategoryLabel(value);
+    },
+    [categoryPathLabelMap, getWebCategoryLabel]
   );
 
   const resolveAssetUrl = useCallback((url?: string | null) => {
@@ -1698,6 +2022,9 @@ export default function ComercioWebPage() {
   useEffect(() => {
     setCatalogEditor(buildEditorState(selectedProduct));
     setCatalogDirty(false);
+    setCatalogSpecModalOpen(false);
+    setCatalogSpecDraftType(TECHNICAL_SPEC_TYPE_OPTIONS[0]);
+    setCatalogSpecDraftValue("");
   }, [selectedProduct]);
 
   useEffect(() => {
@@ -1762,6 +2089,9 @@ export default function ComercioWebPage() {
     setCatalogSearchExecuted(false);
     setCatalogError(null);
     setCatalogDirty(false);
+    setCatalogSpecModalOpen(false);
+    setCatalogSpecDraftType(TECHNICAL_SPEC_TYPE_OPTIONS[0]);
+    setCatalogSpecDraftValue("");
   }, []);
 
   const openCatalogComposer = useCallback((productId?: number) => {
@@ -2290,6 +2620,9 @@ export default function ComercioWebPage() {
         void loadCatalogCategories();
         return;
       }
+      if (catalogWorkspaceView === "descriptions") {
+        return;
+      }
       void loadCatalogProducts();
     }, 180);
     return () => window.clearTimeout(timer);
@@ -2361,6 +2694,258 @@ export default function ComercioWebPage() {
   ) {
     setCatalogEditor((prev) => ({ ...prev, [key]: value }));
     setCatalogDirty(true);
+  }
+
+  function openCatalogSpecModal() {
+    setCatalogSpecDraftType(TECHNICAL_SPEC_TYPE_OPTIONS[0]);
+    setCatalogSpecDraftValue("");
+    setCatalogSpecModalOpen(true);
+  }
+
+  function addCatalogTechnicalSpec() {
+    const nextType = catalogSpecDraftType.trim();
+    const nextValue = catalogSpecDraftValue.trim();
+    if (!nextType || !nextValue) {
+      showToast("Selecciona la caracteristica y escribe su valor.", "error");
+      return;
+    }
+    setCatalogEditor((prev) => ({
+      ...prev,
+      web_technical_specs: [...prev.web_technical_specs, { type: nextType, value: nextValue }],
+    }));
+    setCatalogDirty(true);
+    setCatalogSpecModalOpen(false);
+    setCatalogSpecDraftType(TECHNICAL_SPEC_TYPE_OPTIONS[0]);
+    setCatalogSpecDraftValue("");
+  }
+
+  function removeCatalogTechnicalSpec(indexToRemove: number) {
+    setCatalogEditor((prev) => ({
+      ...prev,
+      web_technical_specs: prev.web_technical_specs.filter((_, index) => index !== indexToRemove),
+    }));
+    setCatalogDirty(true);
+  }
+
+  async function handleGenerateCatalogDescription() {
+    if (!selectedProduct) {
+      showToast("Selecciona un producto para generar la descripcion.", "error");
+      return;
+    }
+    const currentDescription = catalogEditor.web_long_description.trim();
+    if (currentDescription) {
+      const shouldReplace = window.confirm(
+        "Este producto ya tiene descripcion. ¿Deseas reemplazarla?"
+      );
+      if (!shouldReplace) return;
+    }
+    try {
+      setCatalogDescriptionGenerating(true);
+      await Promise.resolve();
+      const categoryName = selectedCatalogCategory?.parent_name || selectedCatalogCategory?.name || "";
+      const subcategoryName = selectedCatalogCategory?.parent_name ? selectedCatalogCategory.name : "";
+      const generatorConfig = selectedCatalogDescriptionTemplate
+        ? { templates: [selectedCatalogDescriptionTemplate] }
+        : descriptionConfig;
+      const generated = generateCommerceWebDescription({
+        productName: (catalogEditor.web_name || "").trim() || selectedProduct.name,
+        categoryName,
+        subcategoryName,
+        categoryKey: selectedCatalogCategory?.parent_key || selectedCatalogCategory?.key || "",
+        subcategoryKey: selectedCatalogCategory?.parent_key ? selectedCatalogCategory.key : "",
+        brand: catalogEditor.brand || selectedProduct.brand,
+        warrantyText: catalogEditor.web_warranty_text,
+        technicalSpecs: catalogEditor.web_technical_specs.map(
+          (item) => `${item.type.trim()}: ${item.value.trim()}`
+        ),
+      }, generatorConfig);
+      handleCatalogField("web_long_description", generated);
+      showToast("Descripcion generada. Revisa y edita antes de guardar.");
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "No se pudo generar la descripcion.",
+        "error"
+      );
+    } finally {
+      setCatalogDescriptionGenerating(false);
+    }
+  }
+
+  async function handleUpdateCatalogDescriptionSpecs() {
+    if (!selectedProduct) {
+      showToast("Selecciona un producto para actualizar las caracteristicas.", "error");
+      return;
+    }
+    const currentDescription = catalogEditor.web_long_description.trim();
+    if (!currentDescription) {
+      showToast(
+        "Este producto no tiene descripcion. Genera la descripcion completa primero.",
+        "error"
+      );
+      return;
+    }
+    const nextSpecs = catalogEditor.web_technical_specs
+      .map((item) => `${item.type.trim()}: ${item.value.trim()}`)
+      .filter(Boolean);
+    try {
+      setCatalogDescriptionSpecsUpdating(true);
+      await Promise.resolve();
+      const updatedDescription = upsertCharacteristicsBlock(currentDescription, nextSpecs);
+      handleCatalogField("web_long_description", updatedDescription);
+      showToast("Caracteristicas actualizadas dentro de la descripcion.");
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? err.message
+          : "No se pudieron actualizar las caracteristicas en la descripcion.",
+        "error"
+      );
+    } finally {
+      setCatalogDescriptionSpecsUpdating(false);
+    }
+  }
+
+  function updateDescriptionEditorDraft(
+    field: keyof DescriptionTemplateConfig,
+    value: string | string[]
+  ) {
+    setDescriptionEditorDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            [field]: value,
+          }
+        : prev
+    );
+  }
+
+  function openDescriptionTemplateEditor(templateId: string) {
+    const template = descriptionConfig.templates.find((item) => item.id === templateId);
+    if (!template) return;
+    setDescriptionTemplateSelectedId(template.id);
+    setDescriptionEditorMode("edit");
+    setDescriptionEditorOriginalId(template.id);
+    setDescriptionEditorDraft({
+      ...template,
+      keywords: [...template.keywords],
+    });
+  }
+
+  function cancelDescriptionTemplateEditor() {
+    setDescriptionEditorDraft(null);
+    setDescriptionEditorOriginalId(null);
+    const selectedExists = descriptionConfig.templates.some(
+      (template) => template.id === descriptionTemplateSelectedId
+    );
+    if (!selectedExists && descriptionConfig.templates[0]) {
+      setDescriptionTemplateSelectedId(descriptionConfig.templates[0].id);
+    }
+  }
+
+  function saveDescriptionTemplateEditor() {
+    if (!descriptionEditorDraft) return;
+    const nextId = descriptionEditorDraft.id.trim();
+    const nextLabel = descriptionEditorDraft.label.trim();
+    if (!nextId) {
+      showToast("El ID interno es obligatorio.", "error");
+      return;
+    }
+    if (!nextLabel) {
+      showToast("El nombre de la plantilla es obligatorio.", "error");
+      return;
+    }
+    const duplicateId = descriptionConfig.templates.some((template) => {
+      if (descriptionEditorMode === "edit" && descriptionEditorOriginalId) {
+        return template.id === nextId && template.id !== descriptionEditorOriginalId;
+      }
+      return template.id === nextId;
+    });
+    if (duplicateId) {
+      showToast("Ya existe una plantilla con ese ID interno.", "error");
+      return;
+    }
+    const normalizedTemplate: DescriptionTemplateConfig = {
+      ...descriptionEditorDraft,
+      id: nextId,
+      label: nextLabel,
+      assigned_category_key: (descriptionEditorDraft.assigned_category_key || "").trim(),
+      keywords: descriptionEditorDraft.keywords
+        .map((item) => item.trim())
+        .filter(Boolean),
+    };
+    setDescriptionConfig((prev) => {
+      if (descriptionEditorMode === "edit" && descriptionEditorOriginalId) {
+        const exists = prev.templates.some((template) => template.id === descriptionEditorOriginalId);
+        if (exists) {
+          return {
+            templates: prev.templates.map((template) =>
+              template.id === descriptionEditorOriginalId ? normalizedTemplate : template
+            ),
+          };
+        }
+      }
+      return { templates: [...prev.templates, normalizedTemplate] };
+    });
+    setDescriptionTemplateSelectedId(nextId);
+    setDescriptionEditorDraft(null);
+    setDescriptionEditorOriginalId(null);
+    showToast(
+      descriptionEditorMode === "create"
+        ? "Plantilla creada y guardada."
+        : "Cambios de plantilla guardados."
+    );
+  }
+
+  function resetDescriptionTemplatesToDefault() {
+    const shouldReset = window.confirm(
+      "Esto restaurara las plantillas de descripcion por defecto. ¿Deseas continuar?"
+    );
+    if (!shouldReset) return;
+    setDescriptionConfig(DEFAULT_COMMERCE_DESCRIPTION_CONFIG);
+    setDescriptionTemplateSelectedId(DEFAULT_COMMERCE_DESCRIPTION_CONFIG.templates[0]?.id || "default");
+    setDescriptionEditorDraft(null);
+    setDescriptionEditorOriginalId(null);
+    showToast("Plantillas restauradas a configuracion por defecto.");
+  }
+
+  function createDescriptionTemplate() {
+    const templateIndex = descriptionConfig.templates.length + 1;
+    const nextId = `plantilla_${Date.now()}`;
+    const nextTemplate: DescriptionTemplateConfig = {
+      id: nextId,
+      label: `Nueva plantilla ${templateIndex}`,
+      assigned_category_key: "",
+      keywords: [],
+      paragraph1: "",
+      paragraph2: "",
+      paragraph3: "",
+      closing: "",
+    };
+    setDescriptionEditorMode("create");
+    setDescriptionEditorOriginalId(null);
+    setDescriptionEditorDraft(nextTemplate);
+    showToast("Completa la plantilla y guarda los cambios.");
+  }
+
+  function deleteDescriptionTemplate(templateId: string) {
+    if (descriptionConfig.templates.length <= 1) {
+      showToast("Debes mantener al menos una plantilla.", "error");
+      return;
+    }
+    const shouldDelete = window.confirm("¿Eliminar esta plantilla?");
+    if (!shouldDelete) return;
+    setDescriptionConfig((prev) => ({
+      templates: prev.templates.filter((template) => template.id !== templateId),
+    }));
+    if (descriptionTemplateSelectedId === templateId) {
+      const nextTemplate = descriptionConfig.templates.find((template) => template.id !== templateId);
+      if (nextTemplate) setDescriptionTemplateSelectedId(nextTemplate.id);
+    }
+    if (descriptionEditorOriginalId === templateId) {
+      setDescriptionEditorDraft(null);
+      setDescriptionEditorOriginalId(null);
+    }
+    showToast("Plantilla eliminada.");
   }
 
   function applyCatalogGalleryOrder(nextGallery: string[]) {
@@ -2496,6 +3081,8 @@ export default function ComercioWebPage() {
       web_published:
         typeof overridePublished === "boolean" ? overridePublished : catalogEditor.web_published,
       web_featured: catalogEditor.web_featured,
+      web_short_description:
+        serializeTechnicalSpecsForShortDescription(catalogEditor.web_technical_specs) || null,
       web_long_description: catalogEditor.web_long_description.trim() || undefined,
       web_compare_price: autoComparePrice,
       web_price_source: catalogEditor.web_price_source,
@@ -3458,6 +4045,17 @@ export default function ComercioWebPage() {
               >
                 Categorías
               </button>
+              <button
+                type="button"
+                onClick={() => requestWorkspaceChange("descriptions")}
+                className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                  catalogWorkspaceView === "descriptions"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                Descripciones
+              </button>
             </div>
           </section>
           {catalogWorkspaceView === "publications" ? (
@@ -4264,6 +4862,42 @@ export default function ComercioWebPage() {
 
                       <div className="grid gap-3 md:grid-cols-2">
                         <LabeledField label="Descripción larga">
+                          <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+                            <select
+                              value={catalogDescriptionTemplateId}
+                              onChange={(event) => setCatalogDescriptionTemplateId(event.target.value)}
+                              className="min-w-[17rem] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400"
+                            >
+                              {descriptionConfig.templates.map((template) => (
+                                <option key={`catalog-description-template-${template.id}`} value={template.id}>
+                                  {template.label}
+                                  {template.assigned_category_key
+                                    ? ` · ${getWebCategoryPathLabel(template.assigned_category_key)}`
+                                    : ""}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              disabled={catalogDescriptionGenerating || catalogDescriptionSpecsUpdating}
+                              onClick={() => void handleGenerateCatalogDescription()}
+                              className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700 transition hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              {catalogDescriptionGenerating
+                                ? "Generando descripcion..."
+                                : "Generar descripcion automaticamente"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={catalogDescriptionGenerating || catalogDescriptionSpecsUpdating}
+                              onClick={() => void handleUpdateCatalogDescriptionSpecs()}
+                              className="rounded-lg border border-blue-300 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-70"
+                            >
+                              {catalogDescriptionSpecsUpdating
+                                ? "Actualizando caracteristicas..."
+                                : "Actualizar solo caracteristicas"}
+                            </button>
+                          </div>
                           <textarea
                             value={catalogEditor.web_long_description}
                             onChange={(event) =>
@@ -4302,6 +4936,89 @@ export default function ComercioWebPage() {
                           <p className="mt-1 text-xs text-slate-500">
                             Solo se muestra en el detalle del producto.
                           </p>
+
+                          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                Caracteristicas tecnicas
+                              </p>
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={openCatalogSpecModal}
+                                  className="rounded-lg border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 transition hover:border-blue-400"
+                                >
+                                  +
+                                </button>
+                                {catalogSpecModalOpen ? (
+                                  <div className="absolute right-0 z-40 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                      Nueva caracteristica
+                                    </p>
+                                    <select
+                                      value={catalogSpecDraftType}
+                                      onChange={(event) => setCatalogSpecDraftType(event.target.value)}
+                                      className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-emerald-400"
+                                    >
+                                      {TECHNICAL_SPEC_TYPE_OPTIONS.map((option) => (
+                                        <option key={`technical-spec-type-${option}`} value={option}>
+                                          {option}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <input
+                                      value={catalogSpecDraftValue}
+                                      onChange={(event) => setCatalogSpecDraftValue(event.target.value)}
+                                      placeholder="Ej: 3 Mts"
+                                      className="mt-2 w-full rounded-lg border border-slate-200 px-2.5 py-2 text-sm outline-none focus:border-emerald-400"
+                                    />
+                                    <div className="mt-2 flex justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setCatalogSpecModalOpen(false)}
+                                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                                      >
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={addCatalogTechnicalSpec}
+                                        className="rounded-lg border border-blue-700 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700"
+                                      >
+                                        Agregar
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="mt-2 space-y-1.5">
+                              {catalogEditor.web_technical_specs.length ? (
+                                catalogEditor.web_technical_specs.map((spec, index) => (
+                                  <div
+                                    key={`catalog-spec-${index}-${spec.type}`}
+                                    className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-2.5 py-2"
+                                  >
+                                    <span className="text-sm text-slate-700">
+                                      <strong>{spec.type}:</strong> {spec.value}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeCatalogTechnicalSpec(index)}
+                                      className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-700 transition hover:border-rose-300"
+                                    >
+                                      Quitar
+                                    </button>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-xs text-slate-500">
+                                  Aun no hay caracteristicas agregadas.
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         </LabeledField>
                       </div>
 
@@ -4765,6 +5482,314 @@ export default function ComercioWebPage() {
             </SectionCard>
             ) : null}
           </section>
+          ) : null}
+          {catalogWorkspaceView === "descriptions" ? (
+            <SectionCard
+              title={descriptionEditorOpen ? "Editor de Plantilla" : "Descripciones Base"}
+              subtitle={
+                descriptionEditorOpen
+                  ? "Edita la plantilla seleccionada y guarda los cambios para aplicarlos."
+                  : "Gestiona las plantillas de descripcion. Doble click para editar."
+              }
+            >
+              {!descriptionEditorOpen ? (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-slate-600">
+                        Doble click en una fila para abrir el editor de plantilla.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={createDescriptionTemplate}
+                          className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition hover:border-blue-400"
+                        >
+                          + Nueva plantilla
+                        </button>
+                        <button
+                          type="button"
+                          onClick={resetDescriptionTemplatesToDefault}
+                          className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                        >
+                          Restaurar plantillas por defecto
+                        </button>
+                      </div>
+                    </div>
+                    <div className="max-h-[22rem] overflow-auto rounded-xl border border-slate-200">
+                      <table className="min-w-full text-sm">
+                        <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2">Plantilla</th>
+                            <th className="px-3 py-2">Asignada a</th>
+                            <th className="px-3 py-2">Keywords</th>
+                            <th className="px-3 py-2 text-right">Acciones</th>
+                          </tr>
+                        </thead>
+                      <tbody>
+                        {descriptionConfig.templates.map((template) => {
+                            const isSelected = selectedDescriptionTemplate?.id === template.id;
+                          return (
+                            <tr
+                              key={template.id}
+                              onDoubleClick={() => openDescriptionTemplateEditor(template.id)}
+                                className="border-b border-slate-100 hover:bg-slate-50"
+                            >
+                              <td className="px-3 py-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setDescriptionTemplateSelectedId(template.id)}
+                                    className={`text-left text-sm ${isSelected ? "font-semibold text-blue-800" : "text-slate-800"}`}
+                                  >
+                                    {template.label || "Plantilla sin nombre"}
+                                  </button>
+                              </td>
+                                <td className="px-3 py-2 text-xs text-slate-600">
+                                  {template.assigned_category_key
+                                    ? getWebCategoryPathLabel(template.assigned_category_key)
+                                    : "Sin asignar"}
+                                </td>
+                                <td className="px-3 py-2 text-xs text-slate-600">
+                                  {template.keywords.length}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteDescriptionTemplate(template.id)}
+                                    className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 transition hover:border-rose-300"
+                                  >
+                                    Eliminar
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : descriptionEditorDraft ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm text-slate-700">
+                      {descriptionEditorMode === "create"
+                        ? "Nueva plantilla en creación."
+                        : `Editando: ${descriptionEditorDraft.label || "Plantilla sin nombre"}`}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={cancelDescriptionTemplateEditor}
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveDescriptionTemplateEditor}
+                        className="rounded-xl border border-blue-700 bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700"
+                      >
+                        Guardar cambios
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Nombre de plantilla
+                        </span>
+                        <input
+                          value={descriptionEditorDraft.label}
+                          onChange={(event) => updateDescriptionEditorDraft("label", event.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          ID interno
+                        </span>
+                        <input
+                          value={descriptionEditorDraft.id}
+                          onChange={(event) => updateDescriptionEditorDraft("id", event.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block md:col-span-2">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Categoria/Subcategoria web asignada
+                        </span>
+                        <select
+                          value={descriptionEditorDraft.assigned_category_key || ""}
+                          onChange={(event) =>
+                            updateDescriptionEditorDraft("assigned_category_key", event.target.value)
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                        >
+                          <option value="">Sin asignar (usar keywords)</option>
+                          {orderedCatalogCategories.map((option) => (
+                            <option key={`description-template-category-${option.key}`} value={option.key}>
+                              {option.parent_name ? `${option.parent_name} / ${option.name}` : option.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block md:col-span-2">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Palabras clave (separadas por coma)
+                        </span>
+                        <input
+                          value={descriptionEditorDraft.keywords.join(", ")}
+                          onChange={(event) =>
+                            updateDescriptionEditorDraft(
+                              "keywords",
+                              event.target.value
+                                .split(",")
+                                .map((item) => item.trim())
+                                .filter(Boolean)
+                            )
+                          }
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block md:col-span-2">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Parrafo 1
+                        </span>
+                        <textarea
+                          value={descriptionEditorDraft.paragraph1}
+                          onChange={(event) =>
+                            updateDescriptionEditorDraft("paragraph1", event.target.value)
+                          }
+                          rows={2}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Parrafo 2
+                        </span>
+                        <textarea
+                          value={descriptionEditorDraft.paragraph2}
+                          onChange={(event) =>
+                            updateDescriptionEditorDraft("paragraph2", event.target.value)
+                          }
+                          rows={3}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Parrafo 3
+                        </span>
+                        <textarea
+                          value={descriptionEditorDraft.paragraph3}
+                          onChange={(event) =>
+                            updateDescriptionEditorDraft("paragraph3", event.target.value)
+                          }
+                          rows={3}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block md:col-span-2">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Cierre comercial
+                        </span>
+                        <textarea
+                          value={descriptionEditorDraft.closing}
+                          onChange={(event) =>
+                            updateDescriptionEditorDraft("closing", event.target.value)
+                          }
+                          rows={2}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Vista previa
+                    </p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Nombre producto
+                        </span>
+                        <input
+                          value={descriptionPreviewName}
+                          onChange={(event) => setDescriptionPreviewName(event.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Categoria
+                        </span>
+                        <input
+                          value={descriptionPreviewCategory}
+                          onChange={(event) => setDescriptionPreviewCategory(event.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Subcategoria
+                        </span>
+                        <input
+                          value={descriptionPreviewSubcategory}
+                          onChange={(event) => setDescriptionPreviewSubcategory(event.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Marca
+                        </span>
+                        <input
+                          value={descriptionPreviewBrand}
+                          onChange={(event) => setDescriptionPreviewBrand(event.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Garantia
+                        </span>
+                        <input
+                          value={descriptionPreviewWarranty}
+                          onChange={(event) => setDescriptionPreviewWarranty(event.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Specs (separadas por coma)
+                        </span>
+                        <input
+                          value={descriptionPreviewSpecs}
+                          onChange={(event) => setDescriptionPreviewSpecs(event.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                        />
+                      </label>
+                    </div>
+                    <label className="mt-3 block">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Resultado final
+                      </span>
+                      <textarea
+                        value={descriptionPreviewText}
+                        readOnly
+                        rows={9}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+            </SectionCard>
           ) : null}
           {catalogWorkspaceView === "categories" ? (
             <SectionCard
