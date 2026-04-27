@@ -1123,7 +1123,11 @@ function upsertCharacteristicsBlock(description: string, specs: string[]): strin
     while (endIndex < lines.length && lines[endIndex].trim().startsWith("- ")) {
       endIndex += 1;
     }
-    const replacement = specLines.length ? ["Caracteristicas:", ...specLines] : [];
+    const nextLine = (lines[endIndex] || "").trim().toLowerCase();
+    const shouldSeparateClosing = nextLine.startsWith("en kensar te asesoramos");
+    const replacement = specLines.length
+      ? ["Caracteristicas:", ...specLines, ...(shouldSeparateClosing ? [""] : [])]
+      : [];
     return [...lines.slice(0, characteristicsIndex), ...replacement, ...lines.slice(endIndex)]
       .join("\n")
       .replace(/\n{3,}/g, "\n\n")
@@ -1134,7 +1138,11 @@ function upsertCharacteristicsBlock(description: string, specs: string[]): strin
     line.trim().toLowerCase().startsWith("datos tecnicos relevantes:")
   );
   if (legacyLineIndex >= 0) {
-    const replacement = specLines.length ? ["Caracteristicas:", ...specLines] : [];
+    const nextLine = (lines[legacyLineIndex + 1] || "").trim().toLowerCase();
+    const shouldSeparateClosing = nextLine.startsWith("en kensar te asesoramos");
+    const replacement = specLines.length
+      ? ["Caracteristicas:", ...specLines, ...(shouldSeparateClosing ? [""] : [])]
+      : [];
     return [...lines.slice(0, legacyLineIndex), ...replacement, ...lines.slice(legacyLineIndex + 1)]
       .join("\n")
       .replace(/\n{3,}/g, "\n\n")
@@ -1147,7 +1155,7 @@ function upsertCharacteristicsBlock(description: string, specs: string[]): strin
     line.trim().toLowerCase().startsWith("en kensar te asesoramos")
   );
   if (closingIndex >= 0) {
-    return [...lines.slice(0, closingIndex), ...block, ...lines.slice(closingIndex)]
+    return [...lines.slice(0, closingIndex), ...block, "", ...lines.slice(closingIndex)]
       .join("\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
