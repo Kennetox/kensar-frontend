@@ -14,15 +14,21 @@ import {
   updateComercioWebOrderStatus,
 } from "@/lib/api/comercioWeb";
 import {
+  createComercioWebDescriptionTemplate,
   createComercioWebCatalogCategory,
   deleteComercioWebCatalogCategory,
+  deleteComercioWebDescriptionTemplate,
   fetchComercioWebCatalogCategories,
+  fetchComercioWebDescriptionTemplates,
   exportComercioWebCatalogPublicationsXlsx,
   fetchComercioWebCatalogPublicationsPage,
   fetchComercioWebCatalogProducts,
+  resetComercioWebDescriptionTemplates,
   updateComercioWebCatalogCategory,
   updateComercioWebCatalogProduct,
+  updateComercioWebDescriptionTemplate,
   type ComercioWebCatalogCategory,
+  type ComercioWebDescriptionTemplate,
   type ComercioWebCatalogPublicationStats,
   type ComercioWebCatalogProduct,
   type ComercioWebCatalogProductUpdate,
@@ -186,7 +192,6 @@ type PendingCatalogExitAction =
 
 const COMMERCE_WEB_ACTIVE_TAB_STORAGE_KEY = "commerce_web_active_tab";
 const COMMERCE_WEB_DRAFT_STORAGE_KEY = "commerce_web_catalog_draft_v1";
-const COMMERCE_WEB_DESCRIPTION_CONFIG_STORAGE_KEY = "commerce_web_description_config_v1";
 const COMMERCE_WEB_ORDERS_AUTO_REFRESH_MS = 45_000;
 const COMMERCE_WEB_PAYMENTS_LEDGER_PAGE_SIZE = 15;
 const COMMERCE_WEB_LIVE_ORDER_TABS: CommerceTab[] = [
@@ -1261,42 +1266,21 @@ function SectionCard({
   );
 }
 
-function sanitizeDescriptionTemplateConfig(value: unknown): DescriptionTemplateConfig | null {
-  if (!value || typeof value !== "object") return null;
-  const row = value as Partial<DescriptionTemplateConfig>;
-  const id = typeof row.id === "string" ? row.id.trim() : "";
-  const label = typeof row.label === "string" ? row.label : "";
-  const assignedCategoryKey =
-    typeof row.assigned_category_key === "string" ? row.assigned_category_key.trim() : "";
-  const paragraph1 = typeof row.paragraph1 === "string" ? row.paragraph1 : "";
-  const paragraph2 = typeof row.paragraph2 === "string" ? row.paragraph2 : "";
-  const paragraph3 = typeof row.paragraph3 === "string" ? row.paragraph3 : "";
-  const closing = typeof row.closing === "string" ? row.closing : "";
-  if (!id || !label) return null;
-  const keywords = Array.isArray(row.keywords)
-    ? row.keywords.filter((item): item is string => typeof item === "string")
-    : [];
+function mapDescriptionTemplateFromApi(
+  row: ComercioWebDescriptionTemplate
+): DescriptionTemplateConfig {
   return {
-    id,
-    label,
-    assigned_category_key: assignedCategoryKey,
-    keywords,
-    paragraph1,
-    paragraph2,
-    paragraph3,
-    closing,
+    id: (row.template_key || "").trim(),
+    label: (row.label || "").trim() || "Plantilla",
+    assigned_category_key: (row.assigned_category_key || "").trim(),
+    keywords: Array.isArray(row.keywords)
+      ? row.keywords.filter((item): item is string => typeof item === "string")
+      : [],
+    paragraph1: row.paragraph1 || "",
+    paragraph2: row.paragraph2 || "",
+    paragraph3: row.paragraph3 || "",
+    closing: row.closing || "",
   };
-}
-
-function sanitizeDescriptionConfig(value: unknown): CommerceDescriptionGeneratorConfig {
-  if (!value || typeof value !== "object") return DEFAULT_COMMERCE_DESCRIPTION_CONFIG;
-  const rawTemplates = (value as { templates?: unknown }).templates;
-  if (!Array.isArray(rawTemplates)) return DEFAULT_COMMERCE_DESCRIPTION_CONFIG;
-  const templates = rawTemplates
-    .map(sanitizeDescriptionTemplateConfig)
-    .filter((item): item is DescriptionTemplateConfig => Boolean(item));
-  if (!templates.length) return DEFAULT_COMMERCE_DESCRIPTION_CONFIG;
-  return { templates };
 }
 
 export default function ComercioWebPage() {
@@ -1369,6 +1353,8 @@ export default function ComercioWebPage() {
   const [descriptionConfig, setDescriptionConfig] = useState<CommerceDescriptionGeneratorConfig>(
     DEFAULT_COMMERCE_DESCRIPTION_CONFIG
   );
+  const [descriptionTemplatesLoading, setDescriptionTemplatesLoading] = useState(false);
+  const [descriptionTemplatesSaving, setDescriptionTemplatesSaving] = useState(false);
   const [descriptionTemplateSelectedId, setDescriptionTemplateSelectedId] = useState<string>(
     DEFAULT_COMMERCE_DESCRIPTION_CONFIG.templates[0]?.id || "default"
   );
@@ -1542,18 +1528,6 @@ export default function ComercioWebPage() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(COMMERCE_WEB_DESCRIPTION_CONFIG_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as unknown;
-      setDescriptionConfig(sanitizeDescriptionConfig(parsed));
-    } catch {
-      // Ignore malformed config payloads.
-    }
-  }, []);
-
-  useEffect(() => {
     if (!brandSuggestionsOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
@@ -1622,14 +1596,6 @@ export default function ComercioWebPage() {
     catalogCategoryEditor,
     descriptionTemplateSelectedId,
   ]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      COMMERCE_WEB_DESCRIPTION_CONFIG_STORAGE_KEY,
-      JSON.stringify(descriptionConfig)
-    );
-  }, [descriptionConfig]);
 
   useEffect(() => {
     if (!token) return;
@@ -2078,6 +2044,41 @@ export default function ComercioWebPage() {
       setCatalogCategoryLoading(false);
     }
   }, [token]);
+
+  const loadDescriptionTemplates = useCallback(async () => {
+    if (!token) return;
+    try {
+      setDescriptionTemplatesLoading(true);
+      const rows = await fetchComercioWebDescriptionTemplates(token);
+      const templates = rows
+        .map(mapDescriptionTemplateFromApi)
+        .filter((item) => item.id && item.label);
+      if (!templates.length) {
+        setDescriptionConfig(DEFAULT_COMMERCE_DESCRIPTION_CONFIG);
+        setDescriptionTemplateSelectedId(
+          DEFAULT_COMMERCE_DESCRIPTION_CONFIG.templates[0]?.id || "default"
+        );
+        return;
+      }
+      setDescriptionConfig({ templates });
+      setDescriptionTemplateSelectedId((prev) => {
+        const normalized = (prev || "").trim();
+        if (normalized && templates.some((template) => template.id === normalized)) {
+          return normalized;
+        }
+        return templates[0].id;
+      });
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? err.message
+          : "No se pudieron cargar las plantillas de descripción.",
+        "error"
+      );
+    } finally {
+      setDescriptionTemplatesLoading(false);
+    }
+  }, [showToast, token]);
 
   const resetCatalogComposer = useCallback(() => {
     setCatalogComposerOpen(false);
@@ -2611,6 +2612,11 @@ export default function ComercioWebPage() {
 
   useEffect(() => {
     if (activeTab !== "catalog") return;
+    void loadDescriptionTemplates();
+  }, [activeTab, loadDescriptionTemplates]);
+
+  useEffect(() => {
+    if (activeTab !== "catalog") return;
     const timer = window.setTimeout(() => {
       if (catalogWorkspaceView === "discount_codes") {
         void loadDiscountCodes();
@@ -2621,12 +2627,20 @@ export default function ComercioWebPage() {
         return;
       }
       if (catalogWorkspaceView === "descriptions") {
+        void loadDescriptionTemplates();
         return;
       }
       void loadCatalogProducts();
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [activeTab, catalogWorkspaceView, loadCatalogProducts, loadDiscountCodes, loadCatalogCategories]);
+  }, [
+    activeTab,
+    catalogWorkspaceView,
+    loadCatalogProducts,
+    loadDiscountCodes,
+    loadCatalogCategories,
+    loadDescriptionTemplates,
+  ]);
 
   useEffect(() => {
     if (activeTab !== "catalog") return;
@@ -2842,8 +2856,12 @@ export default function ComercioWebPage() {
     }
   }
 
-  function saveDescriptionTemplateEditor() {
+  async function saveDescriptionTemplateEditor() {
     if (!descriptionEditorDraft) return;
+    if (!token) {
+      showToast("Debes iniciar sesión para guardar plantillas.", "error");
+      return;
+    }
     const nextId = descriptionEditorDraft.id.trim();
     const nextLabel = descriptionEditorDraft.label.trim();
     if (!nextId) {
@@ -2873,39 +2891,94 @@ export default function ComercioWebPage() {
         .map((item) => item.trim())
         .filter(Boolean),
     };
-    setDescriptionConfig((prev) => {
-      if (descriptionEditorMode === "edit" && descriptionEditorOriginalId) {
-        const exists = prev.templates.some((template) => template.id === descriptionEditorOriginalId);
-        if (exists) {
-          return {
-            templates: prev.templates.map((template) =>
-              template.id === descriptionEditorOriginalId ? normalizedTemplate : template
-            ),
-          };
-        }
+    try {
+      setDescriptionTemplatesSaving(true);
+      const currentIndex = descriptionConfig.templates.findIndex((template) => {
+        const key =
+          descriptionEditorMode === "edit" && descriptionEditorOriginalId
+            ? descriptionEditorOriginalId
+            : nextId;
+        return template.id === key;
+      });
+      const fallbackOrder = descriptionConfig.templates.length + 1;
+      const sortOrder = (currentIndex >= 0 ? currentIndex + 1 : fallbackOrder) * 10;
+      if (descriptionEditorMode === "create") {
+        await createComercioWebDescriptionTemplate(token, {
+          template_key: normalizedTemplate.id,
+          label: normalizedTemplate.label,
+          assigned_category_key: normalizedTemplate.assigned_category_key || undefined,
+          keywords: normalizedTemplate.keywords,
+          paragraph1: normalizedTemplate.paragraph1,
+          paragraph2: normalizedTemplate.paragraph2,
+          paragraph3: normalizedTemplate.paragraph3,
+          closing: normalizedTemplate.closing,
+          sort_order: sortOrder,
+        });
+      } else {
+        const targetKey = descriptionEditorOriginalId || normalizedTemplate.id;
+        await updateComercioWebDescriptionTemplate(token, targetKey, {
+          template_key: normalizedTemplate.id,
+          label: normalizedTemplate.label,
+          assigned_category_key: normalizedTemplate.assigned_category_key || undefined,
+          keywords: normalizedTemplate.keywords,
+          paragraph1: normalizedTemplate.paragraph1,
+          paragraph2: normalizedTemplate.paragraph2,
+          paragraph3: normalizedTemplate.paragraph3,
+          closing: normalizedTemplate.closing,
+          sort_order: sortOrder,
+        });
       }
-      return { templates: [...prev.templates, normalizedTemplate] };
-    });
-    setDescriptionTemplateSelectedId(nextId);
-    setDescriptionEditorDraft(null);
-    setDescriptionEditorOriginalId(null);
-    showToast(
-      descriptionEditorMode === "create"
-        ? "Plantilla creada y guardada."
-        : "Cambios de plantilla guardados."
-    );
+      await loadDescriptionTemplates();
+      setDescriptionTemplateSelectedId(nextId);
+      setDescriptionEditorDraft(null);
+      setDescriptionEditorOriginalId(null);
+      showToast(
+        descriptionEditorMode === "create"
+          ? "Plantilla creada y guardada."
+          : "Cambios de plantilla guardados."
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "No se pudo guardar la plantilla.",
+        "error"
+      );
+    } finally {
+      setDescriptionTemplatesSaving(false);
+    }
   }
 
-  function resetDescriptionTemplatesToDefault() {
+  async function resetDescriptionTemplatesToDefault() {
+    if (!token) {
+      showToast("Debes iniciar sesión para restaurar plantillas.", "error");
+      return;
+    }
     const shouldReset = window.confirm(
       "Esto restaurara las plantillas de descripcion por defecto. ¿Deseas continuar?"
     );
     if (!shouldReset) return;
-    setDescriptionConfig(DEFAULT_COMMERCE_DESCRIPTION_CONFIG);
-    setDescriptionTemplateSelectedId(DEFAULT_COMMERCE_DESCRIPTION_CONFIG.templates[0]?.id || "default");
-    setDescriptionEditorDraft(null);
-    setDescriptionEditorOriginalId(null);
-    showToast("Plantillas restauradas a configuracion por defecto.");
+    try {
+      setDescriptionTemplatesSaving(true);
+      const rows = await resetComercioWebDescriptionTemplates(token);
+      const templates = rows.map(mapDescriptionTemplateFromApi).filter((item) => item.id && item.label);
+      setDescriptionConfig({
+        templates: templates.length
+          ? templates
+          : DEFAULT_COMMERCE_DESCRIPTION_CONFIG.templates,
+      });
+      setDescriptionTemplateSelectedId(
+        templates[0]?.id || DEFAULT_COMMERCE_DESCRIPTION_CONFIG.templates[0]?.id || "default"
+      );
+      setDescriptionEditorDraft(null);
+      setDescriptionEditorOriginalId(null);
+      showToast("Plantillas restauradas a configuración por defecto.");
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "No se pudieron restaurar las plantillas.",
+        "error"
+      );
+    } finally {
+      setDescriptionTemplatesSaving(false);
+    }
   }
 
   function createDescriptionTemplate() {
@@ -2927,25 +3000,34 @@ export default function ComercioWebPage() {
     showToast("Completa la plantilla y guarda los cambios.");
   }
 
-  function deleteDescriptionTemplate(templateId: string) {
+  async function deleteDescriptionTemplate(templateId: string) {
+    if (!token) {
+      showToast("Debes iniciar sesión para eliminar plantillas.", "error");
+      return;
+    }
     if (descriptionConfig.templates.length <= 1) {
       showToast("Debes mantener al menos una plantilla.", "error");
       return;
     }
     const shouldDelete = window.confirm("¿Eliminar esta plantilla?");
     if (!shouldDelete) return;
-    setDescriptionConfig((prev) => ({
-      templates: prev.templates.filter((template) => template.id !== templateId),
-    }));
-    if (descriptionTemplateSelectedId === templateId) {
-      const nextTemplate = descriptionConfig.templates.find((template) => template.id !== templateId);
-      if (nextTemplate) setDescriptionTemplateSelectedId(nextTemplate.id);
+    try {
+      setDescriptionTemplatesSaving(true);
+      await deleteComercioWebDescriptionTemplate(token, templateId);
+      await loadDescriptionTemplates();
+      if (descriptionEditorOriginalId === templateId) {
+        setDescriptionEditorDraft(null);
+        setDescriptionEditorOriginalId(null);
+      }
+      showToast("Plantilla eliminada.");
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "No se pudo eliminar la plantilla.",
+        "error"
+      );
+    } finally {
+      setDescriptionTemplatesSaving(false);
     }
-    if (descriptionEditorOriginalId === templateId) {
-      setDescriptionEditorDraft(null);
-      setDescriptionEditorOriginalId(null);
-    }
-    showToast("Plantilla eliminada.");
   }
 
   function applyCatalogGalleryOrder(nextGallery: string[]) {
@@ -5503,13 +5585,15 @@ export default function ComercioWebPage() {
                         <button
                           type="button"
                           onClick={createDescriptionTemplate}
+                          disabled={descriptionTemplatesLoading || descriptionTemplatesSaving}
                           className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition hover:border-blue-400"
                         >
                           + Nueva plantilla
                         </button>
                         <button
                           type="button"
-                          onClick={resetDescriptionTemplatesToDefault}
+                          onClick={() => void resetDescriptionTemplatesToDefault()}
+                          disabled={descriptionTemplatesLoading || descriptionTemplatesSaving}
                           className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
                         >
                           Restaurar plantillas por defecto
@@ -5527,23 +5611,33 @@ export default function ComercioWebPage() {
                           </tr>
                         </thead>
                       <tbody>
-                        {descriptionConfig.templates.map((template) => {
+                        {descriptionTemplatesLoading ? (
+                          <tr>
+                            <td colSpan={4} className="px-3 py-6 text-center text-xs text-slate-500">
+                              Cargando plantillas...
+                            </td>
+                          </tr>
+                        ) : descriptionConfig.templates.length ? (
+                          descriptionConfig.templates.map((template) => {
                             const isSelected = selectedDescriptionTemplate?.id === template.id;
-                          return (
-                            <tr
-                              key={template.id}
-                              onDoubleClick={() => openDescriptionTemplateEditor(template.id)}
+                            return (
+                              <tr
+                                key={template.id}
+                                onDoubleClick={() => {
+                                  if (descriptionTemplatesSaving) return;
+                                  openDescriptionTemplateEditor(template.id);
+                                }}
                                 className="border-b border-slate-100 hover:bg-slate-50"
-                            >
-                              <td className="px-3 py-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setDescriptionTemplateSelectedId(template.id)}
+                              >
+                                <td className="px-3 py-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setDescriptionTemplateSelectedId(template.id)}
                                     className={`text-left text-sm ${isSelected ? "font-semibold text-blue-800" : "text-slate-800"}`}
                                   >
                                     {template.label || "Plantilla sin nombre"}
                                   </button>
-                              </td>
+                                </td>
                                 <td className="px-3 py-2 text-xs text-slate-600">
                                   {template.assigned_category_key
                                     ? getWebCategoryPathLabel(template.assigned_category_key)
@@ -5555,7 +5649,8 @@ export default function ComercioWebPage() {
                                 <td className="px-3 py-2 text-right">
                                   <button
                                     type="button"
-                                    onClick={() => deleteDescriptionTemplate(template.id)}
+                                    disabled={descriptionTemplatesSaving}
+                                    onClick={() => void deleteDescriptionTemplate(template.id)}
                                     className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 transition hover:border-rose-300"
                                   >
                                     Eliminar
@@ -5563,7 +5658,14 @@ export default function ComercioWebPage() {
                                 </td>
                               </tr>
                             );
-                          })}
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={4} className="px-3 py-6 text-center text-xs text-slate-500">
+                              No hay plantillas registradas.
+                            </td>
+                          </tr>
+                        )}
                         </tbody>
                       </table>
                     </div>
@@ -5581,16 +5683,18 @@ export default function ComercioWebPage() {
                       <button
                         type="button"
                         onClick={cancelDescriptionTemplateEditor}
+                        disabled={descriptionTemplatesSaving}
                         className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
                       >
                         Cancelar
                       </button>
                       <button
                         type="button"
-                        onClick={saveDescriptionTemplateEditor}
+                        disabled={descriptionTemplatesSaving}
+                        onClick={() => void saveDescriptionTemplateEditor()}
                         className="rounded-xl border border-blue-700 bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-700"
                       >
-                        Guardar cambios
+                        {descriptionTemplatesSaving ? "Guardando..." : "Guardar cambios"}
                       </button>
                     </div>
                   </div>

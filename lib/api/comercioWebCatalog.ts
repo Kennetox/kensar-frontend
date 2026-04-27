@@ -131,6 +131,38 @@ export type ComercioWebCatalogCategoryCreate = {
 
 export type ComercioWebCatalogCategoryUpdate = Partial<ComercioWebCatalogCategoryCreate>;
 
+export type ComercioWebDescriptionTemplate = {
+  id: number;
+  template_key: string;
+  label: string;
+  assigned_category_key?: string | null;
+  keywords: string[];
+  paragraph1: string;
+  paragraph2: string;
+  paragraph3: string;
+  closing: string;
+  sort_order: number;
+  created_by_user_id?: number | null;
+  updated_by_user_id?: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ComercioWebDescriptionTemplateCreate = {
+  template_key: string;
+  label: string;
+  assigned_category_key?: string | null;
+  keywords?: string[];
+  paragraph1?: string;
+  paragraph2?: string;
+  paragraph3?: string;
+  closing?: string;
+  sort_order?: number;
+};
+
+export type ComercioWebDescriptionTemplateUpdate =
+  Partial<ComercioWebDescriptionTemplateCreate>;
+
 function normalizeCatalogProduct(product: ComercioWebCatalogProduct): ComercioWebCatalogProduct {
   return {
     ...product,
@@ -326,4 +358,76 @@ export async function deleteComercioWebCatalogCategory(
     credentials: "include",
   });
   if (!res.ok) throw await parseError(res);
+}
+
+export async function fetchComercioWebDescriptionTemplates(
+  token: string
+): Promise<ComercioWebDescriptionTemplate[]> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/description-templates`, {
+    headers: buildHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  const data = (await res.json()) as ComercioWebDescriptionTemplate[];
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createComercioWebDescriptionTemplate(
+  token: string,
+  input: ComercioWebDescriptionTemplateCreate
+): Promise<ComercioWebDescriptionTemplate> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/description-templates`, {
+    method: "POST",
+    headers: buildHeaders(token),
+    body: JSON.stringify(input),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as ComercioWebDescriptionTemplate;
+}
+
+export async function updateComercioWebDescriptionTemplate(
+  token: string,
+  templateKey: string,
+  input: ComercioWebDescriptionTemplateUpdate
+): Promise<ComercioWebDescriptionTemplate> {
+  const res = await fetch(
+    `${getApiBase()}/comercio-web/catalog/description-templates/${encodeURIComponent(templateKey)}`,
+    {
+      method: "PUT",
+      headers: buildHeaders(token),
+      body: JSON.stringify(input),
+      credentials: "include",
+    }
+  );
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as ComercioWebDescriptionTemplate;
+}
+
+export async function deleteComercioWebDescriptionTemplate(
+  token: string,
+  templateKey: string
+): Promise<void> {
+  const res = await fetch(
+    `${getApiBase()}/comercio-web/catalog/description-templates/${encodeURIComponent(templateKey)}`,
+    {
+      method: "DELETE",
+      headers: buildHeaders(token),
+      credentials: "include",
+    }
+  );
+  if (!res.ok) throw await parseError(res);
+}
+
+export async function resetComercioWebDescriptionTemplates(
+  token: string
+): Promise<ComercioWebDescriptionTemplate[]> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/description-templates/reset`, {
+    method: "POST",
+    headers: buildHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  const data = (await res.json()) as ComercioWebDescriptionTemplate[];
+  return Array.isArray(data) ? data : [];
 }
