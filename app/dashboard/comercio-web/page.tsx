@@ -17,6 +17,7 @@ import {
   createComercioWebCatalogCategory,
   deleteComercioWebCatalogCategory,
   fetchComercioWebCatalogCategories,
+  exportComercioWebCatalogPublicationsXlsx,
   fetchComercioWebCatalogPublicationsPage,
   fetchComercioWebCatalogProducts,
   updateComercioWebCatalogCategory,
@@ -1165,6 +1166,7 @@ export default function ComercioWebPage() {
   const [catalogMetrics, setCatalogMetrics] =
     useState<ComercioWebCatalogPublicationStats>(EMPTY_CATALOG_STATS);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogExporting, setCatalogExporting] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogSearchTerm, setCatalogSearchTerm] = useState("");
   const [catalogSearchResults, setCatalogSearchResults] = useState<ComercioWebCatalogProduct[]>([]);
@@ -2142,6 +2144,76 @@ export default function ComercioWebPage() {
       // No bloquear la edición si falla la carga de sugerencias.
     }
   }, [token]);
+
+  const exportCatalogProductsXlsx = useCallback(async () => {
+    if (!token) {
+      showToast("Debes iniciar sesión para exportar.", "error");
+      return;
+    }
+    try {
+      setCatalogExporting(true);
+      const normalizedStatusFilter = publishedCatalogStatusFilter as
+        | "all"
+        | "featured"
+        | "discounted"
+        | "consult"
+        | "published"
+        | "paused";
+      const blob = await exportComercioWebCatalogPublicationsXlsx(token, {
+        q: publishedCatalogFilter.trim() || undefined,
+        field:
+          publishedCatalogFieldFilter === "all"
+            ? undefined
+            : (publishedCatalogFieldFilter as "name" | "sku" | "brand" | "group" | "badge"),
+        status_filter:
+          normalizedStatusFilter === "all"
+            ? undefined
+            : normalizedStatusFilter,
+        featured_filter:
+          publishedCatalogFeaturedFilter === "all"
+            ? undefined
+            : (publishedCatalogFeaturedFilter as "featured" | "standard"),
+        badge_filter:
+          publishedCatalogBadgeFilter === "all"
+            ? undefined
+            : (publishedCatalogBadgeFilter as "with_badge" | "without_badge"),
+        category_key:
+          publishedCatalogCategoryFilter === "all"
+            ? undefined
+            : publishedCatalogCategoryFilter,
+        order: publishedCatalogOrderFilter,
+        active_only:
+          normalizedStatusFilter === "published" || normalizedStatusFilter === "paused"
+            ? undefined
+            : publishedCatalogActiveOnly,
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+      link.href = url;
+      link.download = `catalogo-web-publicaciones-${timestamp}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      showToast("Excel generado con éxito.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "No se pudo exportar el Excel.", "error");
+    } finally {
+      setCatalogExporting(false);
+    }
+  }, [
+    publishedCatalogBadgeFilter,
+    publishedCatalogFeaturedFilter,
+    publishedCatalogFieldFilter,
+    publishedCatalogFilter,
+    publishedCatalogCategoryFilter,
+    publishedCatalogOrderFilter,
+    publishedCatalogActiveOnly,
+    publishedCatalogStatusFilter,
+    showToast,
+    token,
+  ]);
 
   const loadDiscountCodes = useCallback(async () => {
     if (!token) return;
@@ -3568,9 +3640,18 @@ export default function ComercioWebPage() {
                     <button
                       type="button"
                       onClick={() => void loadCatalogProducts()}
+                      disabled={catalogExporting}
                       className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
                     >
                       Refrescar publicaciones
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void exportCatalogProductsXlsx()}
+                      disabled={catalogExporting}
+                      className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 transition hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {catalogExporting ? "Exportando..." : "Exportar Excel (.xlsx)"}
                     </button>
                     </div>
                   </div>
