@@ -232,7 +232,9 @@ function buildDataSummary(input: CommerceDescriptionInput): string | null {
   const details: string[] = [];
   const brand = (input.brand || "").trim();
   const warranty = (input.warrantyText || "").trim();
-  const specs = uniqueNonEmptyValues(input.technicalSpecs || []);
+  const specs = uniqueNonEmptyValues(input.technicalSpecs || []).filter(
+    (item) => !/^sku\s*:/i.test(item)
+  );
   if (brand) details.push(`Marca: ${brand}.`);
   if (warranty) details.push(`Garantia: ${warranty}.`);
   if (specs.length) {

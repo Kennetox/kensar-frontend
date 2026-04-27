@@ -1062,6 +1062,7 @@ function sanitizeCatalogTechnicalSpecs(value: unknown): CatalogTechnicalSpec[] {
       const type = typeof row.type === "string" ? row.type.trim() : "";
       const fieldValue = typeof row.value === "string" ? row.value.trim() : "";
       if (!type || !fieldValue) return null;
+      if (type.toLowerCase() === "sku") return null;
       return { type, value: fieldValue };
     })
     .filter((item): item is CatalogTechnicalSpec => Boolean(item));
@@ -1081,6 +1082,7 @@ function parseTechnicalSpecsFromShortDescription(raw?: string | null): CatalogTe
       const type = parts.shift()?.trim() || "";
       const value = parts.join(":").trim();
       if (!type || !value) return null;
+      if (type.toLowerCase() === "sku") return null;
       return { type, value };
     })
     .filter((item): item is CatalogTechnicalSpec => Boolean(item));
@@ -1097,12 +1099,16 @@ function serializeTechnicalSpecsForShortDescription(specs: CatalogTechnicalSpec[
 }
 
 function upsertCharacteristicsBlock(description: string, specs: string[]): string {
-  const normalizedSpecs = specs.map((item) => item.trim()).filter(Boolean);
+  const normalizedSpecs = specs
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => !/^sku\s*:/i.test(item));
   const specLines = normalizedSpecs.map((item) => `- ${item}`);
   const source = description
     .replace(/\r\n/g, "\n")
     .replace(/\s*Datos tecnicos relevantes:\s*[^\n]*/gi, "")
     .replace(/\s*SKU:\s*[^|\n]+/gi, "")
+    .replace(/\n?\s*-\s*SKU\s*:[^\n]*/gi, "")
     .replace(/\s*\|\s*Unidad:\s*[^\n]+/gi, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
@@ -1368,7 +1374,6 @@ export default function ComercioWebPage() {
   const [descriptionPreviewSubcategory, setDescriptionPreviewSubcategory] = useState("cabinas activas");
   const [descriptionPreviewBrand, setDescriptionPreviewBrand] = useState("Yamaha");
   const [descriptionPreviewWarranty, setDescriptionPreviewWarranty] = useState("Garantia de 12 meses");
-  const [descriptionPreviewSpecs, setDescriptionPreviewSpecs] = useState("SKU: 12345, Potencia 600W RMS");
   const [pendingCatalogExitAction, setPendingCatalogExitAction] =
     useState<PendingCatalogExitAction | null>(null);
   const [catalogActionConfirm, setCatalogActionConfirm] = useState<CatalogActionConfirmState>(null);
@@ -1806,10 +1811,7 @@ export default function ComercioWebPage() {
           subcategoryName: descriptionPreviewSubcategory,
           brand: descriptionPreviewBrand,
           warrantyText: descriptionPreviewWarranty,
-          technicalSpecs: descriptionPreviewSpecs
-            .split(",")
-            .map((item) => item.trim())
-            .filter(Boolean),
+          technicalSpecs: [],
         },
         descriptionPreviewConfig
       );
@@ -1821,7 +1823,6 @@ export default function ComercioWebPage() {
     descriptionPreviewBrand,
     descriptionPreviewCategory,
     descriptionPreviewName,
-    descriptionPreviewSpecs,
     descriptionPreviewSubcategory,
     descriptionPreviewWarranty,
   ]);
@@ -4944,11 +4945,11 @@ export default function ComercioWebPage() {
 
                       <div className="grid gap-3 md:grid-cols-2">
                         <LabeledField label="Descripción larga">
-                          <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+                          <div className="mb-2 flex items-center gap-1.5">
                             <select
                               value={catalogDescriptionTemplateId}
                               onChange={(event) => setCatalogDescriptionTemplateId(event.target.value)}
-                              className="min-w-[17rem] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400"
+                              className="w-[11rem] min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-700 outline-none focus:border-emerald-400"
                             >
                               {descriptionConfig.templates.map((template) => (
                                 <option key={`catalog-description-template-${template.id}`} value={template.id}>
@@ -4963,21 +4964,21 @@ export default function ComercioWebPage() {
                               type="button"
                               disabled={catalogDescriptionGenerating || catalogDescriptionSpecsUpdating}
                               onClick={() => void handleGenerateCatalogDescription()}
-                              className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700 transition hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
+                              className="whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-[11px] font-medium text-emerald-700 transition hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
                             >
                               {catalogDescriptionGenerating
-                                ? "Generando descripcion..."
-                                : "Generar descripcion automaticamente"}
+                                ? "Generando..."
+                                : "Generar descripción"}
                             </button>
                             <button
                               type="button"
                               disabled={catalogDescriptionGenerating || catalogDescriptionSpecsUpdating}
                               onClick={() => void handleUpdateCatalogDescriptionSpecs()}
-                              className="rounded-lg border border-blue-300 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-70"
+                              className="whitespace-nowrap rounded-lg border border-blue-300 bg-blue-50 px-2 py-1.5 text-[11px] font-medium text-blue-700 transition hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-70"
                             >
                               {catalogDescriptionSpecsUpdating
-                                ? "Actualizando caracteristicas..."
-                                : "Actualizar solo caracteristicas"}
+                                ? "Actualizando..."
+                                : "Actualizar características"}
                             </button>
                           </div>
                           <textarea
@@ -5865,16 +5866,6 @@ export default function ComercioWebPage() {
                         <input
                           value={descriptionPreviewWarranty}
                           onChange={(event) => setDescriptionPreviewWarranty(event.target.value)}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-400"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Specs (separadas por coma)
-                        </span>
-                        <input
-                          value={descriptionPreviewSpecs}
-                          onChange={(event) => setDescriptionPreviewSpecs(event.target.value)}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-400"
                         />
                       </label>
