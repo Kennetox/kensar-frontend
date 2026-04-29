@@ -40,6 +40,12 @@ import {
   type ComercioWebDiscountCode,
 } from "@/lib/api/comercioWebDiscountCodes";
 import {
+  fetchComercioWebHomeSliders,
+  updateComercioWebHomeSlider,
+  type ComercioWebHomeSlider,
+  type ComercioWebHomeSliderLinkType,
+} from "@/lib/api/comercioWebHomeSliders";
+import {
   defaultRolePermissions,
   fetchPosSettings,
   fetchRolePermissions,
@@ -53,7 +59,7 @@ import {
   type DescriptionTemplateConfig,
 } from "@/lib/comercioWebDescriptionGenerator";
 
-type CommerceTab = "overview" | "catalog" | "orders" | "personalization" | "payments" | "customers";
+type CommerceTab = "overview" | "catalog" | "orders" | "personalization" | "payments" | "customers" | "sliders";
 
 type PaymentRow = {
   paymentId: number;
@@ -227,6 +233,7 @@ const COMMERCE_WEB_LIVE_ORDER_TABS: CommerceTab[] = [
 const TABS: Array<{ id: CommerceTab; label: string }> = [
   { id: "overview", label: "Resumen" },
   { id: "catalog", label: "Catálogo Web" },
+  { id: "sliders", label: "Sliders Inicio" },
   { id: "orders", label: "Órdenes" },
   { id: "personalization", label: "Personalización" },
   { id: "payments", label: "Pagos" },
@@ -1504,6 +1511,16 @@ export default function ComercioWebPage() {
   const [catalogCategoryEditingId, setCatalogCategoryEditingId] = useState<number | null>(null);
   const [catalogCategoryEditorOpen, setCatalogCategoryEditorOpen] = useState(false);
   const [catalogCategoryImageUploading, setCatalogCategoryImageUploading] = useState(false);
+  const [homeSliders, setHomeSliders] = useState<ComercioWebHomeSlider[]>([]);
+  const [homeSlidersLoading, setHomeSlidersLoading] = useState(false);
+  const [homeSlidersSavingSlot, setHomeSlidersSavingSlot] = useState<number | null>(null);
+  const [homeSliderUploadingSlot, setHomeSliderUploadingSlot] = useState<number | null>(null);
+  const [homeSliderPickerSlot, setHomeSliderPickerSlot] = useState<number | null>(null);
+  const [homeSliderPositioningSlot, setHomeSliderPositioningSlot] = useState<number | null>(null);
+  const [isDraggingSliderCta, setIsDraggingSliderCta] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState<number>(1920);
+  const [homeSliderPreviewWidth, setHomeSliderPreviewWidth] = useState<number>(0);
+  const [homeSlidersError, setHomeSlidersError] = useState<string | null>(null);
   const [catalogAssetPreviewOpenUrl, setCatalogAssetPreviewOpenUrl] = useState<string | null>(null);
   const [draggedGalleryIndex, setDraggedGalleryIndex] = useState<number | null>(null);
   const [dragOverGalleryIndex, setDragOverGalleryIndex] = useState<number | null>(null);
@@ -1520,6 +1537,8 @@ export default function ComercioWebPage() {
   const ordersFetchInFlightRef = useRef(false);
   const catalogImageInputRef = useRef<HTMLInputElement | null>(null);
   const categoryImageInputRef = useRef<HTMLInputElement | null>(null);
+  const homeSliderImageInputRef = useRef<HTMLInputElement | null>(null);
+  const homeSliderPositionerRef = useRef<HTMLDivElement | null>(null);
   const brandAutocompleteRef = useRef<HTMLDivElement | null>(null);
   const draftHydratedRef = useRef(false);
   const skuSuggestTimerRef = useRef<number | null>(null);
@@ -1541,6 +1560,35 @@ export default function ComercioWebPage() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sync = () => setViewportWidth(window.innerWidth || 1920);
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, []);
+
+  useEffect(() => {
+    if (homeSliderPositioningSlot === null) return;
+    if (typeof window === "undefined") return;
+    const node = homeSliderPositionerRef.current;
+    if (!node) return;
+
+    const syncPreviewWidth = () => {
+      const width = node.getBoundingClientRect().width;
+      setHomeSliderPreviewWidth(width > 0 ? width : 0);
+    };
+
+    syncPreviewWidth();
+    const observer = new ResizeObserver(syncPreviewWidth);
+    observer.observe(node);
+    window.addEventListener("resize", syncPreviewWidth);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", syncPreviewWidth);
+    };
+  }, [homeSliderPositioningSlot]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2264,6 +2312,21 @@ export default function ComercioWebPage() {
     descriptionPreviewWarranty,
   ]);
   const allCatalogCategoryOptions = useMemo(() => orderedCatalogCategories, [orderedCatalogCategories]);
+  const rootCatalogCategoryOptions = useMemo(
+    () => orderedCatalogCategories.filter((item) => !item.parent_key),
+    [orderedCatalogCategories]
+  );
+  const subcategoryOptionsByParent = useMemo(() => {
+    const map = new Map<string, ComercioWebCatalogCategory[]>();
+    orderedCatalogCategories.forEach((item) => {
+      const parentKey = (item.parent_key || "").trim().toLowerCase();
+      if (!parentKey) return;
+      const current = map.get(parentKey) || [];
+      current.push(item);
+      map.set(parentKey, current);
+    });
+    return map;
+  }, [orderedCatalogCategories]);
   const availableParentCatalogCategories = useMemo(
     () =>
       orderedCatalogCategories.filter((item) => item.id !== catalogCategoryEditingId),
@@ -2483,6 +2546,32 @@ export default function ComercioWebPage() {
     }
   }, [token]);
 
+  const loadHomeSliders = useCallback(async () => {
+    if (!token) return;
+    try {
+      setHomeSlidersLoading(true);
+      setHomeSlidersError(null);
+      const rows = await fetchComercioWebHomeSliders(token);
+      const sorted = rows
+        .map((item) => ({
+          ...item,
+          cta_x_percent:
+            typeof item.cta_x_percent === "number" ? item.cta_x_percent : 50,
+          cta_y_percent:
+            typeof item.cta_y_percent === "number" ? item.cta_y_percent : 80,
+        }))
+        .slice()
+        .sort((a, b) => a.slot - b.slot);
+      setHomeSliders(sorted);
+    } catch (err) {
+      setHomeSlidersError(
+        err instanceof Error ? err.message : "No se pudieron cargar los sliders de inicio."
+      );
+    } finally {
+      setHomeSlidersLoading(false);
+    }
+  }, [token]);
+
   const loadDescriptionTemplates = useCallback(async () => {
     if (!token) return;
     try {
@@ -2550,6 +2639,11 @@ export default function ComercioWebPage() {
     setCatalogSearchExecuted(false);
     setCatalogDirty(false);
   }, [loadCatalogCategories]);
+
+  useEffect(() => {
+    if (!token) return;
+    void loadHomeSliders();
+  }, [loadHomeSliders, token]);
 
   const executeCatalogExitAction = useCallback(
     (action: PendingCatalogExitAction | null) => {
@@ -3049,6 +3143,13 @@ export default function ComercioWebPage() {
   }, [activeTab, loadCatalogCategories]);
 
   useEffect(() => {
+    if (activeTab !== "sliders") return;
+    if (catalogCategories.length === 0) {
+      void loadCatalogCategories();
+    }
+  }, [activeTab, catalogCategories.length, loadCatalogCategories]);
+
+  useEffect(() => {
     if (activeTab !== "catalog") return;
     void loadDescriptionTemplates();
   }, [activeTab, loadDescriptionTemplates]);
@@ -3515,6 +3616,109 @@ export default function ComercioWebPage() {
   function shouldSkipRowDrag(target: EventTarget | null) {
     if (!(target instanceof HTMLElement)) return false;
     return Boolean(target.closest("button, a, input, textarea, select, label"));
+  }
+
+  function patchHomeSliderLocal(slot: number, updater: (current: ComercioWebHomeSlider) => ComercioWebHomeSlider) {
+    setHomeSliders((prev) =>
+      prev.map((item) => (item.slot === slot ? updater(item) : item))
+    );
+  }
+
+  function clampPercent(value: number) {
+    return Math.max(0, Math.min(100, value));
+  }
+
+  function updateHomeSliderCtaPositionFromPointer(slot: number, clientX: number, clientY: number) {
+    const shell = homeSliderPositionerRef.current;
+    if (!shell) return;
+    const rect = shell.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const x = clampPercent(((clientX - rect.left) / rect.width) * 100);
+    const y = clampPercent(((clientY - rect.top) / rect.height) * 100);
+    patchHomeSliderLocal(slot, (current) => ({
+      ...current,
+      cta_x_percent: x,
+      cta_y_percent: y,
+    }));
+  }
+
+  async function handleSaveHomeSlider(slot: number) {
+    if (!token) {
+      showToast("Debes iniciar sesión para guardar sliders.", "error");
+      return;
+    }
+    const current = homeSliders.find((item) => item.slot === slot);
+    if (!current) return;
+    try {
+      setHomeSlidersSavingSlot(slot);
+      setHomeSlidersError(null);
+      const saved = await updateComercioWebHomeSlider(token, slot, {
+        enabled: current.enabled,
+        image_url: current.image_url || null,
+        alt_text: current.alt_text || null,
+        cta_label: current.cta_label || null,
+        cta_x_percent: current.cta_x_percent,
+        cta_y_percent: current.cta_y_percent,
+        link_type: current.link_type,
+        link_value: current.link_value || null,
+        sort_order: current.sort_order,
+      });
+      patchHomeSliderLocal(slot, () => saved);
+      showToast(`Slider ${slot} guardado.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "No se pudo guardar el slider.";
+      setHomeSlidersError(message);
+      showToast(message, "error");
+    } finally {
+      setHomeSlidersSavingSlot(null);
+    }
+  }
+
+  async function handleHomeSliderImageFileChange(slot: number, file: File) {
+    if (!token) {
+      showToast("Debes iniciar sesión para subir la imagen.", "error");
+      return;
+    }
+
+    setHomeSliderUploadingSlot(slot);
+    setHomeSlidersError(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const uploadRes = await fetch(`${getApiBase()}/uploads/product-images`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+        body: formData,
+      });
+
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json().catch(() => null);
+        const msg =
+          (data && (data.detail as string)) ||
+          `Error al subir imagen (código ${uploadRes.status})`;
+        throw new Error(msg);
+      }
+
+      const data: UploadProductImageResponse = await uploadRes.json();
+      patchHomeSliderLocal(slot, (current) => ({
+        ...current,
+        image_url: data.url || current.image_url,
+      }));
+      showToast("Imagen del slider cargada con éxito.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "No se pudo subir la imagen del slider.";
+      setHomeSlidersError(message);
+      showToast(message, "error");
+    } finally {
+      setHomeSliderUploadingSlot(null);
+      setHomeSliderPickerSlot(null);
+      if (homeSliderImageInputRef.current) homeSliderImageInputRef.current.value = "";
+    }
   }
 
   async function handleCatalogImageFileChange(file: File) {
@@ -4272,6 +4476,23 @@ export default function ComercioWebPage() {
     () => flattenCheckoutContextEntries(selectedCheckoutContext),
     [selectedCheckoutContext]
   );
+  const homeSliderBeingPositioned = useMemo(
+    () =>
+      homeSliderPositioningSlot !== null
+        ? homeSliders.find((item) => item.slot === homeSliderPositioningSlot) || null
+        : null,
+    [homeSliderPositioningSlot, homeSliders]
+  );
+  const sliderModalCtaVisual = useMemo(() => {
+    const previewWidth = homeSliderPreviewWidth > 0 ? homeSliderPreviewWidth : viewportWidth;
+    const scale = Math.max(0.72, Math.min(1, previewWidth / Math.max(1, viewportWidth)));
+    return {
+      minHeight: Math.round(46 * scale),
+      fontSizeRem: Number((2.05 * scale).toFixed(3)),
+      radius: Math.round(14 * scale),
+      paddingX: Math.round(24 * scale),
+    };
+  }, [homeSliderPreviewWidth, viewportWidth]);
   const selectedDeliverySummary = useMemo(
     () => resolveOrderDeliverySummary(selectedOrder, selectedCheckoutContext),
     [selectedOrder, selectedCheckoutContext]
@@ -7210,6 +7431,262 @@ export default function ComercioWebPage() {
           </section>
         ) : null}
 
+        {activeTab === "sliders" ? (
+          <section className="space-y-4">
+            <SectionCard
+              title="Sliders del inicio"
+              subtitle="Configura hasta 5 slides reutilizables para la web sin tocar código."
+              headerActions={
+                <button
+                  type="button"
+                  onClick={() => {
+                    void loadHomeSliders();
+                  }}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Refrescar
+                </button>
+              }
+            >
+              <input
+                ref={homeSliderImageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file || homeSliderPickerSlot === null) return;
+                  void handleHomeSliderImageFileChange(homeSliderPickerSlot, file);
+                }}
+              />
+              <p className="text-xs text-slate-500">
+                Mantén el formato visual actual. Recomendado: 1920x520 formato .webp px aprox. Solo se publican los sliders activos con imagen.
+              </p>
+              {homeSlidersError ? <p className="mt-2 text-sm text-rose-600">{homeSlidersError}</p> : null}
+              {homeSlidersLoading ? (
+                <p className="mt-4 text-sm text-slate-500">Cargando sliders...</p>
+              ) : (
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  {homeSliders.map((slider) => (
+                    <div key={`home-slider-${slider.slot}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-900">Slot {slider.slot}</p>
+                        <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={slider.enabled}
+                            onChange={(event) =>
+                              patchHomeSliderLocal(slider.slot, (current) => ({
+                                ...current,
+                                enabled: event.target.checked,
+                              }))
+                            }
+                          />
+                          Activo
+                        </label>
+                      </div>
+
+                      <div className="mt-3 h-28 w-full rounded-xl border border-slate-200 bg-white bg-cover bg-center bg-no-repeat" style={slider.image_url ? { backgroundImage: `url('${resolveAssetUrl(slider.image_url) || slider.image_url}')` } : undefined}>
+                        {!slider.image_url ? (
+                          <div className="flex h-full items-center justify-center text-xs text-slate-400">Placeholder vacío</div>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          disabled={homeSliderUploadingSlot === slider.slot}
+                          onClick={() => {
+                            setHomeSliderPickerSlot(slider.slot);
+                            homeSliderImageInputRef.current?.click();
+                          }}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {homeSliderUploadingSlot === slider.slot ? "Subiendo..." : "Subir imagen"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patchHomeSliderLocal(slider.slot, (current) => ({
+                              ...current,
+                              image_url: null,
+                            }))
+                          }
+                          className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+
+                      <div className="mt-3 grid gap-2">
+                        <div className="grid grid-cols-[1fr_auto] gap-2">
+                          <input
+                            value={slider.cta_label || ""}
+                            onChange={(event) =>
+                              patchHomeSliderLocal(slider.slot, (current) => ({
+                                ...current,
+                                cta_label: event.target.value,
+                              }))
+                            }
+                            placeholder="Texto CTA (ej: VER GUITARRAS)"
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400"
+                          />
+                          <button
+                            type="button"
+                            disabled={!slider.image_url}
+                            onClick={() => setHomeSliderPositioningSlot(slider.slot)}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            title={slider.image_url ? "Ubicar CTA" : "Sube imagen para ubicar CTA"}
+                          >
+                            Ubicar
+                          </button>
+                        </div>
+                        <input
+                          value={slider.alt_text || ""}
+                          onChange={(event) =>
+                            patchHomeSliderLocal(slider.slot, (current) => ({
+                              ...current,
+                              alt_text: event.target.value,
+                            }))
+                          }
+                          placeholder="Texto alternativo (accesibilidad)"
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400"
+                        />
+                        <select
+                          value={slider.link_type}
+                          onChange={(event) =>
+                            patchHomeSliderLocal(slider.slot, (current) => ({
+                              ...current,
+                              link_type: event.target.value as ComercioWebHomeSliderLinkType,
+                              link_value:
+                                event.target.value === "sin_link" ||
+                                event.target.value === "catalogo" ||
+                                event.target.value === "personalizacion"
+                                  ? ""
+                                  : current.link_value,
+                            }))
+                          }
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400"
+                        >
+                          <option value="sin_link">Sin link</option>
+                          <option value="catalogo">Catálogo principal</option>
+                          <option value="categoria">Catálogo por categoría</option>
+                          <option value="subcategoria">Catálogo por subcategoría</option>
+                          <option value="personalizacion">Personalización</option>
+                          <option value="contacto">Contacto (sección)</option>
+                          <option value="url_interna">Ruta interna</option>
+                        </select>
+                        {slider.link_type === "categoria" ? (
+                          <select
+                            value={slider.link_value || ""}
+                            onChange={(event) =>
+                              patchHomeSliderLocal(slider.slot, (current) => ({
+                                ...current,
+                                link_value: event.target.value,
+                              }))
+                            }
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400"
+                          >
+                            <option value="">Selecciona categoría</option>
+                            {allCatalogCategoryOptions.map((category) => (
+                              <option key={`slider-category-${slider.slot}-${category.id}`} value={category.key}>
+                                {`${"  ".repeat(Math.max(0, (category.level || 1) - 1))}${category.name}`}
+                              </option>
+                            ))}
+                            </select>
+                        ) : slider.link_type === "subcategoria" ? (
+                          <>
+                            <select
+                              value={(slider.link_value || "").split("::")[0] || ""}
+                              onChange={(event) => {
+                                const parentKey = event.target.value;
+                                patchHomeSliderLocal(slider.slot, (current) => ({
+                                  ...current,
+                                  link_value: parentKey ? `${parentKey}::` : "",
+                                }));
+                              }}
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400"
+                            >
+                              <option value="">Selecciona categoría</option>
+                              {rootCatalogCategoryOptions.map((category) => (
+                                <option key={`slider-sub-parent-${slider.slot}-${category.id}`} value={category.key}>
+                                  {category.name}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={(slider.link_value || "").split("::")[1] || ""}
+                              onChange={(event) => {
+                                const [parentKey] = (slider.link_value || "").split("::");
+                                const childKey = event.target.value;
+                                patchHomeSliderLocal(slider.slot, (current) => ({
+                                  ...current,
+                                  link_value: parentKey && childKey ? `${parentKey}::${childKey}` : "",
+                                }));
+                              }}
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400"
+                            >
+                              <option value="">Selecciona subcategoría</option>
+                              {(((slider.link_value || "").split("::")[0] &&
+                                subcategoryOptionsByParent.get(((slider.link_value || "").split("::")[0] || "").toLowerCase())) ||
+                                []
+                              ).map((subcategory) => (
+                                <option key={`slider-sub-child-${slider.slot}-${subcategory.id}`} value={subcategory.key}>
+                                  {subcategory.name}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        ) : (
+                          <input
+                            value={slider.link_value || ""}
+                            onChange={(event) =>
+                              patchHomeSliderLocal(slider.slot, (current) => ({
+                                ...current,
+                                link_value: event.target.value,
+                              }))
+                            }
+                            placeholder={
+                              slider.link_type === "contacto"
+                                ? "Sección contacto (ej: formulario)"
+                                : slider.link_type === "personalizacion"
+                                  ? "Sin valor adicional"
+                                : slider.link_type === "sin_link"
+                                  ? "Sin valor adicional"
+                                : slider.link_type === "url_interna"
+                                  ? "Ruta interna (ej: /catalogo?category=instrumentos)"
+                                  : "Sin valor adicional"
+                            }
+                            disabled={
+                              slider.link_type === "sin_link" ||
+                              slider.link_type === "catalogo" ||
+                              slider.link_type === "personalizacion"
+                            }
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400 disabled:bg-slate-100"
+                          />
+                        )}
+                      </div>
+
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleSaveHomeSlider(slider.slot);
+                          }}
+                          disabled={homeSlidersSavingSlot === slider.slot}
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {homeSlidersSavingSlot === slider.slot ? "Guardando..." : "Guardar slot"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+          </section>
+        ) : null}
+
         {activeTab === "personalization" ? (
           <section className="space-y-4">
             <SectionCard
@@ -7854,6 +8331,155 @@ export default function ComercioWebPage() {
             </SectionCard>
           </section>
           </section>
+        ) : null}
+
+        {homeSliderBeingPositioned ? (
+          <div
+            className="fixed inset-0 z-[998] flex items-center justify-center bg-slate-900/45 px-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">
+                    Ubicar CTA · Slot {homeSliderBeingPositioned.slot}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Haz clic o arrastra el CTA sobre la imagen. Vista en proporción real del placeholder.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDraggingSliderCta(false);
+                    setHomeSliderPositioningSlot(null);
+                  }}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <div
+                  ref={homeSliderPositionerRef}
+                  className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100"
+                  style={{ aspectRatio: "2000 / 650" }}
+                  onMouseDown={(event) => {
+                    if (!homeSliderBeingPositioned) return;
+                    setIsDraggingSliderCta(true);
+                    updateHomeSliderCtaPositionFromPointer(
+                      homeSliderBeingPositioned.slot,
+                      event.clientX,
+                      event.clientY
+                    );
+                  }}
+                  onMouseMove={(event) => {
+                    if (!isDraggingSliderCta || !homeSliderBeingPositioned) return;
+                    updateHomeSliderCtaPositionFromPointer(
+                      homeSliderBeingPositioned.slot,
+                      event.clientX,
+                      event.clientY
+                    );
+                  }}
+                  onMouseUp={() => setIsDraggingSliderCta(false)}
+                  onMouseLeave={() => setIsDraggingSliderCta(false)}
+                >
+                  <div
+                    className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+                    style={{
+                      backgroundImage: `url('${resolveAssetUrl(homeSliderBeingPositioned.image_url) || homeSliderBeingPositioned.image_url || ""}')`,
+                    }}
+                    aria-hidden="true"
+                  />
+                  {(homeSliderBeingPositioned.cta_label || "").trim() ? (
+                    <div
+                      className="pointer-events-none absolute z-[8]"
+                      style={{
+                        left: `${homeSliderBeingPositioned.cta_x_percent ?? 50}%`,
+                        top: `${homeSliderBeingPositioned.cta_y_percent ?? 80}%`,
+                        transform: "translate(-50%, -50%)",
+                      }}
+                    >
+                      <span
+                        className="inline-flex items-center justify-center whitespace-nowrap border border-white/45 bg-white/85 font-black leading-none tracking-[-0.01em] text-slate-900 shadow-[0_12px_24px_-16px_rgba(15,23,42,0.52)]"
+                        style={{
+                          minHeight: `${sliderModalCtaVisual.minHeight}px`,
+                          borderRadius: `${sliderModalCtaVisual.radius}px`,
+                          paddingLeft: `${sliderModalCtaVisual.paddingX}px`,
+                          paddingRight: `${sliderModalCtaVisual.paddingX}px`,
+                          fontSize: `${sliderModalCtaVisual.fontSizeRem}rem`,
+                        }}
+                      >
+                        {homeSliderBeingPositioned.cta_label}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="text-xs text-slate-600">
+                    Posición X: {Math.round(homeSliderBeingPositioned.cta_x_percent ?? 50)}%
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={homeSliderBeingPositioned.cta_x_percent ?? 50}
+                      onChange={(event) =>
+                        patchHomeSliderLocal(homeSliderBeingPositioned.slot, (current) => ({
+                          ...current,
+                          cta_x_percent: Number(event.target.value),
+                        }))
+                      }
+                      className="mt-1 w-full"
+                    />
+                  </label>
+                  <label className="text-xs text-slate-600">
+                    Posición Y: {Math.round(homeSliderBeingPositioned.cta_y_percent ?? 80)}%
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={homeSliderBeingPositioned.cta_y_percent ?? 80}
+                      onChange={(event) =>
+                        patchHomeSliderLocal(homeSliderBeingPositioned.slot, (current) => ({
+                          ...current,
+                          cta_y_percent: Number(event.target.value),
+                        }))
+                      }
+                      className="mt-1 w-full"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    patchHomeSliderLocal(homeSliderBeingPositioned.slot, (current) => ({
+                      ...current,
+                      cta_x_percent: 50,
+                      cta_y_percent: 80,
+                    }))
+                  }
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleSaveHomeSlider(homeSliderBeingPositioned.slot);
+                    setHomeSliderPositioningSlot(null);
+                  }}
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800"
+                >
+                  Guardar posición
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null}
 
         {catalogCategoryEditorOpen ? (
