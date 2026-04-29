@@ -41,7 +41,9 @@ import {
 } from "@/lib/api/comercioWebDiscountCodes";
 import {
   defaultRolePermissions,
+  fetchPosSettings,
   fetchRolePermissions,
+  updatePosSettings,
   type RolePermissionModule,
 } from "@/lib/api/settings";
 import {
@@ -85,6 +87,28 @@ type PersonalizationConfiguration = {
   traceLines: string[];
   viewerPayload: Record<string, unknown> | null;
 };
+
+type PersonalizableInstrumentKey = "campana" | "guiro" | "maraca";
+
+type InstrumentBindingConfig = {
+  productId: string;
+  productSku: string;
+  productName: string;
+  productSlug: string;
+  serviceId: string;
+  serviceSku: string;
+  serviceName: string;
+};
+
+type InstrumentVariantKey =
+  | "campana_clasica_mediana"
+  | "campana_clasica_grande"
+  | "campana_cromada_mediana"
+  | "campana_cromada_grande"
+  | "guiro_mediano"
+  | "guiro_grande"
+  | "maraca_par";
+type SkuFieldKind = "product" | "service";
 
 type CatalogTechnicalSpec = {
   type: string;
@@ -258,6 +282,62 @@ const TECHNICAL_SPEC_TYPE_OPTIONS = [
 
 const CATALOG_TABLE_PAGE_SIZE = 50;
 const DISCOUNT_CODE_TABLE_PAGE_SIZE = 50;
+
+const DEFAULT_PERSONALIZATION_BINDINGS: Record<
+  PersonalizableInstrumentKey,
+  InstrumentBindingConfig
+> = {
+  campana: {
+    productId: "",
+    productSku: "",
+    productName: "",
+    productSlug: "",
+    serviceId: "",
+    serviceSku: "",
+    serviceName: "",
+  },
+  guiro: {
+    productId: "",
+    productSku: "",
+    productName: "",
+    productSlug: "",
+    serviceId: "",
+    serviceSku: "",
+    serviceName: "",
+  },
+  maraca: {
+    productId: "",
+    productSku: "",
+    productName: "",
+    productSlug: "",
+    serviceId: "",
+    serviceSku: "",
+    serviceName: "",
+  },
+};
+
+const PERSONALIZATION_VARIANT_OPTIONS: Array<{
+  key: InstrumentVariantKey;
+  instrument: PersonalizableInstrumentKey;
+  label: string;
+}> = [
+  { key: "campana_clasica_mediana", instrument: "campana", label: "Campana clásica · Mediana" },
+  { key: "campana_clasica_grande", instrument: "campana", label: "Campana clásica · Grande" },
+  { key: "campana_cromada_mediana", instrument: "campana", label: "Campana cromada · Mediana" },
+  { key: "campana_cromada_grande", instrument: "campana", label: "Campana cromada · Grande" },
+  { key: "guiro_mediano", instrument: "guiro", label: "Güiro · Mediano" },
+  { key: "guiro_grande", instrument: "guiro", label: "Güiro · Grande" },
+  { key: "maraca_par", instrument: "maraca", label: "Maracas · Par" },
+];
+
+const DEFAULT_PERSONALIZATION_VARIANT_BINDINGS: Record<InstrumentVariantKey, InstrumentBindingConfig> =
+  PERSONALIZATION_VARIANT_OPTIONS.reduce(
+    (acc, option) => {
+      acc[option.key] = { ...DEFAULT_PERSONALIZATION_BINDINGS[option.instrument] };
+      return acc;
+    },
+    {} as Record<InstrumentVariantKey, InstrumentBindingConfig>
+  );
 const MAX_HOME_FEATURED_CATEGORIES = 5;
 const EMPTY_CATALOG_STATS: ComercioWebCatalogPublicationStats = {
   configured: 0,
@@ -1317,6 +1397,24 @@ export default function ComercioWebPage() {
   const [selectedPersonalizationId, setSelectedPersonalizationId] = useState<number | null>(null);
   const [selectedPersonalizationConfigId, setSelectedPersonalizationConfigId] = useState<string | null>(null);
   const [showPersonalizationViewer, setShowPersonalizationViewer] = useState(false);
+  const [personalizationVariantBindings, setPersonalizationVariantBindings] = useState<
+    Record<InstrumentVariantKey, InstrumentBindingConfig>
+  >(DEFAULT_PERSONALIZATION_VARIANT_BINDINGS);
+  const [personalizationVariantBindingsBaseline, setPersonalizationVariantBindingsBaseline] =
+    useState<Record<InstrumentVariantKey, InstrumentBindingConfig>>(
+      DEFAULT_PERSONALIZATION_VARIANT_BINDINGS
+    );
+  const [personalizationBindingsOpen, setPersonalizationBindingsOpen] = useState(false);
+  const [personalizationBindingsSavedAt, setPersonalizationBindingsSavedAt] = useState<string | null>(
+    null
+  );
+  const [personalizationBindingsSaving, setPersonalizationBindingsSaving] = useState(false);
+  const [activeSkuField, setActiveSkuField] = useState<{
+    variant: InstrumentVariantKey;
+    kind: SkuFieldKind;
+  } | null>(null);
+  const [skuSuggestions, setSkuSuggestions] = useState<ComercioWebCatalogProduct[]>([]);
+  const [skuSuggestionsLoading, setSkuSuggestionsLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [paymentsLedgerPage, setPaymentsLedgerPage] = useState(1);
 
@@ -1424,8 +1522,24 @@ export default function ComercioWebPage() {
   const categoryImageInputRef = useRef<HTMLInputElement | null>(null);
   const brandAutocompleteRef = useRef<HTMLDivElement | null>(null);
   const draftHydratedRef = useRef(false);
+  const skuSuggestTimerRef = useRef<number | null>(null);
 
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(defaultRolePermissions);
+
+  const personalizationBindingsDirty = useMemo(
+    () =>
+      JSON.stringify(personalizationVariantBindings) !==
+      JSON.stringify(personalizationVariantBindingsBaseline),
+    [personalizationVariantBindings, personalizationVariantBindingsBaseline]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (skuSuggestTimerRef.current) {
+        window.clearTimeout(skuSuggestTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1556,6 +1670,39 @@ export default function ComercioWebPage() {
   }, [brandSuggestionsOpen]);
 
   useEffect(() => {
+    if (!token) return;
+    let active = true;
+    fetchPosSettings(token)
+      .then((settings) => {
+        if (!active) return;
+        const source = settings.web_personalization_bindings;
+        if (!source || typeof source !== "object") return;
+        const next = { ...DEFAULT_PERSONALIZATION_VARIANT_BINDINGS };
+        PERSONALIZATION_VARIANT_OPTIONS.forEach(({ key }) => {
+          const row = source[key as keyof typeof source];
+          if (!row || typeof row !== "object") return;
+          next[key] = {
+            productId: typeof row.product_id === "string" ? row.product_id : "",
+            productSku: typeof row.product_sku === "string" ? row.product_sku : "",
+            productName: typeof row.product_name === "string" ? row.product_name : "",
+            productSlug: typeof row.product_slug === "string" ? row.product_slug : "",
+            serviceId: typeof row.service_id === "string" ? row.service_id : "",
+            serviceSku: typeof row.service_sku === "string" ? row.service_sku : "",
+            serviceName: typeof row.service_name === "string" ? row.service_name : "",
+          };
+        });
+        setPersonalizationVariantBindings(next);
+        setPersonalizationVariantBindingsBaseline(next);
+      })
+      .catch(() => {
+        // Keep current local state on fetch errors.
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     if (!draftHydratedRef.current) return;
     const draft: CommerceWebDraftState = {
@@ -1636,6 +1783,251 @@ export default function ComercioWebPage() {
     if (action) return Boolean(action.roles[user.role as keyof typeof action.roles]);
     return Boolean(commerceModule.roles[user.role as keyof typeof commerceModule.roles]);
   }, [commerceModule, user]);
+
+  const personalizationBindingsEnvPreview = useMemo(() => {
+    const byInstrument: Record<PersonalizableInstrumentKey, string> = {
+      campana: "",
+      guiro: "",
+      maraca: "",
+    };
+    PERSONALIZATION_VARIANT_OPTIONS.forEach(({ instrument, key }) => {
+      if (byInstrument[instrument]) return;
+      const value = personalizationVariantBindings[key].serviceId.trim();
+      if (value) byInstrument[instrument] = value;
+    });
+    const lines: string[] = [];
+    const appendLine = (name: string, value: string) => {
+      if (!value.trim()) return;
+      lines.push(`${name}=${value.trim()}`);
+    };
+    appendLine("PERSONALIZA_SERVICE_CAMPANA_PRODUCT_ID", byInstrument.campana);
+    appendLine("PERSONALIZA_SERVICE_GUIRO_PRODUCT_ID", byInstrument.guiro);
+    appendLine("PERSONALIZA_SERVICE_MARACA_PRODUCT_ID", byInstrument.maraca);
+    return lines.join("\n");
+  }, [personalizationVariantBindings]);
+
+  const handleSavePersonalizationBindings = useCallback(() => {
+    if (!token) return;
+    setPersonalizationBindingsSaving(true);
+    const payloadBindings = PERSONALIZATION_VARIANT_OPTIONS.reduce(
+      (acc, { key }) => {
+        const row = personalizationVariantBindings[key];
+        acc[key] = {
+          product_id: row.productId.trim(),
+          product_sku: row.productSku.trim(),
+          product_name: row.productName.trim(),
+          product_slug: row.productSlug.trim(),
+          service_id: row.serviceId.trim(),
+          service_sku: row.serviceSku.trim(),
+          service_name: row.serviceName.trim(),
+        };
+        return acc;
+      },
+      {} as Record<
+        InstrumentVariantKey,
+        {
+          product_id: string;
+          product_sku: string;
+          product_name: string;
+          product_slug: string;
+          service_id: string;
+          service_sku: string;
+          service_name: string;
+        }
+      >
+    );
+    void fetchPosSettings(token)
+      .then((settings) =>
+        updatePosSettings(
+          {
+            ...settings,
+            web_personalization_bindings: payloadBindings,
+          },
+          token
+        )
+      )
+      .then(() => setPersonalizationBindingsSavedAt(new Date().toISOString()))
+      .then(() => setPersonalizationVariantBindingsBaseline(personalizationVariantBindings))
+      .finally(() => setPersonalizationBindingsSaving(false));
+  }, [personalizationVariantBindings, token]);
+
+  const handleCloseBindingsModal = useCallback(() => {
+    if (personalizationBindingsDirty) {
+      const shouldClose = window.confirm(
+        "Tienes cambios sin guardar. ¿Quieres salir sin guardar?"
+      );
+      if (!shouldClose) return;
+      setPersonalizationVariantBindings(personalizationVariantBindingsBaseline);
+    }
+    setPersonalizationBindingsOpen(false);
+  }, [
+    personalizationBindingsDirty,
+    personalizationVariantBindingsBaseline,
+  ]);
+
+  const handlePersonalizationVariantBindingChange = useCallback(
+    (variant: InstrumentVariantKey, field: keyof InstrumentBindingConfig, value: string) => {
+      setPersonalizationVariantBindings((current) => ({
+        ...current,
+        [variant]: {
+          ...current[variant],
+          [field]: value,
+        },
+      }));
+    },
+    []
+  );
+
+  const findCatalogProductBySku = useCallback(
+    async (sku: string) => {
+      if (!token) return null;
+      const normalizedSku = sku.trim();
+      if (!normalizedSku) return null;
+      const products = await fetchComercioWebCatalogProducts(token, {
+        q: normalizedSku,
+        limit: 80,
+      });
+      return (
+        products.find((item) => (item.sku || "").trim() === normalizedSku) ||
+        null
+      );
+    },
+    [token]
+  );
+
+  const handleSkuSuggestionSearch = useCallback(
+    (variant: InstrumentVariantKey, kind: SkuFieldKind, rawValue: string) => {
+      const value = rawValue.trim();
+      setActiveSkuField({ variant, kind });
+      if (skuSuggestTimerRef.current) {
+        window.clearTimeout(skuSuggestTimerRef.current);
+      }
+      if (value.length < 1 || !token) {
+        setSkuSuggestions([]);
+        setSkuSuggestionsLoading(false);
+        return;
+      }
+      setSkuSuggestionsLoading(true);
+      skuSuggestTimerRef.current = window.setTimeout(() => {
+        void fetchComercioWebCatalogProducts(token, { q: value, limit: 25 })
+          .then((rows) => {
+            const normalized = value.toLowerCase();
+            const onlySkuMatches = rows.filter((row) =>
+              (row.sku || "").trim().toLowerCase().includes(normalized)
+            );
+            setSkuSuggestions(onlySkuMatches.slice(0, 8));
+          })
+          .catch(() => setSkuSuggestions([]))
+          .finally(() => setSkuSuggestionsLoading(false));
+      }, 220);
+    },
+    [token]
+  );
+
+  const applySkuSelection = useCallback(
+    (variant: InstrumentVariantKey, kind: SkuFieldKind, product: ComercioWebCatalogProduct) => {
+      if (kind === "product") {
+        setPersonalizationVariantBindings((current) => ({
+          ...current,
+          [variant]: {
+            ...current[variant],
+            productSku: (product.sku || "").trim(),
+            productId: String(product.id),
+            productName: (product.web_name || product.name || "").trim(),
+            productSlug: (product.web_slug || product.slug || "").trim(),
+          },
+        }));
+      } else {
+        setPersonalizationVariantBindings((current) => ({
+          ...current,
+          [variant]: {
+            ...current[variant],
+            serviceSku: (product.sku || "").trim(),
+            serviceId: String(product.id),
+            serviceName: (product.web_name || product.name || "").trim(),
+          },
+        }));
+      }
+      setSkuSuggestions([]);
+      setActiveSkuField(null);
+    },
+    []
+  );
+
+  const handleSkuBlur = useCallback(() => {
+    window.setTimeout(() => {
+      setActiveSkuField(null);
+      setSkuSuggestions([]);
+    }, 120);
+  }, []);
+
+  const handleProductSkuAutoFill = useCallback(
+    async (variant: InstrumentVariantKey, skuValue: string) => {
+      const product = await findCatalogProductBySku(skuValue);
+      if (!product) return;
+      setPersonalizationVariantBindings((current) => ({
+        ...current,
+        [variant]: {
+          ...current[variant],
+          productSku: (product.sku || "").trim(),
+          productId: String(product.id),
+          productName: (product.web_name || product.name || "").trim(),
+          productSlug: (product.web_slug || product.slug || "").trim(),
+        },
+      }));
+    },
+    [findCatalogProductBySku]
+  );
+
+  const handleServiceSkuAutoFill = useCallback(
+    async (variant: InstrumentVariantKey, skuValue: string) => {
+      const product = await findCatalogProductBySku(skuValue);
+      if (!product) return;
+      setPersonalizationVariantBindings((current) => ({
+        ...current,
+        [variant]: {
+          ...current[variant],
+          serviceSku: (product.sku || "").trim(),
+          serviceId: String(product.id),
+          serviceName: (product.web_name || product.name || "").trim(),
+        },
+      }));
+    },
+    [findCatalogProductBySku]
+  );
+
+  const handleProductSkuInputChange = useCallback(
+    (variant: InstrumentVariantKey, value: string) => {
+      handlePersonalizationVariantBindingChange(variant, "productSku", value);
+      if (value.trim()) return;
+      setPersonalizationVariantBindings((current) => ({
+        ...current,
+        [variant]: {
+          ...current[variant],
+          productId: "",
+          productName: "",
+          productSlug: "",
+        },
+      }));
+    },
+    [handlePersonalizationVariantBindingChange]
+  );
+
+  const handleServiceSkuInputChange = useCallback(
+    (variant: InstrumentVariantKey, value: string) => {
+      handlePersonalizationVariantBindingChange(variant, "serviceSku", value);
+      if (value.trim()) return;
+      setPersonalizationVariantBindings((current) => ({
+        ...current,
+        [variant]: {
+          ...current[variant],
+          serviceId: "",
+          serviceName: "",
+        },
+      }));
+    },
+    [handlePersonalizationVariantBindingChange]
+  );
 
   const selectedOrder = useMemo(
     () => orders.find((order) => order.id === selectedId) ?? null,
@@ -6783,6 +7175,243 @@ export default function ComercioWebPage() {
 
         {activeTab === "personalization" ? (
           <section className="space-y-4">
+            <SectionCard
+              title="Vinculación de instrumentos"
+              subtitle="Define qué producto catálogo y qué servicio de personalización corresponde a cada instrumento."
+              headerActions={
+                <button
+                  type="button"
+                  onClick={() => setPersonalizationBindingsOpen(true)}
+                  className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-100"
+                >
+                  Configurar vinculación
+                </button>
+              }
+            >
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                Configura los vínculos de instrumentos desde una ventana aislada para no mezclarlo con el resto del flujo.
+              </div>
+            </SectionCard>
+            {personalizationBindingsOpen ? (
+              <div className="fixed inset-0 z-[120] flex items-start justify-center bg-slate-950/50 p-4 md:p-6">
+                <div className="max-h-[92vh] w-full max-w-7xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                    <div>
+                      <h3 className="text-base font-semibold text-slate-900">Configurar vinculación de instrumentos</h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Vincula SKU/ID/slug por variante y guarda en backend.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSavePersonalizationBindings}
+                        disabled={
+                          personalizationBindingsSaving ||
+                          !canManage ||
+                          !personalizationBindingsDirty
+                        }
+                        className="inline-flex items-center rounded-xl bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        {personalizationBindingsSaving ? "Guardando..." : "Guardar configuración"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCloseBindingsModal}
+                        className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-100"
+                      >
+                        {personalizationBindingsDirty ? "Cancelar" : "Cerrar"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-[74vh] space-y-3 overflow-y-auto p-4">
+                    {PERSONALIZATION_VARIANT_OPTIONS.map(({ key, label }) => (
+                      <div
+                        key={key}
+                        className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-2.5"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{label}</p>
+                        </div>
+                        <div>
+                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            Producto base
+                          </p>
+                          <div className="grid gap-1.5 md:grid-cols-12">
+                            <label className="relative space-y-1 md:col-span-2">
+                              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                SKU
+                              </span>
+                              <input
+                                value={personalizationVariantBindings[key].productSku}
+                                onChange={(event) => {
+                                  handleProductSkuInputChange(key, event.target.value);
+                                  handleSkuSuggestionSearch(key, "product", event.target.value);
+                                }}
+                                onBlur={(event) => {
+                                  void handleProductSkuAutoFill(key, event.target.value);
+                                  handleSkuBlur();
+                                }}
+                                onFocus={(event) => {
+                                  handleSkuSuggestionSearch(key, "product", event.target.value);
+                                }}
+                                placeholder="551"
+                                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                              />
+                              {activeSkuField?.variant === key && activeSkuField.kind === "product" ? (
+                                <div className="absolute top-full right-0 left-0 z-20 mt-1 max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                                  {skuSuggestionsLoading ? (
+                                    <p className="px-3 py-2 text-xs text-slate-500">Buscando SKU...</p>
+                                  ) : skuSuggestions.length === 0 ? (
+                                    <p className="px-3 py-2 text-xs text-slate-500">Sin coincidencias por SKU.</p>
+                                  ) : (
+                                    skuSuggestions.map((item) => (
+                                      <button
+                                        key={`sku-sug-product-${key}-${item.id}`}
+                                        type="button"
+                                        onMouseDown={(event) => {
+                                          event.preventDefault();
+                                          applySkuSelection(key, "product", item);
+                                        }}
+                                        className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 text-left text-xs hover:bg-slate-50"
+                                      >
+                                        <span className="font-semibold text-slate-800">{item.sku || "-"}</span>
+                                        <span className="truncate text-slate-600">{item.web_name || item.name}</span>
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              ) : null}
+                            </label>
+                            <label className="space-y-1 md:col-span-4">
+                              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Nombre
+                              </span>
+                              <input
+                                value={personalizationVariantBindings[key].productName}
+                                readOnly
+                                placeholder="Nombre del producto"
+                                className="w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-600"
+                              />
+                            </label>
+                            <label className="relative space-y-1 md:col-span-2">
+                              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                ID
+                              </span>
+                              <input
+                                value={personalizationVariantBindings[key].productId}
+                                readOnly
+                                placeholder="551"
+                                className="w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-600"
+                              />
+                            </label>
+                            <label className="space-y-1 md:col-span-4">
+                              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Slug
+                              </span>
+                              <input
+                                value={personalizationVariantBindings[key].productSlug}
+                                readOnly
+                                placeholder="par-de-maracas-instrumento"
+                                className="w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-600"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            Servicio de personalización
+                          </p>
+                          <div className="grid gap-1.5 md:grid-cols-12">
+                            <label className="relative space-y-1 md:col-span-2">
+                              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                SKU
+                              </span>
+                              <input
+                                value={personalizationVariantBindings[key].serviceSku}
+                                onChange={(event) => {
+                                  handleServiceSkuInputChange(key, event.target.value);
+                                  handleSkuSuggestionSearch(key, "service", event.target.value);
+                                }}
+                                onBlur={(event) => {
+                                  void handleServiceSkuAutoFill(key, event.target.value);
+                                  handleSkuBlur();
+                                }}
+                                onFocus={(event) => {
+                                  handleSkuSuggestionSearch(key, "service", event.target.value);
+                                }}
+                                placeholder="3753"
+                                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                              />
+                              {activeSkuField?.variant === key && activeSkuField.kind === "service" ? (
+                                <div className="absolute top-full right-0 left-0 z-20 mt-1 max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                                  {skuSuggestionsLoading ? (
+                                    <p className="px-3 py-2 text-xs text-slate-500">Buscando SKU...</p>
+                                  ) : skuSuggestions.length === 0 ? (
+                                    <p className="px-3 py-2 text-xs text-slate-500">Sin coincidencias por SKU.</p>
+                                  ) : (
+                                    skuSuggestions.map((item) => (
+                                      <button
+                                        key={`sku-sug-service-${key}-${item.id}`}
+                                        type="button"
+                                        onMouseDown={(event) => {
+                                          event.preventDefault();
+                                          applySkuSelection(key, "service", item);
+                                        }}
+                                        className="flex w-full items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 text-left text-xs hover:bg-slate-50"
+                                      >
+                                        <span className="font-semibold text-slate-800">{item.sku || "-"}</span>
+                                        <span className="truncate text-slate-600">{item.web_name || item.name}</span>
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              ) : null}
+                            </label>
+                            <label className="space-y-1 md:col-span-8">
+                              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                Nombre
+                              </span>
+                              <input
+                                value={personalizationVariantBindings[key].serviceName}
+                                readOnly
+                                placeholder="Nombre del servicio"
+                                className="w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-600"
+                              />
+                            </label>
+                            <label className="space-y-1 md:col-span-2">
+                              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                                ID
+                              </span>
+                              <input
+                                value={personalizationVariantBindings[key].serviceId}
+                                readOnly
+                                placeholder="3755"
+                                className="w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-600"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Variables recomendadas (Kensar Web)
+                      </p>
+                      <pre className="mt-2 whitespace-pre-wrap text-xs text-slate-700">
+                        {personalizationBindingsEnvPreview || "Completa al menos los Service ID para generar variables."}
+                      </pre>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Estado:{" "}
+                        {personalizationBindingsSavedAt
+                          ? `guardado en backend (${formatDateTime(personalizationBindingsSavedAt)})`
+                          : "sin guardar"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <section className="grid gap-4 lg:grid-cols-12">
               <div className="lg:col-span-4">
                 <SectionCard

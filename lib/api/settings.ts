@@ -7,6 +7,26 @@ export type ThemeOption = "dark" | "midnight" | "light";
 export type PosPrinterMode = "browser" | "qz-tray";
 export type PosPrinterWidth = "80mm" | "58mm";
 
+export type WebPersonalizationBindingEntry = {
+  product_id?: string | null;
+  product_sku?: string | null;
+  product_name?: string | null;
+  product_slug?: string | null;
+  service_id?: string | null;
+  service_sku?: string | null;
+  service_name?: string | null;
+};
+
+export type WebPersonalizationBindings = {
+  campana_clasica_mediana: WebPersonalizationBindingEntry;
+  campana_clasica_grande: WebPersonalizationBindingEntry;
+  campana_cromada_mediana: WebPersonalizationBindingEntry;
+  campana_cromada_grande: WebPersonalizationBindingEntry;
+  guiro_mediano: WebPersonalizationBindingEntry;
+  guiro_grande: WebPersonalizationBindingEntry;
+  maraca_par: WebPersonalizationBindingEntry;
+};
+
 export type PosSettingsPayload = {
   company_name: string;
   tax_id: string;
@@ -43,6 +63,7 @@ export type PosSettingsPayload = {
   printer_drawer_button?: boolean | null;
   web_pos_send_closure_email?: boolean | null;
   station_closure_email_overrides?: Record<string, boolean> | null;
+  web_personalization_bindings?: WebPersonalizationBindings | null;
 };
 
 export type PosUserRecord = {
@@ -234,6 +255,15 @@ const defaultSettings: PosSettingsPayload = {
   printer_drawer_button: true,
   web_pos_send_closure_email: true,
   station_closure_email_overrides: {},
+  web_personalization_bindings: {
+    campana_clasica_mediana: {},
+    campana_clasica_grande: {},
+    campana_cromada_mediana: {},
+    campana_cromada_grande: {},
+    guiro_mediano: {},
+    guiro_grande: {},
+    maraca_par: {},
+  },
 };
 
 const defaultUsers: PosUserRecord[] = [];
@@ -853,6 +883,21 @@ export async function fetchPosSettings(
     "/pos/settings",
     undefined,
     token ? undefined : defaultSettings,
+    token
+  );
+}
+
+export async function updatePosSettings(
+  payload: PosSettingsPayload,
+  token?: string | null
+): Promise<PosSettingsPayload> {
+  return request<PosSettingsPayload>(
+    "/pos/settings",
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+    payload,
     token
   );
 }
