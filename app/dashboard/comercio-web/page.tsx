@@ -1523,6 +1523,7 @@ export default function ComercioWebPage() {
   const brandAutocompleteRef = useRef<HTMLDivElement | null>(null);
   const draftHydratedRef = useRef(false);
   const skuSuggestTimerRef = useRef<number | null>(null);
+  const skuSuggestRequestSeqRef = useRef(0);
 
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(defaultRolePermissions);
 
@@ -1902,6 +1903,8 @@ export default function ComercioWebPage() {
       if (skuSuggestTimerRef.current) {
         window.clearTimeout(skuSuggestTimerRef.current);
       }
+      skuSuggestRequestSeqRef.current += 1;
+      const requestSeq = skuSuggestRequestSeqRef.current;
       if (value.length < 1 || !token) {
         setSkuSuggestions([]);
         setSkuSuggestionsLoading(false);
@@ -1942,10 +1945,17 @@ export default function ComercioWebPage() {
               return skuA.localeCompare(skuB, undefined, { numeric: true, sensitivity: "base" });
             });
 
+          if (requestSeq !== skuSuggestRequestSeqRef.current) return;
           setSkuSuggestions(ranked.slice(0, 12));
         })()
-          .catch(() => setSkuSuggestions([]))
-          .finally(() => setSkuSuggestionsLoading(false));
+          .catch(() => {
+            if (requestSeq !== skuSuggestRequestSeqRef.current) return;
+            setSkuSuggestions([]);
+          })
+          .finally(() => {
+            if (requestSeq !== skuSuggestRequestSeqRef.current) return;
+            setSkuSuggestionsLoading(false);
+          });
       }, 220);
     },
     [token]
