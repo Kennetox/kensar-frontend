@@ -1909,14 +1909,41 @@ export default function ComercioWebPage() {
       }
       setSkuSuggestionsLoading(true);
       skuSuggestTimerRef.current = window.setTimeout(() => {
-        void fetchComercioWebCatalogProducts(token, { q: value, limit: 25 })
-          .then((rows) => {
-            const normalized = value.toLowerCase();
-            const onlySkuMatches = rows.filter((row) =>
-              (row.sku || "").trim().toLowerCase().includes(normalized)
-            );
-            setSkuSuggestions(onlySkuMatches.slice(0, 8));
-          })
+        void (async () => {
+          const normalized = value.toLowerCase();
+          const pageSize = 80;
+          const maxPages = value.length <= 3 ? 4 : 2;
+          const collected: ComercioWebCatalogProduct[] = [];
+          for (let page = 0; page < maxPages; page += 1) {
+            const rows = await fetchComercioWebCatalogProducts(token, {
+              q: value,
+              limit: pageSize,
+              skip: page * pageSize,
+            });
+            if (!rows.length) break;
+            collected.push(...rows);
+            const hasExact = rows.some((row) => (row.sku || "").trim().toLowerCase() === normalized);
+            if (hasExact) break;
+          }
+
+          const uniqueById = new Map<number, ComercioWebCatalogProduct>();
+          for (const row of collected) {
+            uniqueById.set(row.id, row);
+          }
+
+          const ranked = Array.from(uniqueById.values())
+            .filter((row) => (row.sku || "").trim().toLowerCase().includes(normalized))
+            .sort((a, b) => {
+              const skuA = (a.sku || "").trim().toLowerCase();
+              const skuB = (b.sku || "").trim().toLowerCase();
+              const rankA = skuA === normalized ? 0 : skuA.startsWith(normalized) ? 1 : 2;
+              const rankB = skuB === normalized ? 0 : skuB.startsWith(normalized) ? 1 : 2;
+              if (rankA !== rankB) return rankA - rankB;
+              return skuA.localeCompare(skuB, undefined, { numeric: true, sensitivity: "base" });
+            });
+
+          setSkuSuggestions(ranked.slice(0, 12));
+        })()
           .catch(() => setSkuSuggestions([]))
           .finally(() => setSkuSuggestionsLoading(false));
       }, 220);
