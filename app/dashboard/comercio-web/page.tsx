@@ -1934,7 +1934,7 @@ export default function ComercioWebPage() {
             productSku: (product.sku || "").trim(),
             productId: String(product.id),
             productName: (product.web_name || product.name || "").trim(),
-            productSlug: (product.web_slug || product.slug || "").trim(),
+            productSlug: (product.web_slug || "").trim(),
           },
         }));
       } else {
@@ -1972,7 +1972,7 @@ export default function ComercioWebPage() {
           productSku: (product.sku || "").trim(),
           productId: String(product.id),
           productName: (product.web_name || product.name || "").trim(),
-          productSlug: (product.web_slug || product.slug || "").trim(),
+          productSlug: (product.web_slug || "").trim(),
         },
       }));
     },
