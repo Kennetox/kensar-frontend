@@ -1518,6 +1518,10 @@ export default function ComercioWebPage() {
   const [homeSliderPickerSlot, setHomeSliderPickerSlot] = useState<number | null>(null);
   const [homeSliderPositioningSlot, setHomeSliderPositioningSlot] = useState<number | null>(null);
   const [isDraggingSliderCta, setIsDraggingSliderCta] = useState(false);
+  const [homeSliderOrderEditorOpen, setHomeSliderOrderEditorOpen] = useState(false);
+  const [homeSliderOrderDraft, setHomeSliderOrderDraft] = useState<number[]>([]);
+  const [homeSliderOrderDraggedSlot, setHomeSliderOrderDraggedSlot] = useState<number | null>(null);
+  const [homeSliderOrderSaving, setHomeSliderOrderSaving] = useState(false);
   const [viewportWidth, setViewportWidth] = useState<number>(1920);
   const [homeSliderPreviewWidth, setHomeSliderPreviewWidth] = useState<number>(0);
   const [homeSlidersError, setHomeSlidersError] = useState<string | null>(null);
@@ -1539,6 +1543,9 @@ export default function ComercioWebPage() {
   const categoryImageInputRef = useRef<HTMLInputElement | null>(null);
   const homeSliderImageInputRef = useRef<HTMLInputElement | null>(null);
   const homeSliderPositionerRef = useRef<HTMLDivElement | null>(null);
+  const categoryTableScrollRef = useRef<HTMLDivElement | null>(null);
+  const categoryDragAutoScrollRafRef = useRef<number | null>(null);
+  const categoryDragAutoScrollDirRef = useRef<-1 | 0 | 1>(0);
   const brandAutocompleteRef = useRef<HTMLDivElement | null>(null);
   const draftHydratedRef = useRef(false);
   const skuSuggestTimerRef = useRef<number | null>(null);
@@ -1558,8 +1565,65 @@ export default function ComercioWebPage() {
       if (skuSuggestTimerRef.current) {
         window.clearTimeout(skuSuggestTimerRef.current);
       }
+      if (categoryDragAutoScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(categoryDragAutoScrollRafRef.current);
+      }
     };
   }, []);
+
+  const updateCategoryDragAutoScrollFromPointer = useCallback((clientY: number) => {
+    const container = categoryTableScrollRef.current;
+    if (!container) {
+      categoryDragAutoScrollDirRef.current = 0;
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    const edgeThreshold = Math.min(96, Math.max(56, rect.height * 0.2));
+    if (clientY < rect.top + edgeThreshold) {
+      categoryDragAutoScrollDirRef.current = -1;
+      return;
+    }
+    if (clientY > rect.bottom - edgeThreshold) {
+      categoryDragAutoScrollDirRef.current = 1;
+      return;
+    }
+    categoryDragAutoScrollDirRef.current = 0;
+  }, []);
+
+  useEffect(() => {
+    if (draggedCategoryId === null) {
+      categoryDragAutoScrollDirRef.current = 0;
+      if (categoryDragAutoScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(categoryDragAutoScrollRafRef.current);
+        categoryDragAutoScrollRafRef.current = null;
+      }
+      return;
+    }
+
+    const step = () => {
+      const container = categoryTableScrollRef.current;
+      if (container && categoryDragAutoScrollDirRef.current !== 0) {
+        const maxScroll = container.scrollHeight - container.clientHeight;
+        const nextScrollTop = Math.max(
+          0,
+          Math.min(maxScroll, container.scrollTop + categoryDragAutoScrollDirRef.current * 14)
+        );
+        if (nextScrollTop !== container.scrollTop) {
+          container.scrollTop = nextScrollTop;
+        }
+      }
+      categoryDragAutoScrollRafRef.current = window.requestAnimationFrame(step);
+    };
+
+    categoryDragAutoScrollRafRef.current = window.requestAnimationFrame(step);
+    return () => {
+      if (categoryDragAutoScrollRafRef.current !== null) {
+        window.cancelAnimationFrame(categoryDragAutoScrollRafRef.current);
+        categoryDragAutoScrollRafRef.current = null;
+      }
+      categoryDragAutoScrollDirRef.current = 0;
+    };
+  }, [draggedCategoryId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2561,7 +2625,7 @@ export default function ComercioWebPage() {
             typeof item.cta_y_percent === "number" ? item.cta_y_percent : 80,
         }))
         .slice()
-        .sort((a, b) => a.slot - b.slot);
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.slot - b.slot);
       setHomeSliders(sorted);
     } catch (err) {
       setHomeSlidersError(
@@ -4483,6 +4547,20 @@ export default function ComercioWebPage() {
         : null,
     [homeSliderPositioningSlot, homeSliders]
   );
+  const homeSliderOrderItems = useMemo(
+    () =>
+      homeSliders
+        .slice()
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.slot - b.slot),
+    [homeSliders]
+  );
+  const homeSliderCards = useMemo(
+    () =>
+      homeSliders
+        .slice()
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.slot - b.slot),
+    [homeSliders]
+  );
   const sliderModalCtaVisual = useMemo(() => {
     const previewWidth = homeSliderPreviewWidth > 0 ? homeSliderPreviewWidth : viewportWidth;
     const scale = Math.max(0.72, Math.min(1, previewWidth / Math.max(1, viewportWidth)));
@@ -4504,6 +4582,77 @@ export default function ComercioWebPage() {
     setPendingCatalogExitAction(null);
     executeCatalogExitAction(action);
   }, [executeCatalogExitAction, pendingCatalogExitAction]);
+
+  function openHomeSliderOrderEditor() {
+    setHomeSliderOrderDraft(homeSliderOrderItems.map((item) => item.slot));
+    setHomeSliderOrderDraggedSlot(null);
+    setHomeSliderOrderEditorOpen(true);
+  }
+
+  function moveHomeSliderOrderSlot(fromSlot: number, toSlot: number) {
+    if (fromSlot === toSlot) return;
+    setHomeSliderOrderDraft((prev) => {
+      const fromIndex = prev.indexOf(fromSlot);
+      const toIndex = prev.indexOf(toSlot);
+      if (fromIndex < 0 || toIndex < 0) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }
+
+  async function handleApplyHomeSliderOrder() {
+    if (!token) {
+      showToast("Debes iniciar sesión para guardar orden.", "error");
+      return;
+    }
+    if (!homeSliderOrderDraft.length) {
+      setHomeSliderOrderEditorOpen(false);
+      return;
+    }
+    try {
+      setHomeSliderOrderSaving(true);
+      setHomeSlidersError(null);
+
+      const orderBySlot = new Map<number, number>();
+      homeSliderOrderDraft.forEach((slot, index) => {
+        orderBySlot.set(slot, index * 10);
+      });
+
+      const updates = homeSliders
+        .map((item) => ({
+          slot: item.slot,
+          sort_order: orderBySlot.get(item.slot) ?? item.sort_order ?? item.slot * 10,
+        }))
+        .filter((item) => {
+          const current = homeSliders.find((row) => row.slot === item.slot);
+          return (current?.sort_order ?? 0) !== item.sort_order;
+        });
+
+      await Promise.all(
+        updates.map((item) =>
+          updateComercioWebHomeSlider(token, item.slot, { sort_order: item.sort_order })
+        )
+      );
+
+      setHomeSliders((prev) =>
+        prev.map((item) => ({
+          ...item,
+          sort_order: orderBySlot.get(item.slot) ?? item.sort_order,
+        }))
+      );
+      setHomeSliderOrderEditorOpen(false);
+      showToast("Orden de sliders actualizado.");
+      await loadHomeSliders();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "No se pudo guardar el orden.";
+      setHomeSlidersError(message);
+      showToast(message, "error");
+    } finally {
+      setHomeSliderOrderSaving(false);
+    }
+  }
 
   return (
     <main className="flex-1 min-h-screen bg-slate-50 px-4 py-4 lg:px-5 lg:py-5">
@@ -6596,7 +6745,21 @@ export default function ComercioWebPage() {
                   )}
                 </div>
 
-                <div className="max-h-[30rem] overflow-auto rounded-2xl border border-slate-200">
+                <div
+                  ref={categoryTableScrollRef}
+                  className="max-h-[30rem] overflow-auto rounded-2xl border border-slate-200"
+                  onDragOver={(event) => {
+                    if (draggedCategoryId === null) return;
+                    updateCategoryDragAutoScrollFromPointer(event.clientY);
+                  }}
+                  onDragLeave={() => {
+                    if (draggedCategoryId === null) return;
+                    categoryDragAutoScrollDirRef.current = 0;
+                  }}
+                  onDrop={() => {
+                    categoryDragAutoScrollDirRef.current = 0;
+                  }}
+                >
                   {catalogCategoryLoading ? (
                     <div className="px-4 py-8 text-sm text-slate-500">Cargando categorías…</div>
                   ) : catalogCategories.length === 0 ? (
@@ -6653,6 +6816,7 @@ export default function ComercioWebPage() {
                             }}
                             onDragOver={(event) => {
                               event.preventDefault();
+                              updateCategoryDragAutoScrollFromPointer(event.clientY);
                               if (draggedCategoryId !== null && draggedCategoryId !== row.id) {
                                 setDragOverCategoryId(row.id);
                                 const rect = event.currentTarget.getBoundingClientRect();
@@ -6681,6 +6845,7 @@ export default function ComercioWebPage() {
                               setDraggedCategoryId(null);
                               setDragOverCategoryId(null);
                               setDragOverCategoryPosition(null);
+                              categoryDragAutoScrollDirRef.current = 0;
                             }}
                             className={`border-b border-slate-100 hover:bg-slate-50/50 ${
                               draggedCategoryId === row.id
@@ -7437,15 +7602,24 @@ export default function ComercioWebPage() {
               title="Sliders del inicio"
               subtitle="Configura hasta 5 slides reutilizables para la web sin tocar código."
               headerActions={
-                <button
-                  type="button"
-                  onClick={() => {
-                    void loadHomeSliders();
-                  }}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
-                >
-                  Refrescar
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={openHomeSliderOrderEditor}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                  >
+                    Cambiar orden
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void loadHomeSliders();
+                    }}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                  >
+                    Refrescar
+                  </button>
+                </div>
               }
             >
               <input
@@ -7467,7 +7641,7 @@ export default function ComercioWebPage() {
                 <p className="mt-4 text-sm text-slate-500">Cargando sliders...</p>
               ) : (
                 <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                  {homeSliders.map((slider) => (
+                  {homeSliderCards.map((slider) => (
                     <div key={`home-slider-${slider.slot}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-slate-900">Slot {slider.slot}</p>
@@ -7685,6 +7859,115 @@ export default function ComercioWebPage() {
               )}
             </SectionCard>
           </section>
+        ) : null}
+
+        {homeSliderOrderEditorOpen ? (
+          <div
+            className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">Orden de sliders</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Arrastra los bloques para definir cómo se muestran en inicio.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (homeSliderOrderSaving) return;
+                    setHomeSliderOrderEditorOpen(false);
+                  }}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-2">
+                {homeSliderOrderDraft.map((slot, index) => {
+                  const item = homeSliders.find((row) => row.slot === slot);
+                  if (!item) return null;
+                  return (
+                    <button
+                      key={`slider-order-slot-${slot}`}
+                      type="button"
+                      draggable={!homeSliderOrderSaving}
+                      onDragStart={() => setHomeSliderOrderDraggedSlot(slot)}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        if (homeSliderOrderDraggedSlot !== null && homeSliderOrderDraggedSlot !== slot) {
+                          moveHomeSliderOrderSlot(homeSliderOrderDraggedSlot, slot);
+                        }
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        if (homeSliderOrderDraggedSlot !== null && homeSliderOrderDraggedSlot !== slot) {
+                          moveHomeSliderOrderSlot(homeSliderOrderDraggedSlot, slot);
+                        }
+                        setHomeSliderOrderDraggedSlot(null);
+                      }}
+                      onDragEnd={() => setHomeSliderOrderDraggedSlot(null)}
+                      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${
+                        homeSliderOrderDraggedSlot === slot
+                          ? "border-emerald-300 bg-emerald-50"
+                          : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="w-8 text-center text-xs font-semibold text-slate-500">#{index + 1}</div>
+                      <div
+                        className="h-10 w-24 rounded-md border border-slate-200 bg-white bg-cover bg-center bg-no-repeat"
+                        style={
+                          item.image_url
+                            ? {
+                                backgroundImage: `url('${resolveAssetUrl(item.image_url) || item.image_url}')`,
+                              }
+                            : undefined
+                        }
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-900">Slot {item.slot}</p>
+                        <p className="truncate text-xs text-slate-500">
+                          {(item.cta_label || "").trim()
+                            ? `CTA: ${item.cta_label}`
+                            : item.image_url
+                              ? "Slide con imagen"
+                              : "Placeholder vacío"}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                        Drag
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHomeSliderOrderDraft(homeSliderOrderItems.map((item) => item.slot))}
+                  disabled={homeSliderOrderSaving}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleApplyHomeSliderOrder();
+                  }}
+                  disabled={homeSliderOrderSaving}
+                  className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {homeSliderOrderSaving ? "Aplicando..." : "Aplicar orden"}
+                </button>
+              </div>
+            </div>
+          </div>
         ) : null}
 
         {activeTab === "personalization" ? (
