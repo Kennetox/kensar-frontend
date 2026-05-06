@@ -20,6 +20,10 @@ export type DescriptionTemplateConfig = {
   paragraph2: string;
   paragraph3: string;
   closing: string;
+  paragraph1_variants?: string[];
+  paragraph2_variants?: string[];
+  paragraph3_variants?: string[];
+  closing_variants?: string[];
 };
 
 export type CommerceDescriptionGeneratorConfig = {
@@ -189,7 +193,40 @@ function resolveTemplates(
     keywords: Array.isArray(template.keywords)
       ? template.keywords.map((item) => item.trim()).filter(Boolean)
       : [],
+    paragraph1_variants: Array.isArray(template.paragraph1_variants)
+      ? template.paragraph1_variants.map((item) => item.trim()).filter(Boolean)
+      : [],
+    paragraph2_variants: Array.isArray(template.paragraph2_variants)
+      ? template.paragraph2_variants.map((item) => item.trim()).filter(Boolean)
+      : [],
+    paragraph3_variants: Array.isArray(template.paragraph3_variants)
+      ? template.paragraph3_variants.map((item) => item.trim()).filter(Boolean)
+      : [],
+    closing_variants: Array.isArray(template.closing_variants)
+      ? template.closing_variants.map((item) => item.trim()).filter(Boolean)
+      : [],
   })).filter((template) => Boolean(template.id));
+}
+
+function parseInlineVariants(value: string): string[] {
+  return (value || "")
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function pickDeterministicVariant(
+  variants: string[],
+  seed: string,
+  fallback: string
+): string {
+  if (!variants.length) return fallback;
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+  const selected = variants[hash % variants.length];
+  return selected || fallback;
 }
 
 function selectTemplate(
@@ -266,10 +303,44 @@ export function generateCommerceWebDescription(
     templates
   );
 
+  const paragraph1Variants = template.paragraph1_variants?.length
+    ? template.paragraph1_variants
+    : parseInlineVariants(template.paragraph1);
+  const paragraph2Variants = template.paragraph2_variants?.length
+    ? template.paragraph2_variants
+    : parseInlineVariants(template.paragraph2);
+  const paragraph3Variants = template.paragraph3_variants?.length
+    ? template.paragraph3_variants
+    : parseInlineVariants(template.paragraph3);
+  const closingVariants = template.closing_variants?.length
+    ? template.closing_variants
+    : parseInlineVariants(template.closing);
+
+  const selectedParagraph1 = pickDeterministicVariant(
+    paragraph1Variants,
+    `${template.id}:p1:${productName}`,
+    template.paragraph1
+  );
+  const selectedParagraph2 = pickDeterministicVariant(
+    paragraph2Variants,
+    `${template.id}:p2:${productName}`,
+    template.paragraph2
+  );
+  const selectedParagraph3 = pickDeterministicVariant(
+    paragraph3Variants,
+    `${template.id}:p3:${productName}`,
+    template.paragraph3
+  );
+  const selectedClosing = pickDeterministicVariant(
+    closingVariants,
+    `${template.id}:closing:${productName}`,
+    template.closing
+  );
+
   const paragraphs = [
-    interpolateTemplateText(template.paragraph1, productName),
-    interpolateTemplateText(template.paragraph2, productName),
-    interpolateTemplateText(template.paragraph3, productName),
+    interpolateTemplateText(selectedParagraph1, productName),
+    interpolateTemplateText(selectedParagraph2, productName),
+    interpolateTemplateText(selectedParagraph3, productName),
   ].filter(Boolean);
 
   const dataSummary = buildDataSummary(input);
@@ -277,7 +348,7 @@ export function generateCommerceWebDescription(
     paragraphs.push(dataSummary);
   }
 
-  const closing = interpolateTemplateText(template.closing, productName) || DEFAULT_CLOSING;
+  const closing = interpolateTemplateText(selectedClosing, productName) || DEFAULT_CLOSING;
   paragraphs.push(closing);
 
   return paragraphs.join("\n\n").trim();

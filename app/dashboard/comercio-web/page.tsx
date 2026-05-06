@@ -1370,6 +1370,15 @@ function SectionCard({
 function mapDescriptionTemplateFromApi(
   row: ComercioWebDescriptionTemplate
 ): DescriptionTemplateConfig {
+  const parseVariants = (value: string) =>
+    value
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  const paragraph1Variants = parseVariants(row.paragraph1 || "");
+  const paragraph2Variants = parseVariants(row.paragraph2 || "");
+  const paragraph3Variants = parseVariants(row.paragraph3 || "");
+  const closingVariants = parseVariants(row.closing || "");
   return {
     id: (row.template_key || "").trim(),
     label: (row.label || "").trim() || "Plantilla",
@@ -1377,10 +1386,14 @@ function mapDescriptionTemplateFromApi(
     keywords: Array.isArray(row.keywords)
       ? row.keywords.filter((item): item is string => typeof item === "string")
       : [],
-    paragraph1: row.paragraph1 || "",
-    paragraph2: row.paragraph2 || "",
-    paragraph3: row.paragraph3 || "",
-    closing: row.closing || "",
+    paragraph1: paragraph1Variants[0] || row.paragraph1 || "",
+    paragraph2: paragraph2Variants[0] || row.paragraph2 || "",
+    paragraph3: paragraph3Variants[0] || row.paragraph3 || "",
+    closing: closingVariants[0] || row.closing || "",
+    paragraph1_variants: paragraph1Variants,
+    paragraph2_variants: paragraph2Variants,
+    paragraph3_variants: paragraph3Variants,
+    closing_variants: closingVariants,
   };
 }
 
@@ -3436,6 +3449,19 @@ export default function ComercioWebPage() {
     );
   }
 
+  function normalizeVariantLines(value: string[] | undefined, fallback = ""): string[] {
+    const source = Array.isArray(value) ? value : [];
+    const normalized = source.map((item) => item.trim()).filter(Boolean);
+    if (normalized.length) return normalized;
+    const fallbackText = fallback.trim();
+    return fallbackText ? [fallbackText] : [];
+  }
+
+  function variantsToTextareaValue(value: string[] | undefined, fallback = ""): string {
+    const normalized = normalizeVariantLines(value, fallback);
+    return normalized.join("\n");
+  }
+
   function openDescriptionTemplateEditor(templateId: string) {
     const template = descriptionConfig.templates.find((item) => item.id === templateId);
     if (!template) return;
@@ -3493,7 +3519,31 @@ export default function ComercioWebPage() {
       keywords: descriptionEditorDraft.keywords
         .map((item) => item.trim())
         .filter(Boolean),
+      paragraph1_variants: normalizeVariantLines(
+        descriptionEditorDraft.paragraph1_variants,
+        descriptionEditorDraft.paragraph1
+      ),
+      paragraph2_variants: normalizeVariantLines(
+        descriptionEditorDraft.paragraph2_variants,
+        descriptionEditorDraft.paragraph2
+      ),
+      paragraph3_variants: normalizeVariantLines(
+        descriptionEditorDraft.paragraph3_variants,
+        descriptionEditorDraft.paragraph3
+      ),
+      closing_variants: normalizeVariantLines(
+        descriptionEditorDraft.closing_variants,
+        descriptionEditorDraft.closing
+      ),
     };
+    normalizedTemplate.paragraph1 = normalizedTemplate.paragraph1_variants?.[0] || "";
+    normalizedTemplate.paragraph2 = normalizedTemplate.paragraph2_variants?.[0] || "";
+    normalizedTemplate.paragraph3 = normalizedTemplate.paragraph3_variants?.[0] || "";
+    normalizedTemplate.closing = normalizedTemplate.closing_variants?.[0] || "";
+    const serializedParagraph1 = (normalizedTemplate.paragraph1_variants || []).join("\n");
+    const serializedParagraph2 = (normalizedTemplate.paragraph2_variants || []).join("\n");
+    const serializedParagraph3 = (normalizedTemplate.paragraph3_variants || []).join("\n");
+    const serializedClosing = (normalizedTemplate.closing_variants || []).join("\n");
     try {
       setDescriptionTemplatesSaving(true);
       const currentIndex = descriptionConfig.templates.findIndex((template) => {
@@ -3511,10 +3561,10 @@ export default function ComercioWebPage() {
           label: normalizedTemplate.label,
           assigned_category_key: normalizedTemplate.assigned_category_key || undefined,
           keywords: normalizedTemplate.keywords,
-          paragraph1: normalizedTemplate.paragraph1,
-          paragraph2: normalizedTemplate.paragraph2,
-          paragraph3: normalizedTemplate.paragraph3,
-          closing: normalizedTemplate.closing,
+          paragraph1: serializedParagraph1,
+          paragraph2: serializedParagraph2,
+          paragraph3: serializedParagraph3,
+          closing: serializedClosing,
           sort_order: sortOrder,
         });
       } else {
@@ -3524,10 +3574,10 @@ export default function ComercioWebPage() {
           label: normalizedTemplate.label,
           assigned_category_key: normalizedTemplate.assigned_category_key || undefined,
           keywords: normalizedTemplate.keywords,
-          paragraph1: normalizedTemplate.paragraph1,
-          paragraph2: normalizedTemplate.paragraph2,
-          paragraph3: normalizedTemplate.paragraph3,
-          closing: normalizedTemplate.closing,
+          paragraph1: serializedParagraph1,
+          paragraph2: serializedParagraph2,
+          paragraph3: serializedParagraph3,
+          closing: serializedClosing,
           sort_order: sortOrder,
         });
       }
@@ -3596,6 +3646,10 @@ export default function ComercioWebPage() {
       paragraph2: "",
       paragraph3: "",
       closing: "",
+      paragraph1_variants: [],
+      paragraph2_variants: [],
+      paragraph3_variants: [],
+      closing_variants: [],
     };
     setDescriptionEditorMode("create");
     setDescriptionEditorOriginalId(null);
@@ -6568,53 +6622,89 @@ export default function ComercioWebPage() {
                       </label>
                       <label className="block md:col-span-2">
                         <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Parrafo 1
+                          Parrafo 1 (una variante por linea)
                         </span>
                         <textarea
-                          value={descriptionEditorDraft.paragraph1}
+                          value={variantsToTextareaValue(
+                            descriptionEditorDraft.paragraph1_variants,
+                            descriptionEditorDraft.paragraph1
+                          )}
                           onChange={(event) =>
-                            updateDescriptionEditorDraft("paragraph1", event.target.value)
+                            updateDescriptionEditorDraft(
+                              "paragraph1_variants",
+                              event.target.value
+                                .split("\n")
+                                .map((item) => item.trim())
+                                .filter(Boolean)
+                            )
                           }
-                          rows={2}
+                          rows={4}
                           className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
                         />
                       </label>
                       <label className="block">
                         <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Parrafo 2
+                          Parrafo 2 (una variante por linea)
                         </span>
                         <textarea
-                          value={descriptionEditorDraft.paragraph2}
+                          value={variantsToTextareaValue(
+                            descriptionEditorDraft.paragraph2_variants,
+                            descriptionEditorDraft.paragraph2
+                          )}
                           onChange={(event) =>
-                            updateDescriptionEditorDraft("paragraph2", event.target.value)
+                            updateDescriptionEditorDraft(
+                              "paragraph2_variants",
+                              event.target.value
+                                .split("\n")
+                                .map((item) => item.trim())
+                                .filter(Boolean)
+                            )
                           }
-                          rows={3}
+                          rows={4}
                           className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
                         />
                       </label>
                       <label className="block">
                         <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Parrafo 3
+                          Parrafo 3 (una variante por linea)
                         </span>
                         <textarea
-                          value={descriptionEditorDraft.paragraph3}
+                          value={variantsToTextareaValue(
+                            descriptionEditorDraft.paragraph3_variants,
+                            descriptionEditorDraft.paragraph3
+                          )}
                           onChange={(event) =>
-                            updateDescriptionEditorDraft("paragraph3", event.target.value)
+                            updateDescriptionEditorDraft(
+                              "paragraph3_variants",
+                              event.target.value
+                                .split("\n")
+                                .map((item) => item.trim())
+                                .filter(Boolean)
+                            )
                           }
-                          rows={3}
+                          rows={4}
                           className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
                         />
                       </label>
                       <label className="block md:col-span-2">
                         <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Cierre comercial
+                          Cierre comercial (una variante por linea)
                         </span>
                         <textarea
-                          value={descriptionEditorDraft.closing}
+                          value={variantsToTextareaValue(
+                            descriptionEditorDraft.closing_variants,
+                            descriptionEditorDraft.closing
+                          )}
                           onChange={(event) =>
-                            updateDescriptionEditorDraft("closing", event.target.value)
+                            updateDescriptionEditorDraft(
+                              "closing_variants",
+                              event.target.value
+                                .split("\n")
+                                .map((item) => item.trim())
+                                .filter(Boolean)
+                            )
                           }
-                          rows={2}
+                          rows={3}
                           className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
                         />
                       </label>
