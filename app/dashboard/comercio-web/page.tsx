@@ -1528,7 +1528,9 @@ export default function ComercioWebPage() {
   const [homeSlidersLoading, setHomeSlidersLoading] = useState(false);
   const [homeSlidersSavingSlot, setHomeSlidersSavingSlot] = useState<number | null>(null);
   const [homeSliderUploadingSlot, setHomeSliderUploadingSlot] = useState<number | null>(null);
+  const [homeSliderMobileUploadingSlot, setHomeSliderMobileUploadingSlot] = useState<number | null>(null);
   const [homeSliderPickerSlot, setHomeSliderPickerSlot] = useState<number | null>(null);
+  const [homeSliderPickerTarget, setHomeSliderPickerTarget] = useState<"desktop" | "mobile">("desktop");
   const [homeSliderPositioningSlot, setHomeSliderPositioningSlot] = useState<number | null>(null);
   const [isDraggingSliderCta, setIsDraggingSliderCta] = useState(false);
   const [homeSliderOrderEditorOpen, setHomeSliderOrderEditorOpen] = useState(false);
@@ -3773,6 +3775,7 @@ export default function ComercioWebPage() {
       const saved = await updateComercioWebHomeSlider(token, slot, {
         enabled: current.enabled,
         image_url: current.image_url || null,
+        mobile_image_url: current.mobile_image_url || null,
         alt_text: current.alt_text || null,
         cta_label: current.cta_label || null,
         cta_x_percent: current.cta_x_percent,
@@ -3792,13 +3795,21 @@ export default function ComercioWebPage() {
     }
   }
 
-  async function handleHomeSliderImageFileChange(slot: number, file: File) {
+  async function handleHomeSliderImageFileChange(
+    slot: number,
+    file: File,
+    target: "desktop" | "mobile" = "desktop"
+  ) {
     if (!token) {
       showToast("Debes iniciar sesión para subir la imagen.", "error");
       return;
     }
 
-    setHomeSliderUploadingSlot(slot);
+    if (target === "mobile") {
+      setHomeSliderMobileUploadingSlot(slot);
+    } else {
+      setHomeSliderUploadingSlot(slot);
+    }
     setHomeSlidersError(null);
 
     const formData = new FormData();
@@ -3825,16 +3836,27 @@ export default function ComercioWebPage() {
       const data: UploadProductImageResponse = await uploadRes.json();
       patchHomeSliderLocal(slot, (current) => ({
         ...current,
-        image_url: data.url || current.image_url,
+        image_url: target === "desktop" ? data.url || current.image_url : current.image_url,
+        mobile_image_url:
+          target === "mobile" ? data.url || current.mobile_image_url : current.mobile_image_url,
       }));
-      showToast("Imagen del slider cargada con éxito.");
+      showToast(
+        target === "mobile"
+          ? "Imagen móvil del slider cargada con éxito."
+          : "Imagen del slider cargada con éxito."
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : "No se pudo subir la imagen del slider.";
       setHomeSlidersError(message);
       showToast(message, "error");
     } finally {
-      setHomeSliderUploadingSlot(null);
+      if (target === "mobile") {
+        setHomeSliderMobileUploadingSlot(null);
+      } else {
+        setHomeSliderUploadingSlot(null);
+      }
       setHomeSliderPickerSlot(null);
+      setHomeSliderPickerTarget("desktop");
       if (homeSliderImageInputRef.current) homeSliderImageInputRef.current.value = "";
     }
   }
@@ -7720,11 +7742,11 @@ export default function ComercioWebPage() {
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (!file || homeSliderPickerSlot === null) return;
-                  void handleHomeSliderImageFileChange(homeSliderPickerSlot, file);
+                  void handleHomeSliderImageFileChange(homeSliderPickerSlot, file, homeSliderPickerTarget);
                 }}
               />
               <p className="text-xs text-slate-500">
-                Mantén el formato visual actual. Recomendado: 1920x520 formato .webp px aprox. Solo se publican los sliders activos con imagen.
+                Desktop recomendado: 1920x520 (.webp). Móvil opcional por slot: 1200x900 (4:3). Solo se publican sliders activos con imagen desktop.
               </p>
               {homeSlidersError ? <p className="mt-2 text-sm text-rose-600">{homeSlidersError}</p> : null}
               {homeSlidersLoading ? (
@@ -7756,17 +7778,30 @@ export default function ComercioWebPage() {
                         ) : null}
                       </div>
 
-                      <div className="mt-2 flex gap-2">
+                      <div className="mt-2 flex flex-wrap gap-2">
                         <button
                           type="button"
                           disabled={homeSliderUploadingSlot === slider.slot}
                           onClick={() => {
                             setHomeSliderPickerSlot(slider.slot);
+                            setHomeSliderPickerTarget("desktop");
                             homeSliderImageInputRef.current?.click();
                           }}
                           className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {homeSliderUploadingSlot === slider.slot ? "Subiendo..." : "Subir imagen"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={homeSliderMobileUploadingSlot === slider.slot}
+                          onClick={() => {
+                            setHomeSliderPickerSlot(slider.slot);
+                            setHomeSliderPickerTarget("mobile");
+                            homeSliderImageInputRef.current?.click();
+                          }}
+                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {homeSliderMobileUploadingSlot === slider.slot ? "Subiendo móvil..." : "Subir móvil"}
                         </button>
                         <button
                           type="button"
@@ -7780,6 +7815,39 @@ export default function ComercioWebPage() {
                         >
                           Quitar
                         </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            patchHomeSliderLocal(slider.slot, (current) => ({
+                              ...current,
+                              mobile_image_url: null,
+                            }))
+                          }
+                          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 transition hover:border-amber-300"
+                        >
+                          Quitar móvil
+                        </button>
+                      </div>
+                      <div className="mt-2">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500">
+                          Vista móvil (opcional)
+                        </p>
+                        <div
+                          className="mt-1 h-16 w-32 rounded-lg border border-slate-200 bg-white bg-cover bg-center bg-no-repeat"
+                          style={
+                            slider.mobile_image_url
+                              ? {
+                                  backgroundImage: `url('${resolveAssetUrl(slider.mobile_image_url) || slider.mobile_image_url}')`,
+                                }
+                              : undefined
+                          }
+                        >
+                          {!slider.mobile_image_url ? (
+                            <div className="flex h-full items-center justify-center text-[10px] text-slate-400">
+                              Sin imagen móvil
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
 
                       <div className="mt-3 grid gap-2">

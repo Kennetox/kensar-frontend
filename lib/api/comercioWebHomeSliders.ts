@@ -16,6 +16,7 @@ export type ComercioWebHomeSlider = {
   slot: number;
   enabled: boolean;
   image_url?: string | null;
+  mobile_image_url?: string | null;
   alt_text?: string | null;
   cta_label?: string | null;
   cta_x_percent: number;
@@ -31,6 +32,7 @@ export type ComercioWebHomeSliderUpdate = Partial<
   Pick<
     ComercioWebHomeSlider,
     "enabled" | "image_url" | "alt_text" | "cta_label" | "link_type" | "link_value" | "sort_order"
+    | "mobile_image_url"
     | "cta_x_percent"
     | "cta_y_percent"
   >
