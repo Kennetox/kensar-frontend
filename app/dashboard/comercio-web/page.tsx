@@ -5070,12 +5070,12 @@ export default function ComercioWebPage() {
                     <SummaryMini label="Descuento" value={catalogMetrics.discounted} />
                     <SummaryMini label="Consultar" value={catalogMetrics.consult} />
                     <SummaryMini
-                      label="Con stock"
+                      label="Con stock (publicados)"
                       value={catalogMetrics.with_stock}
                       tone="success"
                     />
                     <SummaryMini
-                      label="Sin stock"
+                      label="Sin stock (publicados)"
                       value={catalogMetrics.without_stock}
                       tone="danger"
                     />
