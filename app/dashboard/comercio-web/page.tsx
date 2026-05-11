@@ -193,7 +193,12 @@ type CommerceWebDraftState = {
   publishedCatalogFeaturedFilter?: string;
   publishedCatalogBadgeFilter?: string;
   publishedCatalogCategoryFilter?: string;
-  publishedCatalogOrderFilter?: "newest" | "oldest" | "alphabetical";
+  publishedCatalogOrderFilter?:
+    | "newest"
+    | "oldest"
+    | "alphabetical"
+    | "price_asc"
+    | "price_desc";
   publishedCatalogActiveOnly?: boolean;
   discountCodeComposerOpen?: boolean;
   discountCodeEditingId?: number | null;
@@ -352,6 +357,8 @@ const EMPTY_CATALOG_STATS: ComercioWebCatalogPublicationStats = {
   featured: 0,
   discounted: 0,
   consult: 0,
+  with_stock: 0,
+  without_stock: 0,
 };
 
 const OPERATIVE_STATUS_OPTIONS: Array<{
@@ -1113,6 +1120,21 @@ function resolveWebSalePriceFromProduct(product: ComercioWebCatalogProduct): num
   return resolveWebSalePrice(product.price, product.web_price_source, product.web_price_value);
 }
 
+function resolveCatalogProductStock(product: ComercioWebCatalogProduct): number | null {
+  const candidates = [product.qty_on_hand, product.stock, product.available_stock];
+  for (const value of candidates) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function resolveCatalogRowStockClass(product: ComercioWebCatalogProduct): string {
+  const stock = resolveCatalogProductStock(product);
+  if (stock === null) return "";
+  if (stock > 0) return "bg-emerald-50/70";
+  return "bg-rose-50/70";
+}
+
 function formatThousandsWithDots(value: string): string {
   const digitsOnly = value.replace(/[^\d]/g, "");
   if (!digitsOnly) return "";
@@ -1458,7 +1480,7 @@ export default function ComercioWebPage() {
   const [publishedCatalogBadgeFilter, setPublishedCatalogBadgeFilter] = useState("all");
   const [publishedCatalogCategoryFilter, setPublishedCatalogCategoryFilter] = useState("all");
   const [publishedCatalogOrderFilter, setPublishedCatalogOrderFilter] = useState<
-    "newest" | "oldest" | "alphabetical"
+    "newest" | "oldest" | "alphabetical" | "price_asc" | "price_desc"
   >("newest");
   const [publishedCatalogActiveOnly, setPublishedCatalogActiveOnly] = useState(true);
   const [publishedCatalogPage, setPublishedCatalogPage] = useState(1);
@@ -1744,7 +1766,9 @@ export default function ComercioWebPage() {
       if (
         draft.publishedCatalogOrderFilter === "newest" ||
         draft.publishedCatalogOrderFilter === "oldest" ||
-        draft.publishedCatalogOrderFilter === "alphabetical"
+        draft.publishedCatalogOrderFilter === "alphabetical" ||
+        draft.publishedCatalogOrderFilter === "price_asc" ||
+        draft.publishedCatalogOrderFilter === "price_desc"
       ) {
         setPublishedCatalogOrderFilter(draft.publishedCatalogOrderFilter);
       }
@@ -5040,11 +5064,21 @@ export default function ComercioWebPage() {
                     Aquí ves únicamente el subconjunto activo en tienda. La búsqueda y el editor
                     aparecen cuando inicias el flujo de creación.
                   </p>
-                  <div className="mt-4 grid gap-4 md:grid-cols-4">
+                  <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
                     <SummaryMini label="Publicados" value={catalogMetrics.published} />
                     <SummaryMini label="Destacados" value={catalogMetrics.featured} />
                     <SummaryMini label="Descuento" value={catalogMetrics.discounted} />
                     <SummaryMini label="Consultar" value={catalogMetrics.consult} />
+                    <SummaryMini
+                      label="Con stock"
+                      value={catalogMetrics.with_stock}
+                      tone="success"
+                    />
+                    <SummaryMini
+                      label="Sin stock"
+                      value={catalogMetrics.without_stock}
+                      tone="danger"
+                    />
                   </div>
                 </div>
 
@@ -5131,7 +5165,12 @@ export default function ComercioWebPage() {
                         value={publishedCatalogOrderFilter}
                         onChange={(event) =>
                           setPublishedCatalogOrderFilter(
-                            event.target.value as "newest" | "oldest" | "alphabetical"
+                            event.target.value as
+                              | "newest"
+                              | "oldest"
+                              | "alphabetical"
+                              | "price_asc"
+                              | "price_desc"
                           )
                         }
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
@@ -5139,6 +5178,8 @@ export default function ComercioWebPage() {
                         <option value="newest">Más reciente</option>
                         <option value="oldest">Más antiguo</option>
                         <option value="alphabetical">Alfabético</option>
+                        <option value="price_asc">Precio: menor a mayor</option>
+                        <option value="price_desc">Precio: mayor a menor</option>
                       </select>
                     </label>
                   </div>
@@ -5269,7 +5310,7 @@ export default function ComercioWebPage() {
                               openCatalogComposer(product.id);
                             }}
                             title={canManage ? "Doble click para editar publicación" : undefined}
-                            className={`border-b border-slate-100 align-top ${canManage ? "cursor-pointer" : ""}`}
+                            className={`border-b border-slate-100 align-top ${resolveCatalogRowStockClass(product)} ${canManage ? "cursor-pointer" : ""}`}
                           >
                             <td className="px-4 py-3">
                               <div className="min-w-[18rem]">
@@ -9541,11 +9582,32 @@ function SummaryBox({
   );
 }
 
-function SummaryMini({ label, value }: { label: string; value: number }) {
+function SummaryMini({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: number;
+  tone?: "default" | "success" | "danger";
+}) {
+  const labelClass =
+    tone === "success"
+      ? "text-emerald-700"
+      : tone === "danger"
+        ? "text-rose-700"
+        : "text-slate-500";
+  const valueClass =
+    tone === "success"
+      ? "text-emerald-700"
+      : tone === "danger"
+        ? "text-rose-700"
+        : "text-slate-900";
+
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-1.5 text-lg font-semibold text-slate-900">{value}</p>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <p className={`text-[10px] uppercase tracking-[0.16em] ${labelClass}`}>{label}</p>
+      <p className={`mt-1 text-base font-semibold ${valueClass}`}>{value}</p>
     </div>
   );
 }
