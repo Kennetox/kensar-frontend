@@ -601,6 +601,11 @@ const GRID_ZOOM_STEP = 0.05;
 const GRID_ZOOM_DEFAULT = 1;
 const FREE_SALE_REASON_MIN_LENGTH = 3;
 const FREE_SALE_NAME_MATCH = "venta libre";
+const REQUIRED_REASON_SERVICE_SKUS = new Set(["1087", "138"]);
+const REQUIRED_REASON_LABELS_BY_SKU: Record<string, string> = {
+  "138": "Servicio tecnico",
+  "1087": "Abono de saldo",
+};
 
 const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   switch (method) {
@@ -2116,6 +2121,10 @@ const matchesStationLabel = useCallback(
   const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(null);
 
   const isFreeSaleProduct = useCallback((product: Product): boolean => {
+    const normalizedSku = slugifyMethodKey(product.sku);
+    if (REQUIRED_REASON_SERVICE_SKUS.has(normalizedSku)) {
+      return true;
+    }
     const normalizedName = normalizeMethodKey(product.name);
     if (
       normalizedName === FREE_SALE_NAME_MATCH ||
@@ -2123,8 +2132,14 @@ const matchesStationLabel = useCallback(
     ) {
       return true;
     }
-    const normalizedSku = slugifyMethodKey(product.sku);
     return normalizedSku.includes("venta-libre");
+  }, []);
+  const getRequiredReasonProductLabel = useCallback((product: Product): string => {
+    const normalizedSku = slugifyMethodKey(product.sku);
+    if (normalizedSku && REQUIRED_REASON_LABELS_BY_SKU[normalizedSku]) {
+      return REQUIRED_REASON_LABELS_BY_SKU[normalizedSku];
+    }
+    return "Venta libre";
   }, []);
   const missingFreeSaleReason = REQUIRE_FREE_SALE_REASON && cart.some(
     (item) => isFreeSaleProduct(item.product) && !item.freeSaleReason?.trim()
@@ -8244,7 +8259,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.4em] text-amber-300">
-                  Venta libre
+                  {getRequiredReasonProductLabel(freeSaleReasonModalProduct)}
                 </p>
                 <h2 className="text-xl font-semibold text-slate-50">
                   Motivo obligatorio

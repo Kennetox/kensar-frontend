@@ -88,16 +88,25 @@ type SuccessSaleSummary = {
 
 const RESUME_HELD_SALE_KEY_BASE = "kensar_pos_resume_held_sale_v1";
 const FREE_SALE_REASON_NOTE_LABEL = "Motivo venta libre";
+const TECH_SERVICE_REASON_NOTE_LABEL = "Motivo servicio tecnico";
+const BALANCE_TOPUP_REASON_NOTE_LABEL = "Motivo abono de saldo";
+const REQUIRED_REASON_SKU_LABELS: Record<string, string> = {
+  "138": TECH_SERVICE_REASON_NOTE_LABEL,
+  "1087": BALANCE_TOPUP_REASON_NOTE_LABEL,
+};
 
 function buildCombinedSaleNotes(
-  freeSaleReasons: string[],
+  reasonsByLabel: Record<string, string[]>,
   extraSaleNotes: string
 ): string {
   const extra = extraSaleNotes.trim();
   const blocks: string[] = [];
-  if (REQUIRE_FREE_SALE_REASON && freeSaleReasons.length > 0) {
-    const lines = freeSaleReasons.map((reason, index) => `${index + 1}. ${reason}`);
-    blocks.push(`${FREE_SALE_REASON_NOTE_LABEL}:\n${lines.join("\n")}`);
+  if (REQUIRE_FREE_SALE_REASON) {
+    Object.entries(reasonsByLabel).forEach(([label, reasons]) => {
+      if (!reasons.length) return;
+      const lines = reasons.map((reason, index) => `${index + 1}. ${reason}`);
+      blocks.push(`${label}:\n${lines.join("\n")}`);
+    });
   }
   if (extra) {
     blocks.push(extra);
@@ -105,10 +114,24 @@ function buildCombinedSaleNotes(
   return blocks.join("\n\n");
 }
 
-function getFreeSaleReasonsFromCart(cart: CartItem[]): string[] {
-  return cart
-    .map((item) => item.freeSaleReason?.trim() ?? "")
-    .filter((reason) => reason.length > 0);
+function getRequiredReasonLabel(item: CartItem): string {
+  const sku = (item.product.sku ?? "").trim();
+  if (sku && REQUIRED_REASON_SKU_LABELS[sku]) {
+    return REQUIRED_REASON_SKU_LABELS[sku];
+  }
+  return FREE_SALE_REASON_NOTE_LABEL;
+}
+
+function getRequiredReasonsFromCart(cart: CartItem[]): Record<string, string[]> {
+  const grouped: Record<string, string[]> = {};
+  cart.forEach((item) => {
+    const reason = item.freeSaleReason?.trim() ?? "";
+    if (!reason) return;
+    const label = getRequiredReasonLabel(item);
+    if (!grouped[label]) grouped[label] = [];
+    grouped[label].push(reason);
+  });
+  return grouped;
 }
 
 export default function PagoPage() {
@@ -141,13 +164,13 @@ export default function PagoPage() {
 
   // Total real de la venta
   const totalToPay = cartTotal;
-  const freeSaleReasons = useMemo(
-    () => (REQUIRE_FREE_SALE_REASON ? getFreeSaleReasonsFromCart(cart) : []),
+  const requiredReasonsByLabel = useMemo(
+    () => (REQUIRE_FREE_SALE_REASON ? getRequiredReasonsFromCart(cart) : {}),
     [cart]
   );
   const combinedSaleNotes = useMemo(
-    () => buildCombinedSaleNotes(freeSaleReasons, saleNotes),
-    [freeSaleReasons, saleNotes]
+    () => buildCombinedSaleNotes(requiredReasonsByLabel, saleNotes),
+    [requiredReasonsByLabel, saleNotes]
   );
 
   const [method, setMethod] = useState<PaymentMethodSlug>("cash");
