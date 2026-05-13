@@ -153,6 +153,7 @@ type InlineToast = {
 
 type CatalogComposerMode = "create" | "edit";
 type CatalogWorkspaceView = "publications" | "discount_codes" | "categories" | "descriptions";
+type PublishedCatalogStockFilter = "all" | "with_stock" | "without_stock";
 type DiscountCodePeriodOption = "day" | "week" | "month" | "indefinite" | "custom";
 
 type DiscountCodeEditorState = {
@@ -192,6 +193,7 @@ type CommerceWebDraftState = {
   publishedCatalogStatusFilter?: string;
   publishedCatalogFeaturedFilter?: string;
   publishedCatalogBadgeFilter?: string;
+  publishedCatalogStockFilter?: PublishedCatalogStockFilter;
   publishedCatalogCategoryFilter?: string;
   publishedCatalogOrderFilter?:
     | "newest"
@@ -1478,6 +1480,8 @@ export default function ComercioWebPage() {
   const [publishedCatalogStatusFilter, setPublishedCatalogStatusFilter] = useState("all");
   const [publishedCatalogFeaturedFilter, setPublishedCatalogFeaturedFilter] = useState("all");
   const [publishedCatalogBadgeFilter, setPublishedCatalogBadgeFilter] = useState("all");
+  const [publishedCatalogStockFilter, setPublishedCatalogStockFilter] =
+    useState<PublishedCatalogStockFilter>("all");
   const [publishedCatalogCategoryFilter, setPublishedCatalogCategoryFilter] = useState("all");
   const [publishedCatalogOrderFilter, setPublishedCatalogOrderFilter] = useState<
     "newest" | "oldest" | "alphabetical" | "price_asc" | "price_desc"
@@ -1759,6 +1763,13 @@ export default function ComercioWebPage() {
       if (typeof draft.publishedCatalogBadgeFilter === "string") {
         setPublishedCatalogBadgeFilter(draft.publishedCatalogBadgeFilter);
       }
+      if (
+        draft.publishedCatalogStockFilter === "all" ||
+        draft.publishedCatalogStockFilter === "with_stock" ||
+        draft.publishedCatalogStockFilter === "without_stock"
+      ) {
+        setPublishedCatalogStockFilter(draft.publishedCatalogStockFilter);
+      }
       if (typeof draft.publishedCatalogCategoryFilter === "string") {
         const nextValue = draft.publishedCatalogCategoryFilter.trim();
         setPublishedCatalogCategoryFilter(nextValue || "all");
@@ -1872,6 +1883,7 @@ export default function ComercioWebPage() {
       publishedCatalogStatusFilter,
       publishedCatalogFeaturedFilter,
       publishedCatalogBadgeFilter,
+      publishedCatalogStockFilter,
       publishedCatalogCategoryFilter,
       publishedCatalogOrderFilter,
       publishedCatalogActiveOnly,
@@ -1898,6 +1910,7 @@ export default function ComercioWebPage() {
     publishedCatalogStatusFilter,
     publishedCatalogFeaturedFilter,
     publishedCatalogBadgeFilter,
+    publishedCatalogStockFilter,
     publishedCatalogCategoryFilter,
     publishedCatalogOrderFilter,
     publishedCatalogActiveOnly,
@@ -2314,6 +2327,31 @@ export default function ComercioWebPage() {
     if (!search) return catalogBrandOptions;
     return catalogBrandOptions.filter((option) => option.toLocaleLowerCase("es").includes(search));
   }, [catalogBrandOptions, catalogEditor.brand]);
+  const publishedCatalogActiveFiltersCount = useMemo(() => {
+    const filters = [
+      publishedCatalogFilter.trim().length > 0,
+      publishedCatalogFieldFilter !== "all",
+      publishedCatalogStatusFilter !== "all",
+      publishedCatalogFeaturedFilter !== "all",
+      publishedCatalogBadgeFilter !== "all",
+      publishedCatalogStockFilter !== "all",
+      publishedCatalogCategoryFilter !== "all",
+      publishedCatalogOrderFilter !== "newest",
+      publishedCatalogActiveOnly !== true,
+    ];
+    return filters.filter(Boolean).length;
+  }, [
+    publishedCatalogActiveOnly,
+    publishedCatalogBadgeFilter,
+    publishedCatalogStockFilter,
+    publishedCatalogFeaturedFilter,
+    publishedCatalogFieldFilter,
+    publishedCatalogFilter,
+    publishedCatalogCategoryFilter,
+    publishedCatalogOrderFilter,
+    publishedCatalogStatusFilter,
+  ]);
+  const hasPublishedCatalogActiveFilters = publishedCatalogActiveFiltersCount > 0;
   const categoryLabelMap = useMemo(() => {
     const next = new Map<string, string>();
     catalogCategories.forEach((item) => {
@@ -2552,6 +2590,7 @@ export default function ComercioWebPage() {
     publishedCatalogStatusFilter,
     publishedCatalogFeaturedFilter,
     publishedCatalogBadgeFilter,
+    publishedCatalogStockFilter,
     publishedCatalogCategoryFilter,
     publishedCatalogOrderFilter,
     publishedCatalogActiveOnly,
@@ -3047,6 +3086,8 @@ export default function ComercioWebPage() {
           publishedCatalogBadgeFilter === "all"
             ? undefined
             : (publishedCatalogBadgeFilter as "with_badge" | "without_badge"),
+        stock_filter:
+          publishedCatalogStockFilter === "all" ? undefined : publishedCatalogStockFilter,
         category_key:
           publishedCatalogCategoryFilter === "all"
             ? undefined
@@ -3076,6 +3117,7 @@ export default function ComercioWebPage() {
     }
   }, [
     publishedCatalogBadgeFilter,
+    publishedCatalogStockFilter,
     publishedCatalogFeaturedFilter,
     publishedCatalogFieldFilter,
     publishedCatalogFilter,
@@ -3143,6 +3185,8 @@ export default function ComercioWebPage() {
           publishedCatalogBadgeFilter === "all"
             ? undefined
             : (publishedCatalogBadgeFilter as "with_badge" | "without_badge"),
+        stock_filter:
+          publishedCatalogStockFilter === "all" ? undefined : publishedCatalogStockFilter,
         category_key:
           publishedCatalogCategoryFilter === "all"
             ? undefined
@@ -3170,6 +3214,7 @@ export default function ComercioWebPage() {
     }
   }, [
     publishedCatalogBadgeFilter,
+    publishedCatalogStockFilter,
     publishedCatalogFeaturedFilter,
     publishedCatalogFieldFilter,
     publishedCatalogFilter,
@@ -5073,11 +5118,23 @@ export default function ComercioWebPage() {
                       label="Con stock (publicados)"
                       value={catalogMetrics.with_stock}
                       tone="success"
+                      isActive={publishedCatalogStockFilter === "with_stock"}
+                      onClick={() =>
+                        setPublishedCatalogStockFilter((prev) =>
+                          prev === "with_stock" ? "all" : "with_stock"
+                        )
+                      }
                     />
                     <SummaryMini
                       label="Sin stock (publicados)"
                       value={catalogMetrics.without_stock}
                       tone="danger"
+                      isActive={publishedCatalogStockFilter === "without_stock"}
+                      onClick={() =>
+                        setPublishedCatalogStockFilter((prev) =>
+                          prev === "without_stock" ? "all" : "without_stock"
+                        )
+                      }
                     />
                   </div>
                 </div>
@@ -5215,19 +5272,33 @@ export default function ComercioWebPage() {
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <button
                         type="button"
+                        disabled={!hasPublishedCatalogActiveFilters}
                         onClick={() => {
                           setPublishedCatalogFilter("");
                           setPublishedCatalogFieldFilter("all");
                           setPublishedCatalogStatusFilter("all");
                           setPublishedCatalogFeaturedFilter("all");
                           setPublishedCatalogBadgeFilter("all");
+                          setPublishedCatalogStockFilter("all");
                           setPublishedCatalogCategoryFilter("all");
                           setPublishedCatalogOrderFilter("newest");
                           setPublishedCatalogActiveOnly(true);
                         }}
-                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                        className={`relative rounded-xl border px-3 py-2 text-xs font-medium transition ${
+                          hasPublishedCatalogActiveFilters
+                            ? "border-slate-400 bg-slate-100 text-slate-800 shadow-sm hover:border-slate-500"
+                            : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+                        }`}
                       >
                         Limpiar filtros
+                        {hasPublishedCatalogActiveFilters ? (
+                          <span
+                            className="absolute -left-2 -top-2 inline-flex h-6 w-6 animate-bounce items-center justify-center rounded-full border-2 border-white bg-rose-600 text-[11px] font-bold leading-none shadow-[0_6px_14px_rgba(225,29,72,0.38)] ring-1 ring-rose-300/70"
+                            style={{ color: "#ffffff" }}
+                          >
+                            {publishedCatalogActiveFiltersCount}
+                          </span>
+                        ) : null}
                       </button>
                       <button
                         type="button"
@@ -9586,10 +9657,14 @@ function SummaryMini({
   label,
   value,
   tone = "default",
+  isActive = false,
+  onClick,
 }: {
   label: string;
   value: number;
   tone?: "default" | "success" | "danger";
+  isActive?: boolean;
+  onClick?: () => void;
 }) {
   const labelClass =
     tone === "success"
@@ -9605,10 +9680,19 @@ function SummaryMini({
         : "text-slate-900";
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+    <button
+      type="button"
+      disabled={!onClick}
+      onClick={onClick}
+      className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+        isActive
+          ? "border-slate-400 bg-white shadow-[inset_0_0_0_1px_rgba(15,23,42,0.12)]"
+          : "border-slate-200 bg-slate-50"
+      } ${onClick ? "cursor-pointer hover:border-slate-300" : "cursor-default"}`}
+    >
       <p className={`text-[10px] uppercase tracking-[0.16em] ${labelClass}`}>{label}</p>
       <p className={`mt-1 text-base font-semibold ${valueClass}`}>{value}</p>
-    </div>
+    </button>
   );
 }
 

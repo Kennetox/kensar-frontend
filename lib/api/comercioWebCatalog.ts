@@ -95,6 +95,7 @@ export type ComercioWebCatalogPublicationFilters = {
   status_filter?: "all" | "featured" | "discounted" | "consult" | "published" | "paused";
   featured_filter?: "all" | "featured" | "standard";
   badge_filter?: "all" | "with_badge" | "without_badge";
+  stock_filter?: "with_stock" | "without_stock";
   category_key?: string;
   subcategory_key?: string;
   order?: "newest" | "oldest" | "alphabetical" | "price_asc" | "price_desc";
@@ -250,6 +251,7 @@ export async function fetchComercioWebCatalogPublicationsPage(
   if (params?.status_filter) qs.set("status_filter", params.status_filter);
   if (params?.featured_filter) qs.set("featured_filter", params.featured_filter);
   if (params?.badge_filter) qs.set("badge_filter", params.badge_filter);
+  if (params?.stock_filter) qs.set("stock_filter", params.stock_filter);
   if (params?.category_key) qs.set("category_key", params.category_key);
   if (params?.subcategory_key) qs.set("subcategory_key", params.subcategory_key);
   if (params?.order) qs.set("order", params.order);
@@ -293,6 +295,7 @@ export async function exportComercioWebCatalogPublicationsXlsx(
   if (params?.status_filter) qs.set("status_filter", params.status_filter);
   if (params?.featured_filter) qs.set("featured_filter", params.featured_filter);
   if (params?.badge_filter) qs.set("badge_filter", params.badge_filter);
+  if (params?.stock_filter) qs.set("stock_filter", params.stock_filter);
   if (params?.category_key) qs.set("category_key", params.category_key);
   if (params?.subcategory_key) qs.set("subcategory_key", params.subcategory_key);
   if (params?.order) qs.set("order", params.order);
