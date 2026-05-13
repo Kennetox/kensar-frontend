@@ -182,6 +182,7 @@ export default function MovementsPage() {
   const [recountDetailLoading, setRecountDetailLoading] = useState(false);
   const [recountDetailError, setRecountDetailError] = useState<string | null>(null);
   const [recountSearch, setRecountSearch] = useState("");
+  const [recountSearchApplied, setRecountSearchApplied] = useState("");
   const [recountLineViewMode, setRecountLineViewMode] = useState<"differences" | "counted">(
     "counted"
   );
@@ -665,7 +666,7 @@ export default function MovementsPage() {
 
         while (!cancelled) {
           const page = await getInventoryRecountDetail(token, selectedRecountId, {
-            q: recountSearch.trim() || undefined,
+            q: recountSearchApplied.trim() || undefined,
             counted_only: isDifferencesView,
             skip: skipCursor,
             limit: pageLimit,
@@ -703,7 +704,14 @@ export default function MovementsPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, activeTab, selectedRecountId, recountSearch, recountLineViewMode, refreshNonce]);
+  }, [
+    token,
+    activeTab,
+    selectedRecountId,
+    recountSearchApplied,
+    recountLineViewMode,
+    refreshNonce,
+  ]);
 
   useEffect(() => {
     setInventoryPageNo(1);
@@ -1067,6 +1075,7 @@ export default function MovementsPage() {
       }
 
       const title = recountDetail.recount.title || "Recuento";
+      const creatorName = recountDetail.recount.created_by_user_name || "-";
       const scopeLabel =
         recountDetail.recount.scope_type === "group"
           ? `Categoría: ${recountDetail.recount.scope_value || "-"}`
@@ -1116,7 +1125,7 @@ export default function MovementsPage() {
   </style>
 </head>
 <body>
-  <h1>${escapeHtml(recountDetail.recount.code)} · ${escapeHtml(title)}</h1>
+  <h1>${escapeHtml(recountDetail.recount.code)} · ${escapeHtml(title)} · ${escapeHtml(creatorName)}</h1>
   <div class="meta">
     ${escapeHtml(scopeLabel)} · Modo: ${recountDetail.recount.count_mode === "blind" ? "Ciego" : "Visible"} ·
     Tipo: ${escapeHtml(output === "form" ? "Formulario de conteo" : "Reporte de recuento")} ·
@@ -2348,7 +2357,8 @@ export default function MovementsPage() {
                       </div>
                       <p className="text-sm text-slate-600">
                         Estado: {statusLabelRecount(recountDetail.recount.status)} · Modo:{" "}
-                        {recountDetail.recount.count_mode === "blind" ? "Ciego" : "Visible"}
+                        {recountDetail.recount.count_mode === "blind" ? "Ciego" : "Visible"} · Por:{" "}
+                        {recountDetail.recount.created_by_user_name || "-"}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2460,12 +2470,34 @@ export default function MovementsPage() {
                         Todas las líneas
                       </button>
                     </div>
-                    <input
-                      value={recountSearch}
-                      onChange={(e) => setRecountSearch(e.target.value)}
-                      placeholder="Buscar línea registrada por nombre, SKU o código"
-                      className="min-w-[280px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
-                    />
+                    <div className="flex min-w-[280px] flex-1 items-center gap-2">
+                      <input
+                        value={recountSearch}
+                        onChange={(e) => setRecountSearch(e.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          setRecountSearchApplied(recountSearch);
+                        }}
+                        placeholder="Buscar línea registrada por nombre, SKU o código"
+                        className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setRecountSearchApplied(recountSearch)}
+                        className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                        aria-label="Buscar"
+                        title="Buscar"
+                      >
+                        <span className="sm:hidden" aria-hidden="true">
+                          <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="9" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.6" />
+                            <path d="M13 13L17 17" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                          </svg>
+                        </span>
+                        <span className="hidden sm:inline">Buscar</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-4 max-h-[520px] overflow-auto rounded-lg border border-slate-200">
@@ -2616,9 +2648,14 @@ export default function MovementsPage() {
                           className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2"
                         >
                           <div>
-                            <p className="text-sm font-semibold text-slate-900">{doc.code}</p>
+                            <p className="text-sm font-semibold text-slate-900">
+                              {doc.code}
+                              {doc.title ? ` · ${doc.title}` : ""}
+                              {doc.created_by_user_name ? ` · ${doc.created_by_user_name}` : ""}
+                            </p>
                             <p className="text-xs text-slate-600">
-                              {statusLabelRecount(doc.status)} · {doc.summary.counted_lines}/{doc.summary.total_lines} líneas
+                              {statusLabelRecount(doc.status)} · {doc.summary.counted_lines}/{doc.summary.total_lines} líneas ·{" "}
+                              {formatDate(doc.applied_at || doc.closed_at || doc.created_at)}
                             </p>
                             {doc.status === "closed" ? (
                               <p className="mt-0.5 text-[11px] font-medium text-amber-700">
@@ -2695,9 +2732,14 @@ export default function MovementsPage() {
                           className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2"
                         >
                           <div>
-                            <p className="text-sm font-semibold text-slate-900">{doc.code}</p>
+                            <p className="text-sm font-semibold text-slate-900">
+                              {doc.code}
+                              {doc.title ? ` · ${doc.title}` : ""}
+                              {doc.created_by_user_name ? ` · ${doc.created_by_user_name}` : ""}
+                            </p>
                             <p className="text-xs text-slate-600">
-                              {statusLabelRecount(doc.status)} · {doc.summary.counted_lines}/{doc.summary.total_lines} líneas
+                              {statusLabelRecount(doc.status)} · {doc.summary.counted_lines}/{doc.summary.total_lines} líneas ·{" "}
+                              {formatDate(doc.applied_at || doc.closed_at || doc.created_at)}
                             </p>
                           </div>
                           <button
