@@ -389,7 +389,7 @@ const emptyCatalogEditorState: CatalogEditorState = {
   web_price_value: "",
   web_badge_text: "",
   web_sort_order: "0",
-  web_visible_when_out_of_stock: true,
+  web_visible_when_out_of_stock: false,
   web_price_mode: "visible",
   web_whatsapp_message: "",
   web_warranty_text: "",
