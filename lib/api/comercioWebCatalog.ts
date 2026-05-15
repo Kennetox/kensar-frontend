@@ -79,6 +79,7 @@ export type ComercioWebCatalogPublicationStats = {
   consult: number;
   with_stock: number;
   without_stock: number;
+  without_image: number;
 };
 
 export type ComercioWebCatalogPublicationPage = {
@@ -95,7 +96,7 @@ export type ComercioWebCatalogPublicationFilters = {
   status_filter?: "all" | "featured" | "discounted" | "consult" | "published" | "paused";
   featured_filter?: "all" | "featured" | "standard";
   badge_filter?: "all" | "with_badge" | "without_badge";
-  stock_filter?: "with_stock" | "without_stock";
+  stock_filter?: "with_stock" | "without_stock" | "without_image";
   category_key?: string;
   subcategory_key?: string;
   order?: "newest" | "oldest" | "alphabetical" | "price_asc" | "price_desc";
@@ -281,6 +282,7 @@ export async function fetchComercioWebCatalogPublicationsPage(
       consult: Number(data.stats?.consult || 0),
       with_stock: Number(data.stats?.with_stock || 0),
       without_stock: Number(data.stats?.without_stock || 0),
+      without_image: Number(data.stats?.without_image || 0),
     },
   };
 }

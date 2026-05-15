@@ -153,7 +153,7 @@ type InlineToast = {
 
 type CatalogComposerMode = "create" | "edit";
 type CatalogWorkspaceView = "publications" | "discount_codes" | "categories" | "descriptions";
-type PublishedCatalogStockFilter = "all" | "with_stock" | "without_stock";
+type PublishedCatalogStockFilter = "all" | "with_stock" | "without_stock" | "without_image";
 type DiscountCodePeriodOption = "day" | "week" | "month" | "indefinite" | "custom";
 
 type DiscountCodeEditorState = {
@@ -361,6 +361,7 @@ const EMPTY_CATALOG_STATS: ComercioWebCatalogPublicationStats = {
   consult: 0,
   with_stock: 0,
   without_stock: 0,
+  without_image: 0,
 };
 
 const OPERATIVE_STATUS_OPTIONS: Array<{
@@ -1766,7 +1767,8 @@ export default function ComercioWebPage() {
       if (
         draft.publishedCatalogStockFilter === "all" ||
         draft.publishedCatalogStockFilter === "with_stock" ||
-        draft.publishedCatalogStockFilter === "without_stock"
+        draft.publishedCatalogStockFilter === "without_stock" ||
+        draft.publishedCatalogStockFilter === "without_image"
       ) {
         setPublishedCatalogStockFilter(draft.publishedCatalogStockFilter);
       }
@@ -3056,10 +3058,13 @@ export default function ComercioWebPage() {
     }
   }, [paymentStatus, search, status, token]);
 
-  const loadCatalogProducts = useCallback(async () => {
+  const loadCatalogProducts = useCallback(async (options?: { silent?: boolean }) => {
     if (!token) return;
+    const silent = Boolean(options?.silent);
     try {
-      setCatalogLoading(true);
+      if (!silent) {
+        setCatalogLoading(true);
+      }
       setCatalogError(null);
       const normalizedStatusFilter = publishedCatalogStatusFilter as
         | "all"
@@ -3113,7 +3118,9 @@ export default function ComercioWebPage() {
     } catch (err) {
       setCatalogError(err instanceof Error ? err.message : "No se pudo cargar el catálogo web");
     } finally {
-      setCatalogLoading(false);
+      if (!silent) {
+        setCatalogLoading(false);
+      }
     }
   }, [
     publishedCatalogBadgeFilter,
@@ -4052,6 +4059,7 @@ export default function ComercioWebPage() {
       setCatalogSearchResults((prev) =>
         prev.map((row) => (row.id === updated.id ? updated : row))
       );
+      void loadCatalogProducts({ silent: true });
       resetCatalogComposer();
       onSaved?.();
       showToast(
@@ -4093,6 +4101,7 @@ export default function ComercioWebPage() {
     if (selectedProductId === updated.id) {
       setSelectedProductId(updated.id);
     }
+    void loadCatalogProducts({ silent: true });
     return updated;
   }
 
@@ -4109,6 +4118,7 @@ export default function ComercioWebPage() {
     if (selectedProductId === product.id) {
       setSelectedProductId(null);
     }
+    void loadCatalogProducts({ silent: true });
   }
 
   function getCatalogActionMeta(state: CatalogActionConfirmState) {
@@ -5109,11 +5119,23 @@ export default function ComercioWebPage() {
                     Aquí ves únicamente el subconjunto activo en tienda. La búsqueda y el editor
                     aparecen cuando inicias el flujo de creación.
                   </p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                  <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-7">
                     <SummaryMini label="Publicados" value={catalogMetrics.published} />
                     <SummaryMini label="Destacados" value={catalogMetrics.featured} />
                     <SummaryMini label="Descuento" value={catalogMetrics.discounted} />
                     <SummaryMini label="Consultar" value={catalogMetrics.consult} />
+                    <SummaryMini
+                      label="Con stock sin imagen"
+                      value={catalogMetrics.without_image}
+                      tone={catalogMetrics.without_image > 0 ? "warning" : "default"}
+                      showAlert={catalogMetrics.without_image > 0}
+                      isActive={publishedCatalogStockFilter === "without_image"}
+                      onClick={() =>
+                        setPublishedCatalogStockFilter((prev) =>
+                          prev === "without_image" ? "all" : "without_image"
+                        )
+                      }
+                    />
                     <SummaryMini
                       label="Con stock (publicados)"
                       value={catalogMetrics.with_stock}
@@ -9657,41 +9679,59 @@ function SummaryMini({
   label,
   value,
   tone = "default",
+  showAlert = false,
   isActive = false,
   onClick,
 }: {
   label: string;
   value: number;
-  tone?: "default" | "success" | "danger";
+  tone?: "default" | "success" | "danger" | "warning";
+  showAlert?: boolean;
   isActive?: boolean;
   onClick?: () => void;
 }) {
   const labelClass =
     tone === "success"
       ? "text-emerald-700"
+      : tone === "warning"
+        ? "text-amber-700"
       : tone === "danger"
         ? "text-rose-700"
         : "text-slate-500";
   const valueClass =
     tone === "success"
       ? "text-emerald-700"
+      : tone === "warning"
+        ? "text-amber-700"
       : tone === "danger"
         ? "text-rose-700"
         : "text-slate-900";
+  const cardToneClass =
+    tone === "warning"
+      ? "border-amber-200 bg-amber-50/75"
+      : "border-slate-200 bg-slate-50";
+  const warningLabelClass = tone === "warning" ? "text-[9px] tracking-[0.08em]" : "text-[10px] tracking-[0.12em]";
 
   return (
     <button
       type="button"
       disabled={!onClick}
       onClick={onClick}
-      className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+      className={`relative w-full rounded-xl border px-3 py-2 text-left transition ${
         isActive
           ? "border-slate-400 bg-white shadow-[inset_0_0_0_1px_rgba(15,23,42,0.12)]"
-          : "border-slate-200 bg-slate-50"
+          : cardToneClass
       } ${onClick ? "cursor-pointer hover:border-slate-300" : "cursor-default"}`}
     >
-      <p className={`text-[10px] uppercase tracking-[0.16em] ${labelClass}`}>{label}</p>
-      <p className={`mt-1 text-base font-semibold ${valueClass}`}>{value}</p>
+      <p className={`${warningLabelClass} uppercase leading-tight ${labelClass}`}>{label}</p>
+      <div className="mt-1 inline-flex items-center gap-1.5">
+        <p className={`text-base font-semibold ${valueClass}`}>{value}</p>
+        {showAlert ? (
+          <span className="inline-flex h-5 w-5 animate-bounce items-center justify-center rounded-full bg-amber-500 text-[11px] font-black text-white shadow-[0_6px_12px_rgba(245,158,11,0.38)]">
+            !
+          </span>
+        ) : null}
+      </div>
     </button>
   );
 }
