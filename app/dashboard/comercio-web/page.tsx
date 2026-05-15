@@ -227,6 +227,11 @@ type PendingCatalogExitAction =
   | { type: "switch_workspace"; view: CatalogWorkspaceView }
   | { type: "switch_tab"; tab: CommerceTab };
 
+type CatalogScrollSnapshot = {
+  pageScrollTop: number;
+  tableScrollTop: number;
+};
+
 const COMMERCE_WEB_ACTIVE_TAB_STORAGE_KEY = "commerce_web_active_tab";
 const COMMERCE_WEB_DRAFT_STORAGE_KEY = "commerce_web_catalog_draft_v1";
 const COMMERCE_WEB_ORDERS_AUTO_REFRESH_MS = 45_000;
@@ -1586,6 +1591,8 @@ export default function ComercioWebPage() {
   const homeSliderImageInputRef = useRef<HTMLInputElement | null>(null);
   const homeSliderPositionerRef = useRef<HTMLDivElement | null>(null);
   const categoryTableScrollRef = useRef<HTMLDivElement | null>(null);
+  const publishedCatalogTableScrollRef = useRef<HTMLDivElement | null>(null);
+  const catalogScrollSnapshotRef = useRef<CatalogScrollSnapshot | null>(null);
   const categoryDragAutoScrollRafRef = useRef<number | null>(null);
   const categoryDragAutoScrollDirRef = useRef<-1 | 0 | 1>(0);
   const brandAutocompleteRef = useRef<HTMLDivElement | null>(null);
@@ -2766,7 +2773,36 @@ export default function ComercioWebPage() {
     setCatalogSpecDraftValue("");
   }, []);
 
+  const captureCatalogScrollSnapshot = useCallback(() => {
+    if (typeof window === "undefined") return;
+    catalogScrollSnapshotRef.current = {
+      pageScrollTop: window.scrollY,
+      tableScrollTop: publishedCatalogTableScrollRef.current?.scrollTop ?? 0,
+    };
+  }, []);
+
+  const restoreCatalogScrollSnapshot = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const snapshot = catalogScrollSnapshotRef.current;
+    if (!snapshot) return;
+
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: snapshot.pageScrollTop, behavior: "auto" });
+      const tableNode = publishedCatalogTableScrollRef.current;
+      if (tableNode) {
+        tableNode.scrollTop = snapshot.tableScrollTop;
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (catalogComposerOpen) return;
+    if (catalogWorkspaceView !== "publications") return;
+    restoreCatalogScrollSnapshot();
+  }, [catalogComposerOpen, catalogWorkspaceView, restoreCatalogScrollSnapshot]);
+
   const openCatalogComposer = useCallback((productId?: number) => {
+    captureCatalogScrollSnapshot();
     setCatalogWorkspaceView("publications");
     setCatalogComposerOpen(true);
     setCatalogError(null);
@@ -2782,7 +2818,7 @@ export default function ComercioWebPage() {
     setCatalogSearchResults([]);
     setCatalogSearchExecuted(false);
     setCatalogDirty(false);
-  }, [loadCatalogCategories]);
+  }, [captureCatalogScrollSnapshot, loadCatalogCategories]);
 
   useEffect(() => {
     if (!token) return;
@@ -5366,7 +5402,10 @@ export default function ComercioWebPage() {
                     {publishedCatalogTotal} filtradas · {catalogMetrics.configured} total configuradas
                   </span>
                 </div>
-                <div className="max-h-[32rem] overflow-auto rounded-2xl border border-slate-200">
+                <div
+                  ref={publishedCatalogTableScrollRef}
+                  className="max-h-[32rem] overflow-auto rounded-2xl border border-slate-200"
+                >
                   {catalogLoading ? (
                     <div className="px-4 py-8 text-sm text-slate-500">
                       Cargando publicaciones…
