@@ -245,7 +245,9 @@ export default function ReportsPage() {
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
     defaultRolePermissions
   );
-  const [loading, setLoading] = useState(false);
+  const [loadingQuick, setLoadingQuick] = useState(false);
+  const [loadingAnnualSeries, setLoadingAnnualSeries] = useState(false);
+  const [loadingDailySeries, setLoadingDailySeries] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const todayKey = getBogotaDateKey();
   const todayYear = todayKey.slice(0, 4);
@@ -332,7 +334,7 @@ export default function ReportsPage() {
     if (!canViewReportDataset) {
       setTopProducts([]);
       setTopGroups([]);
-      setLoading(false);
+      setLoadingQuick(false);
       setError(null);
       return;
     }
@@ -342,7 +344,7 @@ export default function ReportsPage() {
 
     async function loadQuickInsights() {
       try {
-        setLoading(true);
+        setLoadingQuick(true);
         setError(null);
         const apiBase = getApiBase();
         const month = Number(selectedMonthKey.slice(5, 7));
@@ -375,7 +377,7 @@ export default function ReportsPage() {
           );
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingQuick(false);
       }
     }
 
@@ -389,6 +391,7 @@ export default function ReportsPage() {
     if (!canViewReportDataset) {
       setMonthlySeries([]);
       setPreviousYearSeries([]);
+      setLoadingAnnualSeries(false);
       return;
     }
     if (!authHeaders) return;
@@ -397,6 +400,7 @@ export default function ReportsPage() {
 
     async function loadMonthlySeries() {
       try {
+        setLoadingAnnualSeries(true);
         const apiBase = getApiBase();
         const currentYear = Number(selectedYear);
         const [currentRes, previousRes] = await Promise.all([
@@ -424,6 +428,8 @@ export default function ReportsPage() {
           setMonthlySeries([]);
           setPreviousYearSeries([]);
         }
+      } finally {
+        if (!cancelled) setLoadingAnnualSeries(false);
       }
     }
 
@@ -557,6 +563,7 @@ export default function ReportsPage() {
     if (!canViewReportDataset) {
       setDailySeries([]);
       setPreviousMonthDailySeries([]);
+      setLoadingDailySeries(false);
       return;
     }
     if (!authHeaders) return;
@@ -565,6 +572,7 @@ export default function ReportsPage() {
 
     async function loadDailySeries() {
       try {
+        setLoadingDailySeries(true);
         const monthDays = getMonthDayCount(selectedMonthKey);
         const fromDate = `${selectedMonthKey}-01`;
         const toDate = `${selectedMonthKey}-${String(monthDays).padStart(2, "0")}`;
@@ -612,6 +620,8 @@ export default function ReportsPage() {
           setDailySeries([]);
           setPreviousMonthDailySeries([]);
         }
+      } finally {
+        if (!cancelled) setLoadingDailySeries(false);
       }
     }
 
@@ -876,6 +886,8 @@ export default function ReportsPage() {
     const monthLabel = MONTHS[monthNum - 1]?.label ?? monthRaw;
     return `${String(dayNum).padStart(2, "0")} ${monthLabel}`;
   }, [yearLeaderDay]);
+  const annualLoading = loadingQuick || loadingAnnualSeries;
+  const monthlyLoading = loadingQuick || loadingDailySeries;
   const chartTicks = useMemo(() => [1, 0.66, 0.33, 0], []);
   const annualChart = useMemo(() => {
     const width = 980;
@@ -1666,7 +1678,7 @@ export default function ReportsPage() {
                       );
                     })}
                     </svg>
-                    {loading ? (
+                    {annualLoading ? (
                       <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[28px] bg-white/45 backdrop-blur-[1.5px]">
                         <LoadingSpinner size={56} label="Cargando gráfico anual..." />
                       </div>
@@ -1910,7 +1922,7 @@ export default function ReportsPage() {
                     </svg>
                   </div>
                 </div>
-                {loading ? (
+                {monthlyLoading ? (
                   <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/45 backdrop-blur-[1.5px]">
                     <LoadingSpinner size={52} label="Cargando gráfico mensual..." />
                   </div>
