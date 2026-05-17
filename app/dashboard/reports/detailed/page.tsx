@@ -7,6 +7,7 @@ import { getApiBase } from "@/lib/api/base";
 import {
   exportReportExcel,
   exportReportPdf,
+  fetchProductsLastSales,
   fetchReportFavorites,
   ReportFavoritesConflictError,
   saveReportFavorites,
@@ -21,6 +22,7 @@ import {
 } from "@/lib/api/settings";
 import { SHOW_FREE_SALE_TRACEABILITY_REPORT } from "@/lib/config/featureFlags";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
+import LoadingSpinner from "../../../components/ui/LoadingSpinner";
 import {
   buildBogotaDateFromKey,
   formatBogotaDate,
@@ -160,6 +162,7 @@ export type FilterMeta = {
   productReportGroupPath?: string;
   productReportGroupName?: string;
   productReportResultMode?: "detailed" | "grouped";
+  productReportLastSaleByProductId?: Record<string, string>;
 };
 
 type OpenReportTab = {
@@ -2462,6 +2465,7 @@ const dateTimeFormatter = (iso: string) =>
       const targetProductId = filterMeta?.productReportProductId ?? null;
       const targetGroupPath = normalizeText(filterMeta?.productReportGroupPath);
       const targetGroupName = normalizeText(filterMeta?.productReportGroupName);
+      const lastSaleByProductId = filterMeta?.productReportLastSaleByProductId ?? {};
       const fallbackGroupLabel = (
         mode === "group"
           ? filterMeta?.productReportGroupName
@@ -2474,12 +2478,14 @@ const dateTimeFormatter = (iso: string) =>
       const groupedMap = new Map<
         string,
         {
+          productId: number | null;
           sku: string;
           product: string;
           group: string;
           units: number;
           total: number;
           documents: Set<number>;
+          lastSaleAt: string | null;
         }
       >();
 
@@ -2551,15 +2557,23 @@ const dateTimeFormatter = (iso: string) =>
                 sku: item.product_sku ?? "—",
                 product: item.product_name ?? item.name ?? "Producto sin nombre",
                 group: itemGroupRaw || "Sin grupo",
+                productId: item.product_id ?? null,
                 units: 0,
                 total: 0,
                 documents: new Set<number>(),
+                lastSaleAt: null,
               });
             }
             const entry = groupedMap.get(key)!;
             entry.units += quantity;
             entry.total += lineTotal;
             entry.documents.add(sale.id);
+            if (
+              !entry.lastSaleAt ||
+              new Date(sale.created_at).getTime() > new Date(entry.lastSaleAt).getTime()
+            ) {
+              entry.lastSaleAt = sale.created_at;
+            }
           }
           units += quantity;
           totalValue += lineTotal;
@@ -2571,16 +2585,48 @@ const dateTimeFormatter = (iso: string) =>
       if (resultMode === "grouped") {
         rows.push(
           ...Array.from(groupedMap.values())
-            .sort((a, b) => b.total - a.total)
+            .sort((a, b) => {
+              const aBackendLast =
+                a.productId != null
+                  ? lastSaleByProductId[String(a.productId)] || null
+                  : null;
+              const bBackendLast =
+                b.productId != null
+                  ? lastSaleByProductId[String(b.productId)] || null
+                  : null;
+              const aLast = aBackendLast || a.lastSaleAt || "";
+              const bLast = bBackendLast || b.lastSaleAt || "";
+              const byLastSale =
+                new Date(bLast).getTime() - new Date(aLast).getTime();
+              if (Number.isFinite(byLastSale) && byLastSale !== 0) {
+                return byLastSale;
+              }
+              return b.total - a.total;
+            })
             .map((entry) => [
               entry.sku,
               entry.product,
               entry.group,
               entry.units.toString(),
               formatMoney(entry.total),
+              entry.productId != null &&
+              typeof lastSaleByProductId[String(entry.productId)] === "string"
+                ? dateTimeFormatter(lastSaleByProductId[String(entry.productId)])
+                : entry.lastSaleAt
+                ? dateTimeFormatter(entry.lastSaleAt)
+                : "—",
               entry.documents.size.toString(),
             ])
         );
+      } else {
+        rows.sort((a, b) => {
+          const aUnits = Number(a[5] || 0);
+          const bUnits = Number(b[5] || 0);
+          if (bUnits !== aUnits) return bUnits - aUnits;
+          const aPrice = toNumber(a[2] || "0");
+          const bPrice = toNumber(b[2] || "0");
+          return bPrice - aPrice;
+        });
       }
 
       return {
@@ -2593,7 +2639,15 @@ const dateTimeFormatter = (iso: string) =>
         table: {
           columns:
             resultMode === "grouped"
-              ? ["SKU", "Producto", "Grupo", "Unidades", "Valor total", "Documentos"]
+              ? [
+                  "SKU",
+                  "Producto",
+                  "Grupo",
+                  "Unidades",
+                  "Valor total",
+                  "Última venta",
+                  "Documentos",
+                ]
               : [
                   "SKU",
                   "Producto",
@@ -4199,6 +4253,39 @@ export default function ReportsPage() {
       productReportResultMode,
     };
 
+    if (productReportResultMode === "grouped") {
+      try {
+        const scopedSales = filterSalesByMeta(salesData, {
+          fromDate: productReportFromDate,
+          toDate: productReportToDate,
+          posFilter: "todos",
+          methodFilter: "todos",
+          sellerFilter: "",
+        });
+        const saleIds = Array.from(new Set(scopedSales.map((sale) => sale.id)));
+        const productIds = Array.from(
+          new Set(
+            scopedSales.flatMap((sale) =>
+              (sale.items ?? [])
+                .map((item) => item.product_id)
+                .filter((value): value is number => typeof value === "number" && value > 0)
+            )
+          )
+        );
+        if (saleIds.length > 0 && productIds.length > 0) {
+          const rows = await fetchProductsLastSales(
+            { sale_ids: saleIds, product_ids: productIds },
+            token
+          );
+          customMeta.productReportLastSaleByProductId = Object.fromEntries(
+            rows.map((row) => [String(row.product_id), row.last_sale_at])
+          );
+        }
+      } catch (err) {
+        console.warn("No se pudo cargar última venta por producto desde backend", err);
+      }
+    }
+
     setFromDate(productReportFromDate);
     setToDate(productReportToDate);
     createReportTab(preset, customMeta);
@@ -4208,6 +4295,8 @@ export default function ReportsPage() {
     selectedReportProduct,
     selectedGroupPath,
     ensureSalesLoaded,
+    salesData,
+    token,
     mergedGroupOptions,
     productReportFromDate,
     productReportToDate,
@@ -4801,7 +4890,8 @@ export default function ReportsPage() {
       </div>
       {productReportModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100 shadow-2xl space-y-4">
+          <div className="relative w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100 shadow-2xl space-y-4 overflow-hidden">
+            <div className={`space-y-4 ${salesLoading ? "pointer-events-none blur-[1.5px]" : ""}`}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-wide text-emerald-400">
@@ -5119,6 +5209,12 @@ export default function ReportsPage() {
                 Generar reporte
               </button>
             </div>
+            </div>
+            {salesLoading ? (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/35 backdrop-blur-[1.5px]">
+                <LoadingSpinner size={56} label="Generando reporte..." />
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

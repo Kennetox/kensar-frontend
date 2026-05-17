@@ -848,6 +848,8 @@ export default function DocumentsExplorer({
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const lastDiscountTargetRef = useRef<number | null>(null);
+  const documentsTableScrollRef = useRef<HTMLDivElement | null>(null);
+  const documentRowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
 
   const formatDateInput = (date: Date) => getBogotaDateKey(date);
 
@@ -2437,6 +2439,30 @@ useEffect(() => {
 }, [filteredDocuments, selectedDoc]);
 
 useEffect(() => {
+  if (!selectedDoc) return;
+  const row = documentRowRefs.current[selectedDoc.id] ?? null;
+  row?.scrollIntoView({ block: "nearest" });
+}, [selectedDoc]);
+
+const handleDocumentsTableKeyDown = useCallback(
+  (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (loading || filteredDocuments.length === 0) return;
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const currentIndex = selectedDoc
+      ? filteredDocuments.findIndex((doc) => doc.id === selectedDoc.id)
+      : -1;
+    const nextIndex =
+      event.key === "ArrowDown"
+        ? Math.min(filteredDocuments.length - 1, currentIndex + 1)
+        : Math.max(0, currentIndex - 1);
+    const nextDoc = filteredDocuments[nextIndex] ?? null;
+    if (nextDoc) setSelectedDoc(nextDoc);
+  },
+  [loading, filteredDocuments, selectedDoc]
+);
+
+useEffect(() => {
   setDetailExpanded(false);
 }, [selectedDoc?.id]);
 
@@ -3899,7 +3925,13 @@ useEffect(() => {
                 </thead>
               </table>
             </div>
-            <div className="max-h-[480px] overflow-y-auto">
+            <div
+              ref={documentsTableScrollRef}
+              tabIndex={0}
+              onKeyDown={handleDocumentsTableKeyDown}
+              className="max-h-[480px] overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              aria-label="Tabla de documentos. Usa flechas arriba y abajo para cambiar selección."
+            >
               <table className="w-full text-xs table-fixed">
                 <colgroup>
                   <col style={{ width: "180px" }} />
@@ -3992,6 +4024,9 @@ useEffect(() => {
                     return (
                       <tr
                         key={doc.id}
+                        ref={(node) => {
+                          documentRowRefs.current[doc.id] = node;
+                        }}
                         onClick={() => setSelectedDoc(doc)}
                         className={`cursor-pointer border-t dashboard-border transition-colors ${zebra} ${
                           isSelected ? "dashboard-row-selected" : ""

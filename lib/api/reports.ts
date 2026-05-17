@@ -38,6 +38,11 @@ export type ReportFavoritesResponse = {
   version?: string;
 };
 
+export type ReportProductLastSaleRow = {
+  product_id: number;
+  last_sale_at: string;
+};
+
 export class ReportFavoritesConflictError extends Error {
   constructor(message = "Conflicto de versión en favoritos") {
     super(message);
@@ -159,4 +164,29 @@ export async function exportReportExcel(
   }
 
   return await res.blob();
+}
+
+export async function fetchProductsLastSales(
+  payload: { sale_ids: number[]; product_ids: number[] },
+  token?: string | null
+): Promise<ReportProductLastSaleRow[]> {
+  if (!token) return [];
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/reports/products/last-sales`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `Error ${res.status}`);
+  }
+
+  const json = (await res.json()) as { rows?: ReportProductLastSaleRow[] };
+  return Array.isArray(json.rows) ? json.rows : [];
 }
