@@ -4198,8 +4198,8 @@ export default function ReportsPage() {
         presetId: preset.id,
         filterMeta: tabFilterMeta,
         createdAt: new Date().toISOString(),
-        resultSnapshot,
-        snapshotSavedAt: new Date().toISOString(),
+        resultSnapshot: resultSnapshot ?? undefined,
+        snapshotSavedAt: resultSnapshot ? new Date().toISOString() : undefined,
       };
       setSelectedPresetId(preset.id);
       setOpenReports((prev) => [...prev, newTab]);
