@@ -154,6 +154,7 @@ const DEFAULT_TILE_COLOR = "#1f2937";
 const DEFAULT_LABEL_FORMAT = "Kensar1";
 const CABLES_LABEL_FORMAT = "Cables_1";
 const LABEL_FORMAT_OPTIONS = [DEFAULT_LABEL_FORMAT, CABLES_LABEL_FORMAT] as const;
+const COST_SUGGESTION_HIGH_MARKUP_ALERT_PCT = 180;
 
 function resolveImageUrl(url: string | null): string | null {
   if (!url) return null;
@@ -779,6 +780,23 @@ export default function ProductsPage() {
     try {
       setCreateCostSuggesting(true);
       const suggestion = await requestCostSuggestion(createForm);
+      const priceValue = parseMoneyValue(createForm.price);
+      const suggestedCost = suggestion.suggested_cost;
+      const impliedMarkupPct =
+        suggestedCost > 0 ? ((priceValue - suggestedCost) / suggestedCost) * 100 : 0;
+      if (impliedMarkupPct > COST_SUGGESTION_HIGH_MARKUP_ALERT_PCT) {
+        const proceed = window.confirm(
+          `Advertencia: el costo sugerido implica un markup de ${impliedMarkupPct.toLocaleString("es-ES", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}%, que es alto. ¿Deseas aplicar este costo sugerido?`
+        );
+        if (!proceed) {
+          setCreateCostSuggestion(suggestion);
+          setErrorToastMessage("Sugerencia no aplicada. Puedes ajustar costo manualmente.");
+          return;
+        }
+      }
       setCreateCostSuggestion(suggestion);
       setCreateForm((prev) => ({
         ...prev,
@@ -797,6 +815,23 @@ export default function ProductsPage() {
     try {
       setEditCostSuggesting(true);
       const suggestion = await requestCostSuggestion(editForm, { excludeProductId: editId });
+      const priceValue = parseMoneyValue(editForm.price);
+      const suggestedCost = suggestion.suggested_cost;
+      const impliedMarkupPct =
+        suggestedCost > 0 ? ((priceValue - suggestedCost) / suggestedCost) * 100 : 0;
+      if (impliedMarkupPct > COST_SUGGESTION_HIGH_MARKUP_ALERT_PCT) {
+        const proceed = window.confirm(
+          `Advertencia: el costo sugerido implica un markup de ${impliedMarkupPct.toLocaleString("es-ES", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}%, que es alto. ¿Deseas aplicar este costo sugerido?`
+        );
+        if (!proceed) {
+          setEditCostSuggestion(suggestion);
+          setErrorToastMessage("Sugerencia no aplicada. Puedes ajustar costo manualmente.");
+          return;
+        }
+      }
       setEditCostSuggestion(suggestion);
       setEditForm((prev) => ({
         ...prev,
@@ -3067,7 +3102,7 @@ export default function ProductsPage() {
                 />
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1 md:max-w-[320px]">
                 <label className="block text-slate-300">Precio</label>
                 <input
                   name="price"
@@ -3081,41 +3116,28 @@ export default function ProductsPage() {
 
               <div className="space-y-1">
                 <label className="block text-slate-300">Costo</label>
-                <input
-                  name="cost"
-                  type="text"
-                  inputMode="decimal"
-                  value={createForm.cost}
-                  onChange={(e) => handleMoneyChange(e, setCreateForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleSuggestCreateCost()}
-                    disabled={createCostSuggesting}
-                    className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
-                  >
-                    {createCostSuggesting ? "Calculando..." : "Sugerir costo"}
-                  </button>
-                  {createCostSuggestion ? (
-                    <span className="text-xs text-slate-400">
-                      {createCostSuggestion.method_label || createCostSuggestion.method} · n=
-                      {createCostSuggestion.sample_size} · confianza {createCostSuggestion.confidence_label}
-                    </span>
-                  ) : null}
+                <div className="md:flex md:items-end md:gap-3">
+                  <div className="md:w-[320px]">
+                    <input
+                      name="cost"
+                      type="text"
+                      inputMode="decimal"
+                      value={createForm.cost}
+                      onChange={(e) => handleMoneyChange(e, setCreateForm)}
+                      className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
+                    />
+                  </div>
+                  <div className="mt-2 md:mt-0 md:flex-1">
+                    <button
+                      type="button"
+                      onClick={() => void handleSuggestCreateCost()}
+                      disabled={createCostSuggesting}
+                      className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
+                    >
+                      {createCostSuggesting ? "Calculando..." : "Sugerir costo"}
+                    </button>
+                  </div>
                 </div>
-                {createCostSuggestion ? (
-                  <p className="text-[11px] text-slate-500">
-                    Rango: {createCostSuggestion.range_min_cost.toLocaleString("es-ES")} -{" "}
-                    {createCostSuggestion.range_max_cost.toLocaleString("es-ES")} · markup P50{" "}
-                    {createCostSuggestion.markup_p50.toLocaleString("es-ES", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                    %
-                  </p>
-                ) : null}
               </div>
 
               <div className="space-y-1">
@@ -3430,7 +3452,7 @@ export default function ProductsPage() {
                 />
               </div>
 
-              <div className="space-y-1">
+              <div className="space-y-1 md:max-w-[320px]">
                 <label className="block text-slate-300">Precio</label>
                 <input
                   name="price"
@@ -3444,41 +3466,28 @@ export default function ProductsPage() {
 
               <div className="space-y-1">
                 <label className="block text-slate-300">Costo</label>
-                <input
-                  name="cost"
-                  type="text"
-                  inputMode="decimal"
-                  value={editForm.cost}
-                  onChange={(e) => handleMoneyChange(e, setEditForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void handleSuggestEditCost()}
-                    disabled={editCostSuggesting}
-                    className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
-                  >
-                    {editCostSuggesting ? "Calculando..." : "Sugerir costo"}
-                  </button>
-                  {editCostSuggestion ? (
-                    <span className="text-xs text-slate-400">
-                      {editCostSuggestion.method_label || editCostSuggestion.method} · n=
-                      {editCostSuggestion.sample_size} · confianza {editCostSuggestion.confidence_label}
-                    </span>
-                  ) : null}
+                <div className="md:flex md:items-end md:gap-3">
+                  <div className="md:w-[320px]">
+                    <input
+                      name="cost"
+                      type="text"
+                      inputMode="decimal"
+                      value={editForm.cost}
+                      onChange={(e) => handleMoneyChange(e, setEditForm)}
+                      className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
+                    />
+                  </div>
+                  <div className="mt-2 md:mt-0 md:flex-1">
+                    <button
+                      type="button"
+                      onClick={() => void handleSuggestEditCost()}
+                      disabled={editCostSuggesting}
+                      className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
+                    >
+                      {editCostSuggesting ? "Calculando..." : "Sugerir costo"}
+                    </button>
+                  </div>
                 </div>
-                {editCostSuggestion ? (
-                  <p className="text-[11px] text-slate-500">
-                    Rango: {editCostSuggestion.range_min_cost.toLocaleString("es-ES")} -{" "}
-                    {editCostSuggestion.range_max_cost.toLocaleString("es-ES")} · markup P50{" "}
-                    {editCostSuggestion.markup_p50.toLocaleString("es-ES", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                    %
-                  </p>
-                ) : null}
               </div>
 
               <div className="space-y-1">
