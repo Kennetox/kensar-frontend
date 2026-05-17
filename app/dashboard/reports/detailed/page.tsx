@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { STORAGE_KEY, useAuth } from "../../../providers/AuthProvider";
+import { useAuth } from "../../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import {
   exportReportExcel,
@@ -352,27 +352,8 @@ const LINE_CHART_PADDING = {
   left: 90,
 };
 const LINE_CHART_TICKS = 5;
-const resolveReportStorageScope = () => {
-  if (typeof window === "undefined") return "anon";
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return "anon";
-    const parsed = JSON.parse(raw) as {
-      user?: { id?: number; email?: string | null };
-    };
-    if (typeof parsed.user?.id === "number") {
-      return `u${parsed.user.id}`;
-    }
-    const email = parsed.user?.email?.trim().toLowerCase();
-    if (email) return email;
-  } catch {
-    // ignore and fallback
-  }
-  return "anon";
-};
-
-const buildReportStorageKey = (suffix: string) =>
-  `${REPORT_STORAGE_PREFIX}_${resolveReportStorageScope()}_${suffix}`;
+const buildReportStorageKey = (scope: string, suffix: string) =>
+  `${REPORT_STORAGE_PREFIX}_${scope}_${suffix}`;
 
 const areSameStringArrays = (left: string[], right: string[]): boolean => {
   if (left.length !== right.length) return false;
@@ -2656,6 +2637,7 @@ const dateTimeFormatter = (iso: string) =>
               entry.product,
               entry.group,
               entry.units.toString(),
+              formatMoney(entry.units > 0 ? entry.total / entry.units : 0),
               formatMoney(entry.total),
               entry.productId != null &&
               typeof lastSaleByProductId[String(entry.productId)] === "string"
@@ -2663,7 +2645,6 @@ const dateTimeFormatter = (iso: string) =>
                 : entry.lastSaleAt
                 ? dateTimeFormatter(entry.lastSaleAt)
                 : "—",
-              entry.documents.size.toString(),
             ])
         );
       } else {
@@ -2692,9 +2673,9 @@ const dateTimeFormatter = (iso: string) =>
                   "Producto",
                   "Grupo",
                   "Unidades",
+                  "Valor unidad",
                   "Valor total",
                   "Última venta",
-                  "Documentos",
                 ]
               : [
                   "SKU",
@@ -3386,17 +3367,26 @@ function ReportDocumentViewer({
 
 export default function ReportsPage() {
   const { token, user } = useAuth();
+  const reportStorageScope = useMemo(() => {
+    const email =
+      typeof user?.email === "string"
+        ? user.email.trim().toLowerCase()
+        : "";
+    if (email) return email;
+    if (typeof user?.id === "number") return `u${user.id}`;
+    return "anon";
+  }, [user?.email, user?.id]);
   const favoritesStorageKey = useMemo(
-    () => buildReportStorageKey("favorites"),
-    []
+    () => buildReportStorageKey(reportStorageScope, "favorites"),
+    [reportStorageScope]
   );
   const openReportsStorageKey = useMemo(
-    () => buildReportStorageKey("open_tabs"),
-    []
+    () => buildReportStorageKey(reportStorageScope, "open_tabs"),
+    [reportStorageScope]
   );
   const activeReportTabStorageKey = useMemo(
-    () => buildReportStorageKey("active_tab"),
-    []
+    () => buildReportStorageKey(reportStorageScope, "active_tab"),
+    [reportStorageScope]
   );
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
@@ -3487,7 +3477,9 @@ export default function ReportsPage() {
   const [openReports, setOpenReports] = useState<OpenReportTab[]>(() => {
     if (typeof window === "undefined") return [];
     try {
-      const raw = window.localStorage.getItem(buildReportStorageKey("open_tabs"));
+      const raw = window.localStorage.getItem(
+        buildReportStorageKey("anon", "open_tabs")
+      );
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
@@ -3500,7 +3492,9 @@ export default function ReportsPage() {
   const tabsInitializedRef = useRef(false);
   const [activeTabId, setActiveTabId] = useState<string>(() => {
     if (typeof window === "undefined") return "selector";
-    const stored = window.localStorage.getItem(buildReportStorageKey("active_tab"));
+    const stored = window.localStorage.getItem(
+      buildReportStorageKey("anon", "active_tab")
+    );
     return stored || "selector";
   });
 
@@ -3515,7 +3509,9 @@ export default function ReportsPage() {
   const [favoriteReportIds, setFavoriteReportIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
     try {
-      const raw = window.localStorage.getItem(buildReportStorageKey("favorites"));
+      const raw = window.localStorage.getItem(
+        buildReportStorageKey("anon", "favorites")
+      );
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
@@ -3528,6 +3524,7 @@ export default function ReportsPage() {
     }
     return [];
   });
+  const storageScopeInitializedRef = useRef<string | null>(null);
   const favoritesSyncReadyRef = useRef(false);
   const lastFavoritesSyncSignatureRef = useRef<string>("");
   const favoritesVersionRef = useRef<string>("");
@@ -3673,6 +3670,69 @@ export default function ReportsPage() {
     }
     return unique;
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (storageScopeInitializedRef.current === reportStorageScope) return;
+    storageScopeInitializedRef.current = reportStorageScope;
+
+    const anonOpenKey = buildReportStorageKey("anon", "open_tabs");
+    const anonActiveKey = buildReportStorageKey("anon", "active_tab");
+    const anonFavoritesKey = buildReportStorageKey("anon", "favorites");
+
+    try {
+      const scopedOpenRaw = window.localStorage.getItem(openReportsStorageKey);
+      const fallbackOpenRaw =
+        reportStorageScope !== "anon" && !scopedOpenRaw
+          ? window.localStorage.getItem(anonOpenKey)
+          : null;
+      const parsedOpen = JSON.parse(scopedOpenRaw ?? fallbackOpenRaw ?? "[]");
+      if (Array.isArray(parsedOpen)) {
+        setOpenReports(parsedOpen.filter(isValidOpenReportTab));
+      } else {
+        setOpenReports([]);
+      }
+    } catch {
+      setOpenReports([]);
+    }
+
+    const scopedActive =
+      window.localStorage.getItem(activeReportTabStorageKey) ??
+      (reportStorageScope !== "anon"
+        ? window.localStorage.getItem(anonActiveKey)
+        : null);
+    setActiveTabId(scopedActive || "selector");
+
+    try {
+      const scopedFavoritesRaw = window.localStorage.getItem(favoritesStorageKey);
+      const fallbackFavoritesRaw =
+        reportStorageScope !== "anon" && !scopedFavoritesRaw
+          ? window.localStorage.getItem(anonFavoritesKey)
+          : null;
+      const parsedFavorites = JSON.parse(
+        scopedFavoritesRaw ?? fallbackFavoritesRaw ?? "[]"
+      );
+      if (Array.isArray(parsedFavorites)) {
+        setFavoriteReportIds(
+          sanitizeFavoriteIds(
+            parsedFavorites.filter(
+              (id: unknown): id is string => typeof id === "string"
+            )
+          )
+        );
+      } else {
+        setFavoriteReportIds([]);
+      }
+    } catch {
+      setFavoriteReportIds([]);
+    }
+  }, [
+    reportStorageScope,
+    openReportsStorageKey,
+    activeReportTabStorageKey,
+    favoritesStorageKey,
+    sanitizeFavoriteIds,
+  ]);
 
   const readLocalFavoriteIds = useCallback((): string[] => {
     if (typeof window === "undefined") return [];
