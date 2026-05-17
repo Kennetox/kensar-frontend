@@ -35,7 +35,15 @@ export type ReportPdfExportPayload = {
 
 export type ReportFavoritesResponse = {
   preset_ids: string[];
+  version?: string;
 };
+
+export class ReportFavoritesConflictError extends Error {
+  constructor(message = "Conflicto de versión en favoritos") {
+    super(message);
+    this.name = "ReportFavoritesConflictError";
+  }
+}
 
 export async function exportReportPdf(
   payload: ReportPdfExportPayload,
@@ -64,8 +72,8 @@ export async function exportReportPdf(
 
 export async function fetchReportFavorites(
   token?: string | null
-): Promise<string[]> {
-  if (!token) return [];
+): Promise<ReportFavoritesResponse> {
+  if (!token) return { preset_ids: [], version: "" };
   const apiBase = getApiBase();
   const res = await fetch(`${apiBase}/reports/favorites`, {
     method: "GET",
@@ -81,15 +89,19 @@ export async function fetchReportFavorites(
   }
 
   const json: ReportFavoritesResponse = await res.json();
-  if (!Array.isArray(json.preset_ids)) return [];
-  return json.preset_ids.filter((id): id is string => typeof id === "string");
+  if (!Array.isArray(json.preset_ids)) return { preset_ids: [], version: "" };
+  return {
+    preset_ids: json.preset_ids.filter((id): id is string => typeof id === "string"),
+    version: typeof json.version === "string" ? json.version : "",
+  };
 }
 
 export async function saveReportFavorites(
   presetIds: string[],
+  expectedVersion?: string,
   token?: string | null
-): Promise<string[]> {
-  if (!token) return [];
+): Promise<ReportFavoritesResponse> {
+  if (!token) return { preset_ids: [], version: "" };
   const apiBase = getApiBase();
   const res = await fetch(`${apiBase}/reports/favorites`, {
     method: "PUT",
@@ -97,9 +109,19 @@ export async function saveReportFavorites(
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ preset_ids: presetIds }),
+    body: JSON.stringify({
+      preset_ids: presetIds,
+      expected_version: expectedVersion ?? null,
+    }),
     credentials: "include",
   });
+
+  if (res.status === 409) {
+    const detail = await res.json().catch(() => null);
+    throw new ReportFavoritesConflictError(
+      detail?.detail?.message ?? detail?.detail ?? "Conflicto de versión en favoritos"
+    );
+  }
 
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
@@ -107,8 +129,11 @@ export async function saveReportFavorites(
   }
 
   const json: ReportFavoritesResponse = await res.json();
-  if (!Array.isArray(json.preset_ids)) return [];
-  return json.preset_ids.filter((id): id is string => typeof id === "string");
+  if (!Array.isArray(json.preset_ids)) return { preset_ids: [], version: "" };
+  return {
+    preset_ids: json.preset_ids.filter((id): id is string => typeof id === "string"),
+    version: typeof json.version === "string" ? json.version : "",
+  };
 }
 
 export async function exportReportExcel(

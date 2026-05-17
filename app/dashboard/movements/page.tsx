@@ -1679,39 +1679,46 @@ export default function MovementsPage() {
             ) : null}
           </div>
 
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <button
-              onClick={() => setInventoryPageNo(1)}
-              disabled={inventoryPageNo <= 1}
-              className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              ⇤ Primera
-            </button>
-            <button
-              onClick={() => setInventoryPageNo((prev) => Math.max(1, prev - 1))}
-              disabled={inventoryPageNo <= 1}
-              className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              ← Anterior
-            </button>
-            <button
-              onClick={() => setInventoryPageNo((prev) => Math.min(inventoryPages, prev + 1))}
-              disabled={inventoryPageNo >= inventoryPages}
-              className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              Siguiente →
-            </button>
-            <button
-              onClick={() => setInventoryPageNo(inventoryPages)}
-              disabled={inventoryPageNo >= inventoryPages}
-              className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              Última ⇥
-            </button>
-          </div>
+          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 text-xs text-slate-600">
+              <div>
+                Página <span className="font-semibold text-slate-900">{inventoryPageNo}</span> de{" "}
+                <span className="font-semibold text-slate-900">{inventoryPages}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setInventoryPageNo(1)}
+                  disabled={inventoryPageNo <= 1}
+                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                >
+                  ⇤ Primera
+                </button>
+                <button
+                  onClick={() => setInventoryPageNo((prev) => Math.max(1, prev - 1))}
+                  disabled={inventoryPageNo <= 1}
+                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                >
+                  ← Anterior
+                </button>
+                <button
+                  onClick={() => setInventoryPageNo((prev) => Math.min(inventoryPages, prev + 1))}
+                  disabled={inventoryPageNo >= inventoryPages}
+                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                >
+                  Siguiente →
+                </button>
+                <button
+                  onClick={() => setInventoryPageNo(inventoryPages)}
+                  disabled={inventoryPageNo >= inventoryPages}
+                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                >
+                  Última ⇥
+                </button>
+              </div>
+            </div>
 
-          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <table className="w-full table-fixed">
+            <div className="h-[min(62vh,720px)] min-h-[340px] overflow-auto">
+              <table className="w-full table-fixed">
               <colgroup>
                 <col style={{ width: "24%" }} />
                 <col style={{ width: "8%" }} />
@@ -1723,7 +1730,7 @@ export default function MovementsPage() {
                 <col style={{ width: "8%" }} />
                 <col style={{ width: "8%" }} />
               </colgroup>
-              <thead className="bg-slate-50">
+              <thead className="sticky top-0 z-10 bg-slate-50">
                 <tr className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">
                   <th className="px-3 py-3 text-left">Producto</th>
                   <th className="px-3 py-3 text-left">SKU</th>
@@ -1840,38 +1847,45 @@ export default function MovementsPage() {
                   })
                 )}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
 
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <button
-              onClick={() => setInventoryPageNo(1)}
-              disabled={inventoryPageNo <= 1}
-              className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              ⇤ Primera
-            </button>
-            <button
-              onClick={() => setInventoryPageNo((prev) => Math.max(1, prev - 1))}
-              disabled={inventoryPageNo <= 1}
-              className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              ← Anterior
-            </button>
-            <button
-              onClick={() => setInventoryPageNo((prev) => Math.min(inventoryPages, prev + 1))}
-              disabled={inventoryPageNo >= inventoryPages}
-              className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              Siguiente →
-            </button>
-            <button
-              onClick={() => setInventoryPageNo(inventoryPages)}
-              disabled={inventoryPageNo >= inventoryPages}
-              className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
-            >
-              Última ⇥
-            </button>
+            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-xs text-slate-600">
+              <div>
+                Página <span className="font-semibold text-slate-900">{inventoryPageNo}</span> de{" "}
+                <span className="font-semibold text-slate-900">{inventoryPages}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setInventoryPageNo(1)}
+                  disabled={inventoryPageNo <= 1}
+                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                >
+                  ⇤ Primera
+                </button>
+                <button
+                  onClick={() => setInventoryPageNo((prev) => Math.max(1, prev - 1))}
+                  disabled={inventoryPageNo <= 1}
+                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                >
+                  ← Anterior
+                </button>
+                <button
+                  onClick={() => setInventoryPageNo((prev) => Math.min(inventoryPages, prev + 1))}
+                  disabled={inventoryPageNo >= inventoryPages}
+                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                >
+                  Siguiente →
+                </button>
+                <button
+                  onClick={() => setInventoryPageNo(inventoryPages)}
+                  disabled={inventoryPageNo >= inventoryPages}
+                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                >
+                  Última ⇥
+                </button>
+              </div>
+            </div>
           </div>
         </section>
       ) : null}

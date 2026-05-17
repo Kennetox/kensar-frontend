@@ -42,6 +42,7 @@ import {
   getBogotaDateKey,
   parseDateInput,
 } from "@/lib/time/bogota";
+import LoadingSpinner from "./ui/LoadingSpinner";
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
 const DOCUMENTS_CACHE_PREFIX = "kensar_documents_cache:";
@@ -808,6 +809,14 @@ export default function DocumentsExplorer({
   const [filterCustomer, setFilterCustomer] = useState("");
   const [filterPos, setFilterPos] = useState("");
   const [filterVendor, setFilterVendor] = useState("");
+  const [appliedFilterType, setAppliedFilterType] = useState("all");
+  const [appliedFilterFrom, setAppliedFilterFrom] = useState(today);
+  const [appliedFilterTo, setAppliedFilterTo] = useState(today);
+  const [appliedFilterTerm, setAppliedFilterTerm] = useState("");
+  const [appliedFilterPayment, setAppliedFilterPayment] = useState("");
+  const [appliedFilterCustomer, setAppliedFilterCustomer] = useState("");
+  const [appliedFilterPos, setAppliedFilterPos] = useState("");
+  const [appliedFilterVendor, setAppliedFilterVendor] = useState("");
   const [showDocumentGuide, setShowDocumentGuide] = useState(false);
   const [filtersReady, setFiltersReady] = useState(false);
   const [persistedSelectedId, setPersistedSelectedId] = useState<string | null>(
@@ -889,6 +898,74 @@ export default function DocumentsExplorer({
     setFilterTo(formatDateInput(end));
   };
 
+  const clearAllFilters = useCallback(() => {
+    setFilterType("all");
+    setFilterFrom(today);
+    setFilterTo(today);
+    setFilterTerm("");
+    setFilterPayment("");
+    setFilterCustomer("");
+    setFilterPos("");
+    setFilterVendor("");
+    setAppliedFilterType("all");
+    setAppliedFilterFrom(today);
+    setAppliedFilterTo(today);
+    setAppliedFilterTerm("");
+    setAppliedFilterPayment("");
+    setAppliedFilterCustomer("");
+    setAppliedFilterPos("");
+    setAppliedFilterVendor("");
+    setSelectedDoc(null);
+    setPersistedSelectedId(null);
+  }, [today]);
+
+  const applyFiltersAndSearch = useCallback(() => {
+    setAppliedFilterType(filterType);
+    setAppliedFilterFrom(filterFrom);
+    setAppliedFilterTo(filterTo);
+    setAppliedFilterTerm(filterTerm);
+    setAppliedFilterPayment(filterPayment);
+    setAppliedFilterCustomer(filterCustomer);
+    setAppliedFilterPos(filterPos);
+    setAppliedFilterVendor(filterVendor);
+    setSelectedDoc(null);
+    setPersistedSelectedId(null);
+  }, [
+    filterType,
+    filterFrom,
+    filterTo,
+    filterTerm,
+    filterPayment,
+    filterCustomer,
+    filterPos,
+    filterVendor,
+  ]);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (filterType !== "all") count += 1;
+    const hasDateRangeFilter = filterFrom !== today || filterTo !== today;
+    if (hasDateRangeFilter) count += 1;
+    if (filterTerm.trim()) count += 1;
+    if (filterPayment) count += 1;
+    if (filterCustomer.trim()) count += 1;
+    if (filterPos) count += 1;
+    if (filterVendor) count += 1;
+    return count;
+  }, [
+    filterType,
+    filterFrom,
+    filterTo,
+    filterTerm,
+    filterPayment,
+    filterCustomer,
+    filterPos,
+    filterVendor,
+    today,
+  ]);
+
+  const hasActiveFilters = activeFiltersCount > 0;
+
   async function loadDocuments(options?: { force?: boolean }) {
     try {
       setLoading(true);
@@ -897,9 +974,9 @@ export default function DocumentsExplorer({
       const apiBase = getApiBase();
       const PAGE_SIZE = 200;
       const force = options?.force === true;
-      const fromKey = filterFrom || "";
-      const toKey = filterTo || "";
-      const cacheKey = `${DOCUMENTS_CACHE_PREFIX}${filterType}:${fromKey}:${toKey}`;
+      const fromKey = appliedFilterFrom || "";
+      const toKey = appliedFilterTo || "";
+      const cacheKey = `${DOCUMENTS_CACHE_PREFIX}${appliedFilterType}:${fromKey}:${toKey}`;
       const buildRangeParams = () => {
         const params = new URLSearchParams();
         if (fromKey) {
@@ -916,32 +993,32 @@ export default function DocumentsExplorer({
         return params;
       };
       const needsSales =
-        filterType === "all" ||
-        filterType === "venta" ||
-        filterType === "orden_web" ||
-        filterType === "anulacion" ||
-        filterType === "abono";
+        appliedFilterType === "all" ||
+        appliedFilterType === "venta" ||
+        appliedFilterType === "orden_web" ||
+        appliedFilterType === "anulacion" ||
+        appliedFilterType === "abono";
       const needsWebOrders =
-        filterType === "all" || filterType === "orden_web";
+        appliedFilterType === "all" || appliedFilterType === "orden_web";
       const needsReturns =
-        filterType === "all" ||
-        filterType === "devolucion" ||
-        filterType === "anulacion";
-      const needsChanges = filterType === "all" || filterType === "cambio";
-      const needsClosures = filterType === "all" || filterType === "cierre";
+        appliedFilterType === "all" ||
+        appliedFilterType === "devolucion" ||
+        appliedFilterType === "anulacion";
+      const needsChanges = appliedFilterType === "all" || appliedFilterType === "cambio";
+      const needsClosures = appliedFilterType === "all" || appliedFilterType === "cierre";
       const needsSeparatedOrders =
-        filterType === "all" || filterType === "abono";
+        appliedFilterType === "all" || appliedFilterType === "abono";
       const needsReceiving =
-        filterType === "all" || filterType === "recepcion";
+        appliedFilterType === "all" || appliedFilterType === "recepcion";
       const needsManualMovements =
-        filterType === "all" ||
-        filterType === "movimiento_manual" ||
-        filterType === "mov_salida_manual" ||
-        filterType === "mov_venta_manual" ||
-        filterType === "mov_ajuste" ||
-        filterType === "mov_perdida_dano";
+        appliedFilterType === "all" ||
+        appliedFilterType === "movimiento_manual" ||
+        appliedFilterType === "mov_salida_manual" ||
+        appliedFilterType === "mov_venta_manual" ||
+        appliedFilterType === "mov_ajuste" ||
+        appliedFilterType === "mov_perdida_dano";
       const needsRecounts =
-        filterType === "all" || filterType === "recuento";
+        appliedFilterType === "all" || appliedFilterType === "recuento";
 
       const applyLoadedState = (payload: DocumentsCachePayload) => {
         setSales(payload.sales);
@@ -1616,7 +1693,7 @@ export default function DocumentsExplorer({
     if (!authHeaders || !filtersReady) return;
     void loadDocuments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authHeaders, filtersReady, filterFrom, filterTo, filterType]);
+  }, [authHeaders, filtersReady, appliedFilterFrom, appliedFilterTo, appliedFilterType]);
 
   useEffect(() => {
     let active = true;
@@ -1664,6 +1741,19 @@ export default function DocumentsExplorer({
         if (typeof saved.filterPos === "string") setFilterPos(saved.filterPos);
         if (typeof saved.filterVendor === "string")
           setFilterVendor(saved.filterVendor);
+        if (saved.filterType) setAppliedFilterType(saved.filterType);
+        if (saved.filterFrom) setAppliedFilterFrom(saved.filterFrom);
+        if (saved.filterTo) setAppliedFilterTo(saved.filterTo);
+        if (typeof saved.filterTerm === "string")
+          setAppliedFilterTerm(saved.filterTerm);
+        if (typeof saved.filterPayment === "string")
+          setAppliedFilterPayment(saved.filterPayment);
+        if (typeof saved.filterCustomer === "string")
+          setAppliedFilterCustomer(saved.filterCustomer);
+        if (typeof saved.filterPos === "string")
+          setAppliedFilterPos(saved.filterPos);
+        if (typeof saved.filterVendor === "string")
+          setAppliedFilterVendor(saved.filterVendor);
         if (typeof saved.selectedDocId === "string")
           setPersistedSelectedId(saved.selectedDocId);
       }
@@ -1705,6 +1795,14 @@ export default function DocumentsExplorer({
     setFilterCustomer("");
     setFilterPos("");
     setFilterVendor("");
+    setAppliedFilterType(allowed.has(type) ? type : "all");
+    setAppliedFilterTerm(term);
+    setAppliedFilterFrom("");
+    setAppliedFilterTo("");
+    setAppliedFilterPayment("");
+    setAppliedFilterCustomer("");
+    setAppliedFilterPos("");
+    setAppliedFilterVendor("");
     setSelectedDoc(null);
     setPersistedSelectedId(null);
   }, [searchParams]);
@@ -2223,22 +2321,22 @@ export default function DocumentsExplorer({
   }, [documents, mapPaymentMethod, saleAdjustmentsById]);
 
   const filteredDocuments = useMemo(() => {
-    const fromKey = filterFrom || null;
-    const toKey = filterTo || null;
-    const term = filterTerm.trim().toLowerCase();
+    const fromKey = appliedFilterFrom || null;
+    const toKey = appliedFilterTo || null;
+    const term = appliedFilterTerm.trim().toLowerCase();
 
     return documents.filter((doc) => {
       const docKey = getBogotaDateKey(doc.createdAt);
       if (fromKey && docKey < fromKey) return false;
       if (toKey && docKey > toKey) return false;
       const isAnnulationDoc = isAnnulationDocument(doc);
-      if (filterType === "anulacion") {
+      if (appliedFilterType === "anulacion") {
         if (!isAnnulationDoc) return false;
       } else if (
-        filterType === "mov_salida_manual" ||
-        filterType === "mov_venta_manual" ||
-        filterType === "mov_ajuste" ||
-        filterType === "mov_perdida_dano"
+        appliedFilterType === "mov_salida_manual" ||
+        appliedFilterType === "mov_venta_manual" ||
+        appliedFilterType === "mov_ajuste" ||
+        appliedFilterType === "mov_perdida_dano"
       ) {
         if (doc.type !== "movimiento_manual") return false;
         const movement = doc.data as ManualMovementDocumentRecord;
@@ -2248,8 +2346,8 @@ export default function DocumentsExplorer({
           mov_ajuste: "ajuste",
           mov_perdida_dano: "perdida_dano",
         };
-        if (movement.kind !== kindByFilter[filterType]) return false;
-      } else if (filterType !== "all" && doc.type !== filterType) {
+        if (movement.kind !== kindByFilter[appliedFilterType]) return false;
+      } else if (appliedFilterType !== "all" && doc.type !== appliedFilterType) {
         return false;
       }
       const docIsSeparated = !!doc.isSeparated;
@@ -2276,32 +2374,32 @@ export default function DocumentsExplorer({
         return false;
       }
       if (
-        filterPayment &&
-        !paymentLabel.includes(filterPayment.toLowerCase())
+        appliedFilterPayment &&
+        !paymentLabel.includes(appliedFilterPayment.toLowerCase())
       ) {
         return false;
       }
       if (
-        filterCustomer &&
+        appliedFilterCustomer &&
         !(doc.customer ?? "")
           .toLowerCase()
-          .includes(filterCustomer.toLowerCase())
+          .includes(appliedFilterCustomer.toLowerCase())
       ) {
         return false;
       }
       if (
-        filterPos &&
+        appliedFilterPos &&
         !(doc.pos ?? "")
           .toLowerCase()
-          .includes(filterPos.toLowerCase())
+          .includes(appliedFilterPos.toLowerCase())
       ) {
         return false;
       }
       if (
-        filterVendor &&
+        appliedFilterVendor &&
         !(doc.vendor ?? "")
           .toLowerCase()
-          .includes(filterVendor.toLowerCase())
+          .includes(appliedFilterVendor.toLowerCase())
       ) {
         return false;
       }
@@ -2309,14 +2407,14 @@ export default function DocumentsExplorer({
     });
   }, [
     documents,
-    filterType,
-    filterFrom,
-    filterTo,
-    filterTerm,
-    filterPayment,
-    filterCustomer,
-    filterPos,
-    filterVendor,
+    appliedFilterType,
+    appliedFilterFrom,
+    appliedFilterTo,
+    appliedFilterTerm,
+    appliedFilterPayment,
+    appliedFilterCustomer,
+    appliedFilterPos,
+    appliedFilterVendor,
     mapPaymentMethod,
     saleAdjustmentsById,
   ]);
@@ -3476,7 +3574,7 @@ useEffect(() => {
         )}
       </header>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-4 text-xs">
+      <section className="relative rounded-2xl border border-slate-200 bg-white p-4 space-y-4 text-xs">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h2 className="text-sm font-semibold text-slate-200">Filtros avanzados</h2>
           <div className="flex items-center gap-4">
@@ -3486,22 +3584,6 @@ useEffect(() => {
               className="text-[11px] text-slate-400 hover:text-slate-200 underline"
             >
               Guía de documentos
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setFilterType("all");
-                setFilterFrom(today);
-                setFilterTo(today);
-                setFilterTerm("");
-                setFilterPayment("");
-                setFilterCustomer("");
-                setFilterPos("");
-                setFilterVendor("");
-              }}
-              className="text-[11px] text-slate-400 hover:text-slate-200 underline"
-            >
-              Limpiar filtros
             </button>
           </div>
         </div>
@@ -3638,25 +3720,57 @@ useEffect(() => {
             </select>
           </label>
         </div>
-        <div className="flex flex-wrap gap-2 text-[11px]">
-          {[
-            { id: "today", label: "Hoy" },
-            { id: "yesterday", label: "Ayer" },
-          { id: "last7", label: "Últimos 7 días" },
-          { id: "week", label: "Esta semana" },
-          { id: "month", label: "Este mes" },
-          { id: "previousMonth", label: "Mes anterior" },
-          { id: "year", label: "Este año" },
-        ].map((btn) => (
-            <button
-              key={btn.id}
-              type="button"
-              onClick={() => applyQuickRange(btn.id)}
-              className="px-3 py-1 rounded-full border border-slate-700 text-slate-300 hover:border-emerald-400/60 hover:text-emerald-200 transition"
-            >
-              {btn.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-2 text-[11px]">
+            {[
+              { id: "today", label: "Hoy" },
+              { id: "yesterday", label: "Ayer" },
+              { id: "last7", label: "Últimos 7 días" },
+              { id: "week", label: "Esta semana" },
+              { id: "month", label: "Este mes" },
+              { id: "previousMonth", label: "Mes anterior" },
+              { id: "year", label: "Este año" },
+            ].map((btn) => (
+              <button
+                key={btn.id}
+                type="button"
+                onClick={() => applyQuickRange(btn.id)}
+                className="px-3 py-1 rounded-full border border-slate-700 text-slate-300 hover:border-emerald-400/60 hover:text-emerald-200 transition"
+              >
+                {btn.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={applyFiltersAndSearch}
+            className="relative ml-2 inline-flex min-h-[2.125rem] min-w-[9.25rem] cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#b8c9ea] bg-[#dce8fb] px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition hover:border-[#9fb7e6] hover:bg-[#d2e2fb]"
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true" className="h-3.5 w-3.5 fill-current">
+              <path d="M8.5 2.5a6 6 0 1 0 3.74 10.68l3.29 3.3a1 1 0 0 0 1.42-1.42l-3.3-3.29A6 6 0 0 0 8.5 2.5Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z" />
+            </svg>
+            Buscar
+          </button>
+          <button
+            type="button"
+            disabled={!hasActiveFilters}
+            onClick={clearAllFilters}
+            className={`relative ml-2 min-h-[2.125rem] min-w-[9.25rem] rounded-xl border px-2.5 py-1.5 text-xs font-medium transition ${
+              hasActiveFilters
+                ? "cursor-pointer border-slate-400 bg-slate-100 text-slate-800 shadow-sm hover:border-slate-500"
+                : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+            }`}
+          >
+            Limpiar filtros
+            {hasActiveFilters ? (
+              <span
+                className="absolute -left-2 -top-2 inline-flex h-6 w-6 animate-bounce items-center justify-center rounded-full border-2 border-white bg-rose-600 text-[11px] font-bold leading-none shadow-[0_6px_14px_rgba(225,29,72,0.38)] ring-1 ring-rose-300/70"
+                style={{ color: "#ffffff" }}
+              >
+                {activeFiltersCount}
+              </span>
+            ) : null}
+          </button>
         </div>
       </section>
 
@@ -3795,29 +3909,13 @@ useEffect(() => {
                   <col style={{ width: "200px" }} />
                 </colgroup>
                 <tbody>
-                  {loading &&
-                    Array.from({ length: 6 }).map((_, idx) => (
-                      <tr key={`documents-skeleton-${idx}`} className="border-t border-slate-800/30">
-                        <td className="px-3 py-4">
-                          <div className="h-3 w-32 rounded bg-slate-800/60 animate-pulse" />
-                          <div className="mt-2 h-2.5 w-24 rounded bg-slate-900/70 animate-pulse" />
-                        </td>
-                        <td className="px-3 py-4">
-                          <div className="h-3 w-20 rounded bg-slate-800/60 animate-pulse" />
-                        </td>
-                        <td className="px-3 py-4">
-                          <div className="h-3 w-full rounded bg-slate-800/50 animate-pulse" />
-                          <div className="mt-2 h-2 w-3/4 rounded bg-slate-900/70 animate-pulse" />
-                        </td>
-                        <td className="px-3 py-4 text-right">
-                          <div className="ml-auto h-3 w-20 rounded bg-slate-800/60 animate-pulse" />
-                        </td>
-                        <td className="px-3 py-4 text-right">
-                          <div className="ml-auto h-3 w-32 rounded bg-slate-800/60 animate-pulse" />
-                          <div className="mt-2 ml-auto h-2 w-24 rounded bg-slate-900/70 animate-pulse" />
-                        </td>
-                      </tr>
-                    ))}
+                  {loading && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-10">
+                        <LoadingSpinner size={46} label="Buscando documentos..." />
+                      </td>
+                    </tr>
+                  )}
                   {!loading && filteredDocuments.length === 0 && (
                     <tr>
                         <td colSpan={5} className="px-4 py-6 text-center text-[11px] text-slate-500">
@@ -4002,13 +4100,13 @@ useEffect(() => {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col">
+        <section className="relative rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col overflow-hidden">
           {!selectedDoc ? (
             <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
               Selecciona un documento en la tabla para ver los detalles.
             </div>
           ) : (
-            <div className="space-y-6 text-xs flex-1 overflow-y-auto">
+            <div className={`space-y-6 text-xs flex-1 overflow-y-auto ${loading ? "pointer-events-none blur-[1.5px]" : ""}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-wide text-slate-500">
@@ -5047,6 +5145,11 @@ useEffect(() => {
               )}
             </div>
           )}
+          {loading ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/35 backdrop-blur-[1.5px]">
+              <LoadingSpinner size={52} label="Cargando detalle..." />
+            </div>
+          ) : null}
         </section>
       </div>
       {showDocumentGuide && (

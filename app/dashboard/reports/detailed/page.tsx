@@ -8,6 +8,7 @@ import {
   exportReportExcel,
   exportReportPdf,
   fetchReportFavorites,
+  ReportFavoritesConflictError,
   saveReportFavorites,
 } from "@/lib/api/reports";
 import {
@@ -28,7 +29,7 @@ import {
   parseDateInput,
 } from "@/lib/time/bogota";
 
-type QuickRange = "today" | "yesterday" | "week" | "month" | "year";
+type QuickRange = "today" | "yesterday" | "week" | "month" | "previous_month" | "year";
 
 export type ReportPreset = {
   id: string;
@@ -152,6 +153,13 @@ export type FilterMeta = {
   posFilter: string;
   methodFilter: string;
   sellerFilter: string;
+  productReportMode?: "product" | "group";
+  productReportProductId?: number | null;
+  productReportProductName?: string;
+  productReportProductGroupName?: string;
+  productReportGroupPath?: string;
+  productReportGroupName?: string;
+  productReportResultMode?: "detailed" | "grouped";
 };
 
 type OpenReportTab = {
@@ -159,6 +167,20 @@ type OpenReportTab = {
   presetId: string;
   filterMeta: FilterMeta;
   createdAt: string;
+};
+
+type ProductSearchOption = {
+  id: number;
+  name: string;
+  sku: string;
+  groupName: string;
+};
+
+type ProductGroupOption = {
+  id: number;
+  path: string;
+  displayName: string;
+  parentPath?: string | null;
 };
 
 type DashboardRole = PosUserRecord["role"];
@@ -175,12 +197,30 @@ function isDashboardRole(role?: string | null): role is DashboardRole {
 const isValidFilterMeta = (value: unknown): value is FilterMeta => {
   if (!value || typeof value !== "object") return false;
   const meta = value as Record<string, unknown>;
+  const mode = meta.productReportMode;
+  const modeValid =
+    mode === undefined || mode === "product" || mode === "group";
   return (
     typeof meta.fromDate === "string" &&
     typeof meta.toDate === "string" &&
     typeof meta.posFilter === "string" &&
     typeof meta.methodFilter === "string" &&
-    typeof meta.sellerFilter === "string"
+    typeof meta.sellerFilter === "string" &&
+    modeValid &&
+    (meta.productReportProductId === undefined ||
+      meta.productReportProductId === null ||
+      typeof meta.productReportProductId === "number") &&
+    (meta.productReportProductName === undefined ||
+      typeof meta.productReportProductName === "string") &&
+    (meta.productReportProductGroupName === undefined ||
+      typeof meta.productReportProductGroupName === "string") &&
+    (meta.productReportGroupPath === undefined ||
+      typeof meta.productReportGroupPath === "string") &&
+    (meta.productReportGroupName === undefined ||
+      typeof meta.productReportGroupName === "string") &&
+    (meta.productReportResultMode === undefined ||
+      meta.productReportResultMode === "detailed" ||
+      meta.productReportResultMode === "grouped")
   );
 };
 
@@ -199,6 +239,7 @@ const isValidOpenReportTab = (value: unknown): value is OpenReportTab => {
 const REPORT_PAGE_SIZE = 500;
 const ADJUSTMENTS_CHUNK_SIZE = 200;
 const TABLE_ROWS_PER_PAGE = 18;
+const PRODUCTS_GROUPED_ROWS_PER_PAGE = 26;
 const MONTH_DAILY_ROWS_PER_PAGE = 28;
 const PAPER_WIDTH_MM = 210; // A4
 const PAPER_HEIGHT_MM = 297; // A4
@@ -343,6 +384,22 @@ const getColumnPresentation = (
     if (normalized === "ticket") {
       presentation.width = 110;
       presentation.maxWidth = 110;
+      presentation.noWrap = true;
+      return presentation;
+    }
+  }
+
+  if (reportId === "products-by-target") {
+    if (normalized === "producto") {
+      presentation.clampLines = 1;
+      presentation.maxWidth = 220;
+      presentation.width = 220;
+      return presentation;
+    }
+    if (normalized === "precio") {
+      presentation.width = 95;
+      presentation.maxWidth = 95;
+      presentation.align = "right";
       presentation.noWrap = true;
       return presentation;
     }
@@ -550,7 +607,8 @@ const chunkArray = <T,>(items: T[], size: number): T[][] => {
 const buildRowChunks = (
   presetId: string,
   rows: string[][],
-  defaultSize: number
+  defaultSize: number,
+  filterMeta?: FilterMeta
 ): string[][][] => {
   if (!rows.length) {
     return chunkArray(rows, defaultSize);
@@ -617,6 +675,54 @@ const buildRowChunks = (
       return [[]] as string[][][];
     }
     return chunks;
+  }
+  if (presetId === "products-by-target") {
+    const groupedMode =
+      filterMeta?.productReportResultMode === "grouped" ||
+      (rows[0]?.length ?? 0) === 6;
+    const firstPageBudget = groupedMode ? 24 : 18;
+    const nextPageBudget = groupedMode ? 30 : 24;
+    const calcRowWeight = (row: string[]): number => {
+      if (groupedMode) {
+        const productLen = (row[1] ?? "").length;
+        const groupLen = (row[2] ?? "").length;
+        const productExtra = Math.max(0, Math.ceil((productLen - 34) / 26));
+        const groupExtra = Math.max(0, Math.ceil((groupLen - 20) / 26));
+        return 1 + productExtra * 0.45 + groupExtra * 0.2;
+      }
+      const productLen = (row[1] ?? "").length;
+      const groupLen = (row[6] ?? "").length;
+      const posLen = (row[7] ?? "").length;
+      const productExtra = Math.max(0, Math.ceil((productLen - 28) / 24));
+      const groupExtra = Math.max(0, Math.ceil((groupLen - 18) / 22));
+      const posExtra = Math.max(0, Math.ceil((posLen - 16) / 18));
+      return 1 + productExtra * 0.5 + groupExtra * 0.2 + posExtra * 0.2;
+    };
+
+    const chunks: string[][][] = [];
+    let cursor = 0;
+    let currentBudget = firstPageBudget;
+    while (cursor < rows.length) {
+      let pageWeight = 0;
+      const pageRows: string[][] = [];
+      while (cursor < rows.length) {
+        const row = rows[cursor];
+        const rowWeight = calcRowWeight(row);
+        if (pageRows.length > 0 && pageWeight + rowWeight > currentBudget) {
+          break;
+        }
+        pageRows.push(row);
+        pageWeight += rowWeight;
+        cursor += 1;
+      }
+      if (!pageRows.length && cursor < rows.length) {
+        pageRows.push(rows[cursor]);
+        cursor += 1;
+      }
+      chunks.push(pageRows);
+      currentBudget = nextPageBudget;
+    }
+    return chunks.length ? chunks : ([[]] as string[][][]);
   }
   return chunkArray(rows, defaultSize);
 };
@@ -997,6 +1103,14 @@ export const REPORT_PRESETS: ReportPreset[] = [
     scope: "Productos",
     highlights: ["Ticket / POS", "Precio aplicado", "Cantidad"],
   },
+  {
+    id: "products-by-target",
+    title: "Ventas por producto o grupo",
+    description:
+      "Consulta ventas de un producto específico o de un grupo/categoría en un rango de fechas.",
+    scope: "Productos",
+    highlights: ["SKU", "Documento", "POS", "Grupo"],
+  },
   ...(SHOW_FREE_SALE_TRACEABILITY_REPORT
     ? [
         {
@@ -1102,6 +1216,12 @@ export function buildDocumentHtml(
   const rowsPerPage = (() => {
     if (preset.id === "hourly-sales") return 16;
     if (preset.id === "month-daily") return MONTH_DAILY_ROWS_PER_PAGE;
+    if (
+      preset.id === "products-by-target" &&
+      meta.productReportResultMode === "grouped"
+    ) {
+      return PRODUCTS_GROUPED_ROWS_PER_PAGE;
+    }
     return TABLE_ROWS_PER_PAGE;
   })();
   const chartConfig = getChartConfig(preset.id, tableRows);
@@ -1112,7 +1232,7 @@ export function buildDocumentHtml(
   const emptyMessage =
     result.table?.emptyMessage ??
     "No hay información disponible con los filtros aplicados.";
-  const rowChunks = buildRowChunks(preset.id, tableRows, rowsPerPage);
+  const rowChunks = buildRowChunks(preset.id, tableRows, rowsPerPage, meta);
   const tablePagesCount = rowChunks.length;
   const hasChartPage = !!chartConfig;
   const rawTotalPages = tablePagesCount + (hasChartPage ? 1 : 0);
@@ -1561,7 +1681,9 @@ export function buildReportResult(
   reportId: string,
   sales: ReportSale[],
   labelResolver?: PaymentLabelResolver,
-  changesData: ReportChange[] = []
+  changesData: ReportChange[] = [],
+  filterMeta?: FilterMeta,
+  productGroupById?: Map<number, string>
 ): ReportResult | null {
   const resolvePaymentLabel =
     labelResolver ?? ((method: string) => method.toUpperCase());
@@ -2332,6 +2454,166 @@ const dateTimeFormatter = (iso: string) =>
         surchargeTotal: totalSurcharge,
       };
     }
+    case "products-by-target": {
+      const mode = filterMeta?.productReportMode;
+      const resultMode =
+        filterMeta?.productReportResultMode ??
+        (mode === "group" ? "grouped" : "detailed");
+      const targetProductId = filterMeta?.productReportProductId ?? null;
+      const targetGroupPath = normalizeText(filterMeta?.productReportGroupPath);
+      const targetGroupName = normalizeText(filterMeta?.productReportGroupName);
+      const fallbackGroupLabel = (
+        mode === "group"
+          ? filterMeta?.productReportGroupName
+          : filterMeta?.productReportProductGroupName
+      )?.trim();
+      const rows: Array<Array<string>> = [];
+      let units = 0;
+      let totalValue = 0;
+      let documents = 0;
+      const groupedMap = new Map<
+        string,
+        {
+          sku: string;
+          product: string;
+          group: string;
+          units: number;
+          total: number;
+          documents: Set<number>;
+        }
+      >();
+
+      const changeMap = new Map<number, ReportChange[]>();
+      if (changesData.length > 0) {
+        changesData.forEach((change) => {
+          if (change.status !== "confirmed" || change.voided_at) return;
+          const list = changeMap.get(change.sale_id) ?? [];
+          list.push(change);
+          changeMap.set(change.sale_id, list);
+        });
+      }
+
+      sales.forEach((sale) => {
+        let saleMatched = false;
+        const changedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
+        const netItems = applyReturnsToSaleItems(sale, changedItems);
+        const pricedItems = applyCartDiscountToItems(sale, netItems);
+        pricedItems.forEach((item) => {
+          const quantity = Number(item.quantity ?? 0);
+          if (!Number.isFinite(quantity) || quantity <= 0) return;
+          const resolvedGroupFromCatalog =
+            item.product_id != null
+              ? productGroupById?.get(item.product_id) ?? ""
+              : "";
+          const itemGroupRawOriginal =
+            item.product_group ?? item.product_category ?? resolvedGroupFromCatalog ?? "";
+          const itemGroupForMatch = normalizeText(itemGroupRawOriginal);
+          const byPath =
+            !!targetGroupPath &&
+            (itemGroupForMatch === targetGroupPath ||
+              itemGroupForMatch.startsWith(`${targetGroupPath}/`));
+          const byName = !!targetGroupName && itemGroupForMatch.includes(targetGroupName);
+          const matchesProduct =
+            mode === "product"
+              ? targetProductId != null && item.product_id === targetProductId
+              : true;
+          const matchesGroup =
+            mode === "group"
+              ? byPath || byName
+              : true;
+          if (!matchesProduct || !matchesGroup) return;
+
+          const unitPrice = Number(item.unit_price ?? 0);
+          const lineTotal = Math.max(0, unitPrice * quantity);
+          const itemGroupRaw = itemGroupRawOriginal || fallbackGroupLabel || "";
+          if (resultMode === "detailed") {
+            rows.push([
+              item.product_sku ?? "—",
+              item.product_name ?? item.name ?? "Producto sin nombre",
+              formatMoney(unitPrice),
+              dateFormatter(sale.created_at),
+              sale.document_number
+                ? sale.document_number
+                : sale.sale_number
+                ? `#${sale.sale_number.toString().padStart(4, "0")}`
+                : "—",
+              quantity.toString(),
+              itemGroupRaw || "Sin grupo",
+              sale.pos_name ?? "Sin POS",
+            ]);
+          } else {
+            const key =
+              item.product_id != null
+                ? `id:${item.product_id}`
+                : `${item.product_sku ?? ""}|${item.product_name ?? item.name ?? ""}`;
+            if (!groupedMap.has(key)) {
+              groupedMap.set(key, {
+                sku: item.product_sku ?? "—",
+                product: item.product_name ?? item.name ?? "Producto sin nombre",
+                group: itemGroupRaw || "Sin grupo",
+                units: 0,
+                total: 0,
+                documents: new Set<number>(),
+              });
+            }
+            const entry = groupedMap.get(key)!;
+            entry.units += quantity;
+            entry.total += lineTotal;
+            entry.documents.add(sale.id);
+          }
+          units += quantity;
+          totalValue += lineTotal;
+          saleMatched = true;
+        });
+        if (saleMatched) documents += 1;
+      });
+
+      if (resultMode === "grouped") {
+        rows.push(
+          ...Array.from(groupedMap.values())
+            .sort((a, b) => b.total - a.total)
+            .map((entry) => [
+              entry.sku,
+              entry.product,
+              entry.group,
+              entry.units.toString(),
+              formatMoney(entry.total),
+              entry.documents.size.toString(),
+            ])
+        );
+      }
+
+      return {
+        summary: [
+          { label: "Filas encontradas", value: rows.length.toString() },
+          { label: "Unidades", value: units.toString() },
+          { label: "Valor total", value: formatMoney(totalValue) },
+          { label: "Documentos", value: documents.toString() },
+        ],
+        table: {
+          columns:
+            resultMode === "grouped"
+              ? ["SKU", "Producto", "Grupo", "Unidades", "Valor total", "Documentos"]
+              : [
+                  "SKU",
+                  "Producto",
+                  "Precio",
+                  "Fecha",
+                  "Documento",
+                  "Unidades",
+                  "Grupo",
+                  "POS",
+                ],
+          rows,
+          emptyMessage: "No hay ventas para el producto/grupo seleccionado en este rango.",
+        },
+        note:
+          mode === "product"
+            ? `Filtro aplicado por producto: ${filterMeta?.productReportProductName || "seleccionado"}.`
+            : `Filtro aplicado por grupo/categoría: ${filterMeta?.productReportGroupName || "seleccionado"}.`,
+        surchargeTotal: totalSurcharge,
+      };
+    }
     case "free-sales-traceability": {
       const rows: Array<Array<string>> = [];
       let freeSaleCount = 0;
@@ -2407,6 +2689,7 @@ type ReportDocumentViewerProps = {
   settingsError?: string | null;
   onClose?: () => void;
   resolveMethodLabel: PaymentLabelResolver;
+  productGroupById?: Map<number, string>;
 };
 
 const dateFormatter = (iso: string) =>
@@ -2568,6 +2851,7 @@ function ReportDocumentViewer({
   settingsError,
   onClose,
   resolveMethodLabel,
+  productGroupById,
 }: ReportDocumentViewerProps) {
   const [pageIndex, setPageIndex] = useState(0);
   const [exportLoading, setExportLoading] = useState(false);
@@ -2584,19 +2868,39 @@ function ReportDocumentViewer({
         preset.id,
         filteredSales,
         resolveMethodLabel,
-        changesData
+        changesData,
+        filterMeta,
+        productGroupById
       ),
-    [preset.id, filteredSales, resolveMethodLabel, changesData]
+    [
+      preset.id,
+      filteredSales,
+      resolveMethodLabel,
+      changesData,
+      filterMeta,
+      productGroupById,
+    ]
   );
   const documentData = useMemo(() => {
     const tableRows = result?.table?.rows ?? [];
     const rowsPerPage = (() => {
       if (preset.id === "hourly-sales") return 16;
       if (preset.id === "month-daily") return MONTH_DAILY_ROWS_PER_PAGE;
+      if (
+        preset.id === "products-by-target" &&
+        filterMeta.productReportResultMode === "grouped"
+      ) {
+        return PRODUCTS_GROUPED_ROWS_PER_PAGE;
+      }
       return TABLE_ROWS_PER_PAGE;
     })();
     const chartConfig = getChartConfig(preset.id, tableRows);
-    const rowChunks = buildRowChunks(preset.id, tableRows, rowsPerPage);
+    const rowChunks = buildRowChunks(
+      preset.id,
+      tableRows,
+      rowsPerPage,
+      filterMeta
+    );
     const tablePagesCount = rowChunks.length;
     const totalPages = tablePagesCount + (chartConfig ? 1 : 0);
     const safeTotalPages = Math.max(totalPages, 1);
@@ -3006,6 +3310,55 @@ export default function ReportsPage() {
   const [posFilter, setPosFilter] = useState<string>("todos");
   const [sellerFilter, setSellerFilter] = useState<string>("");
   const [methodFilter, setMethodFilter] = useState<string>("todos");
+  const [productReportModalOpen, setProductReportModalOpen] = useState(false);
+  const [productReportMode, setProductReportMode] = useState<"product" | "group">(
+    "product"
+  );
+  const [productReportResultMode, setProductReportResultMode] = useState<
+    "detailed" | "grouped"
+  >("detailed");
+  const [productReportFromDate, setProductReportFromDate] = useState(
+    defaultDates.fromDate
+  );
+  const [productReportToDate, setProductReportToDate] = useState(defaultDates.toDate);
+  const [productQuery, setProductQuery] = useState("");
+  const [productOptions, setProductOptions] = useState<ProductSearchOption[]>([]);
+  const [productSearchResults, setProductSearchResults] = useState<ProductSearchOption[]>(
+    []
+  );
+  const [selectedReportProduct, setSelectedReportProduct] =
+    useState<ProductSearchOption | null>(null);
+  const [groupOptions, setGroupOptions] = useState<ProductGroupOption[]>([]);
+  const [selectedGroupPath, setSelectedGroupPath] = useState("");
+  const [productLookupLoading, setProductLookupLoading] = useState(false);
+  const [productLookupError, setProductLookupError] = useState<string | null>(null);
+  const mergedGroupOptions = useMemo(() => {
+    const map = new Map<string, ProductGroupOption>();
+    let syntheticId = -1;
+
+    for (const group of groupOptions) {
+      const key = group.path.trim();
+      if (!key) continue;
+      map.set(key, group);
+    }
+
+    for (const product of productOptions) {
+      const raw = product.groupName.trim();
+      if (!raw) continue;
+      if (!map.has(raw)) {
+        map.set(raw, {
+          id: syntheticId--,
+          path: raw,
+          displayName: raw,
+          parentPath: null,
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.path.localeCompare(b.path, "es", { sensitivity: "base" })
+    );
+  }, [groupOptions, productOptions]);
   const paymentOptions = useMemo(
     () =>
       [...catalog]
@@ -3013,6 +3366,15 @@ export default function ReportsPage() {
         .sort((a, b) => a.order_index - b.order_index),
     [catalog]
   );
+  const productGroupById = useMemo(() => {
+    const map = new Map<number, string>();
+    productOptions.forEach((product) => {
+      if (product.id != null && product.groupName.trim()) {
+        map.set(product.id, product.groupName.trim());
+      }
+    });
+    return map;
+  }, [productOptions]);
 
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [openReports, setOpenReports] = useState<OpenReportTab[]>(() => {
@@ -3039,6 +3401,8 @@ export default function ReportsPage() {
   const [changesData, setChangesData] = useState<ReportChange[]>([]);
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
+  const [summaryRequested, setSummaryRequested] = useState(false);
+  const salesLoadedRef = useRef(false);
   const [favoriteReportIds, setFavoriteReportIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -3057,6 +3421,7 @@ export default function ReportsPage() {
   });
   const favoritesSyncReadyRef = useRef(false);
   const lastFavoritesSyncSignatureRef = useRef<string>("");
+  const favoritesVersionRef = useRef<string>("");
 
   const [posSettings, setPosSettings] = useState<PosSettingsPayload | null>(
     null
@@ -3192,6 +3557,22 @@ export default function ReportsPage() {
     return unique;
   }, []);
 
+  const readLocalFavoriteIds = useCallback((): string[] => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(favoritesStorageKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return sanitizeFavoriteIds(
+        parsed.filter((id: unknown): id is string => typeof id === "string")
+      );
+    } catch (err) {
+      console.warn("No se pudieron leer favoritos locales", err);
+      return [];
+    }
+  }, [favoritesStorageKey, sanitizeFavoriteIds]);
+
   useEffect(() => {
     favoritesSyncReadyRef.current = false;
     if (!token) {
@@ -3201,30 +3582,24 @@ export default function ReportsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const remoteFavorites = sanitizeFavoriteIds(
-          await fetchReportFavorites(token)
-        );
-        let nextFavorites = remoteFavorites;
+        const remoteState = await fetchReportFavorites(token);
+        favoritesVersionRef.current = remoteState.version ?? "";
+        const remoteFavorites = sanitizeFavoriteIds(remoteState.preset_ids);
+        const localFavorites = readLocalFavoriteIds();
+        const mergedFavorites = sanitizeFavoriteIds([
+          ...remoteFavorites,
+          ...localFavorites,
+        ]);
 
-        if (remoteFavorites.length === 0 && typeof window !== "undefined") {
-          try {
-            const raw = window.localStorage.getItem(favoritesStorageKey);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed)) {
-                const localFavorites = sanitizeFavoriteIds(
-                  parsed.filter(
-                    (id: unknown): id is string => typeof id === "string"
-                  )
-                );
-                if (localFavorites.length > 0) {
-                  nextFavorites = await saveReportFavorites(localFavorites, token);
-                }
-              }
-            }
-          } catch (err) {
-            console.warn("No se pudieron migrar favoritos locales", err);
-          }
+        let nextFavorites = mergedFavorites;
+        if (!areSameStringArrays(mergedFavorites, remoteFavorites)) {
+          const savedState = await saveReportFavorites(
+            mergedFavorites,
+            favoritesVersionRef.current,
+            token
+          );
+          favoritesVersionRef.current = savedState.version ?? "";
+          nextFavorites = sanitizeFavoriteIds(savedState.preset_ids);
         }
 
         if (cancelled) return;
@@ -3235,6 +3610,11 @@ export default function ReportsPage() {
         );
       } catch (err) {
         console.error("No se pudieron cargar los favoritos del usuario", err);
+        const localFavorites = readLocalFavoriteIds();
+        lastFavoritesSyncSignatureRef.current = JSON.stringify(localFavorites);
+        setFavoriteReportIds((prev) =>
+          areSameStringArrays(prev, localFavorites) ? prev : localFavorites
+        );
       } finally {
         if (!cancelled) {
           favoritesSyncReadyRef.current = true;
@@ -3244,7 +3624,7 @@ export default function ReportsPage() {
     return () => {
       cancelled = true;
     };
-  }, [favoritesStorageKey, sanitizeFavoriteIds, token]);
+  }, [readLocalFavoriteIds, sanitizeFavoriteIds, token]);
 
   useEffect(() => {
     if (!token || !favoritesSyncReadyRef.current) return;
@@ -3255,17 +3635,50 @@ export default function ReportsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const saved = sanitizeFavoriteIds(
-          await saveReportFavorites(normalized, token)
+        const savedState = await saveReportFavorites(
+          normalized,
+          favoritesVersionRef.current,
+          token
         );
         if (cancelled) return;
+        favoritesVersionRef.current = savedState.version ?? "";
+        const saved = sanitizeFavoriteIds(savedState.preset_ids);
         const savedSignature = JSON.stringify(saved);
         lastFavoritesSyncSignatureRef.current = savedSignature;
         setFavoriteReportIds((prev) =>
           areSameStringArrays(prev, saved) ? prev : saved
         );
       } catch (err) {
-        console.error("No se pudieron sincronizar los favoritos", err);
+        if (err instanceof ReportFavoritesConflictError) {
+          try {
+            const remoteState = await fetchReportFavorites(token);
+            if (cancelled) return;
+            favoritesVersionRef.current = remoteState.version ?? "";
+            const remoteFavorites = sanitizeFavoriteIds(remoteState.preset_ids);
+            const merged = sanitizeFavoriteIds([...remoteFavorites, ...normalized]);
+            const mergedSavedState = await saveReportFavorites(
+              merged,
+              favoritesVersionRef.current,
+              token
+            );
+            if (cancelled) return;
+            favoritesVersionRef.current = mergedSavedState.version ?? "";
+            const mergedSaved = sanitizeFavoriteIds(mergedSavedState.preset_ids);
+            const mergedSignature = JSON.stringify(mergedSaved);
+            lastFavoritesSyncSignatureRef.current = mergedSignature;
+            setFavoriteReportIds((prev) =>
+              areSameStringArrays(prev, mergedSaved) ? prev : mergedSaved
+            );
+            return;
+          } catch (conflictRetryErr) {
+            console.error(
+              "No se pudo resolver el conflicto de favoritos",
+              conflictRetryErr
+            );
+          }
+        } else {
+          console.error("No se pudieron sincronizar los favoritos", err);
+        }
       }
     })();
 
@@ -3365,6 +3778,21 @@ export default function ReportsPage() {
           startKey = `${year}-${month}-01`;
         }
         break;
+      case "previous_month":
+        {
+          const today = buildBogotaDateFromKey(todayKey);
+          const prevMonthAnchor = new Date(
+            Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 15, 12, 0, 0)
+          );
+          const { year, month } = getBogotaDateParts(prevMonthAnchor);
+          startKey = `${year}-${month}-01`;
+          const monthEnd = new Date(
+            Date.UTC(Number(year), Number(month), 0, 12, 0, 0)
+          );
+          const { day } = getBogotaDateParts(monthEnd);
+          endKey = `${year}-${month}-${day}`;
+        }
+        break;
       case "year":
         {
           const { year } = getBogotaDateParts();
@@ -3381,6 +3809,7 @@ export default function ReportsPage() {
 
   const loadSales = useCallback(async () => {
     if (!canViewReportDataset) {
+      salesLoadedRef.current = false;
       setSalesData([]);
       setChangesData([]);
       setSalesError(null);
@@ -3449,6 +3878,7 @@ export default function ReportsPage() {
       }
 
       setSalesData(nextSales);
+      salesLoadedRef.current = true;
       if (changesResult.status === "fulfilled") {
         setChangesData(changesResult.value);
       } else {
@@ -3456,6 +3886,7 @@ export default function ReportsPage() {
       }
     } catch (err) {
       console.error(err);
+      salesLoadedRef.current = false;
       setSalesError(
         err instanceof Error
           ? err.message
@@ -3466,8 +3897,10 @@ export default function ReportsPage() {
     }
   }, [authHeaders, canViewReportDataset]);
 
-  useEffect(() => {
-    void loadSales();
+  const ensureSalesLoaded = useCallback(async () => {
+    if (salesLoadedRef.current) return true;
+    await loadSales();
+    return salesLoadedRef.current;
   }, [loadSales]);
 
   useEffect(() => {
@@ -3499,6 +3932,125 @@ export default function ReportsPage() {
     };
   }, [canViewPosSettings, token]);
 
+  const loadProductLookupData = useCallback(async () => {
+    if (!authHeaders) return;
+    try {
+      setProductLookupLoading(true);
+      setProductLookupError(null);
+      const apiBase = getApiBase();
+
+      const fetchAllProducts = async (): Promise<ProductSearchOption[]> => {
+        const rows: ProductSearchOption[] = [];
+        let skip = 0;
+        const pageSize = 1000;
+        for (;;) {
+          const res = await fetch(
+            `${apiBase}/products/?skip=${skip}&limit=${pageSize}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+            }
+          );
+          if (!res.ok) throw new Error(`Error ${res.status}`);
+          const batch: Array<{
+            id: number;
+            name?: string | null;
+            sku?: string | null;
+            group_name?: string | null;
+          }> = await res.json();
+          rows.push(
+            ...batch
+              .filter((item) => typeof item.id === "number")
+              .map((item) => ({
+                id: item.id,
+                name: (item.name ?? "").trim() || "Producto sin nombre",
+                sku: (item.sku ?? "").trim(),
+                groupName: (item.group_name ?? "").trim(),
+              }))
+          );
+          if (batch.length < pageSize) break;
+          skip += batch.length;
+        }
+        return rows;
+      };
+
+      const fetchAllGroups = async (): Promise<ProductGroupOption[]> => {
+        const rows: ProductGroupOption[] = [];
+        let skip = 0;
+        const pageSize = 500;
+        for (;;) {
+          const res = await fetch(
+            `${apiBase}/product-groups/?skip=${skip}&limit=${pageSize}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+            }
+          );
+          if (!res.ok) throw new Error(`Error ${res.status}`);
+          const batch: Array<{
+            id: number;
+            path: string;
+            display_name: string;
+            parent_path?: string | null;
+          }> =
+            await res.json();
+          rows.push(
+            ...batch
+              .filter(
+                (item) =>
+                  typeof item.id === "number" &&
+                  typeof item.path === "string" &&
+                  typeof item.display_name === "string"
+              )
+              .map((item) => ({
+                id: item.id,
+                path: item.path,
+                displayName: item.display_name,
+                parentPath: item.parent_path ?? null,
+              }))
+          );
+          if (batch.length < pageSize) break;
+          skip += batch.length;
+        }
+        return rows;
+      };
+
+      const [products, groups] = await Promise.all([
+        fetchAllProducts(),
+        fetchAllGroups(),
+      ]);
+      setProductOptions(products);
+      setGroupOptions(groups);
+    } catch (err) {
+      console.error("No se pudo cargar catálogo para reporte de productos", err);
+      setProductLookupError(
+        err instanceof Error ? err.message : "No se pudo cargar catálogo."
+      );
+    } finally {
+      setProductLookupLoading(false);
+    }
+  }, [authHeaders]);
+
+  useEffect(() => {
+    const query = productQuery.trim().toLowerCase();
+    if (!query) {
+      setProductSearchResults([]);
+      return;
+    }
+    const results = productOptions
+      .filter((product) => {
+        const haystack = [
+          product.name.toLowerCase(),
+          product.sku.toLowerCase(),
+          product.groupName.toLowerCase(),
+          String(product.id),
+        ];
+        return haystack.some((value) => value.includes(query));
+      })
+      .slice(0, 24);
+    setProductSearchResults(results);
+  }, [productOptions, productQuery]);
+
   const handleSelectPreset = useCallback((presetId: string) => {
     if (presetId === "month-daily") {
       const { fromDate: monthStart, toDate: monthEnd } = getMonthRangeFromKey(
@@ -3512,29 +4064,9 @@ export default function ReportsPage() {
     setActiveTabId("selector");
   }, []);
 
-  const toggleFavorite = useCallback((presetId: string) => {
-    setFavoriteReportIds((prev) => {
-      const exists = prev.includes(presetId);
-      return exists ? prev.filter((id) => id !== presetId) : [...prev, presetId];
-    });
-  }, []);
-
-  const handleOpenReport = useCallback(() => {
-    if (!currentPreset) return;
-    const instanceId = `${currentPreset.id}-${Date.now()}`;
-    const newTab: OpenReportTab = {
-      id: instanceId,
-      presetId: currentPreset.id,
-      filterMeta: { ...filterMeta },
-      createdAt: new Date().toISOString(),
-    };
-    setOpenReports((prev) => [...prev, newTab]);
-    setActiveTabId(instanceId);
-  }, [currentPreset, filterMeta]);
-
-  const handleOpenPreset = useCallback(
-    (preset: ReportPreset) => {
-      const tabFilterMeta = { ...filterMeta };
+  const createReportTab = useCallback(
+    (preset: ReportPreset, customMeta?: Partial<FilterMeta>) => {
+      const tabFilterMeta = { ...filterMeta, ...customMeta };
       if (preset.id === "month-daily") {
         const { fromDate: monthStart, toDate: monthEnd } = getMonthRangeFromKey(
           getBogotaDateKey()
@@ -3557,6 +4089,52 @@ export default function ReportsPage() {
       setActiveTabId(instanceId);
     },
     [filterMeta]
+  );
+
+  const openProductTargetModal = useCallback(() => {
+    setProductReportFromDate(fromDate);
+    setProductReportToDate(toDate);
+    setProductReportMode("product");
+    setProductReportResultMode("detailed");
+    setProductQuery("");
+    setSelectedReportProduct(null);
+    setSelectedGroupPath("");
+    setProductSearchResults([]);
+    setProductLookupError(null);
+    setProductReportModalOpen(true);
+    if (!productOptions.length || !groupOptions.length) {
+      void loadProductLookupData();
+    }
+  }, [fromDate, toDate, productOptions.length, groupOptions.length, loadProductLookupData]);
+
+  const toggleFavorite = useCallback((presetId: string) => {
+    setFavoriteReportIds((prev) => {
+      const exists = prev.includes(presetId);
+      return exists ? prev.filter((id) => id !== presetId) : [...prev, presetId];
+    });
+  }, []);
+
+  const handleOpenReport = useCallback(async () => {
+    if (!currentPreset) return;
+    if (currentPreset.id === "products-by-target") {
+      openProductTargetModal();
+      return;
+    }
+    const loaded = await ensureSalesLoaded();
+    if (!loaded) return;
+    createReportTab(currentPreset);
+  }, [currentPreset, ensureSalesLoaded, createReportTab, openProductTargetModal]);
+
+  const handleOpenPreset = useCallback(
+    (preset: ReportPreset) => {
+      if (preset.id === "products-by-target") {
+        setSelectedPresetId(preset.id);
+        openProductTargetModal();
+        return;
+      }
+      createReportTab(preset);
+    },
+    [createReportTab, openProductTargetModal]
   );
 
   const handleFromDateChange = useCallback(
@@ -3588,6 +4166,107 @@ export default function ReportsPage() {
     },
     [selectedPresetId]
   );
+
+  const handleCreateProductTargetReport = useCallback(async () => {
+    const preset = REPORT_PRESETS.find((item) => item.id === "products-by-target");
+    if (!preset) return;
+    if (productReportMode === "product" && !selectedReportProduct) return;
+    if (productReportMode === "group" && !selectedGroupPath) return;
+
+    const loaded = await ensureSalesLoaded();
+    if (!loaded) return;
+
+    const selectedGroup =
+      mergedGroupOptions.find((group) => group.path === selectedGroupPath) ?? null;
+    const customMeta: Partial<FilterMeta> = {
+      fromDate: productReportFromDate,
+      toDate: productReportToDate,
+      productReportMode,
+      productReportProductId:
+        productReportMode === "product" ? selectedReportProduct?.id ?? null : null,
+      productReportProductName:
+        productReportMode === "product"
+          ? selectedReportProduct?.name ?? ""
+          : undefined,
+      productReportProductGroupName:
+        productReportMode === "product"
+          ? selectedReportProduct?.groupName ?? ""
+          : undefined,
+      productReportGroupPath:
+        productReportMode === "group" ? selectedGroupPath : undefined,
+      productReportGroupName:
+        productReportMode === "group" ? selectedGroup?.displayName ?? "" : undefined,
+      productReportResultMode,
+    };
+
+    setFromDate(productReportFromDate);
+    setToDate(productReportToDate);
+    createReportTab(preset, customMeta);
+    setProductReportModalOpen(false);
+  }, [
+    productReportMode,
+    selectedReportProduct,
+    selectedGroupPath,
+    ensureSalesLoaded,
+    mergedGroupOptions,
+    productReportFromDate,
+    productReportToDate,
+    productReportResultMode,
+    createReportTab,
+  ]);
+
+  const handleProductReportQuickRange = useCallback((value: QuickRange) => {
+    const todayKey = getBogotaDateKey();
+    const todayStart = buildBogotaDateFromKey(todayKey);
+    let startKey = todayKey;
+    let endKey = todayKey;
+    switch (value) {
+      case "today":
+        break;
+      case "yesterday":
+        startKey = getBogotaDateKey(
+          new Date(todayStart.getTime() - 24 * 60 * 60 * 1000)
+        );
+        endKey = startKey;
+        break;
+      case "week":
+        startKey = getBogotaDateKey(
+          new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000)
+        );
+        break;
+      case "month":
+        {
+          const { year, month } = getBogotaDateParts();
+          startKey = `${year}-${month}-01`;
+        }
+        break;
+      case "previous_month":
+        {
+          const today = buildBogotaDateFromKey(todayKey);
+          const prevMonthAnchor = new Date(
+            Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 15, 12, 0, 0)
+          );
+          const { year, month } = getBogotaDateParts(prevMonthAnchor);
+          startKey = `${year}-${month}-01`;
+          const monthEnd = new Date(
+            Date.UTC(Number(year), Number(month), 0, 12, 0, 0)
+          );
+          const { day } = getBogotaDateParts(monthEnd);
+          endKey = `${year}-${month}-${day}`;
+        }
+        break;
+      case "year":
+        {
+          const { year } = getBogotaDateParts();
+          startKey = `${year}-01-01`;
+        }
+        break;
+      default:
+        break;
+    }
+    setProductReportFromDate(startKey);
+    setProductReportToDate(endKey);
+  }, []);
 
   const handleCloseReportTab = useCallback((id: string) => {
     setOpenReports((prev) => prev.filter((tab) => tab.id !== id));
@@ -3729,15 +4408,16 @@ export default function ReportsPage() {
             >
               Volver al centro ejecutivo
             </Link>
-            {(
-              [
-                { id: "today", label: "Hoy" },
-                { id: "yesterday", label: "Ayer" },
-                { id: "week", label: "Últimos 7 días" },
-                { id: "month", label: "Este mes" },
-                { id: "year", label: "Este año" },
-              ] as { id: QuickRange; label: string }[]
-            ).map((quick) => (
+                {(
+                  [
+                    { id: "today", label: "Hoy" },
+                    { id: "yesterday", label: "Ayer" },
+                    { id: "week", label: "Últimos 7 días" },
+                    { id: "month", label: "Este mes" },
+                    { id: "previous_month", label: "Mes anterior" },
+                    { id: "year", label: "Este año" },
+                  ] as { id: QuickRange; label: string }[]
+                ).map((quick) => (
               <button
                 key={quick.id}
                 onClick={() => handleQuickRange(quick.id)}
@@ -3807,6 +4487,7 @@ export default function ReportsPage() {
             settingsError={settingsError}
             onClose={() => handleCloseReportTab(activeReportTab.id)}
             resolveMethodLabel={resolveMethodLabel}
+            productGroupById={productGroupById}
           />
         )}
 
@@ -3934,6 +4615,7 @@ export default function ReportsPage() {
                           { id: "yesterday", label: "Ayer" },
                           { id: "week", label: "Últimos 7 días" },
                           { id: "month", label: "Este mes" },
+                          { id: "previous_month", label: "Mes anterior" },
                           { id: "year", label: "Este año" },
                         ] as { id: QuickRange; label: string }[]
                       ).map((quick) => (
@@ -4005,47 +4687,15 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-                  <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                    <span>
-                      <strong className="text-slate-200">POS:</strong>{" "}
-                      {posFilter}
-                    </span>
-                    <span>·</span>
-                    <span>
-                      <strong className="text-slate-200">Método:</strong>{" "}
-                      {methodFilterLabel}
-                    </span>
-                    <span>·</span>
-                    <span>
-                      <strong className="text-slate-200">Vendedor:</strong>{" "}
-                      {sellerFilter || "todos"}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                    className="px-4 py-2.5 text-xs rounded-lg border border-slate-700/80 bg-slate-950/70 hover:border-emerald-400 hover:bg-slate-900/60 transition"
-                    disabled
-                  >
-                    Guardar filtro (próximamente)
-                  </button>
-                  <button
-                    className="px-4 py-2.5 text-xs rounded-lg border border-slate-700/80 bg-slate-950/70 hover:border-emerald-400 hover:bg-slate-900/60 transition"
-                    disabled
-                  >
-                    Compartir (próximamente)
-                  </button>
-                  </div>
-                </div>
-
                 <div className="flex flex-col gap-3 pt-2 border-t border-slate-800">
                   <button
                     className="px-4 py-3 text-sm rounded-lg bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"
-                    onClick={handleOpenReport}
+                    onClick={() => {
+                      void handleOpenReport();
+                    }}
                     disabled={
                       !currentPreset ||
                       salesLoading ||
-                      !salesData.length ||
                       !!salesError
                     }
                   >
@@ -4055,7 +4705,7 @@ export default function ReportsPage() {
                       ? "Selecciona un informe en la lista"
                       : !canViewReportDataset
                       ? "Sin acceso a datos operativos"
-                      : "Mostrar reporte"}
+                      : "Generar reporte"}
                   </button>
                   <button
                     type="button"
@@ -4093,7 +4743,24 @@ export default function ReportsPage() {
                 <p className="text-xs text-slate-400 uppercase tracking-wide">
                   Resumen rápido del periodo
                 </p>
-                {salesLoading ? (
+                {!summaryRequested ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-slate-500">
+                      Carga este bloque solo cuando lo necesites.
+                    </p>
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-md border border-slate-700 text-xs text-slate-200 hover:border-emerald-400/80 bg-slate-950/70 transition"
+                      onClick={() => {
+                        setSummaryRequested(true);
+                        void ensureSalesLoaded();
+                      }}
+                      disabled={salesLoading || !canViewReportDataset}
+                    >
+                      Cargar resumen
+                    </button>
+                  </div>
+                ) : salesLoading ? (
                   <div className="grid gap-3 sm:grid-cols-3">
                     {Array.from({ length: 3 }).map((_, idx) => (
                       <div
@@ -4132,6 +4799,329 @@ export default function ReportsPage() {
           </div>
         )}
       </div>
+      {productReportModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100 shadow-2xl space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-emerald-400">
+                  Reporte de productos
+                </p>
+                <h3 className="text-lg font-semibold">
+                  Ventas por producto o grupo
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Define fechas y el objetivo del reporte antes de generarlo.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-slate-500"
+                onClick={() => setProductReportModalOpen(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs uppercase tracking-wide text-slate-400">
+                  Desde
+                </span>
+                <input
+                  type="date"
+                  value={productReportFromDate}
+                  onChange={(e) => setProductReportFromDate(e.target.value)}
+                  className="rounded-lg border border-slate-700/70 bg-slate-900 px-3 py-2 text-slate-100"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs uppercase tracking-wide text-slate-400">
+                  Hasta
+                </span>
+                <input
+                  type="date"
+                  value={productReportToDate}
+                  onChange={(e) => setProductReportToDate(e.target.value)}
+                  className="rounded-lg border border-slate-700/70 bg-slate-900 px-3 py-2 text-slate-100"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  { id: "today", label: "Hoy" },
+                  { id: "yesterday", label: "Ayer" },
+                  { id: "week", label: "Últimos 7 días" },
+                  { id: "month", label: "Este mes" },
+                  { id: "previous_month", label: "Mes anterior" },
+                  { id: "year", label: "Este año" },
+                ] as { id: QuickRange; label: string }[]
+              ).map((quick) => {
+                const isActive = (() => {
+                  const todayKey = getBogotaDateKey();
+                  if (
+                    quick.id === "today" &&
+                    productReportFromDate === todayKey &&
+                    productReportToDate === todayKey
+                  ) {
+                    return true;
+                  }
+                  if (quick.id === "yesterday") {
+                    const yKey = getBogotaDateKey(
+                      new Date(
+                        buildBogotaDateFromKey(todayKey).getTime() -
+                          24 * 60 * 60 * 1000
+                      )
+                    );
+                    return (
+                      productReportFromDate === yKey && productReportToDate === yKey
+                    );
+                  }
+                  if (quick.id === "week") {
+                    const startKey = getBogotaDateKey(
+                      new Date(
+                        buildBogotaDateFromKey(todayKey).getTime() -
+                          6 * 24 * 60 * 60 * 1000
+                      )
+                    );
+                    return (
+                      productReportFromDate === startKey &&
+                      productReportToDate === todayKey
+                    );
+                  }
+                  if (quick.id === "month") {
+                    const { year, month } = getBogotaDateParts();
+                    return (
+                      productReportFromDate === `${year}-${month}-01` &&
+                      productReportToDate === todayKey
+                    );
+                  }
+                  if (quick.id === "previous_month") {
+                    const today = buildBogotaDateFromKey(todayKey);
+                    const prevMonthAnchor = new Date(
+                      Date.UTC(
+                        today.getUTCFullYear(),
+                        today.getUTCMonth() - 1,
+                        15,
+                        12,
+                        0,
+                        0
+                      )
+                    );
+                    const { year, month } = getBogotaDateParts(prevMonthAnchor);
+                    const start = `${year}-${month}-01`;
+                    const monthEnd = new Date(
+                      Date.UTC(Number(year), Number(month), 0, 12, 0, 0)
+                    );
+                    const { day } = getBogotaDateParts(monthEnd);
+                    const end = `${year}-${month}-${day}`;
+                    return (
+                      productReportFromDate === start &&
+                      productReportToDate === end
+                    );
+                  }
+                  if (quick.id === "year") {
+                    const { year } = getBogotaDateParts();
+                    return (
+                      productReportFromDate === `${year}-01-01` &&
+                      productReportToDate === todayKey
+                    );
+                  }
+                  return false;
+                })();
+                return (
+                  <button
+                    key={quick.id}
+                    type="button"
+                    className={`px-3 py-1.5 rounded-full border text-xs ${
+                      isActive
+                        ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                        : "border-slate-700 bg-slate-900 text-slate-300"
+                    }`}
+                    onClick={() => handleProductReportQuickRange(quick.id)}
+                  >
+                    {quick.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={`px-3 py-1.5 rounded-full border text-xs ${
+                  productReportMode === "product"
+                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                    : "border-slate-700 bg-slate-900 text-slate-300"
+                }`}
+                onClick={() => {
+                  setProductReportMode("product");
+                  setProductReportResultMode("detailed");
+                }}
+              >
+                Por producto
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 rounded-full border text-xs ${
+                  productReportMode === "group"
+                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                    : "border-slate-700 bg-slate-900 text-slate-300"
+                }`}
+                onClick={() => {
+                  setProductReportMode("group");
+                  setProductReportResultMode("grouped");
+                }}
+              >
+                Por grupo / categoría
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-slate-400">
+                Mostrar resultados
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 rounded-full border text-xs ${
+                    productReportResultMode === "grouped"
+                      ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                      : "border-slate-700 bg-slate-900 text-slate-300"
+                  }`}
+                  onClick={() => setProductReportResultMode("grouped")}
+                >
+                  Agrupado
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 rounded-full border text-xs ${
+                    productReportResultMode === "detailed"
+                      ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                      : "border-slate-700 bg-slate-900 text-slate-300"
+                  }`}
+                  onClick={() => setProductReportResultMode("detailed")}
+                >
+                  Uno por uno
+                </button>
+              </div>
+            </div>
+
+            {productReportMode === "product" ? (
+              <div className="space-y-2">
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">
+                    Buscar producto
+                  </span>
+                  <input
+                    type="text"
+                    value={productQuery}
+                    onChange={(e) => {
+                      setProductQuery(e.target.value);
+                      setSelectedReportProduct(null);
+                    }}
+                    placeholder="Nombre, SKU o código..."
+                    className="rounded-lg border border-slate-700/70 bg-slate-900 px-3 py-2 text-slate-100"
+                  />
+                </label>
+                {productQuery.trim() ? (
+                  <div className="max-h-40 overflow-auto rounded-lg border border-slate-800 bg-slate-900/70">
+                    {productSearchResults.length ? (
+                      productSearchResults.map((product) => (
+                        <button
+                          key={product.id}
+                          type="button"
+                          className="w-full border-b border-slate-800 px-3 py-2 text-left text-xs hover:bg-slate-800/60 last:border-b-0"
+                          onClick={() => {
+                            setSelectedReportProduct(product);
+                            setProductQuery(
+                              product.sku
+                                ? `${product.name} (${product.sku})`
+                                : product.name
+                            );
+                          }}
+                        >
+                          <span className="block font-semibold text-slate-100">
+                            {product.name}
+                          </span>
+                          <span className="block text-slate-400">
+                            SKU: {product.sku || "—"} · Grupo:{" "}
+                            {product.groupName || "Sin grupo"}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-3 py-2 text-xs text-slate-400">
+                        Sin coincidencias.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-xs uppercase tracking-wide text-slate-400">
+                  Grupo / categoría
+                </span>
+                <select
+                  value={selectedGroupPath}
+                  onChange={(e) => setSelectedGroupPath(e.target.value)}
+                  className="rounded-lg border border-slate-700/70 bg-slate-900 px-3 py-2 text-slate-100"
+                >
+                  <option value="">Selecciona un grupo</option>
+                  {mergedGroupOptions.map((group) => {
+                    const depth = Math.max(0, group.path.split("/").length - 1);
+                    const prefix = depth > 0 ? `${"· ".repeat(depth)}` : "";
+                    return (
+                    <option key={group.id} value={group.path}>
+                      {`${prefix}${group.displayName}`}
+                    </option>
+                    );
+                  })}
+                </select>
+              </label>
+            )}
+
+            {productLookupLoading ? (
+              <p className="text-xs text-slate-400">Cargando catálogo...</p>
+            ) : null}
+            {productLookupError ? (
+              <p className="text-xs text-rose-300">
+                Error cargando productos/grupos: {productLookupError}
+              </p>
+            ) : null}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                className="px-3 py-2 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-200"
+                onClick={() => setProductReportModalOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 text-xs rounded-lg bg-emerald-500 text-slate-950 font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={() => {
+                  void handleCreateProductTargetReport();
+                }}
+                disabled={
+                  salesLoading ||
+                  productLookupLoading ||
+                  (productReportMode === "product" && !selectedReportProduct) ||
+                  (productReportMode === "group" && !selectedGroupPath) ||
+                  !productReportFromDate ||
+                  !productReportToDate
+                }
+              >
+                Generar reporte
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

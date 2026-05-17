@@ -27,6 +27,7 @@ import {
   getBogotaDateParts,
   parseDateInput,
 } from "@/lib/time/bogota";
+import LoadingSpinner from "../components/ui/LoadingSpinner";
 
 const DASHBOARD_CACHE_PREFIX = "kensar_dashboard_cache:";
 const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -1301,6 +1302,11 @@ export default function DashboardHomePage() {
                 Sin permiso para métricas de hoy
               </div>
             )}
+            {showSummarySkeleton && canViewTodayMetrics && (
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+                <LoadingSpinner size={34} />
+              </div>
+            )}
           </div>
 
           {/* Tickets hoy */}
@@ -1321,6 +1327,11 @@ export default function DashboardHomePage() {
             {!canViewTodayMetrics && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
                 Sin permiso para métricas de hoy
+              </div>
+            )}
+            {showSummarySkeleton && canViewTodayMetrics && (
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+                <LoadingSpinner size={34} />
               </div>
             )}
           </div>
@@ -1352,6 +1363,11 @@ export default function DashboardHomePage() {
                 Sin permiso para histórico
               </div>
             )}
+            {showSummarySkeleton && canViewHistoryMetrics && (
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+                <LoadingSpinner size={34} />
+              </div>
+            )}
           </div>
 
           {/* Ventas semana actual */}
@@ -1374,6 +1390,11 @@ export default function DashboardHomePage() {
                 Sin permiso para histórico
               </div>
             )}
+            {showSummarySkeleton && canViewHistoryMetrics && (
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+                <LoadingSpinner size={34} />
+              </div>
+            )}
           </div>
 
           {/* Ticket promedio mes */}
@@ -1394,6 +1415,11 @@ export default function DashboardHomePage() {
             {!canViewHistoryMetrics && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
                 Sin permiso para histórico
+              </div>
+            )}
+            {showSummarySkeleton && canViewHistoryMetrics && (
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+                <LoadingSpinner size={34} />
               </div>
             )}
           </div>
@@ -1546,9 +1572,8 @@ export default function DashboardHomePage() {
             </div>
 
             {chartLoading ? (
-              <div className="space-y-4">
-                <div className="h-4 w-28 rounded bg-slate-800/70 animate-pulse" />
-                <div className="h-44 rounded-3xl bg-slate-900/70 animate-pulse" />
+              <div className="h-44 flex items-center justify-center rounded-3xl">
+                <LoadingSpinner size={44} label="Cargando movimientos..." />
               </div>
             ) : !chartPoints.length ? (
               <div className="h-32 flex items-center justify-center text-xs text-slate-500">
@@ -1720,8 +1745,8 @@ export default function DashboardHomePage() {
             </div>
 
             {paymentMethodsLoading ? (
-              <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
-                Cargando métodos de pago...
+              <div className="flex-1 flex items-center justify-center">
+                <LoadingSpinner size={42} label="Cargando métodos..." />
               </div>
             ) : paymentMethodsError ? (
               <div className="flex-1 flex items-center justify-center text-xs text-rose-300">

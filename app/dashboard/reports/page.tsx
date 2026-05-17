@@ -12,6 +12,7 @@ import {
 import { getApiBase } from "@/lib/api/base";
 import { exportReportPdf } from "@/lib/api/reports";
 import { getBogotaDateKey } from "@/lib/time/bogota";
+import LoadingSpinner from "../../components/ui/LoadingSpinner";
 
 export {
   REPORT_PRESETS,
@@ -1223,13 +1224,6 @@ export default function ReportsPage() {
           <section className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 shadow-sm">
             Error al cargar datos: {error}
           </section>
-        ) : loading ? (
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="animate-pulse space-y-5">
-              <div className="h-6 w-64 rounded bg-slate-200" />
-              <div className="h-[360px] rounded-2xl bg-slate-100" />
-            </div>
-          </section>
         ) : (
           <>
             <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1332,13 +1326,13 @@ export default function ReportsPage() {
                 }`}
               >
                 <div className="overflow-x-auto">
-                  <div className="w-full rounded-[28px] border border-slate-200 bg-slate-50 px-5 py-3">
-                  <svg
-                    viewBox={`0 0 ${annualChart.width} ${annualChart.height}`}
-                    className="block w-full"
-                    role="img"
-                    aria-label={`Evolución mensual ${selectedYear}`}
-                  >
+                  <div className="relative w-full rounded-[28px] border border-slate-200 bg-slate-50 px-5 py-3">
+                    <svg
+                      viewBox={`0 0 ${annualChart.width} ${annualChart.height}`}
+                      className="block w-full"
+                      role="img"
+                      aria-label={`Evolución mensual ${selectedYear}`}
+                    >
                     {chartTicks.map((tick) => {
                       const y =
                         annualChart.topPadding +
@@ -1457,7 +1451,12 @@ export default function ReportsPage() {
                         </g>
                       );
                     })}
-                  </svg>
+                    </svg>
+                    {loading ? (
+                      <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[28px] bg-white/45 backdrop-blur-[1.5px]">
+                        <LoadingSpinner size={56} label="Cargando gráfico anual..." />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1688,6 +1687,11 @@ export default function ReportsPage() {
                     </svg>
                   </div>
                 </div>
+                {loading ? (
+                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/45 backdrop-blur-[1.5px]">
+                    <LoadingSpinner size={52} label="Cargando gráfico mensual..." />
+                  </div>
+                ) : null}
 
                 {selectedDay != null ? (
                   <div
