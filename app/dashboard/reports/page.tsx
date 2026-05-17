@@ -61,6 +61,11 @@ type PaymentMethodSummary = {
   tickets: number;
 };
 
+type YearLeaderDay = {
+  dateKey: string;
+  total: number;
+};
+
 const MONTHS = [
   { key: "01", label: "Ene" },
   { key: "02", label: "Feb" },
@@ -76,6 +81,12 @@ const MONTHS = [
   { key: "12", label: "Dic" },
 ];
 const WEEKDAY_SHORT = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"];
+
+function getBogotaWeekdayShort(dateKey: string) {
+  const value = new Date(`${dateKey}T12:00:00-05:00`);
+  if (Number.isNaN(value.getTime())) return "";
+  return WEEKDAY_SHORT[value.getUTCDay()] ?? "";
+}
 
 function capitalize(value: string) {
   if (!value) return value;
@@ -239,16 +250,22 @@ export default function ReportsPage() {
   const todayKey = getBogotaDateKey();
   const todayYear = todayKey.slice(0, 4);
   const todayMonthKey = todayKey.slice(0, 7);
+  const todayMonth = todayKey.slice(5, 7);
+  const todayDay = todayKey.slice(8, 10);
   const [selectedYear, setSelectedYear] = useState(todayYear);
   const [selectedMonthKey, setSelectedMonthKey] = useState(todayMonthKey);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const dailyDetailRef = useRef<HTMLDivElement | null>(null);
   const annualAverageCardRef = useRef<HTMLButtonElement | null>(null);
+  const annualLeaderCardRef = useRef<HTMLButtonElement | null>(null);
   const [showAnnualDailyAverage, setShowAnnualDailyAverage] = useState(false);
+  const [showAnnualLeaderDay, setShowAnnualLeaderDay] = useState(false);
   const [annualTransitionActive, setAnnualTransitionActive] = useState(true);
   const [monthlyTransitionActive, setMonthlyTransitionActive] = useState(true);
   const [monthlySeries, setMonthlySeries] = useState<DashboardMonthlySalesPoint[]>([]);
   const [previousYearSeries, setPreviousYearSeries] = useState<DashboardMonthlySalesPoint[]>([]);
+  const [previousYearCutSales, setPreviousYearCutSales] = useState<number | null>(null);
+  const [previousYearCutTickets, setPreviousYearCutTickets] = useState<number | null>(null);
   const [dailySeries, setDailySeries] = useState<DashboardDailySalesPoint[]>([]);
   const [previousMonthDailySeries, setPreviousMonthDailySeries] = useState<DashboardDailySalesPoint[]>([]);
   const [topProducts, setTopProducts] = useState<QuickTopRow[]>([]);
@@ -258,6 +275,7 @@ export default function ReportsPage() {
   const [dayMethodMap, setDayMethodMap] = useState<Record<string, PaymentMethodSummary[]>>({});
   const [quickPdfLoading, setQuickPdfLoading] = useState(false);
   const [quickPdfError, setQuickPdfError] = useState<string | null>(null);
+  const [yearLeaderDay, setYearLeaderDay] = useState<YearLeaderDay | null>(null);
 
   const canLoadRolePermissions = useMemo(() => {
     if (!isDashboardRole(user?.role)) return false;
@@ -414,6 +432,126 @@ export default function ReportsPage() {
       cancelled = true;
     };
   }, [authHeaders, canViewReportDataset, selectedYear]);
+
+  useEffect(() => {
+    if (!canViewReportDataset) {
+      setYearLeaderDay(null);
+      return;
+    }
+    if (!authHeaders) return;
+    const requestHeaders: HeadersInit = authHeaders;
+    let cancelled = false;
+
+    async function loadYearLeaderDay() {
+      try {
+        const apiBase = getApiBase();
+        const fromDate = `${selectedYear}-01-01`;
+        const toDate =
+          selectedYear === todayYear ? todayKey : `${selectedYear}-12-31`;
+        const res = await fetch(
+          `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
+            date_from: fromDate,
+            date_to: toDate,
+            source: "all",
+          }).toString()}`,
+          {
+            headers: requestHeaders,
+            credentials: "include",
+          }
+        );
+        if (!res.ok) throw new Error(`Error ${res.status}`);
+        const rows = (await res.json()) as DashboardDailySalesPoint[];
+        let best: YearLeaderDay | null = null;
+        for (const row of Array.isArray(rows) ? rows : []) {
+          const dateKey = getBogotaDateKey(row.date);
+          if (!dateKey) continue;
+          const total = toNumber(row.total);
+          if (!best || total > best.total) best = { dateKey, total };
+        }
+        if (!cancelled) setYearLeaderDay(best);
+      } catch (err) {
+        console.error("No pudimos cargar día líder anual.", err);
+        if (!cancelled) setYearLeaderDay(null);
+      }
+    }
+
+    void loadYearLeaderDay();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authHeaders,
+    canViewReportDataset,
+    selectedYear,
+    todayKey,
+    todayYear,
+  ]);
+
+  useEffect(() => {
+    if (!canViewReportDataset) {
+      setPreviousYearCutSales(null);
+      setPreviousYearCutTickets(null);
+      return;
+    }
+    if (!authHeaders) return;
+    if (selectedYear !== todayYear) {
+      setPreviousYearCutSales(null);
+      setPreviousYearCutTickets(null);
+      return;
+    }
+    const requestHeaders: HeadersInit = authHeaders;
+    let cancelled = false;
+
+    async function loadPreviousYearCutSales() {
+      try {
+        const apiBase = getApiBase();
+        const previousYear = String(Number(todayYear) - 1);
+        const dateFrom = `${previousYear}-01-01`;
+        const dateTo = `${previousYear}-${todayMonth}-${todayDay}`;
+        const res = await fetch(
+          `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
+            date_from: dateFrom,
+            date_to: dateTo,
+            source: "all",
+          }).toString()}`,
+          {
+            headers: requestHeaders,
+            credentials: "include",
+          }
+        );
+        if (!res.ok) throw new Error(`Error ${res.status}`);
+        const rows = (await res.json()) as DashboardDailySalesPoint[];
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const total = safeRows.reduce((sum, row) => sum + toNumber(row.total), 0);
+        const tickets = safeRows.reduce(
+          (sum, row) => sum + Math.max(0, Math.trunc(toNumber(row.tickets))),
+          0
+        );
+        if (!cancelled) {
+          setPreviousYearCutSales(total);
+          setPreviousYearCutTickets(tickets);
+        }
+      } catch (err) {
+        console.error("No pudimos cargar corte del año anterior.", err);
+        if (!cancelled) {
+          setPreviousYearCutSales(null);
+          setPreviousYearCutTickets(null);
+        }
+      }
+    }
+
+    void loadPreviousYearCutSales();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authHeaders,
+    canViewReportDataset,
+    selectedYear,
+    todayDay,
+    todayMonth,
+    todayYear,
+  ]);
 
   useEffect(() => {
     if (!canViewReportDataset) {
@@ -586,20 +724,22 @@ export default function ReportsPage() {
   }, [authHeaders, canViewReportDataset, dayMethodMap, selectedDayKey]);
 
   useEffect(() => {
-    if (!showAnnualDailyAverage) return;
+    if (!showAnnualDailyAverage && !showAnnualLeaderDay) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (annualAverageCardRef.current?.contains(target)) return;
+      if (annualLeaderCardRef.current?.contains(target)) return;
       setShowAnnualDailyAverage(false);
+      setShowAnnualLeaderDay(false);
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
     };
-  }, [showAnnualDailyAverage]);
+  }, [showAnnualDailyAverage, showAnnualLeaderDay]);
 
   useEffect(() => {
     setAnnualTransitionActive(false);
@@ -690,17 +830,52 @@ export default function ReportsPage() {
       0
     );
   }, [previousYearSeries]);
+  const yearComparisonBase = useMemo(() => {
+    if (selectedYear === todayYear) {
+      return previousYearCutSales ?? 0;
+    }
+    return previousYearSales;
+  }, [previousYearCutSales, previousYearSales, selectedYear, todayYear]);
   const yearSalesChange = useMemo(
-    () => formatPercentChange(totalYearSales, previousYearSales),
-    [previousYearSales, totalYearSales]
+    () => formatPercentChange(totalYearSales, yearComparisonBase),
+    [totalYearSales, yearComparisonBase]
   );
+  const yearComparisonLabel =
+    selectedYear === todayYear
+      ? "vs corte año anterior"
+      : "vs año anterior";
   const totalYearTickets = useMemo(
     () => monthlyData.reduce((sum, item) => sum + item.tickets, 0),
     [monthlyData]
   );
+  const previousYearTickets = useMemo(() => {
+    return previousYearSeries.reduce(
+      (sum, point) => sum + Math.max(0, Math.trunc(toNumber(point.tickets))),
+      0
+    );
+  }, [previousYearSeries]);
+  const ticketComparisonBase = useMemo(() => {
+    if (selectedYear === todayYear) return previousYearCutTickets ?? 0;
+    return previousYearTickets;
+  }, [previousYearCutTickets, previousYearTickets, selectedYear, todayYear]);
+  const yearTicketsChange = useMemo(
+    () => formatPercentChange(totalYearTickets, ticketComparisonBase),
+    [ticketComparisonBase, totalYearTickets]
+  );
   const bestMonth = useMemo(() => {
     return [...monthlyData].sort((a, b) => b.total - a.total)[0] ?? null;
   }, [monthlyData]);
+  const yearLeaderDayLabel = useMemo(() => {
+    if (!yearLeaderDay) return "—";
+    const parts = yearLeaderDay.dateKey.split("-");
+    const monthRaw = parts[1];
+    const dayRaw = parts[2];
+    const monthNum = Number(monthRaw);
+    const dayNum = Number(dayRaw);
+    if (!Number.isFinite(monthNum) || !Number.isFinite(dayNum)) return "—";
+    const monthLabel = MONTHS[monthNum - 1]?.label ?? monthRaw;
+    return `${String(dayNum).padStart(2, "0")} ${monthLabel}`;
+  }, [yearLeaderDay]);
   const chartTicks = useMemo(() => [1, 0.66, 0.33, 0], []);
   const annualChart = useMemo(() => {
     const width = 980;
@@ -741,22 +916,16 @@ export default function ReportsPage() {
     });
     return Array.from({ length: currentMonthDays }, (_, index) => {
       const day = index + 1;
+      const dayKey = `${selectedMonthKey}-${String(day).padStart(2, "0")}`;
       return {
         day,
         label: String(day).padStart(2, "0"),
-        weekday:
-          WEEKDAY_SHORT[
-            new Date(
-              Number(selectedMonthKey.slice(0, 4)),
-              selectedMonthNumber - 1,
-              day
-            ).getDay()
-          ],
+        weekday: getBogotaWeekdayShort(dayKey),
         total: totals.get(day)?.total ?? 0,
         tickets: totals.get(day)?.tickets ?? 0,
       };
     });
-  }, [currentMonthDays, dailySeries, selectedMonthKey, selectedMonthNumber]);
+  }, [currentMonthDays, dailySeries, selectedMonthKey]);
   const maxDailyValue = useMemo(
     () => Math.max(1, ...dailyData.map((item) => item.total)),
     [dailyData]
@@ -793,6 +962,21 @@ export default function ReportsPage() {
   const totalMonthTickets = useMemo(
     () => dailyData.reduce((sum, item) => sum + item.tickets, 0),
     [dailyData]
+  );
+  const previousMonthTickets = useMemo(() => {
+    const isCurrentMonthComparison = selectedMonthKey === todayMonthKey;
+    const cutoffDay = isCurrentMonthComparison ? currentDayKey : null;
+    return previousMonthDailySeries.reduce((sum, point) => {
+      const key = getBogotaDateKey(point.date);
+      if (!key) return sum;
+      const day = Number(key.slice(8, 10));
+      if (cutoffDay != null && day > cutoffDay) return sum;
+      return sum + Math.max(0, Math.trunc(toNumber(point.tickets)));
+    }, 0);
+  }, [currentDayKey, previousMonthDailySeries, selectedMonthKey, todayMonthKey]);
+  const monthTicketsChange = useMemo(
+    () => formatPercentChange(totalMonthTickets, previousMonthTickets),
+    [previousMonthTickets, totalMonthTickets]
   );
   const bestDay = useMemo(() => {
     return [...dailyData].sort((a, b) => b.total - a.total)[0] ?? null;
@@ -1027,7 +1211,7 @@ export default function ReportsPage() {
       <div class="kpi"><div class="label">Venta total</div><div class="value">${escapeHtml(
         formatMoney(totalYearSales)
       )}</div><div class="meta">${escapeHtml(
-        yearSalesChange ? `${yearSalesChange} vs año anterior` : "Sin base comparativa"
+        yearSalesChange ? `${yearSalesChange} ${yearComparisonLabel}` : "Sin base comparativa"
       )}</div></div>
       <div class="kpi"><div class="label">Mes líder</div><div class="value">${escapeHtml(
         bestMonth?.label ?? "—"
@@ -1067,6 +1251,14 @@ export default function ReportsPage() {
       )}</div></div>
       <div class="kpi"><div class="label">Tickets del mes</div><div class="value">${escapeHtml(
         formatCount(totalMonthTickets)
+      )}</div><div class="meta">${escapeHtml(
+        monthTicketsChange
+          ? `${monthTicketsChange} ${
+              selectedMonthKey === todayMonthKey
+                ? "vs corte mes anterior"
+                : "vs mes anterior"
+            }`
+          : "Sin base comparativa"
       )}</div></div>
       <div class="kpi"><div class="label">Promedio diario</div><div class="value">${escapeHtml(
         formatMoney(averageDaySales)
@@ -1167,16 +1359,19 @@ export default function ReportsPage() {
     maxDailyValue,
     maxValue,
     monthSalesChange,
+    monthTicketsChange,
     monthlyData,
     selectedMonthKey,
     selectedYear,
     token,
+    todayMonthKey,
     topGroups,
     topProducts,
     totalMonthSales,
     totalMonthTickets,
     totalYearSales,
     totalYearTickets,
+    yearComparisonLabel,
     yearSalesChange,
   ]);
 
@@ -1256,42 +1451,58 @@ export default function ReportsPage() {
                       label="Ver año siguiente"
                     />
                   </div>
-                  <p className="report-view-subtitle mt-1 text-sm text-slate-500">
+                  <p className="report-view-subtitle mt-1 truncate whitespace-nowrap text-sm text-slate-500">
                     Datos agrupados por mes para leer tendencia y estacionalidad.
                   </p>
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
-                    <p className="report-chart-kpi-label text-[11px] uppercase tracking-wide text-slate-500">
+                    <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       Venta total
                     </p>
-                    <p className="report-chart-kpi-value mt-1 text-[20px] font-bold leading-none tracking-tight text-slate-900">
+                    <p className="report-chart-kpi-value mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
                       {formatMoney(totalYearSales)}
                     </p>
-                    <p className="report-chart-kpi-meta mt-1 text-[13px] leading-snug text-slate-500">
+                    <p className="report-chart-kpi-meta mt-1 truncate whitespace-nowrap text-[12px] leading-tight text-slate-500">
                       {yearSalesChange
-                        ? `${yearSalesChange} vs año anterior`
+                        ? `${yearSalesChange} ${yearComparisonLabel}`
                         : "Sin base comparativa"}
                     </p>
                   </div>
+                  <button
+                    type="button"
+                    ref={annualLeaderCardRef}
+                    onClick={() => setShowAnnualLeaderDay((current) => !current)}
+                    className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-left transition hover:border-emerald-200 hover:bg-emerald-50/40"
+                  >
+                    <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
+                      {showAnnualLeaderDay ? "Día líder del año" : "Mes líder"}
+                    </p>
+                    <p className="report-chart-kpi-value mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
+                      {showAnnualLeaderDay ? yearLeaderDayLabel : bestMonth?.label ?? "—"}
+                    </p>
+                    <p className="report-chart-kpi-meta truncate whitespace-nowrap text-[12px] leading-tight text-emerald-600">
+                      {showAnnualLeaderDay
+                        ? yearLeaderDay
+                          ? formatMoney(yearLeaderDay.total)
+                          : "$0"
+                        : bestMonth
+                          ? formatMoney(bestMonth.total)
+                          : "$0"}
+                    </p>
+                  </button>
                   <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
-                    <p className="report-chart-kpi-label text-[11px] uppercase tracking-wide text-slate-500">
-                      Mes líder
-                    </p>
-                    <p className="report-chart-kpi-value mt-1 text-[20px] font-bold leading-none tracking-tight text-slate-900">
-                      {bestMonth?.label ?? "—"}
-                    </p>
-                    <p className="report-chart-kpi-meta text-[13px] text-emerald-600">
-                      {bestMonth ? formatMoney(bestMonth.total) : "$0"}
-                    </p>
-                  </div>
-                  <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
-                    <p className="report-chart-kpi-label text-[11px] uppercase tracking-wide text-slate-500">
+                    <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       Tickets del año
                     </p>
-                    <p className="report-chart-kpi-value mt-1 text-[20px] font-bold leading-none tracking-tight text-slate-900">
+                    <p className="report-chart-kpi-value mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
                       {formatCount(totalYearTickets)}
+                    </p>
+                    <p className="report-chart-kpi-meta mt-1 truncate whitespace-nowrap text-[12px] leading-tight text-slate-500">
+                      {yearTicketsChange
+                        ? `${yearTicketsChange} ${yearComparisonLabel}`
+                        : "Sin base comparativa"}
                     </p>
                   </div>
                   <button
@@ -1300,15 +1511,15 @@ export default function ReportsPage() {
                     onClick={() => setShowAnnualDailyAverage((current) => !current)}
                     className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-left transition hover:border-emerald-200 hover:bg-emerald-50/40"
                   >
-                    <p className="report-chart-kpi-label text-[11px] uppercase tracking-wide text-slate-500">
+                    <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       {showAnnualDailyAverage ? "Promedio diario" : "Promedio mensual"}
                     </p>
-                    <p className="report-chart-kpi-value mt-1 text-[20px] font-bold leading-none tracking-tight text-slate-900">
+                    <p className="report-chart-kpi-value mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
                       {formatMoney(
                         showAnnualDailyAverage ? averageYearDaySales : averageMonthSales
                       )}
                     </p>
-                    <p className="report-chart-kpi-meta mt-1 text-[13px] leading-snug text-slate-500">
+                    <p className="report-chart-kpi-meta mt-1 truncate whitespace-nowrap text-[12px] leading-tight text-slate-500">
                       {showAnnualDailyAverage
                         ? selectedYear === todayYear
                           ? "Hasta hoy"
@@ -1499,13 +1710,13 @@ export default function ReportsPage() {
 
                 <div className="flex flex-wrap justify-end gap-2">
                   <div className="report-chart-kpi min-h-[80px] w-[220px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
-                    <p className="report-chart-kpi-label text-[11px] uppercase tracking-wide text-slate-500">
+                    <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       Venta del mes
                     </p>
-                    <p className="report-chart-kpi-value mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
+                    <p className="report-chart-kpi-value mt-1 text-[17px] font-bold leading-none tracking-tight text-slate-900">
                       {formatMoney(totalMonthSales)}
                     </p>
-                    <p className="report-chart-kpi-meta mt-1 text-[13px] leading-snug text-slate-500">
+                    <p className="report-chart-kpi-meta mt-1 truncate whitespace-nowrap text-[12px] leading-tight text-slate-500">
                       {monthSalesChange
                         ? `${monthSalesChange} ${
                             selectedMonthKey === todayMonthKey
@@ -1516,29 +1727,38 @@ export default function ReportsPage() {
                     </p>
                   </div>
                   <div className="report-chart-kpi min-h-[80px] w-[240px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
-                    <p className="report-chart-kpi-label text-[11px] uppercase tracking-wide text-slate-500">
+                    <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       {selectedDay == null ? "Día líder" : "Día seleccionado"}
                     </p>
-                    <p className="report-chart-kpi-value mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
+                    <p className="report-chart-kpi-value mt-1 text-[17px] font-bold leading-none tracking-tight text-slate-900">
                       {activeDay ? `${activeDay.label} ${activeDay.weekday}` : "—"}
                     </p>
-                    <p className="report-chart-kpi-meta text-[13px] text-emerald-600">
+                    <p className="report-chart-kpi-meta truncate whitespace-nowrap text-[12px] leading-tight text-emerald-600">
                       {activeDay ? formatMoney(activeDay.total) : "$0"}
                     </p>
                   </div>
                   <div className="report-chart-kpi min-h-[80px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
-                    <p className="report-chart-kpi-label text-[11px] uppercase tracking-wide text-slate-500">
+                    <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       Tickets del mes
                     </p>
-                    <p className="report-chart-kpi-value mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
+                    <p className="report-chart-kpi-value mt-1 text-[17px] font-bold leading-none tracking-tight text-slate-900">
                       {formatCount(totalMonthTickets)}
+                    </p>
+                    <p className="report-chart-kpi-meta mt-1 truncate whitespace-nowrap text-[12px] leading-tight text-slate-500">
+                      {monthTicketsChange
+                        ? `${monthTicketsChange} ${
+                            selectedMonthKey === todayMonthKey
+                              ? "vs corte mes anterior"
+                              : "vs mes anterior"
+                          }`
+                        : "Sin base comparativa"}
                     </p>
                   </div>
                   <div className="report-chart-kpi min-h-[80px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
-                    <p className="report-chart-kpi-label text-[11px] uppercase tracking-wide text-slate-500">
+                    <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       Promedio diario
                     </p>
-                    <p className="report-chart-kpi-value mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
+                    <p className="report-chart-kpi-value mt-1 text-[17px] font-bold leading-none tracking-tight text-slate-900">
                       {formatMoney(averageDaySales)}
                     </p>
                   </div>
