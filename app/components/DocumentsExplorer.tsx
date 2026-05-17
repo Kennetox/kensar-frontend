@@ -1299,28 +1299,32 @@ export default function DocumentsExplorer({
         ]);
       const adjustmentsBySaleId: Record<number, DocumentAdjustmentRecord[]> = {};
       if (salesData.length > 0) {
-        const saleIds = salesData.map((sale) => sale.id);
-        const adjustmentsRes = await fetch(
-          `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${saleIds.join(",")}`,
-          {
-            headers: authHeaders,
-            credentials: "include",
-          }
-        );
-        if (adjustmentsRes.status === 401) {
-          logout();
-          throw new Error(
-            "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+        const saleIds = salesData
+          .map((sale) => sale.id)
+          .filter((id): id is number => typeof id === "number" && id > 0);
+        if (saleIds.length > 0) {
+          const adjustmentsRes = await fetch(
+            `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${saleIds.join(",")}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+            }
           );
-        }
-        if (adjustmentsRes.ok) {
-          const adjustmentsData =
-            (await adjustmentsRes.json()) as DocumentAdjustmentRecord[];
-          adjustmentsData.forEach((entry) => {
-            const current = adjustmentsBySaleId[entry.doc_id] ?? [];
-            current.push(entry);
-            adjustmentsBySaleId[entry.doc_id] = current;
-          });
+          if (adjustmentsRes.status === 401) {
+            logout();
+            throw new Error(
+              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+            );
+          }
+          if (adjustmentsRes.ok) {
+            const adjustmentsData =
+              (await adjustmentsRes.json()) as DocumentAdjustmentRecord[];
+            adjustmentsData.forEach((entry) => {
+              const current = adjustmentsBySaleId[entry.doc_id] ?? [];
+              current.push(entry);
+              adjustmentsBySaleId[entry.doc_id] = current;
+            });
+          }
         }
       }
       const recountById = new Map<number, InventoryRecountDocumentRecord>();
@@ -1360,6 +1364,11 @@ export default function DocumentsExplorer({
   const loadAdjustments = useCallback(
     async (saleId: number) => {
       if (!authHeaders) return;
+      if (saleId <= 0) {
+        setDocumentAdjustments([]);
+        setAdjustmentsError(null);
+        return;
+      }
       setAdjustmentsLoading(true);
       setAdjustmentsError(null);
       const apiBase = getApiBase();
@@ -2755,7 +2764,7 @@ const selectedSaleDocument =
 const hasSelectedSaleDocument = !!selectedSaleDocument;
 const selectedSaleDocumentId = selectedSaleDocument?.id ?? null;
 useEffect(() => {
-  if (!authHeaders || !selectedSaleDocumentId) {
+  if (!authHeaders || !selectedSaleDocumentId || selectedSaleDocumentId <= 0) {
     setDocumentAdjustments([]);
     return;
   }

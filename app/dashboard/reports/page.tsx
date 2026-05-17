@@ -332,6 +332,7 @@ export default function ReportsPage() {
         const params = new URLSearchParams({
           year: String(year),
           month: String(month),
+          source: "all",
         });
         const res = await fetch(`${apiBase}/reports/quick/insights?${params.toString()}`, {
           headers: requestHeaders,
@@ -381,11 +382,11 @@ export default function ReportsPage() {
         const apiBase = getApiBase();
         const currentYear = Number(selectedYear);
         const [currentRes, previousRes] = await Promise.all([
-          fetch(`${apiBase}/dashboard/monthly-sales?year=${currentYear}`, {
+          fetch(`${apiBase}/dashboard/monthly-sales?year=${currentYear}&source=all`, {
             headers: requestHeaders,
             credentials: "include",
           }),
-          fetch(`${apiBase}/dashboard/monthly-sales?year=${currentYear - 1}`, {
+          fetch(`${apiBase}/dashboard/monthly-sales?year=${currentYear - 1}&source=all`, {
             headers: requestHeaders,
             credentials: "include",
           }),
@@ -439,6 +440,7 @@ export default function ReportsPage() {
             `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
               date_from: fromDate,
               date_to: toDate,
+              source: "all",
             }).toString()}`,
             {
               headers: requestHeaders,
@@ -449,6 +451,7 @@ export default function ReportsPage() {
             `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
               date_from: prevFromDate,
               date_to: prevToDate,
+              source: "all",
             }).toString()}`,
             {
               headers: requestHeaders,

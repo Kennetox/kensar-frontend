@@ -155,6 +155,7 @@ export type FilterMeta = {
   posFilter: string;
   methodFilter: string;
   sellerFilter: string;
+  sourceFilter?: "all" | "metrik" | "aronium";
   productReportMode?: "product" | "group";
   productReportProductId?: number | null;
   productReportProductName?: string;
@@ -211,6 +212,10 @@ const isValidFilterMeta = (value: unknown): value is FilterMeta => {
     typeof meta.posFilter === "string" &&
     typeof meta.methodFilter === "string" &&
     typeof meta.sellerFilter === "string" &&
+    (meta.sourceFilter === undefined ||
+      meta.sourceFilter === "all" ||
+      meta.sourceFilter === "metrik" ||
+      meta.sourceFilter === "aronium") &&
     modeValid &&
     (meta.productReportProductId === undefined ||
       meta.productReportProductId === null ||
@@ -1382,6 +1387,13 @@ export function buildDocumentHtml(
                 ? resolvePaymentLabel(meta.methodFilter)
                 : meta.methodFilter
             }</div>
+            <div><span>Fuente:</span> ${
+              meta.sourceFilter === "metrik"
+                ? "Metrik"
+                : meta.sourceFilter === "aronium"
+                ? "Aronium"
+                : "Ambas"
+            }</div>
             <div><span>Vendedor:</span> ${meta.sellerFilter || "Todos"}</div>
           </div>
           ${
@@ -1574,6 +1586,13 @@ export function buildDocumentHtml(
                 : resolvePaymentLabel
                 ? resolvePaymentLabel(meta.methodFilter)
                 : meta.methodFilter
+            }</div>
+            <div><span>Fuente:</span> ${
+              meta.sourceFilter === "metrik"
+                ? "Metrik"
+                : meta.sourceFilter === "aronium"
+                ? "Aronium"
+                : "Ambas"
             }</div>
             <div><span>Vendedor:</span> ${meta.sellerFilter || "Todos"}</div>
           </div>
@@ -3406,6 +3425,9 @@ export default function ReportsPage() {
   const [posFilter, setPosFilter] = useState<string>("todos");
   const [sellerFilter, setSellerFilter] = useState<string>("");
   const [methodFilter, setMethodFilter] = useState<string>("todos");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "metrik" | "aronium">(
+    "all"
+  );
   const [productReportModalOpen, setProductReportModalOpen] = useState(false);
   const [productReportMode, setProductReportMode] = useState<"product" | "group">(
     "product"
@@ -3544,8 +3566,9 @@ export default function ReportsPage() {
       posFilter,
       methodFilter,
       sellerFilter,
+      sourceFilter,
     }),
-    [fromDate, toDate, posFilter, methodFilter, sellerFilter]
+    [fromDate, toDate, posFilter, methodFilter, sellerFilter, sourceFilter]
   );
   const methodFilterLabel = useMemo(
     () =>
@@ -4001,12 +4024,20 @@ export default function ReportsPage() {
       setSalesError(null);
       const apiBase = getApiBase();
 
-      const fetchAllPages = async <T,>(path: string): Promise<T[]> => {
+      const fetchAllPages = async <T,>(
+        path: string,
+        extraParams?: Record<string, string>
+      ): Promise<T[]> => {
         const rows: T[] = [];
         let skip = 0;
         for (;;) {
+          const params = new URLSearchParams({
+            skip: String(skip),
+            limit: String(REPORT_PAGE_SIZE),
+            ...(extraParams ?? {}),
+          });
           const res = await fetch(
-            `${apiBase}${path}?skip=${skip}&limit=${REPORT_PAGE_SIZE}`,
+            `${apiBase}${path}?${params.toString()}`,
             {
               headers: authHeaders,
               credentials: "include",
@@ -4024,7 +4055,7 @@ export default function ReportsPage() {
       };
 
       const [salesResult, changesResult] = await Promise.allSettled([
-        fetchAllPages<ReportSale>("/pos/sales"),
+        fetchAllPages<ReportSale>("/pos/sales", { source: sourceFilter }),
         fetchAllPages<ReportChange>("/pos/changes"),
       ]);
 
@@ -4077,7 +4108,7 @@ export default function ReportsPage() {
     } finally {
       setSalesLoading(false);
     }
-  }, [authHeaders, canViewReportDataset]);
+  }, [authHeaders, canViewReportDataset, sourceFilter]);
 
   const ensureSalesLoaded = useCallback(async () => {
     if (salesLoadedRef.current) return true;
@@ -4812,7 +4843,7 @@ export default function ReportsPage() {
                     <p className="text-[11px] uppercase tracking-wide text-slate-500">
                       Fechas
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <label className="flex flex-col gap-1">
                         <span className="text-xs text-slate-400 uppercase tracking-wide">
                           Desde
@@ -4919,6 +4950,22 @@ export default function ReportsPage() {
                           ))}
                         </select>
                       </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                          Fuente
+                        </span>
+                        <select
+                          value={sourceFilter}
+                          onChange={(e) =>
+                            setSourceFilter(e.target.value as "all" | "metrik" | "aronium")
+                          }
+                          className="rounded-lg border border-slate-700/70 bg-slate-950/80 px-3 py-2.5 text-slate-100 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/50"
+                        >
+                          <option value="all">Ambas (Metrik + Aronium)</option>
+                          <option value="metrik">Solo Metrik</option>
+                          <option value="aronium">Solo Aronium</option>
+                        </select>
+                      </label>
                     </div>
                     <label className="flex flex-col gap-1 text-sm">
                       <span className="text-xs text-slate-400 uppercase tracking-wide">
@@ -4964,6 +5011,7 @@ export default function ReportsPage() {
                       setPosFilter("todos");
                       setMethodFilter("todos");
                       setSellerFilter("");
+                      setSourceFilter("all");
                     }}
                   >
                     Restablecer filtros

@@ -111,6 +111,44 @@ type ProductAuditEntry = {
   created_at: string;
 };
 
+type ProductCostSuggestion = {
+  suggested_cost: number;
+  range_min_cost: number;
+  range_max_cost: number;
+  confidence_score: number;
+  confidence_label: "alta" | "media" | "baja";
+  method: string;
+  method_label?: string | null;
+  sample_size: number;
+  markup_used: number;
+  markup_p25: number;
+  markup_p50: number;
+  markup_p75: number;
+  recency_half_life_days: number;
+  notes?: string | null;
+};
+
+type ProductCostSuggestionMeta = {
+  suggested_cost: number;
+  range_min_cost: number;
+  range_max_cost: number;
+  confidence_score: number;
+  confidence_label: "alta" | "media" | "baja";
+  method: string;
+  method_label?: string | null;
+  sample_size: number;
+  markup_used: number;
+  markup_p25: number;
+  markup_p50: number;
+  markup_p75: number;
+  recency_half_life_days: number;
+  suggested_at: string;
+  applied_cost: number;
+  accepted_suggestion: boolean;
+  delta_vs_suggestion: number;
+  mode: "create" | "edit";
+};
+
 const API_BASE = getApiBase();
 const DEFAULT_TILE_COLOR = "#1f2937";
 const DEFAULT_LABEL_FORMAT = "Kensar1";
@@ -240,6 +278,69 @@ function getAuditSourceLabel(entry: ProductAuditEntry): string | null {
 
 function buildAuditMessages(entry: ProductAuditEntry): string[] {
   if (!isPlainObject(entry.changes)) return [];
+  const costSuggestionMetaRaw = entry.changes.cost_suggestion_meta;
+  const costSuggestionMeta = isPlainObject(costSuggestionMetaRaw)
+    ? costSuggestionMetaRaw
+    : null;
+
+  const buildCostSuggestionLine = (): string | null => {
+    if (!costSuggestionMeta) return null;
+    const methodLabel =
+      typeof costSuggestionMeta.method_label === "string" &&
+      costSuggestionMeta.method_label.trim()
+        ? costSuggestionMeta.method_label.trim()
+        : typeof costSuggestionMeta.method === "string" &&
+            costSuggestionMeta.method.trim()
+          ? costSuggestionMeta.method.trim()
+          : "método no especificado";
+    const confidenceLabel =
+      typeof costSuggestionMeta.confidence_label === "string" &&
+      costSuggestionMeta.confidence_label.trim()
+        ? costSuggestionMeta.confidence_label.trim()
+        : "sin etiqueta";
+    const sampleSize =
+      typeof costSuggestionMeta.sample_size === "number"
+        ? costSuggestionMeta.sample_size
+        : null;
+    const suggestedCost =
+      typeof costSuggestionMeta.suggested_cost === "number"
+        ? costSuggestionMeta.suggested_cost
+        : null;
+    const appliedCost =
+      typeof costSuggestionMeta.applied_cost === "number"
+        ? costSuggestionMeta.applied_cost
+        : null;
+    const acceptedSuggestion =
+      typeof costSuggestionMeta.accepted_suggestion === "boolean"
+        ? costSuggestionMeta.accepted_suggestion
+        : null;
+    const delta =
+      typeof costSuggestionMeta.delta_vs_suggestion === "number"
+        ? costSuggestionMeta.delta_vs_suggestion
+        : null;
+
+    const decision =
+      acceptedSuggestion === true
+        ? "aceptada"
+        : acceptedSuggestion === false
+          ? "ajustada manualmente"
+          : "registrada";
+
+    const details: string[] = [
+      `Sugerencia de costo ${decision} (${methodLabel}, confianza ${confidenceLabel}${
+        sampleSize !== null ? `, n=${sampleSize}` : ""
+      }).`,
+    ];
+    if (suggestedCost !== null && appliedCost !== null) {
+      details.push(
+        `Sugerido ${suggestedCost.toLocaleString("es-CO")} y aplicado ${appliedCost.toLocaleString("es-CO")}.`
+      );
+    }
+    if (delta !== null && Math.abs(delta) >= 0.01) {
+      details.push(`Ajuste vs sugerencia: ${delta.toLocaleString("es-CO")}.`);
+    }
+    return details.join(" ");
+  };
 
   if (entry.action === "update") {
     const lines = Object.entries(entry.changes)
@@ -252,6 +353,8 @@ function buildAuditMessages(entry: ProductAuditEntry): string[] {
         return `Se modificó ${formatAuditFieldLabel(field)} de "${before}" a "${after}".`;
       })
       .filter((line): line is string => Boolean(line));
+    const suggestionLine = buildCostSuggestionLine();
+    if (suggestionLine) lines.unshift(suggestionLine);
     return lines.length ? lines : ["Se registró una edición sin detalle de campos."];
   }
 
@@ -282,6 +385,10 @@ function buildAuditMessages(entry: ProductAuditEntry): string[] {
     if (sourceLabel) {
       lines.unshift(`Origen: ${sourceLabel}.`);
     }
+    const suggestionLine = buildCostSuggestionLine();
+    if (suggestionLine) {
+      lines.unshift(suggestionLine);
+    }
     return lines.length ? lines : ["Se registró el estado inicial del producto."];
   }
 
@@ -304,6 +411,9 @@ export default function ProductsPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [successToastVisible, setSuccessToastVisible] = useState(false);
   const successToastTimerRef = useRef<number | null>(null);
+  const [errorToastMessage, setErrorToastMessage] = useState<string | null>(null);
+  const [errorToastVisible, setErrorToastVisible] = useState(false);
+  const errorToastTimerRef = useRef<number | null>(null);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groupsError, setGroupsError] = useState<string | null>(null);
 
@@ -314,6 +424,8 @@ export default function ProductsPage() {
   const [createSkuLocked, setCreateSkuLocked] = useState(true);
   const [createBarcodeLocked, setCreateBarcodeLocked] = useState(true);
   const [createLabelFormatLocked, setCreateLabelFormatLocked] = useState(true);
+  const [createCostSuggestion, setCreateCostSuggestion] = useState<ProductCostSuggestion | null>(null);
+  const [createCostSuggesting, setCreateCostSuggesting] = useState(false);
 
   // edición
   const [editOpen, setEditOpen] = useState(false);
@@ -327,6 +439,8 @@ export default function ProductsPage() {
   const [editSkuLocked, setEditSkuLocked] = useState(true);
   const [editBarcodeLocked, setEditBarcodeLocked] = useState(true);
   const [editLabelFormatLocked, setEditLabelFormatLocked] = useState(true);
+  const [editCostSuggestion, setEditCostSuggestion] = useState<ProductCostSuggestion | null>(null);
+  const [editCostSuggesting, setEditCostSuggesting] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -627,6 +741,106 @@ export default function ProductsPage() {
     }));
   }
 
+  async function requestCostSuggestion(
+    form: ProductForm,
+    options?: { excludeProductId?: number | null },
+  ): Promise<ProductCostSuggestion> {
+    if (!authHeaders) throw new Error("Sesión expirada.");
+    const priceValue = parseMoneyValue(form.price);
+    if (priceValue <= 0) {
+      throw new Error("Ingresa un precio mayor que cero para sugerir costo.");
+    }
+    const res = await fetch(`${API_BASE}/products/cost-suggestion`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders,
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        price: priceValue,
+        group_name: form.group_name || null,
+        brand: form.brand || null,
+        supplier: form.supplier || null,
+        exclude_product_id: options?.excludeProductId ?? null,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      const msg =
+        (data && (data.detail as string)) ||
+        `No se pudo sugerir costo (código ${res.status})`;
+      throw new Error(msg);
+    }
+    return (await res.json()) as ProductCostSuggestion;
+  }
+
+  async function handleSuggestCreateCost() {
+    try {
+      setCreateCostSuggesting(true);
+      const suggestion = await requestCostSuggestion(createForm);
+      setCreateCostSuggestion(suggestion);
+      setCreateForm((prev) => ({
+        ...prev,
+        cost: formatMoneyFromNumber(suggestion.suggested_cost),
+      }));
+    } catch (err: unknown) {
+      if (err instanceof Error) setErrorToastMessage(err.message);
+      else setErrorToastMessage("No se pudo sugerir costo.");
+    } finally {
+      setCreateCostSuggesting(false);
+    }
+  }
+
+  async function handleSuggestEditCost() {
+    if (editId == null) return;
+    try {
+      setEditCostSuggesting(true);
+      const suggestion = await requestCostSuggestion(editForm, { excludeProductId: editId });
+      setEditCostSuggestion(suggestion);
+      setEditForm((prev) => ({
+        ...prev,
+        cost: formatMoneyFromNumber(suggestion.suggested_cost),
+      }));
+    } catch (err: unknown) {
+      if (err instanceof Error) setErrorToastMessage(err.message);
+      else setErrorToastMessage("No se pudo sugerir costo.");
+    } finally {
+      setEditCostSuggesting(false);
+    }
+  }
+
+  function buildCostSuggestionMeta(
+    suggestion: ProductCostSuggestion | null,
+    appliedCostRaw: string,
+    mode: "create" | "edit",
+  ): ProductCostSuggestionMeta | null {
+    if (!suggestion) return null;
+    const appliedCost = parseMoneyValue(appliedCostRaw);
+    const delta = appliedCost - suggestion.suggested_cost;
+    const accepted = Math.abs(delta) < 0.01;
+    return {
+      suggested_cost: suggestion.suggested_cost,
+      range_min_cost: suggestion.range_min_cost,
+      range_max_cost: suggestion.range_max_cost,
+      confidence_score: suggestion.confidence_score,
+      confidence_label: suggestion.confidence_label,
+      method: suggestion.method,
+      method_label: suggestion.method_label ?? null,
+      sample_size: suggestion.sample_size,
+      markup_used: suggestion.markup_used,
+      markup_p25: suggestion.markup_p25,
+      markup_p50: suggestion.markup_p50,
+      markup_p75: suggestion.markup_p75,
+      recency_half_life_days: suggestion.recency_half_life_days,
+      suggested_at: new Date().toISOString(),
+      applied_cost: appliedCost,
+      accepted_suggestion: accepted,
+      delta_vs_suggestion: delta,
+      mode,
+    };
+  }
+
   function getSuggestedFromField(
     items: Product[],
     field: "sku" | "barcode",
@@ -669,6 +883,7 @@ export default function ProductsPage() {
     setCreateSkuLocked(true);
     setCreateBarcodeLocked(true);
     setCreateLabelFormatLocked(true);
+    setCreateCostSuggestion(null);
   }
 
   function handleCreateGroupInput(nextGroupName: string) {
@@ -723,6 +938,8 @@ export default function ProductsPage() {
     setCreateSkuLocked(true);
     setCreateBarcodeLocked(true);
     setCreateLabelFormatLocked(true);
+    setCreateCostSuggestion(null);
+    setCreateCostSuggesting(false);
   }
 
   function handleCloseEditModal() {
@@ -741,6 +958,8 @@ export default function ProductsPage() {
     setEditSkuLocked(true);
     setEditBarcodeLocked(true);
     setEditLabelFormatLocked(true);
+    setEditCostSuggestion(null);
+    setEditCostSuggesting(false);
     if (productImageInputRef.current) {
       productImageInputRef.current.value = "";
     }
@@ -1488,6 +1707,7 @@ export default function ProductsPage() {
         reorder_point: parseInt(createForm.reorder_point || "0", 10),
         low_stock_alert: createForm.low_stock_alert,
         allow_price_change: createForm.allow_price_change,
+        cost_suggestion_meta: buildCostSuggestionMeta(createCostSuggestion, createForm.cost, "create"),
       };
 
 
@@ -1552,6 +1772,7 @@ export default function ProductsPage() {
     setEditSkuLocked(true);
     setEditBarcodeLocked(true);
     setEditLabelFormatLocked(true);
+    setEditCostSuggestion(null);
     setEditOpen(true);
   }
 
@@ -1654,7 +1875,7 @@ export default function ProductsPage() {
       setSavingEdit(true);
       setError(null);
 
-      const payload: Partial<Product> = {};
+      const payload: Record<string, unknown> = {};
 
       if (editForm.name.trim() !== "") payload.name = editForm.name.trim();
       if (editForm.sku !== "") payload.sku = editForm.sku;
@@ -1683,6 +1904,7 @@ export default function ProductsPage() {
       payload.supplier = editForm.supplier || null;
       payload.low_stock_alert = editForm.low_stock_alert;
       payload.allow_price_change = editForm.allow_price_change;
+      payload.cost_suggestion_meta = buildCostSuggestionMeta(editCostSuggestion, editForm.cost, "edit");
 
       if (!authHeaders) throw new Error("Sesión expirada.");
       const res = await fetch(`${API_BASE}/products/${editId}`, {
@@ -1738,6 +1960,27 @@ export default function ProductsPage() {
       }
     };
   }, [successMessage]);
+
+  useEffect(() => {
+    if (!errorToastMessage) {
+      setErrorToastVisible(false);
+      return;
+    }
+    if (errorToastTimerRef.current) {
+      window.clearTimeout(errorToastTimerRef.current);
+    }
+    setErrorToastVisible(false);
+    requestAnimationFrame(() => setErrorToastVisible(true));
+    errorToastTimerRef.current = window.setTimeout(() => {
+      setErrorToastVisible(false);
+      window.setTimeout(() => setErrorToastMessage(null), 220);
+    }, 3600);
+    return () => {
+      if (errorToastTimerRef.current) {
+        window.clearTimeout(errorToastTimerRef.current);
+      }
+    };
+  }, [errorToastMessage]);
 
   // eliminar producto
   async function handleDelete(
@@ -2846,6 +3089,33 @@ export default function ProductsPage() {
                   onChange={(e) => handleMoneyChange(e, setCreateForm)}
                   className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
                 />
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleSuggestCreateCost()}
+                    disabled={createCostSuggesting}
+                    className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
+                  >
+                    {createCostSuggesting ? "Calculando..." : "Sugerir costo"}
+                  </button>
+                  {createCostSuggestion ? (
+                    <span className="text-xs text-slate-400">
+                      {createCostSuggestion.method_label || createCostSuggestion.method} · n=
+                      {createCostSuggestion.sample_size} · confianza {createCostSuggestion.confidence_label}
+                    </span>
+                  ) : null}
+                </div>
+                {createCostSuggestion ? (
+                  <p className="text-[11px] text-slate-500">
+                    Rango: {createCostSuggestion.range_min_cost.toLocaleString("es-ES")} -{" "}
+                    {createCostSuggestion.range_max_cost.toLocaleString("es-ES")} · markup P50{" "}
+                    {createCostSuggestion.markup_p50.toLocaleString("es-ES", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                    %
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-1">
@@ -3182,6 +3452,33 @@ export default function ProductsPage() {
                   onChange={(e) => handleMoneyChange(e, setEditForm)}
                   className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
                 />
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleSuggestEditCost()}
+                    disabled={editCostSuggesting}
+                    className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
+                  >
+                    {editCostSuggesting ? "Calculando..." : "Sugerir costo"}
+                  </button>
+                  {editCostSuggestion ? (
+                    <span className="text-xs text-slate-400">
+                      {editCostSuggestion.method_label || editCostSuggestion.method} · n=
+                      {editCostSuggestion.sample_size} · confianza {editCostSuggestion.confidence_label}
+                    </span>
+                  ) : null}
+                </div>
+                {editCostSuggestion ? (
+                  <p className="text-[11px] text-slate-500">
+                    Rango: {editCostSuggestion.range_min_cost.toLocaleString("es-ES")} -{" "}
+                    {editCostSuggestion.range_max_cost.toLocaleString("es-ES")} · markup P50{" "}
+                    {editCostSuggestion.markup_p50.toLocaleString("es-ES", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                    %
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-1">
@@ -4165,6 +4462,27 @@ export default function ProductsPage() {
             <p className="mt-1 text-sm text-emerald-800/90">
               {successMessage}
             </p>
+          </div>
+        </div>
+      )}
+      {errorToastMessage && (
+        <div
+          className={
+            (createOpen || editOpen)
+              ? "fixed left-1/2 top-20 z-[90] w-[420px] max-w-[92vw] -translate-x-1/2"
+              : "fixed right-6 top-24 z-[61] w-[340px] max-w-[90vw]"
+          }
+        >
+          <div
+            className={
+              "rounded-2xl border border-red-400 bg-white px-4 py-3 text-red-900 shadow-[0_16px_40px_rgba(239,68,68,0.2)] transition-all duration-300 " +
+              (errorToastVisible
+                ? "translate-x-0 opacity-100"
+                : "translate-x-4 opacity-0")
+            }
+          >
+            <div className="text-sm font-semibold text-red-800">Error</div>
+            <p className="mt-1 text-sm text-red-800/90">{errorToastMessage}</p>
           </div>
         </div>
       )}

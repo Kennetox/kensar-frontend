@@ -508,7 +508,7 @@ export default function DashboardHomePage() {
     try {
       setLoading(true);
       if (!force) {
-        const cached = readDashboardCache<DashboardSummary>("summary");
+        const cached = readDashboardCache<DashboardSummary>("summary:all");
         if (cached) {
           setData(cached);
           setError(null);
@@ -516,7 +516,7 @@ export default function DashboardHomePage() {
         }
       }
       const apiBase = getApiBase();
-      const res = await fetch(`${apiBase}/dashboard/summary`, {
+      const res = await fetch(`${apiBase}/dashboard/summary?source=all`, {
         headers: authHeaders,
         credentials: "include",
       });
@@ -525,7 +525,7 @@ export default function DashboardHomePage() {
       }
       const json: DashboardSummary = await res.json();
       setData(json);
-      writeDashboardCache("summary", json);
+      writeDashboardCache("summary:all", json);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -657,7 +657,7 @@ export default function DashboardHomePage() {
       setYearTrendLoading(true);
       setYearTrendError(null);
       if (!force) {
-        const cached = readDashboardCache<SalesTrendPoint[]>(`yearly-sales:${selectedYear}`);
+        const cached = readDashboardCache<SalesTrendPoint[]>(`yearly-sales:all:${selectedYear}`);
         if (cached) {
           setYearTrend(cached);
           return;
@@ -665,7 +665,7 @@ export default function DashboardHomePage() {
       }
       const apiBase = getApiBase();
       const res = await fetch(
-        `${apiBase}/dashboard/monthly-sales?year=${selectedYear}`,
+        `${apiBase}/dashboard/monthly-sales?year=${selectedYear}&source=all`,
         {
           headers: authHeaders,
           credentials: "include",
@@ -701,7 +701,7 @@ export default function DashboardHomePage() {
         }
       );
       setYearTrend(normalized);
-      writeDashboardCache(`yearly-sales:${selectedYear}`, normalized);
+      writeDashboardCache(`yearly-sales:all:${selectedYear}`, normalized);
     } catch (err) {
       console.error(err);
       setYearTrendError(

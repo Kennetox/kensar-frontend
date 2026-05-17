@@ -52,6 +52,12 @@ import {
   reorderPaymentMethods,
   type PaymentMethodRecord,
 } from "@/lib/api/paymentMethods";
+import {
+  createLegacyImportBatch,
+  processLegacyImportBatch,
+  uploadLegacyImportFile,
+  type LegacyImportProcessResult,
+} from "@/lib/api/historicalImports";
 import { useAuth } from "../../providers/AuthProvider";
 import { clearPosStationAccess, getPosStationAccess } from "@/lib/api/posStations";
 import { getApiBase } from "@/lib/api/base";
@@ -203,7 +209,8 @@ type SettingsTab =
   | "notifications"
   | "security"
   | "control"
-  | "kora";
+  | "kora"
+  | "historical";
 
 const SETTINGS_TABS: {
   id: SettingsTab;
@@ -249,6 +256,11 @@ const SETTINGS_TABS: {
     id: "kora",
     label: "Calidad KORA",
     description: "Métricas de consultas, aciertos y fallbacks del asistente.",
+  },
+  {
+    id: "historical",
+    label: "Históricos Aronium",
+    description: "Importación temporal de históricos para analítica y reportes.",
   },
 ];
 
@@ -706,6 +718,24 @@ export default function SettingsPage() {
     null
   );
   const [paymentSaving, setPaymentSaving] = useState(false);
+  const [historicalBatchName, setHistoricalBatchName] = useState("Aronium Enero 2026");
+  const [historicalSourceSystem, setHistoricalSourceSystem] = useState("aronium");
+  const [historicalFiles, setHistoricalFiles] = useState<{
+    sales: File | null;
+    items: File | null;
+    payments: File | null;
+    refunds: File | null;
+  }>({
+    sales: null,
+    items: null,
+    payments: null,
+    refunds: null,
+  });
+  const [historicalImportNote, setHistoricalImportNote] = useState("");
+  const [historicalImportBusy, setHistoricalImportBusy] = useState(false);
+  const [historicalImportStatus, setHistoricalImportStatus] = useState<string | null>(null);
+  const [historicalImportResult, setHistoricalImportResult] =
+    useState<LegacyImportProcessResult | null>(null);
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
@@ -4698,6 +4728,77 @@ export default function SettingsPage() {
     </article>
   );
 
+  const handleProcessHistoricalImport = useCallback(async () => {
+    if (!token) return;
+    if (!historicalBatchName.trim()) {
+      setHistoricalImportStatus("Debes indicar nombre del lote.");
+      return;
+    }
+    if (!historicalFiles.sales || !historicalFiles.items || !historicalFiles.payments) {
+      setHistoricalImportStatus("Faltan archivos requeridos (ventas, items y pagos).");
+      return;
+    }
+
+    try {
+      setHistoricalImportBusy(true);
+      setHistoricalImportStatus("Creando lote...");
+      setHistoricalImportResult(null);
+
+      const batch = await createLegacyImportBatch(
+        {
+          title: historicalBatchName.trim(),
+          source_system: historicalSourceSystem.trim() || "aronium",
+          note: historicalImportNote.trim() || undefined,
+        },
+        token
+      );
+
+      setHistoricalImportStatus("Subiendo archivos...");
+      await uploadLegacyImportFile(
+        { batchId: batch.id, fileKind: "sales", file: historicalFiles.sales },
+        token
+      );
+      await uploadLegacyImportFile(
+        { batchId: batch.id, fileKind: "items", file: historicalFiles.items },
+        token
+      );
+      await uploadLegacyImportFile(
+        { batchId: batch.id, fileKind: "payments", file: historicalFiles.payments },
+        token
+      );
+      if (historicalFiles.refunds) {
+        await uploadLegacyImportFile(
+          { batchId: batch.id, fileKind: "refunds", file: historicalFiles.refunds },
+          token
+        );
+      }
+
+      setHistoricalImportStatus("Procesando lote...");
+      const result = await processLegacyImportBatch(batch.id, token);
+      setHistoricalImportResult(result);
+      setHistoricalImportStatus(
+        `Lote publicado. Ventas: ${result.sales_loaded} · Items: ${result.items_loaded} · Pagos: ${result.payments_loaded}`
+      );
+    } catch (error) {
+      setHistoricalImportStatus(
+        error instanceof Error
+          ? error.message
+          : "No pudimos procesar la importación histórica."
+      );
+    } finally {
+      setHistoricalImportBusy(false);
+    }
+  }, [
+    historicalBatchName,
+    historicalFiles.items,
+    historicalFiles.payments,
+    historicalFiles.refunds,
+    historicalFiles.sales,
+    historicalImportNote,
+    historicalSourceSystem,
+    token,
+  ]);
+
   const tabContentMap: Record<SettingsTab, ReactNode> = {
     company: companyContent,
     appearance: appearanceContent,
@@ -4846,6 +4947,137 @@ export default function SettingsPage() {
     security: securityContent,
     control: controlContent,
     kora: koraContent,
+    historical: (
+      <article className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-5">
+        <div className="flex flex-col gap-2">
+          <h2 className="text-lg font-semibold">Importación histórica (temporal)</h2>
+          <p className="text-sm text-slate-400 max-w-3xl">
+            Este módulo carga históricos de Aronium para uso analítico en reportes/KPIs.
+            No reemplaza ventas operativas de Metrik. Los lotes se marcan como importados
+            y quedarán diferenciados por fuente.
+          </p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs uppercase tracking-wide text-slate-400">Nombre del lote</span>
+            <input
+              type="text"
+              value={historicalBatchName}
+              onChange={(e) => setHistoricalBatchName(e.target.value)}
+              className="rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-slate-100"
+              placeholder="Ej. Aronium Enero 2026"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs uppercase tracking-wide text-slate-400">Sistema origen</span>
+            <select
+              value={historicalSourceSystem}
+              onChange={(e) => setHistoricalSourceSystem(e.target.value)}
+              className="rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-slate-100"
+            >
+              <option value="aronium">Aronium</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4 space-y-4">
+          <h3 className="text-sm font-semibold text-slate-200">Archivos requeridos</h3>
+          <div className="grid gap-3 md:grid-cols-2">
+            {[
+              { key: "sales", label: "Ventas (cabecera)", hint: "ventas_YYYY_MM.csv" },
+              { key: "items", label: "Items de venta", hint: "items_ventas_YYYY_MM.csv" },
+              { key: "payments", label: "Pagos", hint: "pagos_ventas_YYYY_MM.csv" },
+              { key: "refunds", label: "Devoluciones (opcional)", hint: "devoluciones_YYYY_MM.csv" },
+            ].map((entry) => (
+              <label
+                key={entry.key}
+                className="flex flex-col gap-1 text-xs rounded-lg border border-slate-800 bg-slate-950/50 p-3"
+              >
+                <span className="text-slate-200 font-medium">{entry.label}</span>
+                <span className="text-slate-500">{entry.hint}</span>
+                <input
+                  type="file"
+                  accept=".csv,.zip"
+                  className="text-slate-300 file:mr-2 file:rounded-md file:border-0 file:bg-emerald-500/20 file:px-2 file:py-1 file:text-emerald-200"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    setHistoricalFiles((prev) => ({
+                      ...prev,
+                      [entry.key]: file,
+                    }));
+                  }}
+                />
+                <span className="text-[11px] text-slate-400">
+                  {(historicalFiles as Record<string, File | null>)[entry.key]?.name ||
+                    "Sin archivo"}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-xs uppercase tracking-wide text-slate-400">Nota interna del lote</span>
+          <textarea
+            value={historicalImportNote}
+            onChange={(e) => setHistoricalImportNote(e.target.value)}
+            rows={3}
+            className="rounded-lg border border-slate-700 bg-slate-950/70 px-3 py-2 text-slate-100"
+            placeholder="Observaciones de validación, origen del archivo, etc."
+          />
+        </label>
+
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">
+          Flujo activo: crea lote, sube archivos y publica históricos separados de la capa operativa.
+          Los reportes pueden leerlos vía fuente importada (`Aronium`).
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="px-4 py-2 rounded-lg bg-emerald-500 text-slate-950 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={
+              historicalImportBusy ||
+              !historicalBatchName.trim() ||
+              !historicalFiles.sales ||
+              !historicalFiles.items ||
+              !historicalFiles.payments
+            }
+            onClick={handleProcessHistoricalImport}
+          >
+            {historicalImportBusy ? "Procesando..." : "Subir y publicar lote"}
+          </button>
+          <button
+            type="button"
+            className="px-4 py-2 rounded-lg border border-slate-700 text-slate-200 text-sm hover:border-emerald-400/70"
+            onClick={() => {
+              setHistoricalBatchName("Aronium Enero 2026");
+              setHistoricalSourceSystem("aronium");
+              setHistoricalFiles({
+                sales: null,
+                items: null,
+                payments: null,
+                refunds: null,
+              });
+              setHistoricalImportNote("");
+              setHistoricalImportStatus(null);
+              setHistoricalImportResult(null);
+            }}
+          >
+            Limpiar
+          </button>
+        </div>
+        {historicalImportStatus && (
+          <p className="text-xs text-slate-300">{historicalImportStatus}</p>
+        )}
+        {historicalImportResult?.warnings?.length ? (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+            {historicalImportResult.warnings.join(" · ")}
+          </div>
+        ) : null}
+      </article>
+    ),
   };
 
   return (
