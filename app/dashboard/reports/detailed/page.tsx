@@ -293,6 +293,10 @@ const isValidReportResult = (value: unknown): value is ReportResult => {
 
 const REPORT_PAGE_SIZE = 500;
 const ADJUSTMENTS_CHUNK_SIZE = 200;
+const REPORT_FETCH_TIMEOUT_MS = 45_000;
+const REPORT_MAX_SALES_ROWS = 4_000;
+const REPORT_MAX_CHANGES_ROWS = 2_000;
+const PRODUCT_DETAILED_MAX_RANGE_DAYS = 62;
 const REPORT_SNAPSHOT_TTL_MS = 20 * 60 * 1000;
 const TABLE_ROWS_PER_PAGE = 18;
 const PRODUCTS_GROUPED_ROWS_PER_PAGE = 26;
@@ -4023,10 +4027,12 @@ export default function ReportsPage() {
       setSalesLoading(true);
       setSalesError(null);
       const apiBase = getApiBase();
+      const limitWarnings: string[] = [];
 
       const fetchAllPages = async <T,>(
         path: string,
-        extraParams?: Record<string, string>
+        extraParams?: Record<string, string>,
+        options?: { maxRows?: number }
       ): Promise<T[]> => {
         const rows: T[] = [];
         let skip = 0;
@@ -4036,18 +4042,30 @@ export default function ReportsPage() {
             limit: String(REPORT_PAGE_SIZE),
             ...(extraParams ?? {}),
           });
-          const res = await fetch(
-            `${apiBase}${path}?${params.toString()}`,
-            {
-              headers: authHeaders,
-              credentials: "include",
-            }
+          const controller = new AbortController();
+          const timeoutId = window.setTimeout(
+            () => controller.abort(),
+            REPORT_FETCH_TIMEOUT_MS
           );
+          const res = await fetch(`${apiBase}${path}?${params.toString()}`, {
+            headers: authHeaders,
+            credentials: "include",
+            signal: controller.signal,
+          }).finally(() => {
+            window.clearTimeout(timeoutId);
+          });
           if (!res.ok) {
             throw new Error(`Error ${res.status}`);
           }
           const page: T[] = await res.json();
           rows.push(...page);
+          if (options?.maxRows && rows.length > options.maxRows) {
+            rows.length = options.maxRows;
+            limitWarnings.push(
+              "El rango consultado es demasiado grande para cargarlo completo. Mostramos una vista parcial; reduce fechas o usa modo agrupado."
+            );
+            break;
+          }
           if (page.length < REPORT_PAGE_SIZE) break;
           skip += page.length;
         }
@@ -4055,8 +4073,14 @@ export default function ReportsPage() {
       };
 
       const [salesResult, changesResult] = await Promise.allSettled([
-        fetchAllPages<ReportSale>("/pos/sales", { source: sourceFilter }),
-        fetchAllPages<ReportChange>("/pos/changes"),
+        fetchAllPages<ReportSale>(
+          "/pos/sales",
+          { source: sourceFilter },
+          { maxRows: REPORT_MAX_SALES_ROWS }
+        ),
+        fetchAllPages<ReportChange>("/pos/changes", undefined, {
+          maxRows: REPORT_MAX_CHANGES_ROWS,
+        }),
       ]);
 
       if (salesResult.status !== "fulfilled") {
@@ -4087,6 +4111,10 @@ export default function ReportsPage() {
         }
       }
 
+      if (limitWarnings.length > 0) {
+        setSalesError(limitWarnings[0]);
+      }
+
       setSalesData(nextSales);
       salesDataRef.current = nextSales;
       salesLoadedRef.current = true;
@@ -4100,6 +4128,12 @@ export default function ReportsPage() {
     } catch (err) {
       console.error(err);
       salesLoadedRef.current = false;
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setSalesError(
+          "La consulta tardó demasiado. Reduce el rango de fechas o usa modo agrupado."
+        );
+        return;
+      }
       setSalesError(
         err instanceof Error
           ? err.message
@@ -4405,6 +4439,17 @@ export default function ReportsPage() {
       setProductReportDateError("La fecha 'Desde' no puede ser mayor que 'Hasta'.");
       return;
     }
+    if (productReportResultMode === "detailed") {
+      const start = buildBogotaDateFromKey(productReportFromDate);
+      const end = buildBogotaDateFromKey(productReportToDate);
+      const diffDays = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+      if (diffDays > PRODUCT_DETAILED_MAX_RANGE_DAYS && sourceFilter === "all") {
+        setProductReportDateError(
+          "Para rangos mayores a 62 días con fuente 'Todos', usa 'Agrupado' o reduce el rango."
+        );
+        return;
+      }
+    }
     setProductReportDateError(null);
 
     const loaded = await ensureSalesLoaded();
@@ -4480,6 +4525,7 @@ export default function ReportsPage() {
     productReportFromDate,
     productReportToDate,
     productReportResultMode,
+    sourceFilter,
     createReportTab,
   ]);
 
