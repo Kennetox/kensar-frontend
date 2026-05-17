@@ -1303,7 +1303,7 @@ export default function DashboardHomePage() {
               </div>
             )}
             {showSummarySkeleton && canViewTodayMetrics && (
-              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-[var(--surface-2)]">
                 <LoadingSpinner size={34} />
               </div>
             )}
@@ -1330,7 +1330,7 @@ export default function DashboardHomePage() {
               </div>
             )}
             {showSummarySkeleton && canViewTodayMetrics && (
-              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-[var(--surface-2)]">
                 <LoadingSpinner size={34} />
               </div>
             )}
@@ -1364,7 +1364,7 @@ export default function DashboardHomePage() {
               </div>
             )}
             {showSummarySkeleton && canViewHistoryMetrics && (
-              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-[var(--surface-2)]">
                 <LoadingSpinner size={34} />
               </div>
             )}
@@ -1391,7 +1391,7 @@ export default function DashboardHomePage() {
               </div>
             )}
             {showSummarySkeleton && canViewHistoryMetrics && (
-              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-[var(--surface-2)]">
                 <LoadingSpinner size={34} />
               </div>
             )}
@@ -1418,7 +1418,7 @@ export default function DashboardHomePage() {
               </div>
             )}
             {showSummarySkeleton && canViewHistoryMetrics && (
-              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-slate-950/30 backdrop-blur-[2px]">
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-[var(--surface-2)]">
                 <LoadingSpinner size={34} />
               </div>
             )}
