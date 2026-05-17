@@ -3423,10 +3423,11 @@ export default function ReportsPage() {
   const [productReportResultMode, setProductReportResultMode] = useState<
     "detailed" | "grouped"
   >("detailed");
-  const [productReportFromDate, setProductReportFromDate] = useState(
-    defaultDates.fromDate
+  const [productReportFromDate, setProductReportFromDate] = useState("");
+  const [productReportToDate, setProductReportToDate] = useState("");
+  const [productReportDateError, setProductReportDateError] = useState<string | null>(
+    null
   );
-  const [productReportToDate, setProductReportToDate] = useState(defaultDates.toDate);
   const [productQuery, setProductQuery] = useState("");
   const [productOptions, setProductOptions] = useState<ProductSearchOption[]>([]);
   const [productSearchResults, setProductSearchResults] = useState<ProductSearchOption[]>(
@@ -3505,6 +3506,8 @@ export default function ReportsPage() {
 
   const [salesData, setSalesData] = useState<ReportSale[]>([]);
   const [changesData, setChangesData] = useState<ReportChange[]>([]);
+  const salesDataRef = useRef<ReportSale[]>([]);
+  const changesDataRef = useRef<ReportChange[]>([]);
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
   const [summaryRequested, setSummaryRequested] = useState(false);
@@ -3613,6 +3616,14 @@ export default function ReportsPage() {
     () => filterSalesByMeta(salesData, filterMeta),
     [salesData, filterMeta]
   );
+
+  useEffect(() => {
+    salesDataRef.current = salesData;
+  }, [salesData]);
+
+  useEffect(() => {
+    changesDataRef.current = changesData;
+  }, [changesData]);
 
   useEffect(() => {
     if (!token) return;
@@ -3918,6 +3929,8 @@ export default function ReportsPage() {
       salesLoadedRef.current = false;
       setSalesData([]);
       setChangesData([]);
+      salesDataRef.current = [];
+      changesDataRef.current = [];
       setSalesError(null);
       setSalesLoading(false);
       return;
@@ -3984,11 +3997,14 @@ export default function ReportsPage() {
       }
 
       setSalesData(nextSales);
+      salesDataRef.current = nextSales;
       salesLoadedRef.current = true;
       if (changesResult.status === "fulfilled") {
         setChangesData(changesResult.value);
+        changesDataRef.current = changesResult.value;
       } else {
         setChangesData([]);
+        changesDataRef.current = [];
       }
     } catch (err) {
       console.error(err);
@@ -4184,12 +4200,12 @@ export default function ReportsPage() {
         setToDate(monthEnd);
       }
       const instanceId = `${preset.id}-${Date.now()}`;
-      const scopedSales = filterSalesByMeta(salesData, tabFilterMeta);
+      const scopedSales = filterSalesByMeta(salesDataRef.current, tabFilterMeta);
       const resultSnapshot = buildReportResult(
         preset.id,
         scopedSales,
         resolveMethodLabel,
-        changesData,
+        changesDataRef.current,
         tabFilterMeta,
         productGroupById
       );
@@ -4205,12 +4221,13 @@ export default function ReportsPage() {
       setOpenReports((prev) => [...prev, newTab]);
       setActiveTabId(instanceId);
     },
-    [filterMeta, salesData, resolveMethodLabel, changesData, productGroupById]
+    [filterMeta, resolveMethodLabel, productGroupById]
   );
 
   const openProductTargetModal = useCallback(() => {
-    setProductReportFromDate(fromDate);
-    setProductReportToDate(toDate);
+    setProductReportFromDate("");
+    setProductReportToDate("");
+    setProductReportDateError(null);
     setProductReportMode("product");
     setProductReportResultMode("detailed");
     setProductQuery("");
@@ -4222,7 +4239,7 @@ export default function ReportsPage() {
     if (!productOptions.length || !groupOptions.length) {
       void loadProductLookupData();
     }
-  }, [fromDate, toDate, productOptions.length, groupOptions.length, loadProductLookupData]);
+  }, [productOptions.length, groupOptions.length, loadProductLookupData]);
 
   const toggleFavorite = useCallback((presetId: string) => {
     setFavoriteReportIds((prev) => {
@@ -4289,6 +4306,15 @@ export default function ReportsPage() {
     if (!preset) return;
     if (productReportMode === "product" && !selectedReportProduct) return;
     if (productReportMode === "group" && !selectedGroupPath) return;
+    if (!productReportFromDate || !productReportToDate) {
+      setProductReportDateError("Debes elegir un rango de tiempo para generar el reporte.");
+      return;
+    }
+    if (productReportFromDate > productReportToDate) {
+      setProductReportDateError("La fecha 'Desde' no puede ser mayor que 'Hasta'.");
+      return;
+    }
+    setProductReportDateError(null);
 
     const loaded = await ensureSalesLoaded();
     if (!loaded) return;
@@ -4318,7 +4344,7 @@ export default function ReportsPage() {
 
     if (productReportResultMode === "grouped") {
       try {
-        const scopedSales = filterSalesByMeta(salesData, {
+        const scopedSales = filterSalesByMeta(salesDataRef.current, {
           fromDate: productReportFromDate,
           toDate: productReportToDate,
           posFilter: "todos",
@@ -4358,7 +4384,6 @@ export default function ReportsPage() {
     selectedReportProduct,
     selectedGroupPath,
     ensureSalesLoaded,
-    salesData,
     token,
     mergedGroupOptions,
     productReportFromDate,
@@ -4418,6 +4443,7 @@ export default function ReportsPage() {
     }
     setProductReportFromDate(startKey);
     setProductReportToDate(endKey);
+    setProductReportDateError(null);
   }, []);
 
   const handleCloseReportTab = useCallback((id: string) => {
@@ -4994,7 +5020,10 @@ export default function ReportsPage() {
                 <input
                   type="date"
                   value={productReportFromDate}
-                  onChange={(e) => setProductReportFromDate(e.target.value)}
+                  onChange={(e) => {
+                    setProductReportFromDate(e.target.value);
+                    setProductReportDateError(null);
+                  }}
                   className="rounded-lg border border-slate-700/70 bg-slate-900 px-3 py-2 text-slate-100"
                 />
               </label>
@@ -5005,7 +5034,10 @@ export default function ReportsPage() {
                 <input
                   type="date"
                   value={productReportToDate}
-                  onChange={(e) => setProductReportToDate(e.target.value)}
+                  onChange={(e) => {
+                    setProductReportToDate(e.target.value);
+                    setProductReportDateError(null);
+                  }}
                   className="rounded-lg border border-slate-700/70 bg-slate-900 px-3 py-2 text-slate-100"
                 />
               </label>
@@ -5255,6 +5287,11 @@ export default function ReportsPage() {
                 Error cargando productos/grupos: {productLookupError}
               </p>
             ) : null}
+            {productReportDateError ? (
+              <p className="text-xs text-amber-300">
+                {productReportDateError}
+              </p>
+            ) : null}
 
             <div className="flex items-center justify-end gap-2 pt-1">
               <button
@@ -5274,9 +5311,7 @@ export default function ReportsPage() {
                   salesLoading ||
                   productLookupLoading ||
                   (productReportMode === "product" && !selectedReportProduct) ||
-                  (productReportMode === "group" && !selectedGroupPath) ||
-                  !productReportFromDate ||
-                  !productReportToDate
+                  (productReportMode === "group" && !selectedGroupPath)
                 }
               >
                 Generar reporte
