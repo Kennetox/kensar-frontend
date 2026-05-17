@@ -170,6 +170,8 @@ type OpenReportTab = {
   presetId: string;
   filterMeta: FilterMeta;
   createdAt: string;
+  resultSnapshot?: ReportResult;
+  snapshotSavedAt?: string;
 };
 
 type ProductSearchOption = {
@@ -235,12 +237,58 @@ const isValidOpenReportTab = (value: unknown): value is OpenReportTab => {
     typeof tab.presetId === "string" &&
     typeof tab.createdAt === "string" &&
     tab.filterMeta !== undefined &&
-    isValidFilterMeta(tab.filterMeta)
+    isValidFilterMeta(tab.filterMeta) &&
+    (tab.resultSnapshot === undefined ||
+      isValidReportResult(tab.resultSnapshot)) &&
+    (tab.snapshotSavedAt === undefined ||
+      typeof tab.snapshotSavedAt === "string")
   );
+};
+
+const isValidReportResult = (value: unknown): value is ReportResult => {
+  if (!value || typeof value !== "object") return false;
+  const result = value as Partial<ReportResult>;
+  if (!Array.isArray(result.summary)) return false;
+  const validSummary = result.summary.every(
+    (item) =>
+      !!item &&
+      typeof item === "object" &&
+      typeof (item as ReportSummaryItem).label === "string" &&
+      typeof (item as ReportSummaryItem).value === "string"
+  );
+  if (!validSummary) return false;
+  if (result.table !== undefined) {
+    if (!result.table || typeof result.table !== "object") return false;
+    const table = result.table as ReportTable;
+    if (!Array.isArray(table.columns) || !Array.isArray(table.rows)) return false;
+    if (!table.columns.every((column) => typeof column === "string")) return false;
+    if (
+      !table.rows.every(
+        (row) => Array.isArray(row) && row.every((cell) => typeof cell === "string")
+      )
+    ) {
+      return false;
+    }
+    if (
+      table.emptyMessage !== undefined &&
+      typeof table.emptyMessage !== "string"
+    ) {
+      return false;
+    }
+  }
+  if (result.note !== undefined && typeof result.note !== "string") return false;
+  if (
+    result.surchargeTotal !== undefined &&
+    typeof result.surchargeTotal !== "number"
+  ) {
+    return false;
+  }
+  return true;
 };
 
 const REPORT_PAGE_SIZE = 500;
 const ADJUSTMENTS_CHUNK_SIZE = 200;
+const REPORT_SNAPSHOT_TTL_MS = 20 * 60 * 1000;
 const TABLE_ROWS_PER_PAGE = 18;
 const PRODUCTS_GROUPED_ROWS_PER_PAGE = 26;
 const MONTH_DAILY_ROWS_PER_PAGE = 28;
@@ -2738,6 +2786,7 @@ type ReportDocumentViewerProps = {
   filterMeta: FilterMeta;
   salesData: ReportSale[];
   changesData: ReportChange[];
+  resultOverride?: ReportResult | null;
   companyInfo: CompanyInfo;
   token?: string | null;
   settingsError?: string | null;
@@ -2900,6 +2949,7 @@ function ReportDocumentViewer({
   filterMeta,
   salesData,
   changesData,
+  resultOverride,
   companyInfo,
   token,
   settingsError,
@@ -2918,6 +2968,7 @@ function ReportDocumentViewer({
 
   const result = useMemo(
     () =>
+      resultOverride ??
       buildReportResult(
         preset.id,
         filteredSales,
@@ -2927,6 +2978,7 @@ function ReportDocumentViewer({
         productGroupById
       ),
     [
+      resultOverride,
       preset.id,
       filteredSales,
       resolveMethodLabel,
@@ -4132,17 +4184,28 @@ export default function ReportsPage() {
         setToDate(monthEnd);
       }
       const instanceId = `${preset.id}-${Date.now()}`;
+      const scopedSales = filterSalesByMeta(salesData, tabFilterMeta);
+      const resultSnapshot = buildReportResult(
+        preset.id,
+        scopedSales,
+        resolveMethodLabel,
+        changesData,
+        tabFilterMeta,
+        productGroupById
+      );
       const newTab: OpenReportTab = {
         id: instanceId,
         presetId: preset.id,
         filterMeta: tabFilterMeta,
         createdAt: new Date().toISOString(),
+        resultSnapshot,
+        snapshotSavedAt: new Date().toISOString(),
       };
       setSelectedPresetId(preset.id);
       setOpenReports((prev) => [...prev, newTab]);
       setActiveTabId(instanceId);
     },
-    [filterMeta]
+    [filterMeta, salesData, resolveMethodLabel, changesData, productGroupById]
   );
 
   const openProductTargetModal = useCallback(() => {
@@ -4474,6 +4537,15 @@ export default function ReportsPage() {
         : null,
     [activeReportTab]
   );
+  const activeReportSnapshot = useMemo(() => {
+    if (!activeReportTab?.resultSnapshot) return null;
+    if (!activeReportTab.snapshotSavedAt) return activeReportTab.resultSnapshot;
+    const savedAt = Date.parse(activeReportTab.snapshotSavedAt);
+    if (!Number.isFinite(savedAt)) return activeReportTab.resultSnapshot;
+    const age = Date.now() - savedAt;
+    if (age > REPORT_SNAPSHOT_TTL_MS) return null;
+    return activeReportTab.resultSnapshot;
+  }, [activeReportTab]);
 
   return (
     <main className="flex-1 px-6 py-6 text-slate-50">
@@ -4571,6 +4643,7 @@ export default function ReportsPage() {
             filterMeta={activeReportTab.filterMeta}
             salesData={salesData}
             changesData={changesData}
+            resultOverride={activeReportSnapshot}
             companyInfo={companyInfo}
             token={token}
             settingsError={settingsError}
