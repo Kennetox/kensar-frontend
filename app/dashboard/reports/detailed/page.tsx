@@ -4563,6 +4563,14 @@ export default function ReportsPage() {
           result_mode: productReportResultMode,
           product_id:
             productReportMode === "product" ? selectedReportProduct?.id ?? null : null,
+          product_sku:
+            productReportMode === "product"
+              ? selectedReportProduct?.sku ?? undefined
+              : undefined,
+          product_name:
+            productReportMode === "product"
+              ? selectedReportProduct?.name ?? undefined
+              : undefined,
           group_path: productReportMode === "group" ? selectedGroupPath : undefined,
           group_name:
             productReportMode === "group"

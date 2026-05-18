@@ -50,6 +50,8 @@ export type ReportProductsByTargetRequest = {
   mode: "product" | "group";
   result_mode: "detailed" | "grouped";
   product_id?: number | null;
+  product_sku?: string;
+  product_name?: string;
   group_path?: string;
   group_name?: string;
 };
