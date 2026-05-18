@@ -298,7 +298,7 @@ const isValidReportResult = (value: unknown): value is ReportResult => {
   return true;
 };
 
-const REPORT_PAGE_SIZE = 500;
+const REPORT_PAGE_SIZE = 1000;
 const ADJUSTMENTS_CHUNK_SIZE = 200;
 const REPORT_FETCH_TIMEOUT_MS = 45_000;
 const REPORT_FETCH_TIMEOUT_SALES_ALL_MS = 180_000;
