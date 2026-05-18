@@ -294,6 +294,7 @@ const isValidReportResult = (value: unknown): value is ReportResult => {
 const REPORT_PAGE_SIZE = 500;
 const ADJUSTMENTS_CHUNK_SIZE = 200;
 const REPORT_FETCH_TIMEOUT_MS = 45_000;
+const REPORT_FETCH_TIMEOUT_SALES_ALL_MS = 180_000;
 const REPORT_MAX_SALES_ROWS = 4_000;
 const REPORT_MAX_CHANGES_ROWS = 2_000;
 const PRODUCT_DETAILED_MAX_RANGE_DAYS = 62;
@@ -4094,7 +4095,7 @@ export default function ReportsPage() {
       const fetchAllPages = async <T,>(
         path: string,
         extraParams?: Record<string, string>,
-        options?: { maxRows?: number }
+        options?: { maxRows?: number; timeoutMs?: number }
       ): Promise<T[]> => {
         const rows: T[] = [];
         let skip = 0;
@@ -4107,7 +4108,7 @@ export default function ReportsPage() {
           const controller = new AbortController();
           const timeoutId = window.setTimeout(
             () => controller.abort(),
-            REPORT_FETCH_TIMEOUT_MS
+            options?.timeoutMs ?? REPORT_FETCH_TIMEOUT_MS
           );
           const res = await fetch(`${apiBase}${path}?${params.toString()}`, {
             headers: authHeaders,
@@ -4138,10 +4139,17 @@ export default function ReportsPage() {
         fetchAllPages<ReportSale>(
           "/pos/sales",
           { source: sourceFilter },
-          { maxRows: REPORT_MAX_SALES_ROWS }
+          {
+            maxRows: REPORT_MAX_SALES_ROWS,
+            timeoutMs:
+              sourceFilter === "all"
+                ? REPORT_FETCH_TIMEOUT_SALES_ALL_MS
+                : REPORT_FETCH_TIMEOUT_MS,
+          }
         ),
         fetchAllPages<ReportChange>("/pos/changes", undefined, {
           maxRows: REPORT_MAX_CHANGES_ROWS,
+          timeoutMs: REPORT_FETCH_TIMEOUT_MS,
         }),
       ]);
 
