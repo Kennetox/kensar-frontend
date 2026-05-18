@@ -1738,7 +1738,8 @@ export function buildReportResult(
   labelResolver?: PaymentLabelResolver,
   changesData: ReportChange[] = [],
   filterMeta?: FilterMeta,
-  productGroupById?: Map<number, string>
+  productGroupById?: Map<number, string>,
+  productGroupBySku?: Map<string, string>
 ): ReportResult | null {
   const resolvePaymentLabel =
     labelResolver ?? ((method: string) => method.toUpperCase());
@@ -2518,11 +2519,6 @@ const dateTimeFormatter = (iso: string) =>
       const targetGroupPath = normalizeText(filterMeta?.productReportGroupPath);
       const targetGroupName = normalizeText(filterMeta?.productReportGroupName);
       const lastSaleByProductId = filterMeta?.productReportLastSaleByProductId ?? {};
-      const fallbackGroupLabel = (
-        mode === "group"
-          ? filterMeta?.productReportGroupName
-          : filterMeta?.productReportProductGroupName
-      )?.trim();
       const rows: Array<Array<string>> = [];
       let units = 0;
       let totalValue = 0;
@@ -2553,37 +2549,54 @@ const dateTimeFormatter = (iso: string) =>
 
       sales.forEach((sale) => {
         let saleMatched = false;
+        const isImportedLegacySale =
+          typeof sale.document_number === "string" &&
+          sale.document_number.toUpperCase().startsWith("ARO-");
         const changedItems = applyChangesToSaleItems(sale, changeMap.get(sale.id));
         const netItems = applyReturnsToSaleItems(sale, changedItems);
         const pricedItems = applyCartDiscountToItems(sale, netItems);
         pricedItems.forEach((item) => {
           const quantity = Number(item.quantity ?? 0);
           if (!Number.isFinite(quantity) || quantity <= 0) return;
-          const resolvedGroupFromCatalog =
-            item.product_id != null
+          const resolvedGroupFromCatalogById =
+            !isImportedLegacySale && item.product_id != null
               ? productGroupById?.get(item.product_id) ?? ""
               : "";
-          const itemGroupRawOriginal =
-            item.product_group ?? item.product_category ?? resolvedGroupFromCatalog ?? "";
-          const itemGroupForMatch = normalizeText(itemGroupRawOriginal);
+          const skuKey = normalizeComparableText(item.product_sku ?? "");
+          const resolvedGroupFromCatalogBySku =
+            skuKey && productGroupBySku ? productGroupBySku.get(skuKey) ?? "" : "";
+          const resolvedGroupFromCatalog =
+            resolvedGroupFromCatalogById || resolvedGroupFromCatalogBySku;
+          const legacyGroupRaw = item.product_group ?? item.product_category ?? "";
+          const legacyGroupForMatch = normalizeText(legacyGroupRaw);
+          const itemGroupForMatch = normalizeText(
+            resolvedGroupFromCatalog || legacyGroupRaw
+          );
           const byPath =
             !!targetGroupPath &&
             (itemGroupForMatch === targetGroupPath ||
               itemGroupForMatch.startsWith(`${targetGroupPath}/`));
-          const byName = !!targetGroupName && itemGroupForMatch.includes(targetGroupName);
+          const byName =
+            !!targetGroupName &&
+            (itemGroupForMatch === targetGroupName ||
+              itemGroupForMatch.endsWith(`/${targetGroupName}`));
           const matchesProduct =
             mode === "product"
               ? targetProductId != null && item.product_id === targetProductId
               : true;
           const matchesGroup =
             mode === "group"
-              ? byPath || byName
+              ? !!itemGroupForMatch && (byPath || byName)
               : true;
           if (!matchesProduct || !matchesGroup) return;
 
           const unitPrice = Number(item.unit_price ?? 0);
           const lineTotal = Math.max(0, unitPrice * quantity);
-          const itemGroupRaw = itemGroupRawOriginal || fallbackGroupLabel || "";
+          const itemGroupRaw =
+            resolvedGroupFromCatalog ||
+            legacyGroupRaw ||
+            (legacyGroupForMatch ? legacyGroupRaw : "") ||
+            "";
           if (resultMode === "detailed") {
             rows.push([
               item.product_sku ?? "—",
@@ -2797,6 +2810,7 @@ type ReportDocumentViewerProps = {
   onClose?: () => void;
   resolveMethodLabel: PaymentLabelResolver;
   productGroupById?: Map<number, string>;
+  productGroupBySku?: Map<string, string>;
 };
 
 const dateFormatter = (iso: string) =>
@@ -2960,6 +2974,7 @@ function ReportDocumentViewer({
   onClose,
   resolveMethodLabel,
   productGroupById,
+  productGroupBySku,
 }: ReportDocumentViewerProps) {
   const [pageIndex, setPageIndex] = useState(0);
   const [exportLoading, setExportLoading] = useState(false);
@@ -2979,7 +2994,8 @@ function ReportDocumentViewer({
         resolveMethodLabel,
         changesData,
         filterMeta,
-        productGroupById
+        productGroupById,
+        productGroupBySku
       ),
     [
       resultOverride,
@@ -2989,6 +3005,7 @@ function ReportDocumentViewer({
       changesData,
       filterMeta,
       productGroupById,
+      productGroupBySku,
     ]
   );
   const documentData = useMemo(() => {
@@ -3498,6 +3515,17 @@ export default function ReportsPage() {
     });
     return map;
   }, [productOptions]);
+  const productGroupBySku = useMemo(() => {
+    const map = new Map<string, string>();
+    productOptions.forEach((product) => {
+      const skuKey = normalizeComparableText(product.sku ?? "");
+      const groupName = product.groupName.trim();
+      if (skuKey && groupName) {
+        map.set(skuKey, groupName);
+      }
+    });
+    return map;
+  }, [productOptions]);
 
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [openReports, setOpenReports] = useState<OpenReportTab[]>(() => {
@@ -3732,24 +3760,35 @@ export default function ReportsPage() {
 
     try {
       const scopedFavoritesRaw = window.localStorage.getItem(favoritesStorageKey);
-      const fallbackFavoritesRaw =
-        reportStorageScope !== "anon" && !scopedFavoritesRaw
+      const anonFavoritesRaw =
+        reportStorageScope !== "anon"
           ? window.localStorage.getItem(anonFavoritesKey)
           : null;
-      const parsedFavorites = JSON.parse(
-        scopedFavoritesRaw ?? fallbackFavoritesRaw ?? "[]"
-      );
-      if (Array.isArray(parsedFavorites)) {
-        setFavoriteReportIds(
-          sanitizeFavoriteIds(
-            parsedFavorites.filter(
+      const scopedParsed = JSON.parse(scopedFavoritesRaw ?? "[]");
+      const anonParsed = JSON.parse(anonFavoritesRaw ?? "[]");
+      const scopedFavorites = Array.isArray(scopedParsed)
+        ? sanitizeFavoriteIds(
+            scopedParsed.filter(
               (id: unknown): id is string => typeof id === "string"
             )
           )
-        );
-      } else {
-        setFavoriteReportIds([]);
-      }
+        : [];
+      const anonFavorites = Array.isArray(anonParsed)
+        ? sanitizeFavoriteIds(
+            anonParsed.filter(
+              (id: unknown): id is string => typeof id === "string"
+            )
+          )
+        : [];
+
+      // If user-scoped storage is empty (common after auth scope changes),
+      // recover favorites previously saved under anon and merge.
+      const mergedFavorites =
+        reportStorageScope !== "anon" && scopedFavorites.length === 0
+          ? sanitizeFavoriteIds([...anonFavorites, ...scopedFavorites])
+          : scopedFavorites;
+
+      setFavoriteReportIds(mergedFavorites);
     } catch {
       setFavoriteReportIds([]);
     }
@@ -3764,18 +3803,41 @@ export default function ReportsPage() {
   const readLocalFavoriteIds = useCallback((): string[] => {
     if (typeof window === "undefined") return [];
     try {
-      const raw = window.localStorage.getItem(favoritesStorageKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return sanitizeFavoriteIds(
-        parsed.filter((id: unknown): id is string => typeof id === "string")
+      const scopedRaw = window.localStorage.getItem(favoritesStorageKey);
+      const scopedParsed = JSON.parse(scopedRaw ?? "[]");
+      const scopedFavorites = Array.isArray(scopedParsed)
+        ? sanitizeFavoriteIds(
+            scopedParsed.filter(
+              (id: unknown): id is string => typeof id === "string"
+            )
+          )
+        : [];
+
+      if (reportStorageScope === "anon") {
+        return scopedFavorites;
+      }
+
+      const anonRaw = window.localStorage.getItem(
+        buildReportStorageKey("anon", "favorites")
       );
+      const anonParsed = JSON.parse(anonRaw ?? "[]");
+      const anonFavorites = Array.isArray(anonParsed)
+        ? sanitizeFavoriteIds(
+            anonParsed.filter(
+              (id: unknown): id is string => typeof id === "string"
+            )
+          )
+        : [];
+
+      if (scopedFavorites.length === 0 && anonFavorites.length > 0) {
+        return sanitizeFavoriteIds([...anonFavorites, ...scopedFavorites]);
+      }
+      return scopedFavorites;
     } catch (err) {
       console.warn("No se pudieron leer favoritos locales", err);
       return [];
     }
-  }, [favoritesStorageKey, sanitizeFavoriteIds]);
+  }, [favoritesStorageKey, reportStorageScope, sanitizeFavoriteIds]);
 
   useEffect(() => {
     favoritesSyncReadyRef.current = false;
@@ -4332,7 +4394,8 @@ export default function ReportsPage() {
         resolveMethodLabel,
         changesDataRef.current,
         tabFilterMeta,
-        productGroupById
+        productGroupById,
+        productGroupBySku
       );
       const newTab: OpenReportTab = {
         id: instanceId,
@@ -4346,7 +4409,7 @@ export default function ReportsPage() {
       setOpenReports((prev) => [...prev, newTab]);
       setActiveTabId(instanceId);
     },
-    [filterMeta, resolveMethodLabel, productGroupById]
+    [filterMeta, resolveMethodLabel, productGroupById, productGroupBySku]
   );
 
   const openProductTargetModal = useCallback(() => {
@@ -4813,6 +4876,7 @@ export default function ReportsPage() {
             onClose={() => handleCloseReportTab(activeReportTab.id)}
             resolveMethodLabel={resolveMethodLabel}
             productGroupById={productGroupById}
+            productGroupBySku={productGroupBySku}
           />
         )}
 
