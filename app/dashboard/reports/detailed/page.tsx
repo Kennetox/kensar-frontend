@@ -31,7 +31,14 @@ import {
   parseDateInput,
 } from "@/lib/time/bogota";
 
-type QuickRange = "today" | "yesterday" | "week" | "month" | "previous_month" | "year";
+type QuickRange =
+  | "today"
+  | "yesterday"
+  | "week"
+  | "month"
+  | "previous_month"
+  | "year"
+  | "custom";
 
 type ReportPreset = {
   id: string;
@@ -4399,16 +4406,6 @@ export default function ReportsPage() {
       customResultSnapshot?: ReportResult | null
     ) => {
       const tabFilterMeta = { ...filterMeta, ...customMeta };
-      if (preset.id === "month-daily") {
-        const { fromDate: monthStart, toDate: monthEnd } = getMonthRangeFromKey(
-          getBogotaDateKey()
-        );
-        tabFilterMeta.fromDate = monthStart;
-        tabFilterMeta.toDate = monthEnd;
-        setRange("month");
-        setFromDate(monthStart);
-        setToDate(monthEnd);
-      }
       const instanceId = `${preset.id}-${Date.now()}`;
       const scopedSales = filterSalesByMeta(salesDataRef.current, tabFilterMeta);
       const resultSnapshot =
@@ -4486,32 +4483,18 @@ export default function ReportsPage() {
 
   const handleFromDateChange = useCallback(
     (value: string) => {
-      if (selectedPresetId === "month-daily") {
-        const { fromDate: monthStart, toDate: monthEnd } =
-          getMonthRangeFromKey(value);
-        setRange("month");
-        setFromDate(monthStart);
-        setToDate(monthEnd);
-        return;
-      }
+      setRange("custom");
       setFromDate(value);
     },
-    [selectedPresetId]
+    []
   );
 
   const handleToDateChange = useCallback(
     (value: string) => {
-      if (selectedPresetId === "month-daily") {
-        const { fromDate: monthStart, toDate: monthEnd } =
-          getMonthRangeFromKey(value);
-        setRange("month");
-        setFromDate(monthStart);
-        setToDate(monthEnd);
-        return;
-      }
+      setRange("custom");
       setToDate(value);
     },
-    [selectedPresetId]
+    []
   );
 
   const handleCreateProductTargetReport = useCallback(async () => {
