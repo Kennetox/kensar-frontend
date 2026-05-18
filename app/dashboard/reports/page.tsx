@@ -278,6 +278,30 @@ export default function ReportsPage() {
   const [quickPdfLoading, setQuickPdfLoading] = useState(false);
   const [quickPdfError, setQuickPdfError] = useState<string | null>(null);
   const [yearLeaderDay, setYearLeaderDay] = useState<YearLeaderDay | null>(null);
+  const apiCacheRef = useRef<
+    Map<string, { ts: number; payload: unknown }>
+  >(new Map());
+  const API_CACHE_TTL_MS = 90_000;
+
+  const fetchCachedJson = useCallback(
+    async <T,>(cacheKey: string, url: string, headers: HeadersInit, signal: AbortSignal) => {
+      const now = Date.now();
+      const cached = apiCacheRef.current.get(cacheKey);
+      if (cached && now - cached.ts < API_CACHE_TTL_MS) {
+        return cached.payload as T;
+      }
+      const res = await fetch(url, {
+        headers,
+        credentials: "include",
+        signal,
+      });
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      const payload = (await res.json()) as T;
+      apiCacheRef.current.set(cacheKey, { ts: now, payload });
+      return payload;
+    },
+    []
+  );
 
   const canLoadRolePermissions = useMemo(() => {
     if (!isDashboardRole(user?.role)) return false;
@@ -354,12 +378,13 @@ export default function ReportsPage() {
           month: String(month),
           source: "all",
         });
-        const res = await fetch(`${apiBase}/reports/quick/insights?${params.toString()}`, {
-          headers: requestHeaders,
-          credentials: "include",
-        });
-        if (!res.ok) throw new Error(`Error ${res.status}`);
-        const json = (await res.json()) as QuickInsightsResponse;
+        const cacheKey = `quick-insights:${year}-${month}`;
+        const json = await fetchCachedJson<QuickInsightsResponse>(
+          cacheKey,
+          `${apiBase}/reports/quick/insights?${params.toString()}`,
+          requestHeaders,
+          controller.signal
+        );
         if (!cancelled) {
           setTopProducts(Array.isArray(json.top_products) ? json.top_products : []);
           setTopGroups(Array.isArray(json.top_groups) ? json.top_groups : []);
@@ -384,8 +409,9 @@ export default function ReportsPage() {
     void loadQuickInsights();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [authHeaders, canViewReportDataset, selectedMonthKey, todayYear]);
+  }, [authHeaders, canViewReportDataset, fetchCachedJson, selectedMonthKey, todayYear]);
 
   useEffect(() => {
     if (!canViewReportDataset) {
@@ -397,27 +423,27 @@ export default function ReportsPage() {
     if (!authHeaders) return;
     const requestHeaders: HeadersInit = authHeaders;
     let cancelled = false;
+    const controller = new AbortController();
 
     async function loadMonthlySeries() {
       try {
         setLoadingAnnualSeries(true);
         const apiBase = getApiBase();
         const currentYear = Number(selectedYear);
-        const [currentRes, previousRes] = await Promise.all([
-          fetch(`${apiBase}/dashboard/monthly-sales?year=${currentYear}&source=all`, {
-            headers: requestHeaders,
-            credentials: "include",
-          }),
-          fetch(`${apiBase}/dashboard/monthly-sales?year=${currentYear - 1}&source=all`, {
-            headers: requestHeaders,
-            credentials: "include",
-          }),
+        const [currentJson, previousJson] = await Promise.all([
+          fetchCachedJson<DashboardMonthlySalesPoint[]>(
+            `monthly-sales:${currentYear}`,
+            `${apiBase}/dashboard/monthly-sales?year=${currentYear}&source=all`,
+            requestHeaders,
+            controller.signal
+          ),
+          fetchCachedJson<DashboardMonthlySalesPoint[]>(
+            `monthly-sales:${currentYear - 1}`,
+            `${apiBase}/dashboard/monthly-sales?year=${currentYear - 1}&source=all`,
+            requestHeaders,
+            controller.signal
+          ),
         ]);
-        if (!currentRes.ok) throw new Error(`Error ${currentRes.status}`);
-        const currentJson = (await currentRes.json()) as DashboardMonthlySalesPoint[];
-        const previousJson = previousRes.ok
-          ? ((await previousRes.json()) as DashboardMonthlySalesPoint[])
-          : [];
         if (!cancelled) {
           setMonthlySeries(Array.isArray(currentJson) ? currentJson : []);
           setPreviousYearSeries(Array.isArray(previousJson) ? previousJson : []);
@@ -436,8 +462,9 @@ export default function ReportsPage() {
     void loadMonthlySeries();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [authHeaders, canViewReportDataset, selectedYear]);
+  }, [authHeaders, canViewReportDataset, fetchCachedJson, selectedYear]);
 
   useEffect(() => {
     if (!canViewReportDataset) {
@@ -447,6 +474,7 @@ export default function ReportsPage() {
     if (!authHeaders) return;
     const requestHeaders: HeadersInit = authHeaders;
     let cancelled = false;
+    const controller = new AbortController();
 
     async function loadYearLeaderDay() {
       try {
@@ -454,19 +482,16 @@ export default function ReportsPage() {
         const fromDate = `${selectedYear}-01-01`;
         const toDate =
           selectedYear === todayYear ? todayKey : `${selectedYear}-12-31`;
-        const res = await fetch(
+        const rows = await fetchCachedJson<DashboardDailySalesPoint[]>(
+          `daily-sales:${fromDate}:${toDate}:all`,
           `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
             date_from: fromDate,
             date_to: toDate,
             source: "all",
           }).toString()}`,
-          {
-            headers: requestHeaders,
-            credentials: "include",
-          }
+          requestHeaders,
+          controller.signal
         );
-        if (!res.ok) throw new Error(`Error ${res.status}`);
-        const rows = (await res.json()) as DashboardDailySalesPoint[];
         let best: YearLeaderDay | null = null;
         for (const row of Array.isArray(rows) ? rows : []) {
           const dateKey = getBogotaDateKey(row.date);
@@ -484,10 +509,12 @@ export default function ReportsPage() {
     void loadYearLeaderDay();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     authHeaders,
     canViewReportDataset,
+    fetchCachedJson,
     selectedYear,
     todayKey,
     todayYear,
@@ -507,6 +534,7 @@ export default function ReportsPage() {
     }
     const requestHeaders: HeadersInit = authHeaders;
     let cancelled = false;
+    const controller = new AbortController();
 
     async function loadPreviousYearCutSales() {
       try {
@@ -514,19 +542,16 @@ export default function ReportsPage() {
         const previousYear = String(Number(todayYear) - 1);
         const dateFrom = `${previousYear}-01-01`;
         const dateTo = `${previousYear}-${todayMonth}-${todayDay}`;
-        const res = await fetch(
+        const rows = await fetchCachedJson<DashboardDailySalesPoint[]>(
+          `daily-sales:${dateFrom}:${dateTo}:all`,
           `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
             date_from: dateFrom,
             date_to: dateTo,
             source: "all",
           }).toString()}`,
-          {
-            headers: requestHeaders,
-            credentials: "include",
-          }
+          requestHeaders,
+          controller.signal
         );
-        if (!res.ok) throw new Error(`Error ${res.status}`);
-        const rows = (await res.json()) as DashboardDailySalesPoint[];
         const safeRows = Array.isArray(rows) ? rows : [];
         const total = safeRows.reduce((sum, row) => sum + toNumber(row.total), 0);
         const tickets = safeRows.reduce(
@@ -549,10 +574,12 @@ export default function ReportsPage() {
     void loadPreviousYearCutSales();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     authHeaders,
     canViewReportDataset,
+    fetchCachedJson,
     selectedYear,
     todayDay,
     todayMonth,
@@ -569,6 +596,7 @@ export default function ReportsPage() {
     if (!authHeaders) return;
     const requestHeaders: HeadersInit = authHeaders;
     let cancelled = false;
+    const controller = new AbortController();
 
     async function loadDailySeries() {
       try {
@@ -581,35 +609,28 @@ export default function ReportsPage() {
         const prevFromDate = `${previousMonthKey}-01`;
         const prevToDate = `${previousMonthKey}-${String(previousMonthDays).padStart(2, "0")}`;
         const apiBase = getApiBase();
-        const [currentRes, previousRes] = await Promise.all([
-          fetch(
+        const [currentJson, previousJson] = await Promise.all([
+          fetchCachedJson<DashboardDailySalesPoint[]>(
+            `daily-sales:${fromDate}:${toDate}:all`,
             `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
               date_from: fromDate,
               date_to: toDate,
               source: "all",
             }).toString()}`,
-            {
-              headers: requestHeaders,
-              credentials: "include",
-            }
+            requestHeaders,
+            controller.signal
           ),
-          fetch(
+          fetchCachedJson<DashboardDailySalesPoint[]>(
+            `daily-sales:${prevFromDate}:${prevToDate}:all`,
             `${apiBase}/dashboard/daily-sales?${new URLSearchParams({
               date_from: prevFromDate,
               date_to: prevToDate,
               source: "all",
             }).toString()}`,
-            {
-              headers: requestHeaders,
-              credentials: "include",
-            }
+            requestHeaders,
+            controller.signal
           ),
         ]);
-        if (!currentRes.ok) throw new Error(`Error ${currentRes.status}`);
-        const currentJson = (await currentRes.json()) as DashboardDailySalesPoint[];
-        const previousJson = previousRes.ok
-          ? ((await previousRes.json()) as DashboardDailySalesPoint[])
-          : [];
         if (!cancelled) {
           setDailySeries(Array.isArray(currentJson) ? currentJson : []);
           setPreviousMonthDailySeries(Array.isArray(previousJson) ? previousJson : []);
@@ -628,8 +649,9 @@ export default function ReportsPage() {
     void loadDailySeries();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [authHeaders, canViewReportDataset, selectedMonthKey]);
+  }, [authHeaders, canViewReportDataset, fetchCachedJson, selectedMonthKey]);
 
   const minMonthKey = `${selectedYear}-01`;
   const maxMonthKey =
