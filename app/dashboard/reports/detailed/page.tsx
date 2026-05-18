@@ -4138,7 +4138,11 @@ export default function ReportsPage() {
       const [salesResult, changesResult] = await Promise.allSettled([
         fetchAllPages<ReportSale>(
           "/pos/sales",
-          { source: sourceFilter },
+          {
+            source: sourceFilter,
+            date_from: `${fromDate}T00:00:00`,
+            date_to: `${toDate}T23:59:59`,
+          },
           {
             maxRows: REPORT_MAX_SALES_ROWS,
             timeoutMs:
@@ -4147,10 +4151,17 @@ export default function ReportsPage() {
                 : REPORT_FETCH_TIMEOUT_MS,
           }
         ),
-        fetchAllPages<ReportChange>("/pos/changes", undefined, {
-          maxRows: REPORT_MAX_CHANGES_ROWS,
-          timeoutMs: REPORT_FETCH_TIMEOUT_MS,
-        }),
+        fetchAllPages<ReportChange>(
+          "/pos/changes",
+          {
+            date_from: `${fromDate}T00:00:00`,
+            date_to: `${toDate}T23:59:59`,
+          },
+          {
+            maxRows: REPORT_MAX_CHANGES_ROWS,
+            timeoutMs: REPORT_FETCH_TIMEOUT_MS,
+          }
+        ),
       ]);
 
       if (salesResult.status !== "fulfilled") {
@@ -4212,7 +4223,7 @@ export default function ReportsPage() {
     } finally {
       setSalesLoading(false);
     }
-  }, [authHeaders, canViewReportDataset, sourceFilter]);
+  }, [authHeaders, canViewReportDataset, fromDate, sourceFilter, toDate]);
 
   const ensureSalesLoaded = useCallback(async () => {
     if (salesLoadedRef.current) return true;
