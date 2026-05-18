@@ -49,15 +49,6 @@ import {
   getBogotaDateParts,
 } from "@/lib/time/bogota";
 import {
-  REPORT_PRESETS,
-  buildDocumentHtml,
-  buildReportResult,
-  type CompanyInfo,
-  type FilterMeta,
-  type ReportChange,
-  type ReportSale,
-} from "@/app/dashboard/reports/page";
-import {
   REQUIRE_FREE_SALE_REASON,
   SHOW_FREE_SALE_TRACEABILITY_REPORT,
 } from "@/lib/config/featureFlags";
@@ -4375,108 +4366,7 @@ const matchesStationLabel = useCallback(
       if (options?.message?.trim()) {
         body.message = options.message.trim();
       }
-      try {
-        const [salesRes, changesRes] = await Promise.all([
-          fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            credentials: "include",
-          }),
-          fetch(`${apiBase}/pos/changes?skip=0&limit=500`, {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            credentials: "include",
-          }),
-        ]);
-        if (salesRes.ok) {
-          const rawSales = (await salesRes.json()) as Array<
-            ReportSale & { closure_id?: number | null }
-          >;
-          const closureSales = rawSales.filter(
-            (sale) => Number(sale.closure_id ?? 0) === Number(closure.id)
-          );
-          if (closureSales.length > 0) {
-            let closureChanges: ReportChange[] = [];
-            if (changesRes.ok) {
-              const rawChanges = (await changesRes.json()) as Array<
-                ReportChange & { closure_id?: number | null }
-              >;
-              closureChanges = rawChanges.filter(
-                (change) => Number(change.closure_id ?? 0) === Number(closure.id)
-              );
-            }
-            const closureReferenceDate =
-              closure.closed_at ?? closure.opened_at ?? new Date().toISOString();
-            const filterMeta: FilterMeta = {
-              fromDate: getBogotaDateKey(
-                closure.opened_at ?? closureReferenceDate
-              ),
-              toDate: getBogotaDateKey(closure.closed_at ?? closureReferenceDate),
-              posFilter: closure.pos_name?.trim() || "todos",
-              methodFilter: "todos",
-              sellerFilter: "",
-            };
-            const rawLogo =
-              posSettings?.logoUrl ??
-              posSettings?.logo_url ??
-              posSettings?.ticket_logo_url ??
-              "";
-            const companyInfo: CompanyInfo = {
-              name: posSettings?.company_name?.trim() || "Kensar Electronic",
-              address: posSettings?.address?.trim() || "Cra 24 #30-75",
-              email: posSettings?.contact_email?.trim() || "kensarelec@gmail.com",
-              phone: posSettings?.contact_phone?.trim() || "3136397939",
-              logoUrl: rawLogo.trim() || "",
-            };
-            const closureLabel = closure.consecutive ?? `CL-${closure.id}`;
-            const reportPresetIds = [
-              "products-sold",
-              "hourly-sales",
-              ...(SHOW_FREE_SALE_TRACEABILITY_REPORT
-                ? (["free-sales-traceability"] as const)
-                : ([] as const)),
-            ];
-            const attachments: ClosureEmailHtmlAttachment[] = reportPresetIds
-              .map((presetId) => {
-                const preset = REPORT_PRESETS.find((item) => item.id === presetId);
-                if (!preset) return null;
-                const result = buildReportResult(
-                  preset.id,
-                  closureSales,
-                  undefined,
-                  closureChanges
-                );
-                if (!result) return null;
-                const safeName = preset.title
-                  .toLowerCase()
-                  .replace(/\s+/g, "_")
-                  .replace(/[^\w-]/g, "");
-                return {
-                  filename: `${safeName}_${closureLabel}.pdf`,
-                  title: `${preset.title} ${closureLabel}`,
-                  document_html: buildDocumentHtml(
-                    preset,
-                    result,
-                    companyInfo,
-                    filterMeta
-                  ),
-                };
-              })
-              .filter((attachment): attachment is ClosureEmailHtmlAttachment =>
-                Boolean(attachment)
-              );
-            if (attachments.length > 0) {
-              body.extra_html_attachments = attachments;
-            }
-          }
-        }
-      } catch (error) {
-        console.error("No se pudieron construir adjuntos avanzados del cierre", error);
-      }
+      void SHOW_FREE_SALE_TRACEABILITY_REPORT;
       const res = await fetch(`${apiBase}/pos/closures/${closure.id}/email`, {
         method: "POST",
         headers: {

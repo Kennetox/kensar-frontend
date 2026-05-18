@@ -33,7 +33,7 @@ import {
 
 type QuickRange = "today" | "yesterday" | "week" | "month" | "previous_month" | "year";
 
-export type ReportPreset = {
+type ReportPreset = {
   id: string;
   title: string;
   description: string;
@@ -82,7 +82,7 @@ type ReportChangeNewItem = {
   unit_price: number;
 };
 
-export type ReportChange = {
+type ReportChange = {
   sale_id: number;
   status: string;
   voided_at?: string | null;
@@ -90,7 +90,7 @@ export type ReportChange = {
   items_new: ReportChangeNewItem[];
 };
 
-export type ReportSale = {
+type ReportSale = {
   id: number;
   sale_number?: number;
   document_number?: string;
@@ -134,14 +134,14 @@ type ReportTable = {
   emptyMessage?: string;
 };
 
-export type ReportResult = {
+type ReportResult = {
   summary: ReportSummaryItem[];
   table?: ReportTable;
   note?: string;
   surchargeTotal?: number;
 };
 
-export type CompanyInfo = {
+type CompanyInfo = {
   name: string;
   address: string;
   email: string;
@@ -149,7 +149,7 @@ export type CompanyInfo = {
   logoUrl?: string | null;
 };
 
-export type FilterMeta = {
+type FilterMeta = {
   fromDate: string;
   toDate: string;
   posFilter: string;
@@ -376,7 +376,7 @@ const areSameStringArrays = (left: string[], right: string[]): boolean => {
 const cx = (...classes: Array<string | false | null | undefined>) =>
   classes.filter(Boolean).join(" ");
 
-export type PaymentLabelResolver = (method: string) => string;
+type PaymentLabelResolver = (method: string) => string;
 
 
 const getReportDocumentTitle = (preset: ReportPreset, meta: FilterMeta) =>
@@ -976,7 +976,7 @@ const getChartConfig = (
   }
 };
 
-export const REPORT_PRESETS: ReportPreset[] = [
+const REPORT_PRESETS: ReportPreset[] = [
   {
     id: "daily-sales",
     title: "Ventas del día",
@@ -1241,11 +1241,11 @@ function filterSalesByMeta(
   });
 }
 
-export type DocumentHtmlOptions = {
+type DocumentHtmlOptions = {
   pageIndex?: number | null;
 };
 
-export function buildDocumentHtml(
+function buildDocumentHtml(
   preset: ReportPreset,
   result: ReportResult,
   info: CompanyInfo,
@@ -1733,7 +1733,7 @@ export function buildDocumentHtml(
     </html>`;
 }
 
-export function buildReportResult(
+function buildReportResult(
   reportId: string,
   sales: ReportSale[],
   labelResolver?: PaymentLabelResolver,

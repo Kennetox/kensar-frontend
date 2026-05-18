@@ -14,18 +14,6 @@ import { exportReportPdf } from "@/lib/api/reports";
 import { getBogotaDateKey } from "@/lib/time/bogota";
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
 
-export {
-  REPORT_PRESETS,
-  buildDocumentHtml,
-  buildReportResult,
-} from "./detailed/page";
-export type {
-  CompanyInfo,
-  FilterMeta,
-  ReportChange,
-  ReportSale,
-} from "./detailed/page";
-
 type DashboardRole = PosUserRecord["role"];
 
 type DashboardMonthlySalesPoint = {
@@ -365,6 +353,7 @@ export default function ReportsPage() {
     if (!authHeaders) return;
     const requestHeaders: HeadersInit = authHeaders;
     let cancelled = false;
+    const controller = new AbortController();
 
     async function loadQuickInsights() {
       try {
