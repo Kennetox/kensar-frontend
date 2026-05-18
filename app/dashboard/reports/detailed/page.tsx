@@ -4147,6 +4147,7 @@ export default function ReportsPage() {
           "/pos/sales",
           {
             source: sourceFilter,
+            include_adjustments: "true",
             date_from: `${fromDate}T00:00:00`,
             date_to: `${toDate}T23:59:59`,
           },
@@ -4176,28 +4177,7 @@ export default function ReportsPage() {
       }
 
       const data = salesResult.value;
-      let nextSales = data;
-
-      if (data.length > 0) {
-        const ids = data.map((sale) => sale.id);
-        const adjustmentsBatches: ReportDocumentAdjustment[] = [];
-        for (let index = 0; index < ids.length; index += ADJUSTMENTS_CHUNK_SIZE) {
-          const chunk = ids.slice(index, index + ADJUSTMENTS_CHUNK_SIZE);
-          const adjustmentsRes = await fetch(
-            `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${chunk.join(",")}`,
-            {
-              headers: authHeaders,
-              credentials: "include",
-            }
-          );
-          if (!adjustmentsRes.ok) continue;
-          const batch: ReportDocumentAdjustment[] = await adjustmentsRes.json();
-          adjustmentsBatches.push(...batch);
-        }
-        if (adjustmentsBatches.length > 0) {
-          nextSales = applyDocumentAdjustmentsToSales(data, adjustmentsBatches);
-        }
-      }
+      const nextSales = data;
 
       if (limitWarnings.length > 0) {
         setSalesError(limitWarnings[0]);
