@@ -7,7 +7,7 @@ import { getApiBase } from "@/lib/api/base";
 import {
   exportReportExcel,
   exportReportPdf,
-  fetchProductsLastSales,
+  fetchProductsByTarget,
   fetchReportFavorites,
   ReportFavoritesConflictError,
   saveReportFavorites,
@@ -4382,7 +4382,11 @@ export default function ReportsPage() {
   }, []);
 
   const createReportTab = useCallback(
-    (preset: ReportPreset, customMeta?: Partial<FilterMeta>) => {
+    (
+      preset: ReportPreset,
+      customMeta?: Partial<FilterMeta>,
+      customResultSnapshot?: ReportResult | null
+    ) => {
       const tabFilterMeta = { ...filterMeta, ...customMeta };
       if (preset.id === "month-daily") {
         const { fromDate: monthStart, toDate: monthEnd } = getMonthRangeFromKey(
@@ -4396,15 +4400,17 @@ export default function ReportsPage() {
       }
       const instanceId = `${preset.id}-${Date.now()}`;
       const scopedSales = filterSalesByMeta(salesDataRef.current, tabFilterMeta);
-      const resultSnapshot = buildReportResult(
-        preset.id,
-        scopedSales,
-        resolveMethodLabel,
-        changesDataRef.current,
-        tabFilterMeta,
-        productGroupById,
-        productGroupBySku
-      );
+      const resultSnapshot =
+        customResultSnapshot ??
+        buildReportResult(
+          preset.id,
+          scopedSales,
+          resolveMethodLabel,
+          changesDataRef.current,
+          tabFilterMeta,
+          productGroupById,
+          productGroupBySku
+        );
       const newTab: OpenReportTab = {
         id: instanceId,
         presetId: preset.id,
@@ -4523,9 +4529,6 @@ export default function ReportsPage() {
     }
     setProductReportDateError(null);
 
-    const loaded = await ensureSalesLoaded();
-    if (!loaded) return;
-
     const selectedGroup =
       mergedGroupOptions.find((group) => group.path === selectedGroupPath) ?? null;
     const customMeta: Partial<FilterMeta> = {
@@ -4547,50 +4550,104 @@ export default function ReportsPage() {
       productReportGroupName:
         productReportMode === "group" ? selectedGroup?.displayName ?? "" : undefined,
       productReportResultMode,
+      sourceFilter,
     };
 
-    if (productReportResultMode === "grouped") {
-      try {
-        const scopedSales = filterSalesByMeta(salesDataRef.current, {
-          fromDate: productReportFromDate,
-          toDate: productReportToDate,
-          posFilter: "todos",
-          methodFilter: "todos",
-          sellerFilter: "",
-        });
-        const saleIds = Array.from(new Set(scopedSales.map((sale) => sale.id)));
-        const productIds = Array.from(
-          new Set(
-            scopedSales.flatMap((sale) =>
-              (sale.items ?? [])
-                .map((item) => item.product_id)
-                .filter((value): value is number => typeof value === "number" && value > 0)
-            )
-          )
-        );
-        if (saleIds.length > 0 && productIds.length > 0) {
-          const rows = await fetchProductsLastSales(
-            { sale_ids: saleIds, product_ids: productIds },
-            token
-          );
-          customMeta.productReportLastSaleByProductId = Object.fromEntries(
-            rows.map((row) => [String(row.product_id), row.last_sale_at])
-          );
-        }
-      } catch (err) {
-        console.warn("No se pudo cargar última venta por producto desde backend", err);
-      }
+    try {
+      const response = await fetchProductsByTarget(
+        {
+          date_from: productReportFromDate,
+          date_to: productReportToDate,
+          source: sourceFilter,
+          mode: productReportMode,
+          result_mode: productReportResultMode,
+          product_id:
+            productReportMode === "product" ? selectedReportProduct?.id ?? null : null,
+          group_path: productReportMode === "group" ? selectedGroupPath : undefined,
+          group_name:
+            productReportMode === "group"
+              ? selectedGroup?.displayName ?? undefined
+              : undefined,
+        },
+        token
+      );
+
+      const tableColumns =
+        productReportResultMode === "grouped"
+          ? [
+              "SKU",
+              "Producto",
+              "Grupo",
+              "Unidades",
+              "Valor unidad",
+              "Valor total",
+              "Última venta",
+            ]
+          : [
+              "SKU",
+              "Producto",
+              "Precio",
+              "Fecha",
+              "Documento",
+              "Unidades",
+              "Grupo",
+              "POS",
+            ];
+
+      const tableRows =
+        productReportResultMode === "grouped"
+          ? response.rows.map((row) => [
+              row.sku || "—",
+              row.product || "Producto sin nombre",
+              row.group || "Sin grupo",
+              String(row.units ?? 0),
+              formatMoney(row.unit_value ?? 0),
+              formatMoney(row.total_value ?? 0),
+              row.last_sale_at ? formatBogotaDate(row.last_sale_at, { dateStyle: "short", timeStyle: "short" }) || "—" : "—",
+            ])
+          : response.rows.map((row) => [
+              row.sku || "—",
+              row.product || "Producto sin nombre",
+              formatMoney(row.unit_value ?? 0),
+              row.sale_at ? formatBogotaDate(row.sale_at, { dateStyle: "short" }) || "—" : "—",
+              row.document || "—",
+              String(row.units ?? 0),
+              row.group || "Sin grupo",
+              row.pos_name || "Sin POS",
+            ]);
+
+      const snapshot: ReportResult = {
+        summary: [
+          { label: "Filas encontradas", value: String(response.rows_count ?? tableRows.length) },
+          { label: "Unidades", value: String(response.units ?? 0) },
+          { label: "Valor total", value: formatMoney(response.total_value ?? 0) },
+          { label: "Documentos", value: String(response.documents ?? 0) },
+        ],
+        table: {
+          columns: tableColumns,
+          rows: tableRows,
+          emptyMessage: "No hay ventas para el producto/grupo seleccionado en este rango.",
+        },
+        note:
+          productReportMode === "product"
+            ? `Filtro aplicado por producto: ${selectedReportProduct?.name || "seleccionado"}.`
+            : `Filtro aplicado por grupo/categoría: ${selectedGroup?.displayName || "seleccionado"}.`,
+      };
+
+      setFromDate(productReportFromDate);
+      setToDate(productReportToDate);
+      createReportTab(preset, customMeta, snapshot);
+      setProductReportModalOpen(false);
+    } catch (err) {
+      setProductReportDateError(
+        err instanceof Error ? err.message : "No se pudo generar el reporte."
+      );
     }
 
-    setFromDate(productReportFromDate);
-    setToDate(productReportToDate);
-    createReportTab(preset, customMeta);
-    setProductReportModalOpen(false);
   }, [
     productReportMode,
     selectedReportProduct,
     selectedGroupPath,
-    ensureSalesLoaded,
     token,
     mergedGroupOptions,
     productReportFromDate,

@@ -43,6 +43,38 @@ export type ReportProductLastSaleRow = {
   last_sale_at: string;
 };
 
+export type ReportProductsByTargetRequest = {
+  date_from: string;
+  date_to: string;
+  source: "all" | "metrik" | "aronium";
+  mode: "product" | "group";
+  result_mode: "detailed" | "grouped";
+  product_id?: number | null;
+  group_path?: string;
+  group_name?: string;
+};
+
+export type ReportProductsByTargetRow = {
+  sku: string;
+  product: string;
+  group: string;
+  units: number;
+  unit_value: number;
+  total_value: number;
+  last_sale_at?: string | null;
+  sale_at?: string | null;
+  document?: string | null;
+  pos_name?: string | null;
+};
+
+export type ReportProductsByTargetResponse = {
+  rows_count: number;
+  units: number;
+  total_value: number;
+  documents: number;
+  rows: ReportProductsByTargetRow[];
+};
+
 export class ReportFavoritesConflictError extends Error {
   constructor(message = "Conflicto de versión en favoritos") {
     super(message);
@@ -189,4 +221,37 @@ export async function fetchProductsLastSales(
 
   const json = (await res.json()) as { rows?: ReportProductLastSaleRow[] };
   return Array.isArray(json.rows) ? json.rows : [];
+}
+
+export async function fetchProductsByTarget(
+  payload: ReportProductsByTargetRequest,
+  token?: string | null
+): Promise<ReportProductsByTargetResponse> {
+  if (!token) {
+    return { rows_count: 0, units: 0, total_value: 0, documents: 0, rows: [] };
+  }
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/reports/products/by-target`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `Error ${res.status}`);
+  }
+
+  const json = (await res.json()) as Partial<ReportProductsByTargetResponse>;
+  return {
+    rows_count: Number(json.rows_count ?? 0),
+    units: Number(json.units ?? 0),
+    total_value: Number(json.total_value ?? 0),
+    documents: Number(json.documents ?? 0),
+    rows: Array.isArray(json.rows) ? (json.rows as ReportProductsByTargetRow[]) : [],
+  };
 }
