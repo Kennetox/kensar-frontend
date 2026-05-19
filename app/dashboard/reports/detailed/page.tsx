@@ -171,6 +171,7 @@ type FilterMeta = {
   productReportGroupName?: string;
   productReportResultMode?: "detailed" | "grouped";
   productReportLastSaleByProductId?: Record<string, string>;
+  productReportCostBySku?: Record<string, number>;
 };
 
 type OpenReportTab = {
@@ -237,7 +238,13 @@ const isValidFilterMeta = (value: unknown): value is FilterMeta => {
       typeof meta.productReportGroupName === "string") &&
     (meta.productReportResultMode === undefined ||
       meta.productReportResultMode === "detailed" ||
-      meta.productReportResultMode === "grouped")
+      meta.productReportResultMode === "grouped") &&
+    (meta.productReportCostBySku === undefined ||
+      (typeof meta.productReportCostBySku === "object" &&
+        meta.productReportCostBySku !== null &&
+        Object.values(meta.productReportCostBySku).every(
+          (value) => typeof value === "number"
+        )))
   );
 };
 
@@ -1156,7 +1163,7 @@ const REPORT_PRESETS: ReportPreset[] = [
     id: "products-by-target",
     title: "Ventas por producto o grupo",
     description:
-      "Consulta ventas de un producto específico o de un grupo/categoría en un rango de fechas.",
+      "Consulta ventas de un producto específico o de un grupo/categoría en un rango de fechas. En exportación Excel se incluye la columna 'Costo producto'.",
     scope: "Productos",
     highlights: ["SKU", "Documento", "POS", "Grupo"],
   },
@@ -3170,6 +3177,37 @@ function ReportDocumentViewer({
       setExportLoading(true);
       setExportError(null);
 
+      let excelColumns = result.table?.columns ?? [];
+      let excelRows = result.table?.rows ?? [];
+      if (preset.id === "products-by-target") {
+        const unitsColumnIndex = excelColumns.findIndex(
+          (column) => normalizeComparableText(column) === "unidades"
+        );
+        if (unitsColumnIndex >= 0) {
+          const costColumnIndex = unitsColumnIndex + 1;
+          const costBySku = filterMeta.productReportCostBySku ?? {};
+          excelColumns = [
+            ...excelColumns.slice(0, costColumnIndex),
+            "Costo producto",
+            ...excelColumns.slice(costColumnIndex),
+          ];
+          excelRows = excelRows.map((row) => {
+            const sku = row[0] ?? "";
+            const skuKey = normalizeComparableText(sku);
+            const costValue = costBySku[skuKey];
+            const costCell =
+              typeof costValue === "number" && Number.isFinite(costValue)
+                ? formatMoney(costValue)
+                : "—";
+            return [
+              ...row.slice(0, costColumnIndex),
+              costCell,
+              ...row.slice(costColumnIndex),
+            ];
+          });
+        }
+      }
+
       const blob = await exportReportExcel(
         {
           preset_id: preset.id,
@@ -3192,8 +3230,8 @@ function ReportDocumentViewer({
             value: item.value,
           })),
           table: {
-            columns: result.table?.columns ?? [],
-            rows: result.table?.rows ?? [],
+            columns: excelColumns,
+            rows: excelRows,
             empty_message: result.table?.emptyMessage,
           },
         },
@@ -4577,6 +4615,15 @@ export default function ReportsPage() {
         },
         token
       );
+      const costBySku: Record<string, number> = {};
+      for (const row of response.rows) {
+        const skuKey = normalizeComparableText(row.sku ?? "");
+        if (!skuKey) continue;
+        if (typeof row.product_cost === "number" && Number.isFinite(row.product_cost)) {
+          costBySku[skuKey] = row.product_cost;
+        }
+      }
+      customMeta.productReportCostBySku = costBySku;
       if (process.env.NODE_ENV !== "production") {
         console.debug("[products-by-target] response", {
           rows_count: response.rows_count,

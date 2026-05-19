@@ -61,6 +61,7 @@ export type ReportProductsByTargetRow = {
   product: string;
   group: string;
   units: number;
+  product_cost?: number | null;
   unit_value: number;
   total_value: number;
   last_sale_at?: string | null;
