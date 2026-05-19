@@ -11,6 +11,7 @@ import {
 } from "@/lib/api/settings";
 import { getApiBase } from "@/lib/api/base";
 import { exportReportPdf } from "@/lib/api/reports";
+import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import { getBogotaDateKey } from "@/lib/time/bogota";
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
 
@@ -158,6 +159,26 @@ function formatCount(value: number | undefined | null) {
   return value.toLocaleString("es-CO");
 }
 
+function formatMethodFallbackLabel(value: string) {
+  const normalized = (value || "").trim().toLowerCase();
+  if (!normalized) return "Método";
+  const bySlug: Record<string, string> = {
+    cash: "Efectivo",
+    qr: "Bancolombia QR / Transferencia",
+    card: "Tarjeta Datáfono",
+    nequi: "Nequi",
+    daviplata: "Daviplata",
+    credito: "Crédito",
+    separado: "Separado",
+  };
+  if (bySlug[normalized]) return bySlug[normalized];
+  return normalized
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -263,6 +284,7 @@ export default function ReportsPage() {
   const [minYear, setMinYear] = useState(todayYear);
   const [maxYear, setMaxYear] = useState(todayYear);
   const [dayMethodMap, setDayMethodMap] = useState<Record<string, PaymentMethodSummary[]>>({});
+  const paymentMethodsCatalog = usePaymentMethodsCatalog();
   const [quickPdfLoading, setQuickPdfLoading] = useState(false);
   const [quickPdfError, setQuickPdfError] = useState<string | null>(null);
   const [yearLeaderDay, setYearLeaderDay] = useState<YearLeaderDay | null>(null);
@@ -1012,6 +1034,16 @@ export default function ReportsPage() {
     () => (selectedDayKey ? dayMethodMap[selectedDayKey] ?? [] : []),
     [dayMethodMap, selectedDayKey]
   );
+  const paymentMethodLabelMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const method of paymentMethodsCatalog) {
+      const slug = (method.slug || "").trim().toLowerCase();
+      const name = (method.name || "").trim();
+      if (slug && name) map[slug] = name;
+      if (name) map[name.toLowerCase()] = name;
+    }
+    return map;
+  }, [paymentMethodsCatalog]);
   const selectedDayTotal = useMemo(() => activeDay?.total ?? 0, [activeDay]);
   const selectedDayTickets = useMemo(() => activeDay?.tickets ?? 0, [activeDay]);
   const selectedDayLabel = useMemo(() => {
@@ -2009,7 +2041,8 @@ export default function ReportsPage() {
                                   <div className="flex items-center justify-between gap-4">
                                     <div className="min-w-0">
                                       <p className="truncate text-sm font-semibold text-slate-900">
-                                        {entry.method}
+                                        {paymentMethodLabelMap[(entry.method || "").trim().toLowerCase()] ??
+                                          formatMethodFallbackLabel(entry.method)}
                                         <span className="ml-2 text-[11px] font-medium text-slate-500">
                                           {formatCount(entry.tickets)} tickets
                                         </span>
