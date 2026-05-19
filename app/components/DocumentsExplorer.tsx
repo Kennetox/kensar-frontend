@@ -1253,50 +1253,72 @@ export default function DocumentsExplorer({
       };
 
       const rangeParams = buildRangeParams();
-      const [
-        salesData,
-        webOrdersData,
-        returnsData,
-        changesData,
-        closuresData,
-        separatedOrdersData,
-        receivingDocsData,
-        manualMovementDocsData,
-        recountClosedData,
-        recountAppliedData,
-      ] =
-        await Promise.all([
-          needsSales
-            ? fetchAllPages<SaleRecord>("/pos/sales", rangeParams)
-            : Promise.resolve([]),
-          needsWebOrders
-            ? fetchComercioWebOrders(token, { limit: 200 })
-            : Promise.resolve([]),
-          needsReturns
-            ? fetchAllPages<ReturnRecord>("/pos/returns", rangeParams)
-            : Promise.resolve([]),
-          needsChanges
-            ? fetchAllPages<ChangeRecord>("/pos/changes", rangeParams)
-            : Promise.resolve([]),
-          needsClosures
-            ? fetchAllPages<ClosureRecord>("/pos/closures", rangeParams)
-            : Promise.resolve([]),
-          needsSeparatedOrders
-            ? fetchAllSeparatedOrders(rangeParams)
-            : Promise.resolve([]),
-          needsReceiving
-            ? fetchAllReceivingDocuments(rangeParams)
-            : Promise.resolve([]),
-          needsManualMovements
-            ? fetchAllManualMovementDocuments(rangeParams)
-            : Promise.resolve([]),
-          needsRecounts
-            ? fetchAllRecountsByStatus("closed", rangeParams)
-            : Promise.resolve([]),
-          needsRecounts
-            ? fetchAllRecountsByStatus("applied", rangeParams)
-            : Promise.resolve([]),
-        ]);
+      const loadTasks: Array<() => Promise<void>> = [];
+      let salesData: SaleRecord[] = [];
+      let webOrdersData: ComercioWebOrder[] = [];
+      let returnsData: ReturnRecord[] = [];
+      let changesData: ChangeRecord[] = [];
+      let closuresData: ClosureRecord[] = [];
+      let separatedOrdersData: SeparatedOrder[] = [];
+      let receivingDocsData: ReceivingDocumentRecord[] = [];
+      let manualMovementDocsData: ManualMovementDocumentRecord[] = [];
+      let recountClosedData: InventoryRecountDocumentRecord[] = [];
+      let recountAppliedData: InventoryRecountDocumentRecord[] = [];
+
+      if (needsSales) {
+        loadTasks.push(async () => {
+          salesData = await fetchAllPages<SaleRecord>("/pos/sales", rangeParams);
+        });
+      }
+      if (needsWebOrders) {
+        loadTasks.push(async () => {
+          webOrdersData = await fetchComercioWebOrders(token, { limit: 200 });
+        });
+      }
+      if (needsReturns) {
+        loadTasks.push(async () => {
+          returnsData = await fetchAllPages<ReturnRecord>("/pos/returns", rangeParams);
+        });
+      }
+      if (needsChanges) {
+        loadTasks.push(async () => {
+          changesData = await fetchAllPages<ChangeRecord>("/pos/changes", rangeParams);
+        });
+      }
+      if (needsClosures) {
+        loadTasks.push(async () => {
+          closuresData = await fetchAllPages<ClosureRecord>("/pos/closures", rangeParams);
+        });
+      }
+      if (needsSeparatedOrders) {
+        loadTasks.push(async () => {
+          separatedOrdersData = await fetchAllSeparatedOrders(rangeParams);
+        });
+      }
+      if (needsReceiving) {
+        loadTasks.push(async () => {
+          receivingDocsData = await fetchAllReceivingDocuments(rangeParams);
+        });
+      }
+      if (needsManualMovements) {
+        loadTasks.push(async () => {
+          manualMovementDocsData = await fetchAllManualMovementDocuments(rangeParams);
+        });
+      }
+      if (needsRecounts) {
+        loadTasks.push(async () => {
+          recountClosedData = await fetchAllRecountsByStatus("closed", rangeParams);
+        });
+        loadTasks.push(async () => {
+          recountAppliedData = await fetchAllRecountsByStatus("applied", rangeParams);
+        });
+      }
+
+      // Reduce backend memory spikes by limiting concurrent heavy fetches.
+      const CONCURRENT_LOADS = 3;
+      for (let index = 0; index < loadTasks.length; index += CONCURRENT_LOADS) {
+        await Promise.all(loadTasks.slice(index, index + CONCURRENT_LOADS).map((task) => task()));
+      }
       const adjustmentsBySaleId: Record<number, DocumentAdjustmentRecord[]> = {};
       if (salesData.length > 0) {
         const saleIds = salesData
