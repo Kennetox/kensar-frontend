@@ -4528,6 +4528,30 @@ export default function ReportsPage() {
     };
 
     try {
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("[products-by-target] payload", {
+          date_from: productReportFromDate,
+          date_to: productReportToDate,
+          source: sourceFilter,
+          mode: productReportMode,
+          result_mode: productReportResultMode,
+          product_id:
+            productReportMode === "product" ? selectedReportProduct?.id ?? null : null,
+          product_sku:
+            productReportMode === "product"
+              ? selectedReportProduct?.sku ?? undefined
+              : undefined,
+          product_name:
+            productReportMode === "product"
+              ? selectedReportProduct?.name ?? undefined
+              : undefined,
+          group_path: productReportMode === "group" ? selectedGroupPath : undefined,
+          group_name:
+            productReportMode === "group"
+              ? selectedGroup?.displayName ?? undefined
+              : undefined,
+        });
+      }
       const response = await fetchProductsByTarget(
         {
           date_from: productReportFromDate,
@@ -4553,6 +4577,15 @@ export default function ReportsPage() {
         },
         token
       );
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("[products-by-target] response", {
+          rows_count: response.rows_count,
+          units: response.units,
+          total_value: response.total_value,
+          documents: response.documents,
+          first_rows: response.rows.slice(0, 5),
+        });
+      }
 
       const tableColumns =
         productReportResultMode === "grouped"
