@@ -6291,7 +6291,7 @@ export default function ComercioWebPage() {
                               JPG, PNG o WebP. Recomendado: 1200x1200 px (1:1), hasta {MAX_CATALOG_GALLERY_IMAGES} imágenes. La primera será la principal.
                             </span>
                             <span className="text-xs text-slate-500">
-                              Video: 1 archivo MP4, máximo {MAX_CATALOG_VIDEO_DURATION_SECONDS}s y 20MB.
+                              Video: 1 archivo MP4, máximo {MAX_CATALOG_VIDEO_DURATION_SECONDS}s. El sistema lo comprime automáticamente.
                             </span>
                             <span className="text-xs text-slate-500">Arrastra para reordenar.</span>
                           </div>
