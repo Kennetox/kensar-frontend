@@ -4641,7 +4641,8 @@ export default function ReportsPage() {
               "Producto",
               "Grupo",
               "Unidades",
-              "Valor unidad",
+              "Precio actual",
+              "Precio promedio vendido",
               "Valor total",
               "Última venta",
             ]
@@ -4664,6 +4665,7 @@ export default function ReportsPage() {
               row.group || "Sin grupo",
               String(row.units ?? 0),
               formatMoney(row.unit_value ?? 0),
+              formatMoney(row.avg_unit_value ?? row.unit_value ?? 0),
               formatMoney(row.total_value ?? 0),
               row.last_sale_at ? formatBogotaDate(row.last_sale_at, { dateStyle: "short", timeStyle: "short" }) || "—" : "—",
             ])
