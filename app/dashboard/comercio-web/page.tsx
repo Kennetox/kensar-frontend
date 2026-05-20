@@ -143,6 +143,7 @@ type CatalogEditorState = {
   image_url: string;
   image_thumb_url: string;
   web_gallery_urls: string[];
+  web_video_url: string;
 };
 
 type InlineToast = {
@@ -213,6 +214,12 @@ type CommerceWebDraftState = {
 type UploadProductImageResponse = {
   url: string;
   thumb_url: string | null;
+};
+
+type UploadProductVideoResponse = {
+  url: string;
+  duration_seconds?: number | null;
+  size_bytes: number;
 };
 
 type CatalogTableAction = "edit" | "publish_toggle" | "feature_toggle" | "delete";
@@ -380,6 +387,8 @@ const OPERATIVE_STATUS_OPTIONS: Array<{
 ];
 const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
 const DEFAULT_KENSAR_WEB_URL = "https://kensarelectronic.com";
+const MAX_CATALOG_GALLERY_IMAGES = 5;
+const MAX_CATALOG_VIDEO_DURATION_SECONDS = 45;
 
 const emptyCatalogEditorState: CatalogEditorState = {
   web_name: "",
@@ -403,6 +412,7 @@ const emptyCatalogEditorState: CatalogEditorState = {
   image_url: "",
   image_thumb_url: "",
   web_gallery_urls: [],
+  web_video_url: "",
 };
 
 const emptyDiscountCodeEditorState: DiscountCodeEditorState = {
@@ -1332,9 +1342,10 @@ function buildEditorState(product: ComercioWebCatalogProduct | null): CatalogEdi
     web_technical_specs: parseTechnicalSpecsFromShortDescription(product.web_short_description),
     image_url: product.image_url || "",
     image_thumb_url: product.image_thumb_url || "",
+    web_video_url: product.web_video_url || "",
     web_gallery_urls:
       galleryUrls.length
-        ? galleryUrls.slice(0, 3)
+        ? galleryUrls.slice(0, MAX_CATALOG_GALLERY_IMAGES)
         : [product.image_url, product.image_thumb_url].filter(
             (value, index, list): value is string =>
               Boolean(value?.trim()) && list.indexOf(value) === index
@@ -1504,6 +1515,7 @@ export default function ComercioWebPage() {
   const [catalogDirty, setCatalogDirty] = useState(false);
   const [catalogSaving, setCatalogSaving] = useState(false);
   const [catalogImageUploading, setCatalogImageUploading] = useState(false);
+  const [catalogVideoUploading, setCatalogVideoUploading] = useState(false);
   const [catalogSavePublishPromptOpen, setCatalogSavePublishPromptOpen] = useState(false);
   const [catalogExitPromptOpen, setCatalogExitPromptOpen] = useState(false);
   const [catalogDescriptionGenerating, setCatalogDescriptionGenerating] = useState(false);
@@ -1587,6 +1599,7 @@ export default function ComercioWebPage() {
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const ordersFetchInFlightRef = useRef(false);
   const catalogImageInputRef = useRef<HTMLInputElement | null>(null);
+  const catalogVideoInputRef = useRef<HTMLInputElement | null>(null);
   const categoryImageInputRef = useRef<HTMLInputElement | null>(null);
   const homeSliderImageInputRef = useRef<HTMLInputElement | null>(null);
   const homeSliderPositionerRef = useRef<HTMLDivElement | null>(null);
@@ -1745,8 +1758,14 @@ export default function ComercioWebPage() {
           ...emptyCatalogEditorState,
           ...draft.catalogEditor,
           web_gallery_urls: Array.isArray(draft.catalogEditor.web_gallery_urls)
-            ? draft.catalogEditor.web_gallery_urls.filter((item) => typeof item === "string")
+            ? draft.catalogEditor.web_gallery_urls
+                .filter((item) => typeof item === "string")
+                .slice(0, MAX_CATALOG_GALLERY_IMAGES)
             : [],
+          web_video_url:
+            typeof draft.catalogEditor.web_video_url === "string"
+              ? draft.catalogEditor.web_video_url
+              : "",
           web_technical_specs:
             draftTechnicalSpecs.length > 0
               ? draftTechnicalSpecs
@@ -3979,8 +3998,8 @@ export default function ComercioWebPage() {
       showToast("Debes iniciar sesión para subir la imagen.", "error");
       return;
     }
-    if (galleryUrls.length >= 3) {
-      showToast("Solo puedes cargar hasta 3 imágenes por publicación.", "error");
+    if (galleryUrls.length >= MAX_CATALOG_GALLERY_IMAGES) {
+      showToast(`Solo puedes cargar hasta ${MAX_CATALOG_GALLERY_IMAGES} imágenes por publicación.`, "error");
       return;
     }
 
@@ -4013,7 +4032,7 @@ export default function ComercioWebPage() {
         ...prev,
         web_gallery_urls: [...(prev.web_gallery_urls ?? []), data.url].filter(
           (value, index, list) => Boolean(value?.trim()) && list.indexOf(value) === index
-        ).slice(0, 3),
+        ).slice(0, MAX_CATALOG_GALLERY_IMAGES),
         image_url: (prev.web_gallery_urls ?? []).length > 0 ? (prev.web_gallery_urls ?? [])[0] : data.url,
         image_thumb_url:
           (prev.web_gallery_urls ?? []).length > 0
@@ -4028,6 +4047,87 @@ export default function ComercioWebPage() {
     } finally {
       setCatalogImageUploading(false);
       if (catalogImageInputRef.current) catalogImageInputRef.current.value = "";
+    }
+  }
+
+  async function getVideoDurationSeconds(file: File): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        const duration = Number(video.duration || 0);
+        URL.revokeObjectURL(objectUrl);
+        if (!Number.isFinite(duration) || duration <= 0) {
+          reject(new Error("No pudimos leer la duración del video."));
+          return;
+        }
+        resolve(duration);
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("No se pudo procesar el video seleccionado."));
+      };
+      video.src = objectUrl;
+    });
+  }
+
+  async function handleCatalogVideoFileChange(file: File) {
+    if (!token) {
+      showToast("Debes iniciar sesión para subir el video.", "error");
+      return;
+    }
+    if (file.type !== "video/mp4") {
+      showToast("Solo se permite video MP4.", "error");
+      return;
+    }
+
+    let durationSeconds = 0;
+    try {
+      durationSeconds = await getVideoDurationSeconds(file);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "No se pudo leer la duración del video.", "error");
+      return;
+    }
+    if (durationSeconds > MAX_CATALOG_VIDEO_DURATION_SECONDS) {
+      showToast(`El video no puede superar ${MAX_CATALOG_VIDEO_DURATION_SECONDS} segundos.`, "error");
+      return;
+    }
+
+    setCatalogVideoUploading(true);
+    setCatalogError(null);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const uploadRes = await fetch(`${getApiBase()}/uploads/product-videos`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json().catch(() => null);
+        const msg =
+          (data && (data.detail as string)) ||
+          `Error al subir video (código ${uploadRes.status})`;
+        throw new Error(msg);
+      }
+      const data: UploadProductVideoResponse = await uploadRes.json();
+      setCatalogEditor((prev) => ({
+        ...prev,
+        web_video_url: data.url || "",
+      }));
+      setCatalogDirty(true);
+      showToast("Video cargado con éxito.");
+    } catch (err) {
+      setCatalogError(err instanceof Error ? err.message : "No se pudo subir el video");
+      showToast("No se pudo subir el video.", "error");
+    } finally {
+      setCatalogVideoUploading(false);
+      if (catalogVideoInputRef.current) catalogVideoInputRef.current.value = "";
     }
   }
 
@@ -4079,6 +4179,7 @@ export default function ComercioWebPage() {
       image_url: catalogEditor.image_url.trim() || undefined,
       image_thumb_url: catalogEditor.image_thumb_url.trim() || undefined,
       web_gallery_urls: catalogEditor.web_gallery_urls,
+      web_video_url: catalogEditor.web_video_url.trim() || null,
     };
     try {
       setCatalogSaving(true);
@@ -6169,14 +6270,28 @@ export default function ComercioWebPage() {
                           <div className="flex flex-wrap items-center gap-3">
                             <button
                               type="button"
-                              disabled={catalogImageUploading || (catalogEditor.web_gallery_urls ?? []).length >= 3}
+                              disabled={
+                                catalogImageUploading ||
+                                (catalogEditor.web_gallery_urls ?? []).length >= MAX_CATALOG_GALLERY_IMAGES
+                              }
                               onClick={() => catalogImageInputRef.current?.click()}
                               className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {catalogImageUploading ? "Subiendo..." : "Agregar imagen"}
                             </button>
+                            <button
+                              type="button"
+                              disabled={catalogVideoUploading || Boolean(catalogEditor.web_video_url?.trim())}
+                              onClick={() => catalogVideoInputRef.current?.click()}
+                              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {catalogVideoUploading ? "Subiendo video..." : "Agregar video"}
+                            </button>
                             <span className="text-xs text-slate-500">
-                              JPG, PNG o WebP. Recomendado: 1200x1200 px (1:1), hasta 3 imágenes. La primera será la principal.
+                              JPG, PNG o WebP. Recomendado: 1200x1200 px (1:1), hasta {MAX_CATALOG_GALLERY_IMAGES} imágenes. La primera será la principal.
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              Video: 1 archivo MP4, máximo {MAX_CATALOG_VIDEO_DURATION_SECONDS}s y 20MB.
                             </span>
                             <span className="text-xs text-slate-500">Arrastra para reordenar.</span>
                           </div>
@@ -6191,7 +6306,43 @@ export default function ComercioWebPage() {
                             }}
                             className="hidden"
                           />
+                          <input
+                            ref={catalogVideoInputRef}
+                            type="file"
+                            accept="video/mp4"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (!file) return;
+                              void handleCatalogVideoFileChange(file);
+                            }}
+                            className="hidden"
+                          />
                           <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                            {catalogEditor.web_video_url?.trim() ? (
+                              <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                                <div className="relative h-28 overflow-hidden rounded-lg border border-slate-200 bg-black">
+                                  <video
+                                    src={resolveAssetUrl(catalogEditor.web_video_url) || catalogEditor.web_video_url}
+                                    className="h-full w-full object-contain"
+                                    controls
+                                    preload="metadata"
+                                  />
+                                </div>
+                                <div className="mt-2 flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-medium text-slate-600">Video del producto</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCatalogEditor((prev) => ({ ...prev, web_video_url: "" }));
+                                      setCatalogDirty(true);
+                                    }}
+                                    className="text-[11px] font-medium text-rose-600"
+                                  >
+                                    Quitar video
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
                             {(catalogEditor.web_gallery_urls ?? []).length ? (
                               <div className="grid gap-3 sm:grid-cols-3">
                                 {(catalogEditor.web_gallery_urls ?? []).map((imageUrl, index) => (

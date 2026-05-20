@@ -16,6 +16,7 @@ export type ComercioWebCatalogProduct = {
   image_url?: string | null;
   image_thumb_url?: string | null;
   web_gallery_urls?: string[];
+  web_video_url?: string | null;
   active: boolean;
   service: boolean;
   group_name?: string | null;
@@ -48,6 +49,7 @@ export type ComercioWebCatalogProductUpdate = Partial<
     | "image_url"
     | "image_thumb_url"
     | "web_gallery_urls"
+    | "web_video_url"
     | "group_name"
     | "brand"
     | "supplier"
@@ -177,6 +179,7 @@ function normalizeCatalogProduct(product: ComercioWebCatalogProduct): ComercioWe
     web_price_value:
       typeof product.web_price_value === "number" ? product.web_price_value : null,
     web_gallery_urls: Array.isArray(product.web_gallery_urls) ? product.web_gallery_urls : [],
+    web_video_url: typeof product.web_video_url === "string" ? product.web_video_url : null,
   };
 }
 
