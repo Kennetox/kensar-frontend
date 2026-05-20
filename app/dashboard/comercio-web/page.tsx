@@ -4077,8 +4077,10 @@ export default function ComercioWebPage() {
       showToast("Debes iniciar sesión para subir el video.", "error");
       return;
     }
-    if (file.type !== "video/mp4") {
-      showToast("Solo se permite video MP4.", "error");
+    const isMp4 = file.type === "video/mp4";
+    const isMov = file.type === "video/quicktime" || file.name.toLowerCase().endsWith(".mov");
+    if (!isMp4 && !isMov) {
+      showToast("Solo se permite video MP4 o MOV.", "error");
       return;
     }
 
@@ -6291,7 +6293,7 @@ export default function ComercioWebPage() {
                               JPG, PNG o WebP. Recomendado: 1200x1200 px (1:1), hasta {MAX_CATALOG_GALLERY_IMAGES} imágenes. La primera será la principal.
                             </span>
                             <span className="text-xs text-slate-500">
-                              Video: 1 archivo MP4, máximo {MAX_CATALOG_VIDEO_DURATION_SECONDS}s. El sistema lo comprime automáticamente.
+                              Video: 1 archivo MP4 o MOV, máximo {MAX_CATALOG_VIDEO_DURATION_SECONDS}s. El sistema lo comprime automáticamente.
                             </span>
                             <span className="text-xs text-slate-500">Arrastra para reordenar.</span>
                           </div>
@@ -6309,7 +6311,7 @@ export default function ComercioWebPage() {
                           <input
                             ref={catalogVideoInputRef}
                             type="file"
-                            accept="video/mp4"
+                            accept="video/mp4,video/quicktime,.mov"
                             onChange={(event) => {
                               const file = event.target.files?.[0];
                               if (!file) return;
