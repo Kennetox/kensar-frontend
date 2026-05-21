@@ -6268,7 +6268,7 @@ export default function ComercioWebPage() {
                         <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                           Imagen
                         </span>
-                        <div className="max-w-xl rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <div className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3">
                           <div className="flex flex-wrap items-center gap-3">
                             <button
                               type="button"
@@ -6320,33 +6320,8 @@ export default function ComercioWebPage() {
                             className="hidden"
                           />
                           <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-                            {catalogEditor.web_video_url?.trim() ? (
-                              <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
-                                <div className="relative h-28 overflow-hidden rounded-lg border border-slate-200 bg-black">
-                                  <video
-                                    src={resolveAssetUrl(catalogEditor.web_video_url) || catalogEditor.web_video_url}
-                                    className="h-full w-full object-contain"
-                                    controls
-                                    preload="metadata"
-                                  />
-                                </div>
-                                <div className="mt-2 flex items-center justify-between gap-2">
-                                  <span className="text-[11px] font-medium text-slate-600">Video del producto</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setCatalogEditor((prev) => ({ ...prev, web_video_url: "" }));
-                                      setCatalogDirty(true);
-                                    }}
-                                    className="text-[11px] font-medium text-rose-600"
-                                  >
-                                    Quitar video
-                                  </button>
-                                </div>
-                              </div>
-                            ) : null}
-                            {(catalogEditor.web_gallery_urls ?? []).length ? (
-                              <div className="grid gap-3 sm:grid-cols-3">
+                            {(catalogEditor.web_gallery_urls ?? []).length || catalogEditor.web_video_url?.trim() ? (
+                              <div className="grid grid-flow-col auto-cols-fr gap-3 pb-1">
                                 {(catalogEditor.web_gallery_urls ?? []).map((imageUrl, index) => (
                                   <div
                                     key={`${imageUrl}-${index}`}
@@ -6364,7 +6339,7 @@ export default function ComercioWebPage() {
                                       setDraggedGalleryIndex(null);
                                       setDragOverGalleryIndex(null);
                                     }}
-                                    className={`rounded-xl border bg-slate-50 p-2 transition ${
+                                    className={`min-w-0 rounded-xl border bg-slate-50 p-2 transition ${
                                       dragOverGalleryIndex === index
                                         ? "border-blue-300 ring-1 ring-blue-200"
                                         : "border-slate-200"
@@ -6441,6 +6416,38 @@ export default function ComercioWebPage() {
                                     </div>
                                   </div>
                                 ))}
+                                {catalogEditor.web_video_url?.trim() ? (
+                                  <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                                    <div className="relative h-28 overflow-hidden rounded-lg border border-slate-200 bg-black">
+                                      <video
+                                        src={resolveAssetUrl(catalogEditor.web_video_url) || catalogEditor.web_video_url}
+                                        className="h-full w-full object-contain"
+                                        controls
+                                        preload="metadata"
+                                      />
+                                    </div>
+                                    <div className="mt-2 space-y-1.5">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="truncate text-[11px] text-slate-500">Video (último)</span>
+                                      </div>
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="text-[11px] font-medium text-slate-500">
+                                          Se publica al final
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setCatalogEditor((prev) => ({ ...prev, web_video_url: "" }));
+                                            setCatalogDirty(true);
+                                          }}
+                                          className="text-[11px] font-medium text-rose-600"
+                                        >
+                                          Quitar
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
                               </div>
                             ) : (
                               <p className="text-xs text-slate-500">Sin imagen cargada</p>
