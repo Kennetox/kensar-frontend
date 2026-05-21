@@ -2563,13 +2563,13 @@ const matchesStationLabel = useCallback(
       try {
         const apiBase = getApiBase();
         const [salesRes, separatedOrders] = await Promise.all([
-          fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
+          fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },
             credentials: "include",
           }),
-          fetchSeparatedOrders({ limit: 500 }, token),
+          fetchSeparatedOrders({ limit: 300 }, token),
         ]);
         if (!salesRes.ok) return;
         const sales = (await salesRes.json()) as ClosureSale[];
@@ -2679,25 +2679,25 @@ const matchesStationLabel = useCallback(
       setClosureError(null);
       const apiBase = getApiBase();
       const [salesRes, returnsRes, changesRes, separatedOrders] = await Promise.all([
-        fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
+        fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
           credentials: "include",
         }),
-        fetch(`${apiBase}/pos/returns?skip=0&limit=500`, {
+        fetch(`${apiBase}/pos/returns?skip=0&limit=300`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
           credentials: "include",
         }),
-        fetch(`${apiBase}/pos/changes?skip=0&limit=500`, {
+        fetch(`${apiBase}/pos/changes?skip=0&limit=300`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
           credentials: "include",
         }),
-        fetchSeparatedOrders({ limit: 500 }, token),
+        fetchSeparatedOrders({ limit: 300 }, token),
       ]);
       if (!salesRes.ok) {
         throw new Error(`Error ${salesRes.status} al obtener las ventas.`);

@@ -922,15 +922,15 @@ export default function SettingsPage() {
       setControlError(null);
       const apiBase = getApiBase();
       const [salesRes, returnsRes, changesRes, closuresRes, separatedOrders] = await Promise.all([
-        fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
+        fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
         }),
-        fetch(`${apiBase}/pos/returns?skip=0&limit=500`, {
+        fetch(`${apiBase}/pos/returns?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
         }),
-        fetch(`${apiBase}/pos/changes?skip=0&limit=500`, {
+        fetch(`${apiBase}/pos/changes?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
         }),
@@ -1112,15 +1112,15 @@ export default function SettingsPage() {
       }
       const apiBase = getApiBase();
       const [salesRes, returnsRes, changesRes, separatedOrders] = await Promise.all([
-        fetch(`${apiBase}/pos/sales?skip=0&limit=500`, {
+        fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
         }),
-        fetch(`${apiBase}/pos/returns?skip=0&limit=500`, {
+        fetch(`${apiBase}/pos/returns?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
         }),
-        fetch(`${apiBase}/pos/changes?skip=0&limit=500`, {
+        fetch(`${apiBase}/pos/changes?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
         }),
