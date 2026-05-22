@@ -6321,7 +6321,7 @@ export default function ComercioWebPage() {
                           />
                           <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
                             {(catalogEditor.web_gallery_urls ?? []).length || catalogEditor.web_video_url?.trim() ? (
-                              <div className="grid grid-flow-col auto-cols-fr gap-3 pb-1">
+                              <div className="grid grid-flow-col auto-cols-[minmax(220px,220px)] gap-3 overflow-x-auto pb-1">
                                 {(catalogEditor.web_gallery_urls ?? []).map((imageUrl, index) => (
                                   <div
                                     key={`${imageUrl}-${index}`}
@@ -6339,7 +6339,7 @@ export default function ComercioWebPage() {
                                       setDraggedGalleryIndex(null);
                                       setDragOverGalleryIndex(null);
                                     }}
-                                    className={`min-w-0 rounded-xl border bg-slate-50 p-2 transition ${
+                                    className={`rounded-xl border bg-slate-50 p-2 transition ${
                                       dragOverGalleryIndex === index
                                         ? "border-blue-300 ring-1 ring-blue-200"
                                         : "border-slate-200"
@@ -6417,7 +6417,7 @@ export default function ComercioWebPage() {
                                   </div>
                                 ))}
                                 {catalogEditor.web_video_url?.trim() ? (
-                                  <div className="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
                                     <div className="relative h-28 overflow-hidden rounded-lg border border-slate-200 bg-black">
                                       <video
                                         src={resolveAssetUrl(catalogEditor.web_video_url) || catalogEditor.web_video_url}
