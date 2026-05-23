@@ -994,12 +994,12 @@ export default function DocumentsExplorer({
         }
         return params;
       };
+      // Avoid loading full sales datasets for views that can be rendered
+      // directly from their own sources (web orders / separated payments).
       const needsSales =
         appliedFilterType === "all" ||
         appliedFilterType === "venta" ||
-        appliedFilterType === "orden_web" ||
-        appliedFilterType === "anulacion" ||
-        appliedFilterType === "abono";
+        appliedFilterType === "anulacion";
       const needsWebOrders =
         appliedFilterType === "all" || appliedFilterType === "orden_web";
       const needsReturns =
