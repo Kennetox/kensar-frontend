@@ -1240,8 +1240,17 @@ export default function SchedulePage() {
       return;
     }
     try {
-      // @ts-expect-error ClipboardItem exists at runtime in supported browsers
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      const clipboardItemCtor = (
+        window as unknown as {
+          ClipboardItem?: new (items: Record<string, Blob>) => unknown;
+        }
+      ).ClipboardItem;
+      if (!clipboardItemCtor) {
+        throw new Error("ClipboardItem no disponible");
+      }
+      await navigator.clipboard.write([
+        new clipboardItemCtor({ "image/png": blob }) as ClipboardItem,
+      ]);
       setToast("Imagen del horario copiada al portapapeles.");
       markSyncSaved();
     } catch {
