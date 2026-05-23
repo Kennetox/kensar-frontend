@@ -33,6 +33,7 @@ export type ScheduleEmployeeRow = {
   status: "Activo" | "Inactivo";
   position?: string | null;
   avatar_url?: string | null;
+  order_index?: number;
 };
 
 export type ScheduleShiftRecord = {
@@ -99,7 +100,22 @@ async function jsonRequest<T>(
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
-    throw new Error(detail?.detail ?? `Error ${res.status}`);
+    const errorDetail = detail?.detail;
+    const message =
+      typeof errorDetail === "string"
+        ? errorDetail
+        : Array.isArray(errorDetail)
+          ? errorDetail
+              .map((entry) => {
+                if (typeof entry === "string") return entry;
+                if (entry?.msg) return String(entry.msg);
+                return JSON.stringify(entry);
+              })
+              .join(" | ")
+          : errorDetail
+            ? JSON.stringify(errorDetail)
+            : `Error ${res.status}`;
+    throw new Error(message);
   }
   if (res.status === 204) {
     return undefined as T;
@@ -131,6 +147,19 @@ export async function createScheduleTemplate(
 ): Promise<ScheduleTemplateRecord> {
   return jsonRequest<ScheduleTemplateRecord>("/schedule/templates", token, {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function patchScheduleTemplate(
+  token: string,
+  templateId: number,
+  payload: Partial<
+    Omit<ScheduleTemplateRecord, "id" | "created_at" | "updated_at">
+  >
+): Promise<ScheduleTemplateRecord> {
+  return jsonRequest<ScheduleTemplateRecord>(`/schedule/templates/${templateId}`, token, {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
 }
@@ -173,6 +202,21 @@ export async function publishScheduleWeek(
   return jsonRequest<ScheduleWeekRecord>(`/schedule/weeks/${weekId}/publish`, token, {
     method: "PUT",
     body: JSON.stringify({ notes: notes ?? null }),
+  });
+}
+
+export async function reorderScheduleEmployees(
+  token: string,
+  employeeIdsInOrder: number[]
+): Promise<ScheduleEmployeeRow[]> {
+  return jsonRequest<ScheduleEmployeeRow[]>("/hr/employees/reorder-list", token, {
+    method: "PATCH",
+    body: JSON.stringify({
+      items: employeeIdsInOrder.map((id, index) => ({
+        id,
+        order_index: (index + 1) * 10,
+      })),
+    }),
   });
 }
 

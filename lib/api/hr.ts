@@ -25,6 +25,7 @@ export type HrEmployeeRecord = {
   payroll_next_due_at?: string | null;
   payroll_reference?: string | null;
   payroll_notes?: string | null;
+  show_in_schedule?: boolean;
   created_at: string;
   updated_at: string;
   system_user?: {
@@ -78,6 +79,7 @@ type HrEmployeePayload = Partial<
     | "payroll_next_due_at"
     | "payroll_reference"
     | "payroll_notes"
+    | "show_in_schedule"
   >
 >;
 

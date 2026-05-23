@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getApiBase } from "@/lib/api/base";
 
@@ -188,6 +189,12 @@ export default function PlatformLoginPage() {
             >
               {submitting ? "Ingresando..." : "Entrar"}
             </button>
+            <Link
+              href="/"
+              className="block w-full rounded-md border border-slate-700 px-4 py-2 text-center text-sm font-semibold text-slate-200 hover:bg-slate-800/60"
+            >
+              Inicio
+            </Link>
           </form>
         ) : (
           <form onSubmit={handleVerifyCode} className="space-y-3 mt-5">
@@ -227,6 +234,12 @@ export default function PlatformLoginPage() {
             >
               Volver
             </button>
+            <Link
+              href="/"
+              className="block w-full rounded-md border border-slate-700 px-4 py-2 text-center text-sm font-semibold text-slate-200 hover:bg-slate-800/60"
+            >
+              Inicio
+            </Link>
           </form>
         )}
       </section>

@@ -16,7 +16,7 @@ import { isTenantModuleEnabled } from "@/lib/tenantModules";
 import KoraOpsAssistant from "./components/KoraOpsAssistant";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
-const SCHEDULE_MODULE_ENABLED = false;
+const SCHEDULE_MODULE_ENABLED = true;
 
 const navItems: Array<{
   href: string;

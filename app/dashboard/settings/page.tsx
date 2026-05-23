@@ -164,7 +164,7 @@ const roleOrder: PosUserRecord["role"][] = [
   "Vendedor",
   "Auditor",
 ];
-const SCHEDULE_MODULE_ENABLED = false;
+const SCHEDULE_MODULE_ENABLED = true;
 
 type BackgroundStyle = "clean" | "soft" | "pattern";
 

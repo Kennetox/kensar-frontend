@@ -261,7 +261,13 @@ export default function LoginPage() {
           </section>
 
           <footer className="mt-12 text-center text-xs text-slate-500">
-            © {new Date().getFullYear()} Metrik · Kensar Electronic
+            © {new Date().getFullYear()} Metrik · Kensar Electronic.{" "}
+            <Link
+              href="/platform/login"
+              className="font-semibold text-slate-600 underline-offset-2 hover:underline hover:text-slate-900"
+            >
+              Admin
+            </Link>
           </footer>
         </div>
       </div>

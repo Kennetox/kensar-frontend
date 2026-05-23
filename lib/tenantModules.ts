@@ -39,7 +39,7 @@ export const TENANT_MODULE_CATALOG: TenantModuleCatalogItem[] = [
   { id: "commerce_web", label: "Comercio Web", description: "Ordenes web, pagos online y conversion a venta.", required: false, platform_visible: true, enabled_by_default: false },
   { id: "sales_history", label: "Historial de ventas", description: "Lectura historica de ventas y seguimiento.", required: true, platform_visible: false, enabled_by_default: true },
   { id: "users", label: "Usuarios", description: "Gestion interna de usuarios POS.", required: true, platform_visible: false, enabled_by_default: true },
-  { id: "schedule", label: "Agenda", description: "Horarios y turnos del personal.", required: false, platform_visible: false, enabled_by_default: false },
+  { id: "schedule", label: "Agenda", description: "Horarios y turnos del personal.", required: false, platform_visible: true, enabled_by_default: true },
 ];
 
 export const REQUIRED_TENANT_MODULES = new Set(

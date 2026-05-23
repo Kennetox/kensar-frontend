@@ -47,6 +47,7 @@ type EmployeeFormState = {
   payroll_next_due_at: string;
   payroll_reference: string;
   payroll_notes: string;
+  show_in_schedule: boolean;
 };
 
 function formatDateTime(value?: string | null): string {
@@ -89,6 +90,7 @@ function toFormState(employee: HrEmployeeRecord): EmployeeFormState {
     payroll_next_due_at: employee.payroll_next_due_at || "",
     payroll_reference: employee.payroll_reference || "",
     payroll_notes: employee.payroll_notes || "",
+    show_in_schedule: employee.show_in_schedule !== false,
   };
 }
 
@@ -463,6 +465,7 @@ export default function HrEmployeeDetailPage() {
           payroll_next_due_at: form.payroll_next_due_at || null,
           payroll_reference: form.payroll_reference.trim() || null,
           payroll_notes: form.payroll_notes.trim() || null,
+          show_in_schedule: form.show_in_schedule,
         },
         token
       );
@@ -822,6 +825,17 @@ export default function HrEmployeeDetailPage() {
                     className="w-full rounded-lg border ui-border bg-white/80 px-3 py-2"
                     disabled={!canEditFields}
                   />
+                </label>
+                <label className="text-sm flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={form.show_in_schedule}
+                    onChange={(event) =>
+                      handleChange("show_in_schedule", event.target.checked)
+                    }
+                    disabled={!canEditFields}
+                  />
+                  <span className="ui-text-muted">Mostrar en horario</span>
                 </label>
                 <div className="flex gap-2">
                   <button
