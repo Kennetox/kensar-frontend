@@ -1293,7 +1293,9 @@ export default function SchedulePage() {
 
       employees.forEach((employee, rowIndex) => {
         const y = topHeaderHeight + tableHeaderHeight + rowIndex * rowHeight;
-        ctx.fillStyle = rowIndex % 2 === 0 ? "#ffffff" : "#f8fafc";
+        ctx.fillStyle =
+          toRgba(employee.row_color ?? null, 0.30) ||
+          (rowIndex % 2 === 0 ? "#ffffff" : "#f8fafc");
         ctx.fillRect(0, y, canvasWidth, rowHeight);
 
         ctx.fillStyle = "#0f172a";
