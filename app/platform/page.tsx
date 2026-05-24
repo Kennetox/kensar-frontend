@@ -478,7 +478,9 @@ export default function PlatformPage() {
         ...prev,
         [tenant.id]: {
           kind: "success",
-          text: "Acceso privado de inversión actualizado.",
+          text: `Acceso privado de ${
+            moduleId === "schedule" ? "agenda" : moduleId === "investment" ? "inversión" : "módulo"
+          } actualizado.`,
         },
       }));
     } catch (err) {
