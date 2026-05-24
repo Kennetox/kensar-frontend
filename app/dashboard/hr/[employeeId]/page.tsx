@@ -14,6 +14,7 @@ import {
   fetchHrEmployeeDocuments,
   fetchHrSystemUsers,
   linkSystemUserToEmployee,
+  unlinkSystemUserFromEmployee,
   uploadHrEmployeeAvatar,
   updateHrEmployee,
   uploadHrEmployeeDocument,
@@ -139,6 +140,7 @@ export default function HrEmployeeDetailPage() {
   const [linkingAccess, setLinkingAccess] = useState(false);
   const [deactivatingAccess, setDeactivatingAccess] = useState(false);
   const [deletingAccess, setDeletingAccess] = useState(false);
+  const [unlinkingAccess, setUnlinkingAccess] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [systemUserEmail, setSystemUserEmail] = useState("");
   const [systemUserRole, setSystemUserRole] = useState<SystemRole>("Vendedor");
@@ -248,7 +250,7 @@ export default function HrEmployeeDetailPage() {
       .then((rows) => {
         if (cancelled) return;
         setLinkOptions(rows);
-        setLinkUserId(rows[0]?.id ?? null);
+        setLinkUserId(null);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -270,7 +272,11 @@ export default function HrEmployeeDetailPage() {
     [employee, loading]
   );
   const accessBusy =
-    creatingAccess || linkingAccess || deactivatingAccess || deletingAccess;
+    creatingAccess || linkingAccess || deactivatingAccess || deletingAccess || unlinkingAccess;
+  const selectedLinkOption = useMemo(
+    () => linkOptions.find((option) => option.id === linkUserId) ?? null,
+    [linkOptions, linkUserId]
+  );
   const canEditFields = canManage && isEditing;
   const isDirty = useMemo(() => {
     if (!form || !savedSnapshot) return false;
@@ -317,7 +323,9 @@ export default function HrEmployeeDetailPage() {
         only_unlinked: true,
       });
       setLinkOptions(rows);
-      setLinkUserId(rows[0]?.id ?? null);
+      setLinkUserId((prev) =>
+        prev && rows.some((row) => row.id === prev) ? prev : null
+      );
     } catch (err) {
       setAccessError(
         err instanceof Error ? err.message : "No se pudieron cargar usuarios de sistema."
@@ -362,6 +370,13 @@ export default function HrEmployeeDetailPage() {
   const handleLinkExistingUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!token || !employee || !linkUserId) return;
+    const selected = linkOptions.find((option) => option.id === linkUserId);
+    const confirmed = window.confirm(
+      selected
+        ? `Vas a vincular a "${selected.name}" (${selected.email}) con este empleado. ¿Continuar?`
+        : "¿Confirmas vincular este usuario al empleado?"
+    );
+    if (!confirmed) return;
     try {
       setLinkingAccess(true);
       setAccessError(null);
@@ -372,6 +387,25 @@ export default function HrEmployeeDetailPage() {
       setAccessError(err instanceof Error ? err.message : "No se pudo vincular el usuario.");
     } finally {
       setLinkingAccess(false);
+    }
+  };
+
+  const handleUnlinkSystemUser = async () => {
+    if (!token || !employee || !employee.system_user) return;
+    const confirmed = window.confirm(
+      "Esto desvinculará el usuario del empleado, pero la cuenta de acceso seguirá existiendo. ¿Deseas continuar?"
+    );
+    if (!confirmed) return;
+    try {
+      setUnlinkingAccess(true);
+      setAccessError(null);
+      await unlinkSystemUserFromEmployee(employee.id, token);
+      await refreshEmployee();
+      showToast("Usuario desvinculado correctamente.");
+    } catch (err) {
+      setAccessError(err instanceof Error ? err.message : "No se pudo desvincular el usuario.");
+    } finally {
+      setUnlinkingAccess(false);
     }
   };
 
@@ -874,6 +908,14 @@ export default function HrEmployeeDetailPage() {
                     <div className="flex gap-2">
                       <button
                         type="button"
+                        onClick={() => void handleUnlinkSystemUser()}
+                        disabled={accessBusy}
+                        className="rounded-md border ui-border px-3 py-2 text-sm font-semibold disabled:opacity-60"
+                      >
+                        {unlinkingAccess ? "Desvinculando..." : "Desvincular"}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => void handleDeactivateSystemUser()}
                         disabled={accessBusy || employee.system_user.status === "Inactivo"}
                         className="rounded-md border ui-border px-3 py-2 text-sm font-semibold disabled:opacity-60"
@@ -977,16 +1019,24 @@ export default function HrEmployeeDetailPage() {
                           linkOptions.length === 0
                         }
                       >
-                        {linkOptions.length === 0 ? (
-                          <option value="">No hay usuarios disponibles</option>
-                        ) : (
+                        <option value="">Selecciona un usuario...</option>
+                        {linkOptions.length > 0 ? (
                           linkOptions.map((option) => (
                             <option key={option.id} value={option.id}>
                               #{option.id} - {option.name} ({option.email})
                             </option>
                           ))
-                        )}
+                        ) : null}
                       </select>
+                      {selectedLinkOption ? (
+                        <p className="text-xs ui-text-muted">
+                          Seleccionado: <strong>{selectedLinkOption.name}</strong> ({selectedLinkOption.email})
+                        </p>
+                      ) : (
+                        <p className="text-xs ui-text-muted">
+                          Selecciona manualmente el usuario para evitar vincular a la persona incorrecta.
+                        </p>
+                      )}
                       <button
                         type="submit"
                         disabled={

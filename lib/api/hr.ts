@@ -170,6 +170,15 @@ export async function linkSystemUserToEmployee(
   });
 }
 
+export async function unlinkSystemUserFromEmployee(
+  employeeId: number,
+  token: string
+): Promise<void> {
+  await jsonRequest(`/hr/employees/${employeeId}/system-user/unlink`, token, {
+    method: "POST",
+  });
+}
+
 export async function deactivateSystemUserForEmployee(
   employeeId: number,
   token: string
