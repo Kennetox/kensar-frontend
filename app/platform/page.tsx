@@ -57,6 +57,8 @@ const tenantFilters = [
   { id: "archived", label: "Archivadas" },
 ] as const;
 
+const PRIVATE_ACCESS_MODULE_IDS = new Set(["investment", "schedule"]);
+
 function DetailField({
   label,
   value,
@@ -950,7 +952,7 @@ export default function PlatformPage() {
                                     ? "Desactivar módulo"
                                     : "Activar módulo"}
                                 </button>
-                                {moduleDef.id === "investment" && enabled && (
+                                {PRIVATE_ACCESS_MODULE_IDS.has(moduleDef.id) && enabled && (
                                   <div className="mt-4 space-y-2 rounded-lg border border-slate-800 bg-slate-900/50 p-3">
                                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                                       Acceso privado (sin roles)
