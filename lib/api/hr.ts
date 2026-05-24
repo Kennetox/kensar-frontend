@@ -26,6 +26,7 @@ export type HrEmployeeRecord = {
   payroll_reference?: string | null;
   payroll_notes?: string | null;
   show_in_schedule?: boolean;
+  row_color?: string | null;
   created_at: string;
   updated_at: string;
   system_user?: {
@@ -80,6 +81,7 @@ type HrEmployeePayload = Partial<
     | "payroll_reference"
     | "payroll_notes"
     | "show_in_schedule"
+    | "row_color"
   >
 >;
 

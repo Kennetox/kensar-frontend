@@ -10,6 +10,7 @@ export type ScheduleTemplateRecord = {
   break_minutes: number;
   color?: string | null;
   position?: string | null;
+  is_time_off?: boolean;
   is_active: boolean;
   order_index: number;
   created_at: string;
@@ -33,6 +34,7 @@ export type ScheduleEmployeeRow = {
   status: "Activo" | "Inactivo";
   position?: string | null;
   avatar_url?: string | null;
+  row_color?: string | null;
   order_index?: number;
 };
 
@@ -217,6 +219,17 @@ export async function reorderScheduleEmployees(
         order_index: (index + 1) * 10,
       })),
     }),
+  });
+}
+
+export async function updateScheduleEmployeeRowColor(
+  token: string,
+  employeeId: number,
+  rowColor: string | null
+): Promise<ScheduleEmployeeRow> {
+  return jsonRequest<ScheduleEmployeeRow>(`/hr/employees/${employeeId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({ row_color: rowColor }),
   });
 }
 

@@ -15,6 +15,7 @@ import {
   patchScheduleShift,
   publishScheduleWeek,
   reorderScheduleEmployees,
+  updateScheduleEmployeeRowColor,
   upsertScheduleShift,
 } from "@/lib/api/schedule";
 
@@ -35,6 +36,7 @@ type CreateTemplateState = {
   end_time: string;
   break_minutes: number;
   color: string;
+  is_time_off: boolean;
 };
 
 const defaultShiftEditor: ShiftEditorState = {
@@ -54,6 +56,7 @@ const defaultTemplateState: CreateTemplateState = {
   end_time: "17:00",
   break_minutes: 30,
   color: "#0ea5a4",
+  is_time_off: false,
 };
 
 function getWeekStart(dateValue: Date) {
@@ -76,6 +79,12 @@ function addDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00`);
   date.setDate(date.getDate() + days);
   return toDateKey(date);
+}
+
+function waitMs(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function formatWeekLabel(weekStart: string) {
@@ -165,6 +174,12 @@ function shiftTextColor(bgHex?: string | null) {
   return brightness > 165 ? "#062A2A" : "#F8FAFC";
 }
 
+function toRgba(hex: string | null | undefined, alpha: number) {
+  const rgb = parseHexColor(hex || "");
+  if (!rgb) return null;
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
 function splitBreakMinutes(totalMinutes: number) {
   const safe = Math.max(0, Number.isFinite(totalMinutes) ? totalMinutes : 0);
   const hours = Math.floor(safe / 60);
@@ -215,11 +230,13 @@ type ScheduleGridProps = {
   activeEmployees: ScheduleWeekView["employees"];
   shiftMap: Map<string, ScheduleShiftRecord>;
   templateNameById: Map<number, string>;
+  templateColorById: Map<number, string>;
   loading: boolean;
   onOpenEditor: (employeeId: number, employeeName: string, shiftDate: string) => void;
   onDropTemplateToCell: (employeeId: number, shiftDate: string, templateId: number) => void;
   onDropShiftToCell: (employeeId: number, shiftDate: string, shiftId: number) => void;
   onReorderEmployees: (sourceEmployeeId: number, targetEmployeeId: number) => void;
+  onEmployeeRowColorChange: (employeeId: number, rowColor: string | null) => void;
 };
 
 const ScheduleGrid = memo(function ScheduleGrid({
@@ -228,16 +245,35 @@ const ScheduleGrid = memo(function ScheduleGrid({
   activeEmployees,
   shiftMap,
   templateNameById,
+  templateColorById,
   loading,
   onOpenEditor,
   onDropTemplateToCell,
   onDropShiftToCell,
   onReorderEmployees,
+  onEmployeeRowColorChange,
 }: ScheduleGridProps) {
   const [dragOverCellKey, setDragOverCellKey] = useState<string | null>(null);
   const [dragOverEmployeeId, setDragOverEmployeeId] = useState<number | null>(null);
   const [draggingEmployeeId, setDraggingEmployeeId] = useState<number | null>(null);
   const [rowDropPosition, setRowDropPosition] = useState<"before" | "after" | null>(null);
+
+  useEffect(() => {
+    const resetDragUi = () => {
+      setDragOverCellKey(null);
+      setDragOverEmployeeId(null);
+      setDraggingEmployeeId(null);
+      setRowDropPosition(null);
+    };
+
+    window.addEventListener("dragend", resetDragUi);
+    window.addEventListener("drop", resetDragUi);
+    return () => {
+      window.removeEventListener("dragend", resetDragUi);
+      window.removeEventListener("drop", resetDragUi);
+    };
+  }, []);
+
   const handleCellDrop = (
     event: DragEvent,
     employeeId: number,
@@ -292,10 +328,16 @@ const ScheduleGrid = memo(function ScheduleGrid({
           <tbody>
             {activeEmployees.map((employee, rowIndex) => {
               const isRowDropTarget = dragOverEmployeeId === employee.id;
+              const rowTint = toRgba(employee.row_color ?? null, 0.28);
+              const rowBaseClass = rowTint
+                ? ""
+                : rowIndex % 2 === 0
+                  ? "bg-white"
+                  : "bg-slate-50/40";
               return (
                 <tr
                   key={employee.id}
-                  className={`${rowIndex % 2 === 0 ? "bg-white" : "bg-slate-50/40"} ${
+                  className={`${rowBaseClass} ${
                     draggingEmployeeId === employee.id
                       ? "relative z-10 bg-teal-100/60 shadow-[inset_0_0_0_2px_rgba(20,184,166,0.45)]"
                       : ""
@@ -344,6 +386,11 @@ const ScheduleGrid = memo(function ScheduleGrid({
                           : "shadow-[inset_0_3px_0_0_rgba(20,184,166,0.95)]"
                         : ""
                     }`}
+                    style={
+                      rowTint && draggingEmployeeId !== employee.id && !isRowDropTarget
+                        ? { backgroundColor: rowTint }
+                        : undefined
+                    }
                     draggable
                     onDragStart={(event) => {
                       event.dataTransfer.setData("text/employee-row-id", String(employee.id));
@@ -372,7 +419,7 @@ const ScheduleGrid = memo(function ScheduleGrid({
                       const shiftSummaries = weekDays.map((day) => {
                         const shiftForDay = shiftMap.get(`${employee.id}:${day}`);
                         if (!shiftForDay) return "—";
-                        if (shiftForDay.is_time_off) return "Libre";
+                        if (shiftForDay.is_time_off) return "Día libre";
                         return formatRangeAmPm(shiftForDay.start_time, shiftForDay.end_time);
                       });
 
@@ -413,13 +460,52 @@ const ScheduleGrid = memo(function ScheduleGrid({
                     <p className="truncate text-[13px] font-bold text-slate-800" title={employee.name}>
                       {employee.name}
                     </p>
-                    <p
-                      className={`text-[11px] font-medium ${
-                        employee.status === "Activo" ? "text-emerald-700" : "text-rose-600"
-                      }`}
-                    >
-                      {employee.status}
-                    </p>
+                    <div className="mt-0.5 flex items-center justify-between gap-2">
+                      <p
+                        className={`text-[11px] font-medium ${
+                          employee.status === "Activo" ? "text-emerald-700" : "text-rose-600"
+                        }`}
+                      >
+                        {employee.status}
+                      </p>
+                      <label className="relative inline-flex cursor-pointer items-center">
+                        <input
+                          type="color"
+                          className="sr-only"
+                          value={employee.row_color || "#94a3b8"}
+                          onClick={(event) => event.stopPropagation()}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onChange={(event) => {
+                            const picked = event.target.value?.trim().toLowerCase();
+                            if (!picked || picked === "transparent" || picked === "#00000000") {
+                              onEmployeeRowColorChange(employee.id, null);
+                              return;
+                            }
+                            onEmployeeRowColorChange(employee.id, picked);
+                          }}
+                        />
+                        <span
+                          className="h-2.5 w-2.5 rounded-full ring-1 ring-slate-300/90"
+                          style={{
+                            backgroundColor: employee.row_color || "#94a3b8",
+                          }}
+                          aria-hidden="true"
+                          title={employee.row_color ? "Cambiar color de fila" : "Sin color"}
+                          onMouseDown={(event) => {
+                            if (event.ctrlKey || event.metaKey) {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onEmployeeRowColorChange(employee.id, null);
+                            }
+                          }}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onEmployeeRowColorChange(employee.id, null);
+                          }}
+                        />
+                      </label>
+                    </div>
                   </td>
 
                   {weekDays.map((day) => {
@@ -442,6 +528,14 @@ const ScheduleGrid = memo(function ScheduleGrid({
                         } ${
                           isDropTarget ? "bg-teal-100/70 ring-1 ring-inset ring-teal-300" : ""
                         }`}
+                        style={
+                          rowTint &&
+                          draggingEmployeeId !== employee.id &&
+                          !isRowDropTarget &&
+                          !isDropTarget
+                            ? { backgroundColor: rowTint }
+                            : undefined
+                        }
                         onDragOver={(event) => {
                           event.preventDefault();
                           if (dragOverCellKey !== cellKey) {
@@ -472,8 +566,8 @@ const ScheduleGrid = memo(function ScheduleGrid({
                           onDrop={(event) => handleCellDrop(event, employee.id, day)}
                           className={`h-16 w-full px-2 text-left transition ${
                             shift
-                              ? "bg-teal-50 hover:bg-teal-100"
-                              : "bg-slate-100 hover:bg-slate-200"
+                              ? "bg-transparent hover:bg-teal-100/35"
+                              : "bg-transparent hover:bg-slate-200/55"
                           }`}
                         >
                           {!shift && <div className="h-full" />}
@@ -489,8 +583,17 @@ const ScheduleGrid = memo(function ScheduleGrid({
                               <div
                                 className="inline-flex w-full max-w-full flex-col items-center overflow-hidden rounded-lg px-2 py-1.5 shadow-sm ring-1 ring-black/10"
                                 style={{
-                                  backgroundColor: shift.color?.trim() || "#0f766e",
-                                  color: shiftTextColor(shift.color),
+                                  backgroundColor:
+                                    (shift.source_template_id
+                                      ? templateColorById.get(shift.source_template_id)?.trim()
+                                      : null) ||
+                                    shift.color?.trim() ||
+                                    "#0f766e",
+                                  color: shiftTextColor(
+                                    (shift.source_template_id
+                                      ? templateColorById.get(shift.source_template_id)
+                                      : null) || shift.color
+                                  ),
                                 }}
                                 title={
                                   shift.source_template_id
@@ -503,7 +606,7 @@ const ScheduleGrid = memo(function ScheduleGrid({
                                 </span>
                                 <span className="mt-0.5 w-full whitespace-nowrap text-center text-[12px] font-extrabold leading-none [font-variant-numeric:tabular-nums]">
                                   {shift.is_time_off
-                                    ? "Libre"
+                                    ? "Día libre"
                                     : formatRangeAmPm(shift.start_time, shift.end_time)}
                                 </span>
                               </div>
@@ -604,6 +707,13 @@ export default function SchedulePage() {
   const templateNameById = useMemo(() => {
     const map = new Map<number, string>();
     templates.forEach((item) => map.set(item.id, item.name));
+    return map;
+  }, [templates]);
+  const templateColorById = useMemo(() => {
+    const map = new Map<number, string>();
+    templates.forEach((item) => {
+      if (item.color?.trim()) map.set(item.id, item.color.trim());
+    });
     return map;
   }, [templates]);
 
@@ -743,10 +853,10 @@ export default function SchedulePage() {
       ...prev,
       start_time: template.start_time,
       end_time: template.end_time,
-      break_minutes: template.break_minutes,
+      break_minutes: template.is_time_off ? 0 : template.break_minutes,
       color: template.color?.trim() || prev.color,
       position: template.position || prev.position,
-      is_time_off: false,
+      is_time_off: Boolean(template.is_time_off),
       source_template_id: template.id,
     }));
   };
@@ -764,12 +874,12 @@ export default function SchedulePage() {
         week_id: weekView.week.id,
         employee_id: employeeId,
         shift_date: shiftDate,
-        start_time: template.start_time,
-        end_time: template.end_time,
-        break_minutes: template.break_minutes,
+        start_time: template.is_time_off ? null : template.start_time,
+        end_time: template.is_time_off ? null : template.end_time,
+        break_minutes: template.is_time_off ? 0 : template.break_minutes,
         position: template.position ?? null,
         color: template.color ?? "#0ea5a4",
-        is_time_off: false,
+        is_time_off: Boolean(template.is_time_off),
         source_template_id: template.id,
       });
       setToast(`Plantilla aplicada: ${template.name}`);
@@ -921,6 +1031,7 @@ export default function SchedulePage() {
       end_time: template.end_time,
       break_minutes: template.break_minutes,
       color: template.color?.trim() || "#0ea5a4",
+      is_time_off: Boolean(template.is_time_off),
     });
     setTemplateStartInput(template.start_time);
     setTemplateEndInput(template.end_time);
@@ -944,10 +1055,11 @@ export default function SchedulePage() {
       if (editingTemplateId) {
         const updated = await patchScheduleTemplate(token, editingTemplateId, {
           name,
-          start_time: newTemplate.start_time,
-          end_time: newTemplate.end_time,
-          break_minutes: newTemplate.break_minutes,
+          start_time: newTemplate.is_time_off ? "00:00" : newTemplate.start_time,
+          end_time: newTemplate.is_time_off ? "00:00" : newTemplate.end_time,
+          break_minutes: newTemplate.is_time_off ? 0 : newTemplate.break_minutes,
           color: newTemplate.color,
+          is_time_off: newTemplate.is_time_off,
         });
         setTemplates((prev) =>
           prev.map((item) => (item.id === updated.id ? updated : item))
@@ -955,11 +1067,12 @@ export default function SchedulePage() {
       } else {
         const created = await createScheduleTemplate(token, {
           name,
-          start_time: newTemplate.start_time,
-          end_time: newTemplate.end_time,
-          break_minutes: newTemplate.break_minutes,
+          start_time: newTemplate.is_time_off ? "00:00" : newTemplate.start_time,
+          end_time: newTemplate.is_time_off ? "00:00" : newTemplate.end_time,
+          break_minutes: newTemplate.is_time_off ? 0 : newTemplate.break_minutes,
           color: newTemplate.color,
           position: "",
+          is_time_off: newTemplate.is_time_off,
           is_active: true,
           order_index: templates.length * 10,
         });
@@ -1003,6 +1116,9 @@ export default function SchedulePage() {
     setSyncStatus("saving");
     try {
       const targetWeekView = await fetchScheduleWeekView(token, nextWeekStart);
+      const expectedShiftKeys = new Set(
+        weekView.shifts.map((sourceShift) => `${sourceShift.employee_id}:${addDays(sourceShift.shift_date, 7)}`)
+      );
 
       for (const existingShift of targetWeekView.shifts) {
         await deleteScheduleShift(token, existingShift.id);
@@ -1022,6 +1138,24 @@ export default function SchedulePage() {
           is_time_off: sourceShift.is_time_off,
           source_template_id: sourceShift.source_template_id ?? null,
         });
+      }
+
+      let consistentView: ScheduleWeekView | null = null;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const refreshed = await fetchScheduleWeekView(token, nextWeekStart);
+        const presentKeys = new Set(
+          refreshed.shifts.map((shift) => `${shift.employee_id}:${shift.shift_date}`)
+        );
+        const isConsistent = Array.from(expectedShiftKeys).every((key) => presentKeys.has(key));
+        if (isConsistent) {
+          consistentView = refreshed;
+          break;
+        }
+        await waitMs(250);
+      }
+
+      if (consistentView && weekStart === nextWeekStart) {
+        setWeekView(consistentView);
       }
 
       setToast("Semana copiada a la siguiente (reemplazo completo).");
@@ -1050,6 +1184,31 @@ export default function SchedulePage() {
       markSyncSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo publicar.");
+      setSyncStatus("error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearWeek = async () => {
+    if (!token || !weekView) return;
+    setIsActionsMenuOpen(false);
+    const confirmed = window.confirm(
+      "Vas a eliminar todos los turnos de esta semana. Esta acción no se puede deshacer. ¿Deseas continuar?"
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setSyncStatus("saving");
+    try {
+      for (const shift of weekView.shifts) {
+        await deleteScheduleShift(token, shift.id);
+      }
+      await refreshWeek();
+      setToast("Semana limpiada.");
+      markSyncSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo limpiar la semana.");
       setSyncStatus("error");
     } finally {
       setSaving(false);
@@ -1155,17 +1314,23 @@ export default function SchedulePage() {
           const pillY = y + 10;
           const pillW = dayColWidth - 20;
           const pillH = rowHeight - 20;
-          ctx.fillStyle = shift.color?.trim() || "#0ea5a4";
+          const shiftColor =
+            (shift.source_template_id
+              ? templateColorById.get(shift.source_template_id)?.trim()
+              : null) ||
+            shift.color?.trim() ||
+            "#0ea5a4";
+          ctx.fillStyle = shiftColor;
           roundRectPath(ctx, pillX, pillY, pillW, pillH, 10);
           ctx.fill();
 
-          const textColor = shiftTextColor(shift.color);
+          const textColor = shiftTextColor(shiftColor);
           const templateName =
             (shift.source_template_id
               ? templateNameById.get(shift.source_template_id)
               : null) || "Turno";
           const timeLabel = shift.is_time_off
-            ? "Libre"
+            ? "Día libre"
             : formatRangeAmPm(shift.start_time, shift.end_time);
 
           ctx.fillStyle = textColor;
@@ -1333,7 +1498,7 @@ export default function SchedulePage() {
                       ${template.name}
                     </div>
                     <div style="margin-top:3px;font-size:13px;font-weight:800;line-height:1;white-space:nowrap;">
-                      ${formatRangeAmPm(template.start_time, template.end_time)}
+                      ${template.is_time_off ? "DÍA LIBRE" : formatRangeAmPm(template.start_time, template.end_time)}
                     </div>
                   `;
                   document.body.appendChild(dragGhost);
@@ -1388,9 +1553,17 @@ export default function SchedulePage() {
                   }}
                   className="w-full cursor-grab select-none rounded-lg text-left active:cursor-grabbing"
                 >
-                  <p className="pointer-events-none select-none text-[11px] text-slate-600">
-                    {formatTimeAmPm(template.start_time)} - {formatTimeAmPm(template.end_time)} · Descanso {template.break_minutes}m
-                  </p>
+                  <div
+                    className="pointer-events-none inline-flex max-w-full items-center rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.03em] shadow-sm ring-1 ring-black/10"
+                    style={{
+                      backgroundColor: template.color?.trim() || "#0ea5a4",
+                      color: shiftTextColor(template.color),
+                    }}
+                  >
+                    {template.is_time_off
+                      ? "Día libre"
+                      : `${formatTimeAmPm(template.start_time)} - ${formatTimeAmPm(template.end_time)} · Descanso ${template.break_minutes}m`}
+                  </div>
                 </button>
               </div>
             ))}
@@ -1532,7 +1705,6 @@ export default function SchedulePage() {
                       strokeLinejoin="round"
                     />
                   </svg>
-                  Siguiente
                 </button>
                 <div className="relative" ref={actionsMenuRef}>
                   <button
@@ -1564,6 +1736,16 @@ export default function SchedulePage() {
                         onClick={publishWeek}
                       >
                         Publicar horario
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-rose-600 transition hover:bg-rose-50 disabled:opacity-60"
+                        disabled={!weekView || saving}
+                        onClick={() => {
+                          void clearWeek();
+                        }}
+                      >
+                        Limpiar semana
                       </button>
                       <button
                         type="button"
@@ -1616,6 +1798,7 @@ export default function SchedulePage() {
             activeEmployees={orderedWeekEmployees}
             shiftMap={shiftMap}
             templateNameById={templateNameById}
+            templateColorById={templateColorById}
             loading={loading}
             onOpenEditor={openEditor}
             onDropTemplateToCell={onDropTemplateToCell}
@@ -1650,6 +1833,32 @@ export default function SchedulePage() {
                 }
                 return next;
               });
+            }}
+            onEmployeeRowColorChange={(employeeId, rowColor) => {
+              setWeekView((prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  employees: prev.employees.map((employee) =>
+                    employee.id === employeeId ? { ...employee, row_color: rowColor } : employee
+                  ),
+                };
+              });
+              if (!token) return;
+              setSyncStatus("saving");
+              void updateScheduleEmployeeRowColor(token, employeeId, rowColor)
+                .then(() => {
+                  markSyncSaved();
+                })
+                .catch((err) => {
+                  setError(
+                    err instanceof Error
+                      ? err.message
+                      : "No se pudo guardar el color del empleado."
+                  );
+                  setSyncStatus("error");
+                  void refreshWeek();
+                });
             }}
           />
         </div>
@@ -1864,6 +2073,19 @@ export default function SchedulePage() {
                   setNewTemplate((prev) => ({ ...prev, name: event.target.value }))
                 }
               />
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={newTemplate.is_time_off}
+                  onChange={(event) =>
+                    setNewTemplate((prev) => ({ ...prev, is_time_off: event.target.checked }))
+                  }
+                />
+                Día libre
+              </label>
+              {!newTemplate.is_time_off && (
+                <>
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex items-center gap-2">
                   <input
@@ -1944,6 +2166,31 @@ export default function SchedulePage() {
                   />
                 </div>
               </div>
+                </>
+              )}
+              {newTemplate.is_time_off && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-600">
+                  Esta plantilla se aplicará como <span className="font-semibold text-slate-900">Día libre</span>.
+                </div>
+              )}
+              {newTemplate.is_time_off && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Color de plantilla
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      className="h-10 w-14 rounded-lg border border-slate-300 bg-white p-1"
+                      value={newTemplate.color}
+                      onChange={(event) =>
+                        setNewTemplate((prev) => ({ ...prev, color: event.target.value }))
+                      }
+                    />
+                    <span className="text-xs font-medium text-slate-500">{newTemplate.color}</span>
+                  </div>
+                </div>
+              )}
               <button
                 type="submit"
                 className="h-10 w-full rounded-xl border border-slate-900 bg-slate-900 text-xs font-semibold text-white transition hover:bg-slate-800"
