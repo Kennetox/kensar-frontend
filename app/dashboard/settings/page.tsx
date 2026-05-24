@@ -2517,9 +2517,9 @@ export default function SettingsPage() {
       name: string;
       email: string;
       role: PosUserRecord["role"];
-      phone?: string;
-      position?: string;
-      notes?: string;
+      phone?: string | null;
+      position?: string | null;
+      notes?: string | null;
       password?: string;
       pin_plain?: string;
       create_hr_profile?: boolean;
@@ -2528,9 +2528,15 @@ export default function SettingsPage() {
       email: userForm.email.trim(),
       role: userForm.role,
     };
-    if (userForm.phone.trim()) payload.phone = userForm.phone.trim();
-    if (userForm.position.trim()) payload.position = userForm.position.trim();
-    if (userForm.notes.trim()) payload.notes = userForm.notes.trim();
+    if (editingUser) {
+      payload.phone = userForm.phone.trim() || null;
+      payload.position = userForm.position.trim() || null;
+      payload.notes = userForm.notes.trim() || null;
+    } else {
+      if (userForm.phone.trim()) payload.phone = userForm.phone.trim();
+      if (userForm.position.trim()) payload.position = userForm.position.trim();
+      if (userForm.notes.trim()) payload.notes = userForm.notes.trim();
+    }
     if (userForm.password.trim()) {
       payload.password = userForm.password.trim();
     }
@@ -2553,7 +2559,28 @@ export default function SettingsPage() {
           prev.map((u) => (u.id === editingUser.id ? updated : u))
         );
       } else {
-        const created = await createPosUser(payload, token);
+        const createPayload: {
+          name: string;
+          email: string;
+          role: PosUserRecord["role"];
+          phone?: string;
+          position?: string;
+          notes?: string;
+          password?: string;
+          pin_plain?: string;
+          create_hr_profile?: boolean;
+        } = {
+          name: payload.name,
+          email: payload.email,
+          role: payload.role,
+          create_hr_profile: payload.create_hr_profile,
+        };
+        if (typeof payload.phone === "string" && payload.phone.trim()) createPayload.phone = payload.phone;
+        if (typeof payload.position === "string" && payload.position.trim()) createPayload.position = payload.position;
+        if (typeof payload.notes === "string" && payload.notes.trim()) createPayload.notes = payload.notes;
+        if (payload.password) createPayload.password = payload.password;
+        if (payload.pin_plain) createPayload.pin_plain = payload.pin_plain;
+        const created = await createPosUser(createPayload, token);
         setUsers((prev) => [created, ...prev]);
       }
       resetUserForm();

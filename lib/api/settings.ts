@@ -1157,10 +1157,10 @@ export async function createPosUser(input: {
 export async function updatePosUser(
   id: number,
   patch: Partial<
-    Pick<
-      PosUserRecord,
-      "role" | "status" | "name" | "email" | "phone" | "position" | "notes"
-    > & {
+    Pick<PosUserRecord, "role" | "status" | "name" | "email"> & {
+      phone?: string | null;
+      position?: string | null;
+      notes?: string | null;
       password?: string;
       pin_plain?: string;
     }
