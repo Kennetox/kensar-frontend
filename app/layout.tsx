@@ -5,6 +5,7 @@ import "./globals.css";
 import { Suspense } from "react";
 import { AuthProvider } from "./providers/AuthProvider";
 import { ThemePreviewer } from "./providers/ThemePreviewer";
+import { SystemStatusProvider } from "./providers/SystemStatusProvider";
 import CookieConsentBanner from "./components/CookieConsentBanner";
 import { COOKIE_CONSENT_COOKIE_NAME, parseCookieConsent } from "@/lib/cookieConsent";
 
@@ -79,6 +80,7 @@ export default async function RootLayout({
     <html lang="es">
       <body data-theme="dark" className="min-h-screen">
         <AuthProvider>
+          <SystemStatusProvider />
           <Suspense fallback={null}>
             <ThemePreviewer />
           </Suspense>
