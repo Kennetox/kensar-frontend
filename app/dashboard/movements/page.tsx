@@ -843,6 +843,14 @@ export default function MovementsPage() {
 
   const isRecountDocumentFocused = activeTab === "recounts" && recountView === "document";
   const recountCreationBlocked = openRecountDocs.length >= 2;
+  const openRecountDocsVisible = useMemo(
+    () => openRecountDocs.slice(0, CLOSED_DOCS_PANEL_LIMIT),
+    [openRecountDocs]
+  );
+  const closedRecountDocsVisible = useMemo(
+    () => closedRecountDocs.slice(0, CLOSED_DOCS_PANEL_LIMIT),
+    [closedRecountDocs]
+  );
 
   const closedDocsVisible = useMemo(
     () => closedDocsSorted.slice(0, CLOSED_DOCS_PANEL_LIMIT),
@@ -1763,9 +1771,16 @@ export default function MovementsPage() {
                     </td>
                   </tr>
                 ) : (
-                  inventoryItems.map((row, index) => {
+                  inventoryItems.map((row) => {
                     const status = resolveStatus(row);
-                    const rowBg = index % 2 === 0 ? "bg-white" : "bg-slate-100";
+                    const rowBg =
+                      status === "negative"
+                        ? "bg-rose-50/80"
+                        : status === "critical"
+                          ? "bg-amber-50/80"
+                          : status === "low"
+                            ? "bg-amber-50/60"
+                            : "bg-emerald-50/70";
                     return (
                       <tr key={row.product_id} className="group text-sm">
                         <td className={`${rowBg} px-3 py-3 transition-colors group-hover:bg-sky-50/60`}>
@@ -1968,7 +1983,7 @@ export default function MovementsPage() {
                       }
                     }}
                     disabled={openingFormKind !== null}
-                    className="mt-2 inline-flex rounded-md border border-slate-300 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-70"
+                    className="mt-2 inline-flex cursor-pointer rounded-md border border-slate-300 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-70"
                   >
                     {openingFormKind === kind.id ? "Abriendo..." : "Abrir formulario"}
                   </button>
@@ -2032,14 +2047,14 @@ export default function MovementsPage() {
                                     <>
                                       <button
                                         onClick={() => router.push(`/dashboard/movements/form/entrada_manual?lotId=${lot.id}`)}
-                                        className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                        className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                                       >
                                         Continuar
                                       </button>
                                       <button
                                         onClick={() => void handleCancelOpenReception(lot.id, lot.lot_number)}
                                         disabled={cancellingLotId === lot.id}
-                                        className="rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 disabled:opacity-50"
+                                        className="cursor-pointer rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                                       >
                                         {cancellingLotId === lot.id ? "Cancelando..." : "Cancelar"}
                                       </button>
@@ -2047,7 +2062,7 @@ export default function MovementsPage() {
                                   ) : (
                                     <button
                                       onClick={() => void openLotDetail(lot.id)}
-                                      className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                      className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                                     >
                                       Ver detalle
                                     </button>
@@ -2082,7 +2097,7 @@ export default function MovementsPage() {
                           <div className="ml-auto flex items-center justify-end gap-2">
                             <button
                               onClick={() => router.push(`/dashboard/movements/form/${entry.doc.kind}?docId=${entry.doc.id}`)}
-                              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                             >
                               Continuar
                             </button>
@@ -2096,7 +2111,7 @@ export default function MovementsPage() {
                                   showToast(err instanceof Error ? err.message : "No se pudo cancelar.");
                                 }
                               }}
-                              className="rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700"
+                              className="cursor-pointer rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700"
                             >
                               Cancelar
                             </button>
@@ -2147,7 +2162,7 @@ export default function MovementsPage() {
                           <div className="ml-auto flex items-center justify-end gap-2">
                             <button
                               onClick={() => void openLotDetail(entry.lot.id)}
-                              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                             >
                               Ver detalle
                             </button>
@@ -2176,7 +2191,7 @@ export default function MovementsPage() {
                           <div className="ml-auto flex items-center justify-end gap-2">
                             <button
                               onClick={() => void openManualDetail(entry.doc.id)}
-                              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                             >
                               Ver detalle
                             </button>
@@ -2653,10 +2668,10 @@ export default function MovementsPage() {
                       <p className="text-sm text-slate-500">Cargando recuentos...</p>
                     ) : recountDocsError ? (
                       <p className="text-sm text-rose-600">{recountDocsError}</p>
-                    ) : openRecountDocs.length === 0 ? (
+                    ) : openRecountDocsVisible.length === 0 ? (
                       <p className="text-sm text-slate-500">No hay recuentos abiertos.</p>
                     ) : (
-                      openRecountDocs.map((doc) => (
+                      openRecountDocsVisible.map((doc) => (
                         <div
                           key={doc.id}
                           className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2"
@@ -2737,10 +2752,10 @@ export default function MovementsPage() {
                       <p className="text-sm text-slate-500">Cargando recuentos...</p>
                     ) : recountDocsError ? (
                       <p className="text-sm text-rose-600">{recountDocsError}</p>
-                    ) : closedRecountDocs.length === 0 ? (
+                    ) : closedRecountDocsVisible.length === 0 ? (
                       <p className="text-sm text-slate-500">No hay recuentos cerrados recientes.</p>
                     ) : (
-                      closedRecountDocs.map((doc) => (
+                      closedRecountDocsVisible.map((doc) => (
                         <div
                           key={doc.id}
                           className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2"
@@ -2810,7 +2825,7 @@ export default function MovementsPage() {
             <div className="md:col-span-2 flex items-end gap-2">
               <button
                 onClick={() => setReceivingPage(1)}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                className="cursor-pointer rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
               >
                 Aplicar filtros
               </button>
@@ -2820,7 +2835,7 @@ export default function MovementsPage() {
                   setReceivingDateTo("");
                   setReceivingPage(1);
                 }}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                className="cursor-pointer rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
               >
                 Limpiar
               </button>
@@ -2860,14 +2875,14 @@ export default function MovementsPage() {
                       {row.support_file_name ? (
                         <button
                           onClick={() => handleDownloadSupport(row.id, row.lot_number)}
-                          className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                          className="cursor-pointer rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
                         >
                           Soporte
                         </button>
                       ) : null}
                       <button
                         onClick={() => openLotDetail(row.id)}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                        className="cursor-pointer rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
                       >
                         Ver
                       </button>
@@ -2882,7 +2897,7 @@ export default function MovementsPage() {
             <button
               onClick={() => setReceivingPage((prev) => Math.max(1, prev - 1))}
               disabled={receivingPage <= 1}
-              className="rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 disabled:opacity-40"
+              className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Anterior
             </button>
@@ -2892,7 +2907,7 @@ export default function MovementsPage() {
                 const pages = Math.max(1, Math.ceil(total / receivingLimit));
                 setReceivingPage((prev) => Math.min(pages, prev + 1));
               }}
-              className="rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 disabled:opacity-40"
+              className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Siguiente
             </button>
