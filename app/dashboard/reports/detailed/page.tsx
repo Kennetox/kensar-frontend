@@ -163,6 +163,13 @@ type FilterMeta = {
   methodFilter: string;
   sellerFilter: string;
   sourceFilter?: "all" | "metrik" | "aronium";
+  productsTopSort?: "value" | "units";
+  productsTopLimit?: number;
+  productsTopScope?: "global" | "category";
+  productsTopCategoryMode?: "group" | "subgroup";
+  productsTopCategoryKey?: string;
+  productsTopCategoryLabel?: string;
+  categorySalesMode?: "full" | "main";
   productReportMode?: "product" | "group";
   productReportProductId?: number | null;
   productReportProductName?: string;
@@ -214,12 +221,45 @@ const isValidFilterMeta = (value: unknown): value is FilterMeta => {
   const mode = meta.productReportMode;
   const modeValid =
     mode === undefined || mode === "product" || mode === "group";
+  const productsTopSortValid =
+    meta.productsTopSort === undefined ||
+    meta.productsTopSort === "value" ||
+    meta.productsTopSort === "units";
+  const productsTopScopeValid =
+    meta.productsTopScope === undefined ||
+    meta.productsTopScope === "global" ||
+    meta.productsTopScope === "category";
+  const productsTopCategoryModeValid =
+    meta.productsTopCategoryMode === undefined ||
+    meta.productsTopCategoryMode === "group" ||
+    meta.productsTopCategoryMode === "subgroup";
+  const productsTopLimitValid =
+    meta.productsTopLimit === undefined ||
+    (typeof meta.productsTopLimit === "number" &&
+      Number.isFinite(meta.productsTopLimit));
+  const productsTopCategoryKeyValid =
+    meta.productsTopCategoryKey === undefined ||
+    typeof meta.productsTopCategoryKey === "string";
+  const productsTopCategoryLabelValid =
+    meta.productsTopCategoryLabel === undefined ||
+    typeof meta.productsTopCategoryLabel === "string";
+  const categorySalesModeValid =
+    meta.categorySalesMode === undefined ||
+    meta.categorySalesMode === "full" ||
+    meta.categorySalesMode === "main";
   return (
     typeof meta.fromDate === "string" &&
     typeof meta.toDate === "string" &&
     typeof meta.posFilter === "string" &&
     typeof meta.methodFilter === "string" &&
     typeof meta.sellerFilter === "string" &&
+    productsTopSortValid &&
+    productsTopScopeValid &&
+    productsTopCategoryModeValid &&
+    productsTopLimitValid &&
+    productsTopCategoryKeyValid &&
+    productsTopCategoryLabelValid &&
+    categorySalesModeValid &&
     (meta.sourceFilter === undefined ||
       meta.sourceFilter === "all" ||
       meta.sourceFilter === "metrik" ||
@@ -517,6 +557,17 @@ const formatMoney = (value: number | undefined | null) => {
 
 const normalizeText = (value: string | null | undefined) =>
   value?.toLowerCase().trim() ?? "";
+
+const getLastGroupSegment = (value: string | null | undefined) => {
+  const raw = (value ?? "").trim();
+  if (!raw) return "—";
+  const compact = raw.replace(/\s*\/\s*/g, "/").replace(/\s*>\s*/g, ">");
+  const parts = compact
+    .split(/[\/>]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : raw;
+};
 
 const toNumber = (value: unknown): number => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -1915,6 +1966,7 @@ const dateTimeFormatter = (iso: string) =>
       };
     }
     case "category-sales": {
+      const categorySalesMode = filterMeta?.categorySalesMode ?? "full";
       const categoryMap = new Map<
         string,
         { total: number; units: number; tickets: Set<number> }
@@ -1934,17 +1986,39 @@ const dateTimeFormatter = (iso: string) =>
         const netItems = applyReturnsToSaleItems(sale, changedItems);
         const pricedItems = applyCartDiscountToItems(sale, netItems);
         pricedItems.forEach((item) => {
+          if (isFreeSaleItem(item)) return;
+          const skuKey = normalizeComparableText(item.product_sku ?? "");
+          const categoryFromCatalogById =
+            typeof item.product_id === "number"
+              ? productGroupById?.get(item.product_id)?.trim() ?? ""
+              : "";
+          const categoryFromCatalogBySku =
+            skuKey ? productGroupBySku?.get(skuKey)?.trim() ?? "" : "";
+          const categoryFromSale =
+            item.product_group?.trim() || item.product_category?.trim() || "";
           const category =
-            item.product_group?.trim() ||
-            item.product_category?.trim() ||
+            categoryFromCatalogById ||
+            categoryFromCatalogBySku ||
+            categoryFromSale ||
             "Sin categoría";
+          const normalizedPath = category
+            .replace(/\s*\/\s*/g, "/")
+            .replace(/\s*>\s*/g, "/");
+          const categoryParts = normalizedPath
+            .split("/")
+            .map((part) => part.trim())
+            .filter(Boolean);
+          const categoryKey =
+            categorySalesMode === "main"
+              ? categoryParts[0] || "Sin categoría"
+              : category;
           const quantity = Math.max(0, Number(item.quantity ?? 0));
           const unitPrice = Math.max(0, Number(item.unit_price ?? 0));
           const lineTotal = unitPrice * quantity;
-          if (!categoryMap.has(category)) {
-            categoryMap.set(category, { total: 0, units: 0, tickets: new Set() });
+          if (!categoryMap.has(categoryKey)) {
+            categoryMap.set(categoryKey, { total: 0, units: 0, tickets: new Set() });
           }
-          const entry = categoryMap.get(category)!;
+          const entry = categoryMap.get(categoryKey)!;
           entry.total += lineTotal;
           entry.units += quantity;
           entry.tickets.add(sale.id);
@@ -1995,6 +2069,10 @@ const dateTimeFormatter = (iso: string) =>
           emptyMessage:
             "No hay productos categorizados para el rango seleccionado.",
         },
+        note:
+          categorySalesMode === "main"
+            ? "Agrupado por categoría principal."
+            : "Agrupado por categoría completa (grupo/subgrupo).",
         surchargeTotal: totalSurcharge,
       };
     }
@@ -2386,9 +2464,24 @@ const dateTimeFormatter = (iso: string) =>
       };
     }
     case "products-top": {
+      const productsTopSort = filterMeta?.productsTopSort ?? "value";
+      const productsTopScope = filterMeta?.productsTopScope ?? "global";
+      const productsTopCategoryMode =
+        filterMeta?.productsTopCategoryMode ?? "group";
+      const productsTopCategoryKey = normalizeComparableText(
+        filterMeta?.productsTopCategoryKey
+      );
+      const productsTopCategoryLabel =
+        filterMeta?.productsTopCategoryLabel?.trim() ?? "";
+      const requestedTopLimit = Number(filterMeta?.productsTopLimit ?? 50);
+      const productsTopLimit = Math.min(
+        100,
+        Math.max(1, Number.isFinite(requestedTopLimit) ? requestedTopLimit : 50)
+      );
       const productMap = new Map<
         string,
         {
+          name: string;
           sku?: string | null;
           group?: string | null;
           total: number;
@@ -2398,11 +2491,32 @@ const dateTimeFormatter = (iso: string) =>
       >();
       sales.forEach((sale) => {
         sale.items?.forEach((item) => {
-          const key = item.product_name ?? item.name ?? "Sin nombre";
+          if (isFreeSaleItem(item)) return;
+          const productName = item.product_name ?? item.name ?? "Sin nombre";
+          const skuRaw = (item.product_sku ?? "").trim();
+          const skuKey = normalizeComparableText(item.product_sku ?? "");
+          const key =
+            typeof item.product_id === "number"
+              ? `id:${item.product_id}`
+              : skuRaw
+              ? `sku:${skuKey}`
+              : `name:${normalizeComparableText(productName)}`;
+          const groupFromSale = item.product_group ?? item.product_category ?? null;
+          const groupFromId =
+            typeof item.product_id === "number"
+              ? productGroupById?.get(item.product_id) ?? null
+              : null;
+          const groupFromSku =
+            skuKey.length > 0 ? productGroupBySku?.get(skuKey) ?? null : null;
+          // Priorizamos el catálogo maestro (id/sku) sobre el dato embebido en la venta.
+          // Esto evita clasificaciones inconsistentes cuando la fuente legacy trae grupo distinto.
+          const groupFromCatalog = groupFromId ?? groupFromSku;
+          const resolvedGroup = groupFromCatalog ?? groupFromSale;
           if (!productMap.has(key)) {
             productMap.set(key, {
+              name: productName,
               sku: item.product_sku ?? null,
-              group: item.product_group ?? item.product_category ?? null,
+              group: resolvedGroup,
               total: 0,
               units: 0,
               last: sale.created_at,
@@ -2412,38 +2526,90 @@ const dateTimeFormatter = (iso: string) =>
           entry.total += (item.unit_price ?? 0) * (item.quantity ?? 0);
           entry.units += item.quantity ?? 0;
           if (!entry.sku && item.product_sku) entry.sku = item.product_sku;
-          if (!entry.group && (item.product_group || item.product_category)) {
-            entry.group = item.product_group ?? item.product_category ?? null;
+          if (groupFromCatalog) {
+            entry.group = groupFromCatalog;
+          } else if (!entry.group && resolvedGroup) {
+            entry.group = resolvedGroup;
           }
           if (sale.created_at > entry.last) entry.last = sale.created_at;
         });
       });
-      const entriesArray = Array.from(productMap.entries());
-      const rows = entriesArray
-        .sort((a, b) => b[1].total - a[1].total)
-        .map(([name, entry]) => [
-          entry.sku ?? "—",
-          name,
-          entry.group ?? "—",
-          entry.units.toString(),
-          formatMoney(entry.total),
-          dateTimeFormatter(entry.last),
-        ]);
-      const totalUnits = entriesArray.reduce(
-        (sum, [, entry]) => sum + entry.units,
+      const entriesArray = Array.from(productMap.values());
+      const compareTopEntries = (
+        left: { name: string; sku?: string | null; group?: string | null; total: number; units: number; last: string },
+        right: { name: string; sku?: string | null; group?: string | null; total: number; units: number; last: string }
+      ) => {
+        if (productsTopSort === "units") {
+          if (right.units !== left.units) return right.units - left.units;
+          return right.total - left.total;
+        }
+        if (right.total !== left.total) return right.total - left.total;
+        return right.units - left.units;
+      };
+
+      const toGroupSegment = (groupRaw: string | null | undefined) => {
+        const normalized = (groupRaw ?? "").trim();
+        if (!normalized) return "Sin grupo";
+        const compact = normalized.replace(/\s*\/\s*/g, "/").replace(/\s*>\s*/g, ">");
+        const parts = compact
+          .split(/[\/>]/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        if (!parts.length) return normalized;
+        return productsTopCategoryMode === "subgroup" ? parts[parts.length - 1] : parts[0];
+      };
+      const toNormalizedSubgroupPath = (groupRaw: string | null | undefined) => {
+        const raw = (groupRaw ?? "").trim();
+        if (!raw) return "";
+        const normalized = raw.replace(/\s*\/\s*/g, "/").replace(/\s*>\s*/g, "/");
+        return normalizeComparableText(normalized);
+      };
+
+      const selectedEntries =
+        productsTopScope === "category"
+          ? (() => {
+              const filteredByCategory = entriesArray.filter((entryTuple) => {
+                if (!productsTopCategoryKey) return true;
+                if (productsTopCategoryMode === "subgroup") {
+                  return (
+                    toNormalizedSubgroupPath(entryTuple.group) ===
+                    productsTopCategoryKey
+                  );
+                }
+                return (
+                  normalizeComparableText(toGroupSegment(entryTuple.group)) ===
+                  productsTopCategoryKey
+                );
+              });
+              const sorted = filteredByCategory.sort(compareTopEntries);
+              return sorted.slice(0, productsTopLimit);
+            })()
+          : entriesArray.sort(compareTopEntries).slice(0, productsTopLimit);
+
+      const rows = selectedEntries.map((entry) => [
+        entry.sku ?? "—",
+        entry.name,
+        getLastGroupSegment(entry.group),
+        entry.units.toString(),
+        formatMoney(entry.total),
+        dateTimeFormatter(entry.last),
+      ]);
+      const rankingUnits = selectedEntries.reduce(
+        (sum, entry) => sum + entry.units,
         0
       );
-      const totalProductsValue = entriesArray.reduce(
-        (sum, [, entry]) => sum + entry.total,
+      const rankingValue = selectedEntries.reduce(
+        (sum, entry) => sum + entry.total,
         0
       );
       return {
         summary: [
-          { label: "Productos únicos", value: productMap.size.toString() },
-          { label: "Unidades vendidas", value: totalUnits.toString() },
+          { label: "Productos únicos", value: selectedEntries.length.toString() },
+          { label: "Filas en ranking", value: rows.length.toString() },
+          { label: "Unidades vendidas", value: rankingUnits.toString() },
           {
             label: "Valor generado",
-            value: formatMoney(totalProductsValue),
+            value: formatMoney(rankingValue),
           },
         ],
         table: {
@@ -2459,6 +2625,20 @@ const dateTimeFormatter = (iso: string) =>
           emptyMessage:
             "Aún no tenemos ventas asociadas a productos en este periodo.",
         },
+        note:
+          [
+            productsTopSort === "units"
+              ? "Ordenado por unidades vendidas."
+              : "Ordenado por valor vendido.",
+            productsTopScope === "category"
+              ? `Top ${productsTopLimit} para ${
+                  productsTopCategoryLabel ||
+                  (productsTopCategoryMode === "subgroup"
+                    ? "subcategoría / subgrupo"
+                    : "grupo / categoría")
+                } (${productsTopCategoryMode === "subgroup" ? "subgrupo final" : "grupo principal"}).`
+              : `Top ${productsTopLimit} global.`,
+          ].join(" "),
         surchargeTotal: totalSurcharge,
       };
     }
@@ -3507,6 +3687,22 @@ export default function ReportsPage() {
   const [productReportDateError, setProductReportDateError] = useState<string | null>(
     null
   );
+  const [productsTopSortModalOpen, setProductsTopSortModalOpen] = useState(false);
+  const [productsTopSortChoice, setProductsTopSortChoice] = useState<"value" | "units">("value");
+  const [productsTopLimitChoice, setProductsTopLimitChoice] = useState<10 | 20 | 50 | 100>(
+    50
+  );
+  const [productsTopScopeChoice, setProductsTopScopeChoice] = useState<
+    "global" | "category"
+  >("global");
+  const [productsTopCategoryModeChoice, setProductsTopCategoryModeChoice] = useState<
+    "group" | "subgroup"
+  >("group");
+  const [productsTopCategoryKeyChoice, setProductsTopCategoryKeyChoice] = useState("");
+  const [categorySalesModalOpen, setCategorySalesModalOpen] = useState(false);
+  const [categorySalesModeChoice, setCategorySalesModeChoice] = useState<
+    "full" | "main"
+  >("full");
   const [productQuery, setProductQuery] = useState("");
   const [productOptions, setProductOptions] = useState<ProductSearchOption[]>([]);
   const [productSearchResults, setProductSearchResults] = useState<ProductSearchOption[]>(
@@ -3545,6 +3741,40 @@ export default function ReportsPage() {
       a.path.localeCompare(b.path, "es", { sensitivity: "base" })
     );
   }, [groupOptions, productOptions]);
+  const productsTopCategoryOptions = useMemo(() => {
+    const uniqueRoots = new Map<string, string>();
+    mergedGroupOptions.forEach((group) => {
+      const path = (group.path ?? "").trim();
+      if (!path) return;
+      const normalized = path.replace(/\s*\/\s*/g, "/").replace(/\s*>\s*/g, "/");
+      const parts = normalized
+        .split("/")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (!parts.length) return;
+      const root = parts[0];
+      const rootKey = normalizeComparableText(root);
+      if (!rootKey || uniqueRoots.has(rootKey)) return;
+      uniqueRoots.set(rootKey, root);
+    });
+    return Array.from(uniqueRoots.entries())
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
+  }, [mergedGroupOptions]);
+  const productsTopSubcategoryOptions = useMemo(() => {
+    const uniquePaths = new Map<string, string>();
+    mergedGroupOptions.forEach((group) => {
+      const path = (group.path ?? "").trim();
+      if (!path) return;
+      const normalized = path.replace(/\s*\/\s*/g, "/").replace(/\s*>\s*/g, "/");
+      const key = normalizeComparableText(normalized);
+      if (!key || uniquePaths.has(key)) return;
+      uniquePaths.set(key, normalized);
+    });
+    return Array.from(uniquePaths.entries())
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
+  }, [mergedGroupOptions]);
   const paymentOptions = useMemo(
     () =>
       [...catalog]
@@ -4286,7 +4516,7 @@ export default function ReportsPage() {
   }, [canViewPosSettings, token]);
 
   const loadProductLookupData = useCallback(async () => {
-    if (!authHeaders) return;
+    if (!authHeaders) return null;
     try {
       setProductLookupLoading(true);
       setProductLookupError(null);
@@ -4374,11 +4604,13 @@ export default function ReportsPage() {
       ]);
       setProductOptions(products);
       setGroupOptions(groups);
+      return { products, groups };
     } catch (err) {
       console.error("No se pudo cargar catálogo para reporte de productos", err);
       setProductLookupError(
         err instanceof Error ? err.message : "No se pudo cargar catálogo."
       );
+      return null;
     } finally {
       setProductLookupLoading(false);
     }
@@ -4482,10 +4714,210 @@ export default function ReportsPage() {
       openProductTargetModal();
       return;
     }
+    if (currentPreset.id === "products-top") {
+      if (!productOptions.length || !groupOptions.length) {
+        void loadProductLookupData();
+      }
+      setProductsTopSortChoice(filterMeta.productsTopSort ?? "value");
+      const currentLimit = filterMeta.productsTopLimit;
+      setProductsTopLimitChoice(
+        currentLimit === 10 || currentLimit === 20 || currentLimit === 50 || currentLimit === 100
+          ? currentLimit
+          : 50
+      );
+      setProductsTopScopeChoice(filterMeta.productsTopScope ?? "global");
+      setProductsTopCategoryModeChoice(
+        filterMeta.productsTopCategoryMode ?? "group"
+      );
+      setProductsTopCategoryKeyChoice(filterMeta.productsTopCategoryKey ?? "");
+      setProductsTopSortModalOpen(true);
+      return;
+    }
+    if (currentPreset.id === "category-sales") {
+      setCategorySalesModeChoice(filterMeta.categorySalesMode ?? "full");
+      setCategorySalesModalOpen(true);
+      return;
+    }
     const loaded = await ensureSalesLoaded();
     if (!loaded) return;
     createReportTab(currentPreset);
-  }, [currentPreset, ensureSalesLoaded, createReportTab, openProductTargetModal]);
+  }, [
+    currentPreset,
+    ensureSalesLoaded,
+    createReportTab,
+    openProductTargetModal,
+    productOptions.length,
+    groupOptions.length,
+    loadProductLookupData,
+    productOptions,
+    groupOptions,
+    filterMeta,
+    resolveMethodLabel,
+    productGroupById,
+    productGroupBySku,
+    filterMeta.productsTopSort,
+    filterMeta.productsTopLimit,
+    filterMeta.productsTopScope,
+    filterMeta.productsTopCategoryMode,
+    filterMeta.productsTopCategoryKey,
+    filterMeta.categorySalesMode,
+  ]);
+
+  const confirmOpenCategorySalesReport = useCallback(async () => {
+    const preset = REPORT_PRESETS.find((item) => item.id === "category-sales");
+    if (!preset) return;
+    const loaded = await ensureSalesLoaded();
+    if (!loaded) return;
+
+    const lookup =
+      productOptions.length > 0 || groupOptions.length > 0
+        ? { products: productOptions, groups: groupOptions }
+        : await loadProductLookupData();
+
+    const resolvedGroupById = new Map<number, string>();
+    const resolvedGroupBySku = new Map<string, string>();
+    if (lookup) {
+      lookup.products.forEach((product) => {
+        const groupName = (product.groupName ?? "").trim();
+        if (groupName && typeof product.id === "number") {
+          resolvedGroupById.set(product.id, groupName);
+        }
+        const skuKey = normalizeComparableText(product.sku ?? "");
+        if (groupName && skuKey) {
+          resolvedGroupBySku.set(skuKey, groupName);
+        }
+      });
+    }
+
+    const customMeta: Partial<FilterMeta> = {
+      categorySalesMode: categorySalesModeChoice,
+    };
+    const tabFilterMeta = { ...filterMeta, ...customMeta };
+    const scopedSales = filterSalesByMeta(salesDataRef.current, tabFilterMeta);
+    const resultSnapshot = buildReportResult(
+      preset.id,
+      scopedSales,
+      resolveMethodLabel,
+      changesDataRef.current,
+      tabFilterMeta,
+      resolvedGroupById.size > 0 ? resolvedGroupById : productGroupById,
+      resolvedGroupBySku.size > 0 ? resolvedGroupBySku : productGroupBySku
+    );
+
+    createReportTab(preset, customMeta, resultSnapshot);
+    setCategorySalesModalOpen(false);
+  }, [
+    ensureSalesLoaded,
+    productOptions,
+    groupOptions,
+    loadProductLookupData,
+    categorySalesModeChoice,
+    filterMeta,
+    resolveMethodLabel,
+    productGroupById,
+    productGroupBySku,
+    createReportTab,
+  ]);
+
+  const confirmOpenProductsTopReport = useCallback(async () => {
+    const preset = REPORT_PRESETS.find((item) => item.id === "products-top");
+    if (!preset) return;
+    const loaded = await ensureSalesLoaded();
+    if (!loaded) return;
+
+    const lookup =
+      productOptions.length > 0 || groupOptions.length > 0
+        ? { products: productOptions, groups: groupOptions }
+        : await loadProductLookupData();
+
+    const resolvedGroupById = new Map<number, string>();
+    const resolvedGroupBySku = new Map<string, string>();
+    if (lookup) {
+      lookup.products.forEach((product) => {
+        const groupName = (product.groupName ?? "").trim();
+        if (groupName && typeof product.id === "number") {
+          resolvedGroupById.set(product.id, groupName);
+        }
+        const skuKey = normalizeComparableText(product.sku ?? "");
+        if (groupName && skuKey) {
+          resolvedGroupBySku.set(skuKey, groupName);
+        }
+      });
+    }
+
+    const tabFilterMeta = {
+      ...filterMeta,
+      productsTopSort: productsTopSortChoice,
+      productsTopLimit: productsTopLimitChoice,
+      productsTopScope: productsTopScopeChoice,
+      productsTopCategoryMode: productsTopCategoryModeChoice,
+      productsTopCategoryKey:
+        productsTopScopeChoice === "category" ? productsTopCategoryKeyChoice : undefined,
+      productsTopCategoryLabel:
+        productsTopScopeChoice === "category"
+          ? productsTopCategoryModeChoice === "subgroup"
+            ? productsTopSubcategoryOptions.find(
+                (option) => option.key === productsTopCategoryKeyChoice
+              )?.label ?? ""
+            : productsTopCategoryOptions.find(
+                (option) => option.key === productsTopCategoryKeyChoice
+              )?.label ?? ""
+          : undefined,
+    };
+    const scopedSales = filterSalesByMeta(salesDataRef.current, tabFilterMeta);
+    const resultSnapshot = buildReportResult(
+      preset.id,
+      scopedSales,
+      resolveMethodLabel,
+      changesDataRef.current,
+      tabFilterMeta,
+      resolvedGroupById.size > 0 ? resolvedGroupById : productGroupById,
+      resolvedGroupBySku.size > 0 ? resolvedGroupBySku : productGroupBySku
+    );
+
+    createReportTab(
+      preset,
+      {
+        productsTopSort: productsTopSortChoice,
+        productsTopLimit: productsTopLimitChoice,
+        productsTopScope: productsTopScopeChoice,
+        productsTopCategoryMode: productsTopCategoryModeChoice,
+        productsTopCategoryKey:
+          productsTopScopeChoice === "category"
+            ? productsTopCategoryKeyChoice
+            : undefined,
+        productsTopCategoryLabel:
+          productsTopScopeChoice === "category"
+            ? productsTopCategoryModeChoice === "subgroup"
+              ? productsTopSubcategoryOptions.find(
+                  (option) => option.key === productsTopCategoryKeyChoice
+                )?.label ?? ""
+              : productsTopCategoryOptions.find(
+                  (option) => option.key === productsTopCategoryKeyChoice
+                )?.label ?? ""
+            : undefined,
+      },
+      resultSnapshot
+    );
+    setProductsTopSortModalOpen(false);
+  }, [
+    createReportTab,
+    ensureSalesLoaded,
+    productsTopSortChoice,
+    productsTopLimitChoice,
+    productsTopScopeChoice,
+    productsTopCategoryModeChoice,
+    productsTopCategoryKeyChoice,
+    productsTopCategoryOptions,
+    productsTopSubcategoryOptions,
+    productOptions,
+    groupOptions,
+    loadProductLookupData,
+    filterMeta,
+    resolveMethodLabel,
+    productGroupById,
+    productGroupBySku,
+  ]);
 
   const handleOpenPreset = useCallback(
     (preset: ReportPreset) => {
@@ -4813,7 +5245,7 @@ export default function ReportsPage() {
       return (
         <li
           key={preset.id}
-          className={`px-4 py-3 flex items-start gap-3 cursor-pointer transition-colors ${
+          className={`px-4 py-3 flex items-start gap-3 cursor-pointer transition-colors snap-start last:pb-4 ${
             isFavoriteVariant
               ? isActive
                 ? "bg-amber-200/55"
@@ -4823,7 +5255,6 @@ export default function ReportsPage() {
               : "hover:bg-slate-900"
           }`}
           onClick={() => handleSelectPreset(preset.id)}
-          onDoubleClick={() => handleOpenPreset(preset)}
         >
           <div className="flex-1 min-w-0">
             <p
@@ -4894,6 +5325,9 @@ export default function ReportsPage() {
   );
   const activeReportSnapshot = useMemo(() => {
     if (!activeReportTab?.resultSnapshot) return null;
+    if (activeReportTab.presetId === "products-top") {
+      return null;
+    }
     if (!activeReportTab.snapshotSavedAt) return activeReportTab.resultSnapshot;
     const savedAt = Date.parse(activeReportTab.snapshotSavedAt);
     if (!Number.isFinite(savedAt)) return activeReportTab.resultSnapshot;
@@ -4924,28 +5358,6 @@ export default function ReportsPage() {
             >
               Volver al centro ejecutivo
             </Link>
-                {(
-                  [
-                    { id: "today", label: "Hoy" },
-                    { id: "yesterday", label: "Ayer" },
-                    { id: "week", label: "Últimos 7 días" },
-                    { id: "month", label: "Este mes" },
-                    { id: "previous_month", label: "Mes anterior" },
-                    { id: "year", label: "Este año" },
-                  ] as { id: QuickRange; label: string }[]
-                ).map((quick) => (
-              <button
-                key={quick.id}
-                onClick={() => handleQuickRange(quick.id)}
-                className={`px-3 py-1.5 rounded-full border text-xs ${
-                  range === quick.id
-                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
-                    : "border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-400/50"
-                }`}
-              >
-                {quick.label}
-              </button>
-            ))}
           </div>
         </header>
 
@@ -5025,14 +5437,14 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              <div className="space-y-4 max-h-[620px] overflow-auto pr-1">
+              <div className="space-y-4 max-h-[620px] overflow-y-auto pr-1 pb-3 snap-y snap-mandatory">
                 {favoritePresets.length > 0 && (
-                  <div className="rounded-2xl border border-amber-400/80 bg-gradient-to-br from-amber-100 via-amber-50 to-white shadow-[0_0_0_1px_rgba(245,158,11,0.35)]">
+                  <div className="rounded-2xl border border-amber-400/80 bg-gradient-to-br from-amber-100 via-amber-50 to-white shadow-[0_10px_24px_-18px_rgba(180,83,9,0.55)] overflow-hidden">
                     <div className="px-4 py-2 border-b border-amber-300/70 text-xs uppercase tracking-wide text-amber-800 font-bold flex items-center justify-between">
                       <span>Favoritos</span>
                       <span>{favoritePresets.length}</span>
                     </div>
-                    <ul className="divide-y divide-amber-300/60 text-sm">
+                    <ul className="divide-y divide-amber-300/60 text-sm border-b border-amber-300/60 bg-amber-50/50">
                       {favoritePresets.map((preset) =>
                         renderPresetRow(preset, "favorite")
                       )}
@@ -5042,12 +5454,12 @@ export default function ReportsPage() {
                 {Object.entries(groupedPresets).map(([scope, presets]) => (
                   <div
                     key={scope}
-                    className="rounded-2xl border border-slate-800 bg-slate-900/70"
+                    className="rounded-2xl border border-slate-700/80 bg-slate-900/85 overflow-hidden shadow-[0_12px_24px_-18px_rgba(2,6,23,0.8)]"
                   >
                     <div className="px-4 py-2 border-b border-slate-800 text-xs uppercase tracking-wide text-slate-400">
                       {scope}
                     </div>
-                    <ul className="divide-y divide-slate-800 text-sm">
+                    <ul className="divide-y divide-slate-800 text-sm border-b border-slate-700/80 bg-slate-950/25">
                       {presets.map((preset) => renderPresetRow(preset))}
                     </ul>
                   </div>
@@ -5058,33 +5470,29 @@ export default function ReportsPage() {
             {/* Columna derecha: filtros + resumen */}
             <section className="space-y-4">
               <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 md:p-6 space-y-5 backdrop-blur supports-[backdrop-filter]:bg-slate-950/55 shadow-lg sticky top-[4.5rem]">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
-                      Filtros del informe
-                    </p>
-                    <h3 className="text-base font-semibold text-slate-50">
-                      Rango y alcance
-                    </h3>
-                  </div>
-                  {currentPreset && (
-                    <span className="text-[11px] text-slate-400 text-right">
+                <div className="space-y-2">
+                  <p className="text-[11px] font-medium text-slate-400">
+                    Filtros del informe
+                  </p>
+                  <h3 className="text-lg font-semibold text-slate-50">
+                    Rango y alcance
+                  </h3>
+                  {currentPreset ? (
+                    <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-300">
                       Informe seleccionado:{" "}
-                      <strong className="text-slate-100">
-                        {currentPreset.title}
-                      </strong>
-                    </span>
-                  )}
+                      <strong className="text-slate-100">{currentPreset.title}</strong>
+                    </div>
+                  ) : null}
                 </div>
 
-                <div className="grid gap-4 text-sm md:grid-cols-2">
+                <div className="space-y-4 text-sm">
                   <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    <p className="text-[11px] font-medium text-slate-500">
                       Fechas
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                        <span className="text-[11px] font-medium text-slate-400">
                           Desde
                         </span>
                         <input
@@ -5105,7 +5513,7 @@ export default function ReportsPage() {
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                        <span className="text-[11px] font-medium text-slate-400">
                           Hasta
                         </span>
                         <input
@@ -5126,7 +5534,7 @@ export default function ReportsPage() {
                         />
                       </label>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5">
                       {(
                         [
                           { id: "today", label: "Hoy" },
@@ -5140,7 +5548,7 @@ export default function ReportsPage() {
                         <button
                           key={quick.id}
                           onClick={() => handleQuickRange(quick.id)}
-                          className={`px-3 py-1.5 rounded-full border text-xs transition ${
+                          className={`px-3 py-1 rounded-full border text-xs transition ${
                             range === quick.id
                               ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
                               : "border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-400/50"
@@ -5153,12 +5561,12 @@ export default function ReportsPage() {
                   </div>
 
                   <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    <p className="text-[11px] font-medium text-slate-500">
                       Alcance
                     </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3">
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                        <span className="text-[11px] font-medium text-slate-400">
                           POS
                         </span>
                         <select
@@ -5173,7 +5581,7 @@ export default function ReportsPage() {
                         </select>
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                        <span className="text-[11px] font-medium text-slate-400">
                           Método de pago
                         </span>
                         <select
@@ -5190,7 +5598,7 @@ export default function ReportsPage() {
                         </select>
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs text-slate-400 uppercase tracking-wide">
+                        <span className="text-[11px] font-medium text-slate-400">
                           Fuente
                         </span>
                         <select
@@ -5207,7 +5615,7 @@ export default function ReportsPage() {
                       </label>
                     </div>
                     <label className="flex flex-col gap-1 text-sm">
-                      <span className="text-xs text-slate-400 uppercase tracking-wide">
+                      <span className="text-[11px] font-medium text-slate-400">
                         Vendedor / responsable
                       </span>
                       <input
@@ -5233,9 +5641,12 @@ export default function ReportsPage() {
                       !!salesError
                     }
                   >
-                    {salesLoading
-                      ? "Cargando ventas…"
-                      : !currentPreset
+                    {salesLoading ? (
+                      <span className="inline-flex items-center justify-center gap-2">
+                        Generando reporte…
+                        <LoadingSpinner size={16} className="!gap-0" />
+                      </span>
+                    ) : !currentPreset
                       ? "Selecciona un informe en la lista"
                       : !canViewReportDataset
                       ? "Sin acceso a datos operativos"
@@ -5273,63 +5684,6 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              {/* Resumen rápido con filtros actuales */}
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 space-y-3 text-sm">
-                <p className="text-xs text-slate-400 uppercase tracking-wide">
-                  Resumen rápido del periodo
-                </p>
-                {!summaryRequested ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs text-slate-500">
-                      Carga este bloque solo cuando lo necesites.
-                    </p>
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 rounded-md border border-slate-700 text-xs text-slate-200 hover:border-emerald-400/80 bg-slate-950/70 transition"
-                      onClick={() => {
-                        setSummaryRequested(true);
-                        void ensureSalesLoaded();
-                      }}
-                      disabled={salesLoading || !canViewReportDataset}
-                    >
-                      Cargar resumen
-                    </button>
-                  </div>
-                ) : salesLoading ? (
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {Array.from({ length: 3 }).map((_, idx) => (
-                      <div
-                        key={`summary-skeleton-${idx}`}
-                        className="rounded-lg border border-slate-800/60 bg-slate-950/60 px-3 py-2 animate-pulse"
-                      >
-                        <div className="h-3 w-16 rounded bg-slate-800/70" />
-                        <div className="mt-2 h-6 w-24 rounded bg-slate-800/70" />
-                      </div>
-                    ))}
-                  </div>
-                ) : globalPreviewResult ? (
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {globalPreviewResult.summary.map((item) => (
-                      <div
-                        key={item.label}
-                        className="rounded-lg border border-slate-800/60 bg-slate-950/60 px-3 py-2"
-                      >
-                        <p className="text-[11px] uppercase tracking-wide text-slate-500">
-                          {item.label}
-                        </p>
-                        <p className="text-lg font-semibold text-slate-100">
-                          {item.value}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500">
-                    Ajusta las fechas y filtros para ver un resumen de ventas
-                    rápidas del periodo.
-                  </p>
-                )}
-              </div>
             </section>
           </div>
         )}
@@ -5670,6 +6024,254 @@ export default function ReportsPage() {
                 <LoadingSpinner size={56} label="Generando reporte..." />
               </div>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+      {productsTopSortModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-950 p-6 text-slate-100 shadow-2xl">
+            <h3 className="text-lg font-semibold">Top productos vendidos</h3>
+            <p className="mt-1 text-sm text-slate-300">
+              Configura cómo quieres construir el ranking antes de generar el reporte.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setProductsTopSortChoice("value")}
+                className={`rounded-xl border px-4 py-3 text-left transition ${
+                  productsTopSortChoice === "value"
+                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                    : "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-500"
+                }`}
+              >
+                <p className="text-sm font-semibold">Por valor vendido</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Ordena del mayor al menor por total en dinero.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductsTopSortChoice("units")}
+                className={`rounded-xl border px-4 py-3 text-left transition ${
+                  productsTopSortChoice === "units"
+                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                    : "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-500"
+                }`}
+              >
+                <p className="text-sm font-semibold">Por cantidad vendida</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Ordena del mayor al menor por unidades vendidas.
+                </p>
+              </button>
+            </div>
+            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+              <p className="text-xs uppercase tracking-wide text-slate-400">Límite del ranking</p>
+              <div className="flex flex-wrap gap-2">
+                {([10, 20, 50, 100] as const).map((limit) => (
+                  <button
+                    key={limit}
+                    type="button"
+                    onClick={() => setProductsTopLimitChoice(limit)}
+                    className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                      productsTopLimitChoice === limit
+                        ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                        : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500"
+                    }`}
+                  >
+                    Top {limit}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
+              <p className="text-xs uppercase tracking-wide text-slate-400">Alcance del análisis</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProductsTopScopeChoice("global");
+                    setProductsTopCategoryKeyChoice("");
+                  }}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                    productsTopScopeChoice === "global"
+                      ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                      : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500"
+                  }`}
+                >
+                  Top global
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductsTopScopeChoice("category")}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                    productsTopScopeChoice === "category"
+                      ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                      : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500"
+                  }`}
+                >
+                  Top por categoría
+                </button>
+              </div>
+              {productsTopScopeChoice === "category" ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductsTopCategoryModeChoice("group");
+                      setProductsTopCategoryKeyChoice("");
+                    }}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                      productsTopCategoryModeChoice === "group"
+                        ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                        : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500"
+                    }`}
+                  >
+                    Grupo / categoría principal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductsTopCategoryModeChoice("subgroup");
+                      setProductsTopCategoryKeyChoice("");
+                    }}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                      productsTopCategoryModeChoice === "subgroup"
+                        ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                        : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500"
+                    }`}
+                  >
+                    Subcategoría / subgrupo final
+                  </button>
+                </div>
+              ) : null}
+              {productsTopScopeChoice === "category" ? (
+                <label className="mt-1 flex flex-col gap-1 text-sm">
+                  <span className="text-xs uppercase tracking-wide text-slate-400">
+                    {productsTopCategoryModeChoice === "subgroup"
+                      ? "Subcategoría / subgrupo"
+                      : "Grupo / categoría"}
+                  </span>
+                  <select
+                    value={productsTopCategoryKeyChoice}
+                    onChange={(event) =>
+                      setProductsTopCategoryKeyChoice(event.target.value)
+                    }
+                    className="rounded-lg border border-slate-700/70 bg-slate-900 px-3 py-2 text-slate-100"
+                  >
+                    <option value="">
+                      {productsTopCategoryModeChoice === "subgroup"
+                        ? "Selecciona una subcategoría"
+                        : "Selecciona una categoría"}
+                    </option>
+                    {(productsTopCategoryModeChoice === "subgroup"
+                      ? productsTopSubcategoryOptions
+                      : productsTopCategoryOptions
+                    ).map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setProductsTopSortModalOpen(false)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void confirmOpenProductsTopReport();
+                }}
+                disabled={
+                  salesLoading ||
+                  productLookupLoading ||
+                  (productsTopScopeChoice === "category" &&
+                    !productsTopCategoryKeyChoice)
+                }
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {salesLoading ? (
+                  <>
+                    Generando...
+                    <LoadingSpinner size={16} className="!gap-0" />
+                  </>
+                ) : (
+                  "Generar reporte"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {categorySalesModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-950 p-6 text-slate-100 shadow-2xl">
+            <h3 className="text-lg font-semibold">Ventas por categoría</h3>
+            <p className="mt-1 text-sm text-slate-300">
+              Elige cómo quieres agrupar la categoría antes de generar el reporte.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setCategorySalesModeChoice("full")}
+                className={`rounded-xl border px-4 py-3 text-left transition ${
+                  categorySalesModeChoice === "full"
+                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                    : "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-500"
+                }`}
+              >
+                <p className="text-sm font-semibold">Categorías completas</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Incluye categoría y subcategoría (ej. Sonido/Cabinas).
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCategorySalesModeChoice("main")}
+                className={`rounded-xl border px-4 py-3 text-left transition ${
+                  categorySalesModeChoice === "main"
+                    ? "border-emerald-400 bg-emerald-500/10 text-emerald-100"
+                    : "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-500"
+                }`}
+              >
+                <p className="text-sm font-semibold">Solo categoría principal</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Agrupa por la raíz (ej. Sonido, Cables, Miscelanea).
+                </p>
+              </button>
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCategorySalesModalOpen(false)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void confirmOpenCategorySalesReport();
+                }}
+                disabled={salesLoading}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {salesLoading ? (
+                  <>
+                    Generando...
+                    <LoadingSpinner size={16} className="!gap-0" />
+                  </>
+                ) : (
+                  "Generar reporte"
+                )}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
