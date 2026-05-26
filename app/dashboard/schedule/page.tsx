@@ -227,6 +227,7 @@ function normalizeTimeInput(
 type ScheduleGridProps = {
   weekDays: string[];
   todayKey: string;
+  dayEventsByDate: Map<string, ScheduleWeekView["day_events"]>;
   activeEmployees: ScheduleWeekView["employees"];
   shiftMap: Map<string, ScheduleShiftRecord>;
   templateNameById: Map<number, string>;
@@ -242,6 +243,7 @@ type ScheduleGridProps = {
 const ScheduleGrid = memo(function ScheduleGrid({
   weekDays,
   todayKey,
+  dayEventsByDate,
   activeEmployees,
   shiftMap,
   templateNameById,
@@ -257,6 +259,7 @@ const ScheduleGrid = memo(function ScheduleGrid({
   const [dragOverEmployeeId, setDragOverEmployeeId] = useState<number | null>(null);
   const [draggingEmployeeId, setDraggingEmployeeId] = useState<number | null>(null);
   const [rowDropPosition, setRowDropPosition] = useState<"before" | "after" | null>(null);
+  const [openDayInfo, setOpenDayInfo] = useState<string | null>(null);
 
   useEffect(() => {
     const resetDragUi = () => {
@@ -272,6 +275,17 @@ const ScheduleGrid = memo(function ScheduleGrid({
       window.removeEventListener("dragend", resetDragUi);
       window.removeEventListener("drop", resetDragUi);
     };
+  }, []);
+
+  useEffect(() => {
+    const onDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest("[data-day-info-root='true']")) return;
+      setOpenDayInfo(null);
+    };
+    document.addEventListener("mousedown", onDocumentMouseDown);
+    return () => document.removeEventListener("mousedown", onDocumentMouseDown);
   }, []);
 
   const handleCellDrop = (
@@ -313,13 +327,52 @@ const ScheduleGrid = memo(function ScheduleGrid({
               {weekDays.map((day) => (
                 <th
                   key={day}
+                  data-day-info-root="true"
                   className={`border-b border-l px-2 py-2 text-center text-[11px] font-bold uppercase tracking-wide ${
                     day === todayKey
                       ? "border-slate-300 bg-teal-50 text-teal-800 shadow-[inset_0_-2px_0_0_#14b8a6]"
                       : "border-slate-200 text-slate-700"
-                  }`}
+                  } relative`}
                 >
-                  {formatDayLabel(day)}
+                  <div className="inline-flex items-center justify-center gap-1.5">
+                    <span>{formatDayLabel(day)}</span>
+                    {(dayEventsByDate.get(day)?.length ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold normal-case text-slate-600"
+                        aria-label="Ver eventos del día"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setOpenDayInfo((prev) => (prev === day ? null : day));
+                        }}
+                      >
+                        i
+                      </button>
+                    ) : null}
+                  </div>
+                  {openDayInfo === day ? (
+                    <div className="absolute left-1/2 top-[calc(100%+6px)] z-30 w-56 -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-2 text-left normal-case shadow-lg ring-1 ring-black/5 transition-all duration-150 ease-out">
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Eventualidades
+                      </p>
+                      <ul className="space-y-1">
+                        {(dayEventsByDate.get(day) ?? []).map((eventItem, index) => {
+                          const prefix =
+                            eventItem.kind === "holiday"
+                              ? "Festivo"
+                              : eventItem.kind === "birthday"
+                                ? "Evento"
+                                : "Evento";
+                          return (
+                            <li key={`${day}-${eventItem.kind}-${index}`} className="text-[11px] leading-4 text-slate-700">
+                              <span className="font-semibold text-slate-900">{prefix}:</span>{" "}
+                              {eventItem.label}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
                 </th>
               ))}
             </tr>
@@ -564,16 +617,22 @@ const ScheduleGrid = memo(function ScheduleGrid({
                             }
                           }}
                           onDrop={(event) => handleCellDrop(event, employee.id, day)}
-                          className={`h-16 w-full px-2 text-left transition ${
+                          className={`relative h-16 w-full px-2 text-left transition ${
                             shift
                               ? "bg-transparent hover:bg-teal-100/35"
                               : "bg-transparent hover:bg-slate-200/55"
                           }`}
                         >
-                          {!shift && <div className="h-full" />}
+                          {day === todayKey ? (
+                            <span
+                              aria-hidden="true"
+                              className="pointer-events-none absolute inset-0 z-0 bg-teal-100/35"
+                            />
+                          ) : null}
+                          {!shift && <div className="relative z-10 h-full" />}
 
                           {shift && (
-                            <div className="h-full flex items-center justify-center">
+                            <div className="relative z-10 h-full flex items-center justify-center">
                               {(() => {
                                 const shiftLabel =
                                   (shift.source_template_id
@@ -716,6 +775,17 @@ export default function SchedulePage() {
     });
     return map;
   }, [templates]);
+
+  const dayEventsByDate = useMemo(() => {
+    const map = new Map<string, ScheduleWeekView["day_events"]>();
+    for (const event of weekView?.day_events ?? []) {
+      const key = event.shift_date;
+      const current = map.get(key) ?? [];
+      current.push(event);
+      map.set(key, current);
+    }
+    return map;
+  }, [weekView]);
 
   useEffect(() => {
     const map = new Map<number, ScheduleShiftRecord>();
@@ -1797,6 +1867,7 @@ export default function SchedulePage() {
           <ScheduleGrid
             weekDays={weekDays}
             todayKey={todayKey}
+            dayEventsByDate={dayEventsByDate}
             activeEmployees={orderedWeekEmployees}
             shiftMap={shiftMap}
             templateNameById={templateNameById}

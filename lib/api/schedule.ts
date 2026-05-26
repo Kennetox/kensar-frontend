@@ -35,6 +35,7 @@ export type ScheduleEmployeeRow = {
   position?: string | null;
   avatar_url?: string | null;
   row_color?: string | null;
+  birth_date?: string | null;
   order_index?: number;
 };
 
@@ -61,11 +62,20 @@ export type ScheduleDayTotal = {
   total_hours: number;
 };
 
+export type ScheduleDayEvent = {
+  shift_date: string;
+  kind: "holiday" | "birthday" | "event";
+  label: string;
+  employee_id?: number | null;
+  employee_name?: string | null;
+};
+
 export type ScheduleWeekView = {
   week: ScheduleWeekRecord;
   employees: ScheduleEmployeeRow[];
   shifts: ScheduleShiftRecord[];
   day_totals: ScheduleDayTotal[];
+  day_events: ScheduleDayEvent[];
   week_total_hours: number;
 };
 
