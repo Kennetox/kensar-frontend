@@ -798,22 +798,22 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         <>
           {/* Mobile drawer */}
           <aside
-            className={`fixed inset-y-0 left-0 z-40 w-64 border-r dashboard-sidebar backdrop-blur flex flex-col transform transition-transform lg:hidden ${
+            className={`fixed inset-y-0 left-0 z-40 w-56 border-r dashboard-sidebar backdrop-blur flex flex-col transform transition-transform lg:hidden ${
               navOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
-            <div className="h-20 flex items-center justify-between px-5 border-b dashboard-border">
-              <div className="flex items-center gap-3">
+            <div className="h-16 flex items-center justify-between px-4 border-b dashboard-border">
+              <div className="flex items-center gap-2.5">
                 <Image
                   src="/branding/metriklogo_square.png"
                   alt="Metrik"
-                  width={80}
-                  height={80}
+                  width={56}
+                  height={56}
                   className="rounded-[6px]"
                 />
-                <div className="text-lg font-bold tracking-tight leading-tight">
+                <div className="text-base font-bold tracking-tight leading-tight">
                   Metrik
-                  <span className="block text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700">
+                  <span className="block text-[9px] font-semibold uppercase tracking-[0.28em] text-emerald-700">
                     by Kensar Electronic
                   </span>
                 </div>
@@ -826,8 +826,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 Cerrar
               </button>
             </div>
-            <nav className="flex-1 overflow-y-auto py-4">
-              <ul className="space-y-1 px-3">
+            <nav className="flex-1 overflow-y-auto py-3">
+              <ul className="space-y-0.5 px-2.5">
                 {effectiveNav.map((item) => {
                   const isActive =
                     pathname === item.href ||
@@ -849,13 +849,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                           setNavOpen(false);
                         }}
                         className={[
-                          "block rounded-lg px-3 py-2 text-sm transition",
+                          "block rounded-lg px-2.5 py-1.5 text-[13px] transition",
                           isActive
                             ? "dashboard-nav-active"
                             : "dashboard-nav-item",
                         ].join(" ")}
                       >
-                        <span className="flex items-center gap-3">
+                        <span className="flex items-center gap-2.5">
                           <span className="dashboard-nav-icon">
                             {item.icon}
                           </span>
@@ -867,7 +867,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 })}
               </ul>
             </nav>
-            <div className="border-t dashboard-border px-4 py-3 text-xs ui-text-muted">
+            <div className="border-t dashboard-border px-4 py-2.5 text-[11px] ui-text-muted">
               © {new Date().getFullYear()} Kensar Electronic
             </div>
           </aside>
@@ -879,27 +879,27 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           )}
 
           {/* Desktop sidebar */}
-          <aside className="hidden lg:flex lg:flex-col w-64 border-r dashboard-sidebar backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:self-start shadow-[inset_-1px_0_0_rgba(15,23,42,0.2)]">
-            <div className="h-20 flex items-center px-5 border-b dashboard-border">
-              <div className="flex items-center gap-3">
+          <aside className="hidden lg:flex lg:flex-col w-56 border-r dashboard-sidebar backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:self-start shadow-[inset_-1px_0_0_rgba(15,23,42,0.2)]">
+            <div className="h-16 flex items-center px-4 border-b dashboard-border">
+              <div className="flex items-center gap-2.5">
                 <Image
                   src="/branding/metriklogo_square.png"
                   alt="Metrik"
-                  width={80}
-                  height={80}
+                  width={56}
+                  height={56}
                   className="rounded-[6px]"
                 />
-                <div className="text-lg font-bold tracking-tight leading-tight">
+                <div className="text-base font-bold tracking-tight leading-tight">
                   Metrik
-                  <span className="block text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700">
+                  <span className="block text-[9px] font-semibold uppercase tracking-[0.28em] text-emerald-700">
                     by Kensar Electronic
                   </span>
                 </div>
               </div>
             </div>
 
-            <nav className="flex-1 overflow-y-auto py-4">
-              <ul className="space-y-1 px-3">
+            <nav className="flex-1 overflow-y-auto py-3">
+              <ul className="space-y-0.5 px-2.5">
                 {effectiveNav.map((item) => {
                   const isActive =
                     pathname === item.href ||
@@ -918,13 +918,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                         href={href}
                         prefetch={disablePrefetch ? false : undefined}
                         className={[
-                          "block rounded-lg px-3 py-2 text-sm transition",
+                          "block rounded-lg px-2.5 py-1.5 text-[13px] transition",
                           isActive
                             ? "dashboard-nav-active"
                             : "dashboard-nav-item",
                         ].join(" ")}
                       >
-                        <span className="flex items-center gap-3">
+                        <span className="flex items-center gap-2.5">
                           <span className="dashboard-nav-icon">
                             {item.icon}
                           </span>
@@ -937,7 +937,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               </ul>
             </nav>
 
-            <div className="border-t dashboard-border px-4 py-3 text-xs ui-text-muted">
+            <div className="border-t dashboard-border px-4 py-2.5 text-[11px] ui-text-muted">
               © {new Date().getFullYear()} Kensar Electronic
             </div>
           </aside>
@@ -945,10 +945,10 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       )}
 
       {/* CONTENIDO PRINCIPAL */}
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex flex-col min-h-0 min-w-0">
           {/* TOPBAR */}
-        <header className="h-20 border-b dashboard-topbar backdrop-blur flex items-center justify-between px-4 md:px-6 shadow-[0_1px_0_rgba(15,23,42,0.12)]">
-          <div className="flex items-center gap-2">
+        <header className="h-16 border-b dashboard-topbar backdrop-blur flex items-center justify-between gap-3 px-4 md:px-5 shadow-[0_1px_0_rgba(15,23,42,0.12)]">
+          <div className="flex min-w-0 items-center gap-2">
             {!posPreview && (
               <button
                 type="button"
@@ -958,17 +958,17 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 Menú
               </button>
             )}
-            <span className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
+            <span className="flex min-w-0 items-center gap-2 text-sm md:text-base font-semibold text-white">
               <span
-                className="max-w-[180px] truncate text-xs md:text-sm font-semibold uppercase tracking-[0.08em] text-emerald-200"
+                className="max-w-[180px] truncate text-[11px] md:text-xs font-semibold uppercase tracking-[0.08em] text-emerald-200"
                 title={tenantBrandName}
               >
                 {tenantBrandName}
               </span>
               <span className="text-white/70 font-normal">·</span>
-              <span className="text-white">Panel Metrik {posPreview && "· Vista rápida"}</span>
+              <span className="shrink-0 text-white">Panel Metrik {posPreview && "· Vista rápida"}</span>
               <span className="text-white font-normal">›</span>
-              <span className="dashboard-breadcrumb-pill">
+              <span className="dashboard-breadcrumb-pill shrink-0">
                 {currentBreadcrumbs.map((crumb, index) => (
                   <span key={`${crumb}-${index}`}>
                     {crumb}
@@ -978,7 +978,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               </span>
             </span>
           </div>
-          <div className="flex items-center gap-4 text-xs ui-text-muted">
+          <div className="flex shrink-0 items-center gap-3 text-xs ui-text-muted">
             {posPreview && (
               <button
                 type="button"
@@ -998,15 +998,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => setProfileMenuOpen((prev) => !prev)}
-                  className="flex items-center gap-3 rounded-full border ui-border px-2 py-1.5 dashboard-profile-chip"
+                className="flex max-w-[190px] items-center gap-2.5 rounded-full border ui-border px-2 py-1 dashboard-profile-chip"
                 >
-                  <div className="w-8 h-8 rounded-full border ui-border overflow-hidden flex items-center justify-center text-[11px]">
+                  <div className="w-7 h-7 rounded-full border ui-border overflow-hidden flex items-center justify-center text-[10px]">
                     {resolvedAvatarUrl ? (
                       <Image
                         src={resolvedAvatarUrl}
                         alt={displayName}
-                        width={32}
-                        height={32}
+                        width={28}
+                        height={28}
                         className="w-full h-full object-cover"
                         unoptimized
                       />
@@ -1016,11 +1016,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                       </span>
                     )}
                   </div>
-                  <div className="text-right leading-tight">
-                    <div className="text-sm font-semibold">
+                  <div className="min-w-0 text-right leading-tight">
+                    <div className="truncate text-xs font-semibold">
                       {displayName}
                     </div>
-                    <div className="text-[11px] uppercase tracking-wide ui-text-muted">
+                    <div className="truncate text-[10px] uppercase tracking-wide ui-text-muted">
                       {displayRole}
                     </div>
                   </div>
@@ -1099,7 +1099,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
         {/* CONTENIDO DE CADA PÁGINA */}
         <main
-          className={`flex-1 min-h-0 px-4 md:px-8 py-6 md:py-8 dashboard-theme ${
+          className={`flex-1 min-h-0 min-w-0 px-4 md:px-8 py-6 md:py-8 dashboard-theme ${
             isProductsRoute
               ? "overflow-hidden flex flex-col"
               : "overflow-y-auto"
@@ -1113,7 +1113,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             </div>
           )}
           {isProductsRoute ? (
-            <div className="flex-1 min-h-0">{children}</div>
+            <div className="flex-1 min-h-0 min-w-0">{children}</div>
           ) : (
             children
           )}

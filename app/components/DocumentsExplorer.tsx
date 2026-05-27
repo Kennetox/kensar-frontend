@@ -792,6 +792,7 @@ export default function DocumentsExplorer({
 
   const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
   const [detailExpanded, setDetailExpanded] = useState(false);
+  const [documentDetailOpen, setDocumentDetailOpen] = useState(false);
   const [selectedSeparatedOrder, setSelectedSeparatedOrder] =
     useState<SeparatedOrder | null>(null);
   const [selectedReceivingDetail, setSelectedReceivingDetail] =
@@ -918,6 +919,8 @@ export default function DocumentsExplorer({
     setAppliedFilterPos("");
     setAppliedFilterVendor("");
     setSelectedDoc(null);
+    setDocumentDetailOpen(false);
+    setDetailExpanded(false);
     setPersistedSelectedId(null);
   }, [today]);
 
@@ -931,6 +934,8 @@ export default function DocumentsExplorer({
     setAppliedFilterPos(filterPos);
     setAppliedFilterVendor(filterVendor);
     setSelectedDoc(null);
+    setDocumentDetailOpen(false);
+    setDetailExpanded(false);
     setPersistedSelectedId(null);
   }, [
     filterType,
@@ -1714,14 +1719,6 @@ export default function DocumentsExplorer({
     openVoidModal(selectedDoc);
   };
 
-  const handleToggleDetailClick = () => {
-    if (!canToggleDetail) {
-      showToast("Selecciona un documento para ver el detalle.");
-      return;
-    }
-    setDetailExpanded((prev) => !prev);
-  };
-
   useEffect(() => {
     if (!authHeaders || !filtersReady) return;
     void loadDocuments();
@@ -2457,6 +2454,9 @@ useEffect(() => {
     if (selectedDoc) {
       setSelectedDoc(null);
     }
+    if (documentDetailOpen) {
+      setDocumentDetailOpen(false);
+    }
     return;
   }
   if (!selectedDoc) {
@@ -2466,8 +2466,10 @@ useEffect(() => {
   const exists = filteredDocuments.some((doc) => doc.id === selectedDoc.id);
   if (!exists) {
     setSelectedDoc(filteredDocuments[0]);
+    setDocumentDetailOpen(false);
+    setDetailExpanded(false);
   }
-}, [filteredDocuments, selectedDoc]);
+}, [documentDetailOpen, filteredDocuments, selectedDoc]);
 
 useEffect(() => {
   if (!selectedDoc) return;
@@ -3144,9 +3146,7 @@ useEffect(() => {
     selectedSaleDocument?.cart_discount_value ?? 0;
   const selectedSaleCartDiscountPercent =
     selectedSaleDocument?.cart_discount_percent ?? 0;
-  const documentsGridClass = detailExpanded
-    ? "grid gap-4 lg:grid-cols-[minmax(260px,0.9fr)_minmax(360px,1.35fr)]"
-    : "grid gap-4 lg:grid-cols-[1.45fr_1fr]";
+  const documentsGridClass = "grid gap-4 grid-cols-1";
   const displaySalePayments = useMemo(
     () =>
       adjustedPayments
@@ -3504,13 +3504,11 @@ useEffect(() => {
   const canPrintSelectedChange = selectedDoc?.type === "cambio";
   const canPrintSelectedClosure =
     selectedDoc?.type === "cierre" && !!selectedClosure;
-  const canToggleDetail = !!selectedDoc;
   const adjustButtonDisabled = !canAdjustDoc;
   const voidButtonDisabled = !canOpenVoidModal;
   const printTicketDisabled = !canPrintSelectedTicket;
   const printChangeDisabled = !canPrintSelectedChange;
   const printClosureDisabled = !canPrintSelectedClosure;
-  const toggleDetailDisabled = !canToggleDetail;
   const adjustActionTitle = !selectedDoc
     ? "Selecciona un documento"
     : !canAdjustDocuments
@@ -3598,7 +3596,7 @@ useEffect(() => {
   );
 
   return (
-    <section className="flex flex-col gap-6">
+    <section className="documents-explorer-scale flex flex-col gap-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex items-start gap-3">
           {backPath && (
@@ -3631,7 +3629,7 @@ useEffect(() => {
         )}
       </header>
 
-      <section className="relative rounded-2xl border border-slate-200 bg-white p-4 space-y-4 text-xs">
+      <section className="documents-filter-panel relative rounded-2xl border border-slate-200 bg-white p-4 space-y-4 text-xs">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h2 className="text-sm font-semibold text-slate-200">Filtros avanzados</h2>
           <div className="flex items-center gap-4">
@@ -3644,7 +3642,7 @@ useEffect(() => {
             </button>
           </div>
         </div>
-        <div className="grid md:grid-cols-6 gap-3">
+        <div className="grid md:grid-cols-4 xl:grid-cols-8 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-slate-400">Tipo</span>
             <select
@@ -3831,7 +3829,7 @@ useEffect(() => {
         </div>
       </section>
 
-      <div className="flex flex-wrap items-center gap-3 text-xs">
+      <div className="documents-action-bar flex flex-wrap items-center gap-3 text-xs">
         <button
           type="button"
           onClick={handleAdjustClick}
@@ -3888,19 +3886,11 @@ useEffect(() => {
         >
           Imprimir cierre
         </button>
-        <button
-          type="button"
-          onClick={handleToggleDetailClick}
-          className={`px-4 py-2 rounded-md dashboard-button text-sm ${
-            toggleDetailDisabled ? "opacity-50 cursor-not-allowed" : ""
-          }`}
-        >
-          {detailExpanded ? "Mostrar menos" : "Mostrar más"}
-        </button>
       </div>
 
-      <div className={documentsGridClass}>
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col min-h-[370px]">
+      <div className={`documents-layout-grid ${documentsGridClass}`}>
+        {!documentDetailOpen ? (
+        <section className="documents-list-panel rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col min-h-[370px]">
           <div className="flex items-center justify-between mb-2">
             <div>
               <div className="flex items-center gap-2">
@@ -3912,7 +3902,7 @@ useEffect(() => {
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Selecciona un documento para ver el detalle completo.
+                Doble click en un documento para abrir su detalle completo.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -3939,11 +3929,11 @@ useEffect(() => {
             <div className="overflow-hidden">
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "180px" }} />
-                  <col style={{ width: "180px" }} />
+                  <col style={{ width: "240px" }} />
+                  <col style={{ width: "190px" }} />
                   <col style={{ width: "auto" }} />
                   <col style={{ width: "180px" }} />
-                  <col style={{ width: "200px" }} />
+                  <col style={{ width: "260px" }} />
                 </colgroup>
                 <thead className="bg-[var(--surface-2)] text-[11px] text-slate-700">
                   <tr>
@@ -3965,11 +3955,11 @@ useEffect(() => {
             >
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "180px" }} />
-                  <col style={{ width: "120px" }} />
+                  <col style={{ width: "240px" }} />
+                  <col style={{ width: "190px" }} />
                   <col style={{ width: "auto" }} />
-                  <col style={{ width: "120px" }} />
-                  <col style={{ width: "200px" }} />
+                  <col style={{ width: "180px" }} />
+                  <col style={{ width: "260px" }} />
                 </colgroup>
                 <tbody>
                   {loading && (
@@ -4059,22 +4049,27 @@ useEffect(() => {
                           documentRowRefs.current[doc.id] = node;
                         }}
                         onClick={() => setSelectedDoc(doc)}
+                        onDoubleClick={() => {
+                          setSelectedDoc(doc);
+                          setDocumentDetailOpen(true);
+                          setDetailExpanded(true);
+                        }}
                         className={`cursor-pointer border-t dashboard-border transition-colors ${zebra} ${
                           isSelected ? "dashboard-row-selected" : ""
                         }`}
                       >
-                        <td className="px-3 py-2 align-top">
-                          <div className="flex flex-col text-slate-200 text-[11px] leading-tight">
-                            <span className="font-mono text-sm">{doc.documentNumber}</span>
-                            <span className="text-[10px] text-slate-500">
+                        <td className="px-3 py-2 align-middle">
+                          <div className="flex min-w-0 items-center gap-2 text-slate-200 leading-tight">
+                            <span className="shrink-0 font-mono text-sm">{doc.documentNumber}</span>
+                            <span className="truncate text-[10px] text-slate-500">
                               {formatDateTime(doc.createdAt)}
                             </span>
                           </div>
                         </td>
-                        <td className="px-3 py-2 align-top">
-                          <div className="flex flex-wrap gap-1.5">
+                        <td className="px-3 py-2 align-middle">
+                          <div className="documents-type-scroll flex min-w-0 items-center gap-1.5 overflow-x-auto overflow-y-hidden">
                             <span
-                              className={`px-2.5 py-1 rounded-full border text-[11px] font-semibold shadow-sm whitespace-nowrap ${
+                              className={`shrink-0 px-2.5 py-1 rounded-full border text-[11px] font-semibold shadow-sm whitespace-nowrap ${
                                 doc.type === "venta"
                                   ? doc.status === "voided"
                                     ? "border-rose-400/70 bg-rose-50 text-rose-700"
@@ -4098,26 +4093,26 @@ useEffect(() => {
                             </span>
                             {statusLabel && (
                               <span
-                                className={`px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm whitespace-nowrap ${getStatusBadgeClass(doc.status)}`}
+                                className={`shrink-0 px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm whitespace-nowrap ${getStatusBadgeClass(doc.status)}`}
                               >
                                 {statusLabel}
                               </span>
                             )}
                             {webOrderPaymentStatusLabel && (
                               <span
-                                className={`px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm whitespace-nowrap ${getStatusBadgeClass(doc.paymentStatus)}`}
+                                className={`shrink-0 px-2.5 py-1 rounded-full border text-[10px] uppercase font-semibold shadow-sm whitespace-nowrap ${getStatusBadgeClass(doc.paymentStatus)}`}
                               >
                                 {webOrderPaymentStatusLabel}
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-sm align-top">
-                          <span className="block truncate flex items-center gap-2">
+                        <td className="px-3 py-2 text-sm align-middle">
+                          <span className="flex min-w-0 items-center gap-2 overflow-hidden">
                             <span className="truncate">{doc.detail}</span>
                             {doc.type === "orden_web" && (
                               <span
-                                className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border font-semibold ${
+                                className={`shrink-0 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border font-semibold ${
                                   doc.linkedDocumentNumber
                                     ? "border-emerald-400/70 bg-emerald-50 text-emerald-700"
                                     : "border-slate-600 bg-slate-800 text-slate-300"
@@ -4127,35 +4122,35 @@ useEffect(() => {
                               </span>
                             )}
                             {hasAdjustment && (
-                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-700 text-white bg-sky-600 shadow-[0_0_0_1px_rgba(3,105,161,0.28)] font-semibold">
+                              <span className="shrink-0 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-700 text-white bg-sky-600 shadow-[0_0_0_1px_rgba(3,105,161,0.28)] font-semibold">
                                 Ajustado
                               </span>
                             )}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-right font-semibold text-slate-100 tabular-nums align-top">
-                          {toNumber(doc.total) === 0
-                            ? "0"
-                            : formatMoney(toNumber(doc.total))}
+                        <td className="px-3 py-2 text-right font-semibold text-slate-100 tabular-nums align-middle">
+                          $ {formatMoney(toNumber(doc.total))}
                           {doc.refundAmount != null &&
                             toNumber(doc.refundAmount) > 0 && (
                             <span className="block text-[10px] text-rose-300">
-                              -{formatMoney(toNumber(doc.refundAmount))}
+                              -$ {formatMoney(toNumber(doc.refundAmount))}
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2 text-right text-slate-200 align-top">
-                          <span className="uppercase">{docMethodLabel}</span>
+                        <td className="px-3 py-2 text-right text-slate-200 align-middle">
+                          <div className="flex min-w-0 items-center justify-end gap-2">
+                          <span className="shrink-0 uppercase">{docMethodLabel}</span>
                           {docIsSeparated && (
-                            <span className="block text-[10px] text-slate-500">
+                            <span className="truncate text-[10px] text-slate-500">
                               Inicial: {docInitialMethodLabel}
                             </span>
                           )}
                           {doc.customer && (
-                            <span className="block text-[10px] text-slate-500 truncate">
+                            <span className="truncate text-[10px] text-slate-500">
                               {doc.customer}
                             </span>
                           )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -4165,14 +4160,31 @@ useEffect(() => {
             </div>
           </div>
         </section>
+        ) : null}
 
-        <section className="relative rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col overflow-hidden">
+        {documentDetailOpen ? (
+        <section className="documents-detail-panel relative rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col overflow-hidden">
           {!selectedDoc ? (
             <div className="flex-1 flex items-center justify-center text-xs text-slate-500">
               Selecciona un documento en la tabla para ver los detalles.
             </div>
           ) : (
             <div className={`space-y-6 text-xs flex-1 overflow-y-auto ${loading ? "pointer-events-none blur-[1.5px]" : ""}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDocumentDetailOpen(false);
+                    setDetailExpanded(false);
+                  }}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  Volver a documentos
+                </button>
+                <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                  Detalle completo
+                </div>
+              </div>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-wide text-slate-500">
@@ -5217,6 +5229,7 @@ useEffect(() => {
             </div>
           ) : null}
         </section>
+        ) : null}
       </div>
       {showDocumentGuide && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">

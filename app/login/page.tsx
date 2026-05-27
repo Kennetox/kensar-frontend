@@ -107,16 +107,16 @@ export default function LoginPage() {
           "url('https://images.unsplash.com/photo-1556742044-3c52d6e88c62?auto=format&fit=crop&q=80&w=2070')",
       }}
     >
-      <div className="min-h-screen bg-white/70 backdrop-blur-sm">
-        <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-10 sm:px-6 lg:px-12">
-          <nav className="flex items-center justify-between rounded-3xl bg-white/80 px-8 py-5 shadow-lg">
-            <div className="flex items-center gap-4">
+      <div className="min-h-dvh bg-white/70 backdrop-blur-sm">
+        <div className="mx-auto flex min-h-dvh w-full max-w-[62rem] flex-col px-4 py-6 sm:px-5 lg:py-8">
+          <nav className="flex flex-col gap-4 rounded-[1.35rem] bg-white/80 px-5 py-4 shadow-lg sm:flex-row sm:items-center sm:justify-between sm:px-8 sm:py-[1.125rem]">
+            <div className="flex items-center gap-3.5">
               <Image
                 src="/branding/metriklogo.png"
                 alt="Logo Metrik"
-                width={48}
-                height={48}
-                className="h-12 w-12 rounded-2xl"
+                width={44}
+                height={44}
+                className="h-11 w-11 rounded-xl"
                 priority
               />
               <div>
@@ -128,7 +128,7 @@ export default function LoginPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Link
                 href="/"
                 className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-500 hover:text-slate-900"
@@ -144,36 +144,38 @@ export default function LoginPage() {
             </div>
           </nav>
 
-          <section className="mt-12 grid flex-1 gap-10 lg:grid-cols-2">
-            <div className="rounded-3xl bg-white/85 p-10 shadow-2xl">
-              <p className="text-sm uppercase tracking-[0.4em] text-slate-500">
+          <section className="mt-8 grid flex-1 items-center gap-8 lg:mt-10 lg:grid-cols-2">
+            <div className="rounded-[1.35rem] bg-white/85 p-5 shadow-2xl sm:p-6">
+              <p className="text-[10px] uppercase tracking-[0.32em] text-slate-500 sm:text-[11px]">
                 Acceso seguro
               </p>
-              <h1 className="mt-6 text-4xl font-bold text-slate-900">
+              <h1 className="mt-4 text-[clamp(1.85rem,3.35vw,2.55rem)] font-bold leading-tight text-slate-900">
                 Ingresa al panel de Metrik
               </h1>
-              <p className="mt-4 text-lg text-slate-600">
+              <p className="mt-3 text-[0.95rem] leading-relaxed text-slate-600 sm:text-base">
                 Continúa donde lo dejaste: POS, reportes y documentos sincronizados.
               </p>
-              <ul className="mt-8 space-y-5 text-slate-600">
+              <ul className="mt-5 space-y-3.5 text-slate-600">
                 {highlights.map((item) => (
                   <li
                     key={item.title}
-                    className="rounded-2xl border border-slate-200/70 bg-white/70 p-4"
+                    className="rounded-xl border border-slate-200/70 bg-white/70 px-4 py-3.5"
                   >
-                    <p className="text-base font-semibold text-slate-900">
+                    <p className="text-sm font-semibold text-slate-900">
                       {item.title}
                     </p>
-                    <p className="text-sm text-slate-500">{item.description}</p>
+                    <p className="mt-0.5 text-[0.82rem] leading-relaxed text-slate-500">
+                      {item.description}
+                    </p>
                   </li>
                 ))}
               </ul>
             </div>
 
             <div className="flex items-center">
-              <div className="w-full rounded-3xl border border-slate-200/80 bg-white/90 p-8 shadow-2xl">
+              <div className="w-full rounded-[1.35rem] border border-slate-200/80 bg-white/90 p-5 shadow-2xl sm:p-7">
                 <div className="space-y-2 text-center">
-                  <h2 className="text-2xl font-semibold text-slate-900">
+                  <h2 className="text-2xl font-semibold leading-tight text-slate-900">
                     Autentícate para continuar
                   </h2>
                   <p className="text-sm text-slate-500">
@@ -181,62 +183,62 @@ export default function LoginPage() {
                   </p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+                <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                   <label className="flex flex-col gap-1 text-sm">
                     <span className="text-slate-500">Correo</span>
                     <input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                    placeholder="correo@tuempresa.com"
-                    autoComplete="email"
-                  />
-                </label>
-
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-slate-500">Contraseña</span>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-16 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                      placeholder="••••••••"
-                      autoComplete="current-password"
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                      placeholder="correo@tuempresa.com"
+                      autoComplete="email"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
-                      className="absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-slate-500 hover:text-slate-800"
-                      aria-pressed={showPassword}
-                      aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
-                    >
-                      {showPassword ? "Ocultar" : "Ver"}
-                    </button>
-                  </div>
-                </label>
+                  </label>
 
-                <label className="flex items-center gap-2 text-xs text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={rememberEmail}
-                    onChange={(e) => setRememberEmail(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-300"
-                  />
-                  Recordar mi correo en este equipo
-                </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="text-slate-500">Contraseña</span>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 pr-16 text-slate-900 shadow-inner focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        className="absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-slate-500 hover:text-slate-800"
+                        aria-pressed={showPassword}
+                        aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                      >
+                        {showPassword ? "Ocultar" : "Ver"}
+                      </button>
+                    </div>
+                  </label>
 
-                {error && (
-                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-600">
-                    {error}
-                  </div>
-                )}
+                  <label className="flex items-center gap-2 text-xs text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={rememberEmail}
+                      onChange={(e) => setRememberEmail(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-300"
+                    />
+                    Recordar mi correo en este equipo
+                  </label>
+
+                  {error && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-medium text-red-600">
+                      {error}
+                    </div>
+                  )}
 
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full rounded-2xl bg-gradient-to-r from-[#34d399] to-[#06b6d4] px-4 py-3 text-base font-semibold text-white shadow-lg transition hover:scale-[1.01] disabled:opacity-60"
+                    className="w-full rounded-xl bg-gradient-to-r from-[#34d399] to-[#06b6d4] px-4 py-3 text-base font-semibold text-white shadow-lg transition hover:scale-[1.01] disabled:opacity-60"
                   >
                     {submitting ? "Ingresando..." : "Ingresar"}
                   </button>
@@ -260,7 +262,7 @@ export default function LoginPage() {
             </div>
           </section>
 
-          <footer className="mt-12 text-center text-xs text-slate-500">
+          <footer className="mt-6 px-5 pb-2 pt-1 text-center text-xs text-slate-600">
             © {new Date().getFullYear()} Metrik · Kensar Electronic.{" "}
             <Link
               href="/platform/login"

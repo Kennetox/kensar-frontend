@@ -10,11 +10,11 @@ type Props = {
 export default function DownloadsAccessPanel({ resources }: Props) {
   return (
     <>
-      <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80">
+      <div className="mt-5 overflow-hidden rounded-xl border border-slate-200/80 bg-white/80">
         {resources.map((resource, index) => (
           <article
             key={resource.slug}
-            className={`flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 ${
+            className={`flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4 ${
               index < resources.length - 1 ? "border-b border-slate-200/80" : ""
             }`}
           >
@@ -27,16 +27,16 @@ export default function DownloadsAccessPanel({ resources }: Props) {
                 className={`${resource.logoClassName ?? "h-12 w-12"} rounded-xl bg-white p-1 object-contain`}
               />
               <div className="min-w-0">
-                <h2 className="text-lg font-bold leading-tight text-slate-900 sm:text-xl">
+                <h2 className="text-lg font-bold leading-tight text-slate-900">
                   {resource.name}
                 </h2>
-                <p className="mt-1 text-[0.8rem] font-semibold uppercase tracking-[0.15em] text-slate-500 sm:text-[0.9rem]">
+                <p className="mt-1 text-[0.78rem] font-semibold uppercase tracking-[0.15em] text-slate-500 sm:text-[0.84rem]">
                   {resource.platform}
                 </p>
-                <p className="mt-1.5 text-[0.96rem] text-slate-600 sm:text-[1.08rem]">
+                <p className="mt-1.5 text-[0.94rem] text-slate-600 sm:text-base">
                   {resource.description}
                 </p>
-                <p className="mt-1.5 text-[0.9rem] text-slate-500 sm:text-[1rem]">
+                <p className="mt-1.5 text-[0.88rem] text-slate-500 sm:text-[0.95rem]">
                   {resource.requirements}
                 </p>
               </div>
@@ -45,7 +45,7 @@ export default function DownloadsAccessPanel({ resources }: Props) {
               href={`/api/downloads/${resource.slug}`}
               aria-label={`Descargar ${resource.name}`}
               title={`Descargar ${resource.name}`}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center self-end text-[#3154e8] transition hover:scale-105 hover:text-[#2a45c5] sm:self-auto"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center self-end text-[#3154e8] transition hover:scale-[1.02] hover:text-[#2a45c5] sm:self-auto"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -55,7 +55,7 @@ export default function DownloadsAccessPanel({ resources }: Props) {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="h-[28px] w-[28px]"
+                className="h-6 w-6"
               >
                 <path d="M12 3v12" />
                 <path d="m7 10 5 5 5-5" />

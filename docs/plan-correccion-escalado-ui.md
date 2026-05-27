@@ -244,3 +244,229 @@ Estado base aceptado:
 - el hallazgo de zoom ya fue confirmado
 - la UI debe recalibrarse a `100%`
 - el trabajo debe hacerse lento y con mucha disciplina
+
+## Registro de avance - 2026-05-27
+
+Esta seccion documenta el avance realizado durante la primera fase real de correccion. El objetivo fue pasar de una UI evaluada accidentalmente con zoom reducido a una experiencia mas equilibrada en navegador a `100%`, sin aplicar escalado global ni rehacer la interfaz completa.
+
+### Criterio usado durante la correccion
+
+- La referencia principal dejo de ser Safari a `85%`.
+- Safari a `85%` se uso solo como referencia visual secundaria para entender densidad y composicion.
+- La referencia de producto paso a ser navegador a `100%`.
+- Se evito usar `transform: scale(...)`, modificar `html font-size` o hacer compactacion global agresiva.
+- Se priorizo desktop/laptop, porque Metrik esta pensado principalmente para uso de escritorio.
+- Se mantuvo la posibilidad de revertir los cambios de esta fase si el resultado no convencia.
+
+### Paginas publicas ajustadas
+
+Se corrigio la escala inicial de las paginas publicas para que no se vieran sobredimensionadas a `100%`.
+
+Pantallas tocadas:
+
+- Landing principal: `app/page.tsx`
+- Descargas: `app/descargas/page.tsx`
+- Panel de acceso de descargas: `app/descargas/DownloadsAccessPanel.tsx`
+- Contacto: `app/contacto/page.tsx`
+- Formulario de ayuda/contacto: `app/contacto/ContactHelpForm.tsx`
+- Login: `app/login/page.tsx`
+- Descargar POS: `app/descargar-pos/page.tsx`
+
+Cambios principales:
+
+- Se redujeron anchos maximos, paddings, separaciones verticales y tamanos de textos grandes.
+- Se corrigieron pies de pagina que quedaban visualmente como bloques/cards innecesarios.
+- Se ajustaron alturas de secciones y mapas para que no consumieran demasiado viewport.
+- Se cambio el enlace web de contacto a `https://www.kensarelectronic.com`.
+- Se mantuvo la composicion general y el estilo existente, sin rediseñar la marca.
+
+Estado:
+
+- Landing, descargas, contacto, login y descargar POS quedaron aceptadas visualmente por ahora.
+- Mobile/tablet no fueron el foco principal, aunque se conservaron clases responsivas.
+
+### Layout interno del sistema
+
+Se ajusto la estructura base del dashboard para reducir escala y evitar cortes laterales.
+
+Archivos tocados:
+
+- `app/dashboard/layout.tsx`
+- `app/globals.css`
+
+Cambios principales:
+
+- Sidebar desktop y mobile reducido de `w-64` a `w-56`.
+- Header/topbar reducido de `h-20` a `h-16`.
+- Logo, textos, iconos y spacing del sidebar compactados.
+- Navegacion lateral reducida en padding, gap y tamanos de iconos.
+- Chip de usuario compactado y limitado con truncado para evitar overflow.
+- Se agrego `min-w-0` en wrappers flex del layout para que contenido ancho no empuje ni corte sidebar/topbar.
+- Se mantuvo Kora como componente global flotante.
+
+Hallazgo importante:
+
+- Los cortes que aparecian en Productos no eran solo problema de tabla. Tambien faltaba `min-w-0` en contenedores flex compartidos, lo cual permitia que una tabla ancha empujara el layout completo.
+
+Estado:
+
+- Sidebar y header quedaron mas compactos y consistentes.
+- El layout compartido ya resiste mejor pantallas con contenido ancho.
+
+### Dashboard Inicio
+
+Se ajusto `app/dashboard/page.tsx` en dos rondas.
+
+Primera ronda:
+
+- Se compacto el contenido general.
+- Se redujeron alturas de tarjetas y graficas.
+- Se bajo la escala de algunos textos y valores.
+
+Revision posterior:
+
+- El contenido seguia demasiado grande respecto a la referencia visual.
+- No tenia los margenes laterales reservados para Kora.
+- La seccion `Ultimas ventas` podia chocar con Kora cuando tuviera filas.
+
+Cambios actuales:
+
+- Contenedor principal con margen simetrico similar a Productos: `px-20 xl:px-24`.
+- KPIs mas compactos.
+- Valores principales reducidos de `text-2xl` a `text-xl`.
+- Graficas bajadas de `285px` a `255px`.
+- Barras de grafica reducidas.
+- Separaciones verticales reducidas.
+
+Estado:
+
+- Requiere revision visual final en `100%` con datos reales y con `Ultimas ventas` poblada.
+- El objetivo es mantener el contenido legible, pero evitar que parezca sobredimensionado y que Kora tape funciones.
+
+### Productos
+
+La pantalla de Productos fue la primera pantalla interna con tabla ancha que requirio tratamiento especial.
+
+Archivo principal:
+
+- `app/dashboard/products/page.tsx`
+
+Problemas encontrados:
+
+- La tabla tenia muchas columnas y tendia a empujar el layout.
+- El contenido se cortaba en pantallas no muy anchas.
+- Kora tapaba controles del paginador inferior.
+- El header/filtros de Productos ocupaba demasiado ancho.
+- Los formularios de crear/editar producto eran demasiado altos y obligaban scroll innecesario.
+
+Cambios realizados en la pantalla:
+
+- Se agrego `min-w-0` en contenedores clave.
+- Se dejo la tabla con scroll interno controlado.
+- Se redujo moderadamente padding de celdas y texto de tabla.
+- Se ajustaron anchos minimos de columnas clave.
+- Se compacto la toolbar y filtros.
+- Se redujeron anchos de inputs/selects de filtro.
+- Se aplico margen simetrico al modulo completo para dar aire y dejar zona visual para Kora: `px-20 xl:px-24`.
+- Se mantuvieron los botones de paginacion en su posicion normal.
+
+Decisiones importantes:
+
+- No se intento hacer que todas las columnas cupieran siempre sin scroll.
+- Se acepto que la tabla puede recortarse por dentro y desplazarse horizontalmente.
+- El layout general no debe ser empujado por la tabla.
+
+Estado:
+
+- La pantalla ya no corta sidebar/topbar.
+- El margen simetrico evita que se vea pegada al borde y reduce choque con Kora.
+- Puede requerir ajustes finos por modulo cuando se revisen tablas similares.
+
+### Modales de crear/editar producto
+
+Los modales de producto fueron reestructurados porque los primeros ajustes con `sticky` dentro del contenedor scrolleable quedaron visualmente a medias.
+
+Problemas encontrados:
+
+- Header y footer quedaban pegados al contenido.
+- Al expandir `Apariencia en POS`, el contenido pasaba visualmente por debajo del footer.
+- El modal completo scrolleaba, lo que hacia que acciones importantes se perdieran o se superpusieran.
+- El modal era angosto (`max-w-xl`) para un formulario de muchos campos.
+
+Solucion aplicada:
+
+- Modal ampliado a `max-w-5xl`.
+- Estructura separada:
+  - header fijo arriba
+  - body scrolleable
+  - footer fijo abajo
+- El formulario ocupa el alto disponible con `flex min-h-0 flex-1 flex-col`.
+- El contenido interno del formulario usa `overflow-y-auto`.
+- Grid de formulario en 3 columnas en pantallas amplias.
+- Inputs, selects, labels y gaps compactados.
+
+Resultado esperado:
+
+- El titulo y cerrar siempre permanecen visibles.
+- Las acciones `Eliminar`, `Cancelar`, `Guardar` o `Crear` siempre permanecen visibles.
+- Solo scrollea el contenido del formulario.
+- La seccion de apariencia puede expandirse sin tapar el footer.
+
+### Apariencia en POS
+
+Se ajusto el bloque expandible `Apariencia en POS (opcional)` dentro del modal de edicion.
+
+Cambios realizados:
+
+- Encabezado del bloque en gris slate claro para diferenciarlo del formulario.
+- Panel expandido en `bg-slate-50`.
+- Textos y botones adaptados a tema claro dentro del panel.
+- Transicion suave al abrir y cerrar usando `grid-template-rows` y `opacity`.
+- El contenido permanece montado para que tambien cierre con animacion.
+
+Estado:
+
+- Pendiente revisar visualmente en navegador para confirmar que la animacion se siente natural y que el contraste queda profesional.
+
+## Decisiones tecnicas tomadas
+
+- No usar escalado global.
+- No corregir con zoom del navegador.
+- Usar `min-w-0` en layouts flex donde el contenido puede crecer.
+- Para tablas anchas, preferir scroll interno y contenedores acotados.
+- Para Kora, reservar margen local en pantallas donde pueda tapar acciones.
+- Para modales complejos, separar header/body/footer en lugar de usar `sticky` dentro del mismo scroll.
+- Para acordiones, mantener contenido montado y animar altura/opacidad.
+
+## Validacion realizada
+
+Despues de las iteraciones principales se corrio:
+
+`npm run lint`
+
+Resultado observado:
+
+- Sin errores.
+- Persisten 12 warnings preexistentes no relacionados directamente con esta correccion:
+  - `app/dashboard/profile/page.tsx`
+  - `app/dashboard/reports/detailed/page.tsx`
+  - `app/pos/page.tsx`
+
+Estos warnings no fueron abordados en esta fase para no mezclar limpieza tecnica con correccion visual.
+
+## Riesgos y puntos pendientes
+
+- Revisar Dashboard Inicio con ventas reales y lista `Ultimas ventas` poblada.
+- Revisar Productos con diferentes anchos de ventana y con scroll horizontal de tabla.
+- Revisar modales de crear/editar producto en Chrome y Safari a `100%`.
+- Revisar si otras pantallas con tablas anchas necesitan el mismo patron de Productos.
+- Revisar si Kora debe tener una estrategia global de posicion o si se mantiene ajuste por pantalla.
+- Evitar seguir compactando hasta que cada pantalla revisada sea aprobada visualmente.
+
+## Proximo orden sugerido
+
+1. Terminar revision visual de Dashboard Inicio.
+2. Cerrar ajustes finos de Productos y modales.
+3. Pasar a Movimientos con el mismo enfoque.
+4. Seguir con Documentos o Reportes, priorizando pantallas con tablas.
+5. Documentar cada bloque terminado en esta misma bitacora.

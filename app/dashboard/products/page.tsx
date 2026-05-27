@@ -2406,12 +2406,12 @@ export default function ProductsPage() {
 
   // UI
   return (
-    <div className="w-full max-w-7xl mx-auto h-full min-h-0 flex flex-col gap-6">
+    <div className="w-full max-w-[84rem] mx-auto h-full min-h-0 min-w-0 flex flex-col gap-4 px-20 xl:px-24">
       {/* HEADER + TOOLBAR */}
-      <header className="space-y-4">
+      <header className="space-y-3 shrink-0">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold">Productos</h1>
+            <h1 className="text-2xl font-bold">Productos</h1>
             <p className="text-sm text-slate-400">
               Gestión del catálogo base de Metrik, la suite de Kensar Electronic.
             </p>
@@ -2423,7 +2423,7 @@ export default function ProductsPage() {
                 prepareCreateFormWithSuggestions();
                 setCreateOpen(true);
               }}
-              className="inline-flex items-center rounded-lg bg-emerald-500 hover:bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 transition"
+              className="inline-flex items-center rounded-lg bg-emerald-500 hover:bg-emerald-400 px-3.5 py-2 text-sm font-semibold text-slate-950 transition"
             >
               + Nuevo producto
             </button>
@@ -2490,14 +2490,14 @@ export default function ProductsPage() {
         </div>
 
         {/* FILTROS */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex flex-col md:flex-row md:flex-wrap gap-2 md:items-center">
+        <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-3">
+          <div className="flex flex-col md:flex-row md:flex-wrap gap-2 md:items-center min-w-0">
             <input
               type="text"
               placeholder="Buscar por nombre, SKU o código..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full md:w-72 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+              className="w-full md:w-64 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-emerald-400"
             />
             <label className="inline-flex items-center gap-2 text-xs md:text-sm text-slate-300">
               <input
@@ -2522,7 +2522,7 @@ export default function ProductsPage() {
             <select
               value={selectedGroupFilter}
               onChange={(e) => setSelectedGroupFilter(e.target.value)}
-              className="w-full md:w-56 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+              className="w-full md:w-52 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
             >
               <option value="">Todos los grupos</option>
               {groupOptions.map((group) => (
@@ -2534,7 +2534,7 @@ export default function ProductsPage() {
             <select
               value={selectedBrand}
               onChange={(e) => setSelectedBrand(e.target.value)}
-              className="w-full md:w-48 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+              className="w-full md:w-44 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
             >
               <option value="">Todas las marcas</option>
               {brandOptions.map((brand) => (
@@ -2546,7 +2546,7 @@ export default function ProductsPage() {
             <select
               value={selectedSupplier}
               onChange={(e) => setSelectedSupplier(e.target.value)}
-              className="w-full md:w-48 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+              className="w-full md:w-44 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
             >
               <option value="">Todos los proveedores</option>
               {supplierOptions.map((supplier) => (
@@ -2564,7 +2564,7 @@ export default function ProductsPage() {
                 onChange={(e) =>
                   setPriceMinInput(formatMoneyInput(e.target.value))
                 }
-                className="w-full md:w-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                className="w-full md:w-28 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-emerald-400"
               />
               <input
                 type="text"
@@ -2574,7 +2574,7 @@ export default function ProductsPage() {
                 onChange={(e) =>
                   setPriceMaxInput(formatMoneyInput(e.target.value))
                 }
-                className="w-full md:w-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+                className="w-full md:w-28 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-emerald-400"
               />
             </div>
             <button
@@ -2587,7 +2587,7 @@ export default function ProductsPage() {
             </button>
           </div>
 
-          <div className="text-xs md:text-sm text-slate-400 text-right">
+          <div className="shrink-0 text-xs md:text-sm text-slate-400 text-left xl:text-right">
             Mostrando{" "}
             <span className="text-slate-100 font-semibold">
               {filteredCount}
@@ -2602,7 +2602,7 @@ export default function ProductsPage() {
       </header>
 
       {/* LISTA DE PRODUCTOS */}
-      <section className="space-y-3 flex-1 min-h-0">
+      <section className="space-y-3 flex-1 min-h-0 min-w-0">
         {loading && (
           <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
             {Array.from({ length: 6 }).map((_, idx) => (
@@ -2620,7 +2620,7 @@ export default function ProductsPage() {
         )}
 
         {!loading && !error && (
-          <div className="overflow-hidden rounded-xl ui-surface dashboard-kpi-card shadow-lg h-full min-h-0 flex flex-col">
+          <div className="overflow-hidden rounded-xl ui-surface dashboard-kpi-card shadow-lg h-full min-h-0 min-w-0 flex flex-col">
             <div
               ref={topScrollRef}
               onScroll={syncMainScroll}
@@ -2631,7 +2631,7 @@ export default function ProductsPage() {
                 className="h-3"
               />
             </div>
-            <div className="flex items-center justify-between px-4 py-3 text-xs ui-text-muted border-b dashboard-border">
+            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs ui-text-muted border-b dashboard-border">
               <div>
                 Página{" "}
                 <span className="font-semibold ui-text">
@@ -2642,7 +2642,7 @@ export default function ProductsPage() {
                   {totalPages}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
                 <button
                   disabled={currentPage <= 1}
                   onClick={() => setPage(1)}
@@ -2676,70 +2676,70 @@ export default function ProductsPage() {
             <div
               ref={tableWrapperRef}
               onScroll={syncTopScroll}
-              className="overflow-auto flex-1 min-h-0"
+              className="overflow-auto flex-1 min-h-0 min-w-0"
             >
-              <table ref={tableRef} className="min-w-full text-sm">
+              <table ref={tableRef} className="min-w-full text-[13px]">
                 <thead className="dashboard-table-head products-table-head">
                   <tr>
                     {isAdmin && showIdColumn && (
-                      <th className="px-4 py-3 text-left font-semibold">ID</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">ID</th>
                     )}
-                    <th className="px-4 py-3 text-left font-semibold">SKU</th>
-                    <th className="px-4 py-3 text-left font-semibold min-w-[260px]">
+                    <th className="px-3 py-2.5 text-left font-semibold">SKU</th>
+                    <th className="px-3 py-2.5 text-left font-semibold min-w-[230px]">
                       Nombre
                     </th>
-                  <th className="px-4 py-3 text-left font-semibold">
+                  <th className="px-3 py-2.5 text-left font-semibold min-w-[160px]">
                     Grupo
                   </th>
-                  <th className="px-4 py-3 text-left font-semibold">
+                  <th className="px-3 py-2.5 text-left font-semibold min-w-[120px]">
                     Marca
                   </th>
-                  <th className="px-4 py-3 text-left font-semibold">
+                  <th className="px-3 py-2.5 text-left font-semibold min-w-[130px]">
                     Proveedor
                   </th>
-                  <th className="px-4 py-3 text-right font-semibold">
+                  <th className="px-3 py-2.5 text-right font-semibold">
                     Precio
                   </th>
-                  <th className="px-4 py-3 text-right font-semibold">
+                  <th className="px-3 py-2.5 text-right font-semibold">
                     Costo
                   </th>
-                  <th className="px-4 py-3 text-left font-semibold">
+                  <th className="px-3 py-2.5 text-left font-semibold">
                     Código barras
                   </th>
-                  <th className="px-4 py-3 text-left font-semibold">
+                  <th className="px-3 py-2.5 text-left font-semibold">
                     Formato etiquetas
                   </th>
-                  <th className="px-4 py-3 text-left font-semibold">
+                  <th className="px-3 py-2.5 text-left font-semibold">
                     Unidad
                   </th>
-                  <th className="px-4 py-3 text-right font-semibold">
+                  <th className="px-3 py-2.5 text-right font-semibold">
                     Cant. preferida
                   </th>
-                  <th className="px-4 py-3 text-right font-semibold">
+                  <th className="px-3 py-2.5 text-right font-semibold">
                     Punto pedido
                   </th>
-                  <th className="px-4 py-3 text-right font-semibold">
+                  <th className="px-3 py-2.5 text-right font-semibold">
                     Stock mínimo
                   </th>
-                  <th className="px-4 py-3 text-center font-semibold">
+                  <th className="px-3 py-2.5 text-center font-semibold">
                     Alerta stock
                   </th>
-                  <th className="px-4 py-3 text-center font-semibold">
+                  <th className="px-3 py-2.5 text-center font-semibold">
                     Cambio $ permitido
                   </th>
-                  <th className="px-4 py-3 text-center font-semibold">
+                  <th className="px-3 py-2.5 text-center font-semibold">
                     Activo
                   </th>
-                  <th className="px-4 py-3 text-center font-semibold">
+                  <th className="px-3 py-2.5 text-center font-semibold">
                     Servicio
                   </th>
-                  <th className="px-4 py-3 text-center font-semibold">
+                  <th className="px-3 py-2.5 text-center font-semibold">
                     IVA incl.
                   </th>
-                  <th className="px-4 py-3 text-center font-semibold">
+                  <th className="px-3 py-2.5 text-center font-semibold">
                     Inversión
                   </th>
-                  <th className="px-4 py-3 text-center font-semibold min-w-[190px]">
+                  <th className="px-3 py-2.5 text-center font-semibold min-w-[170px]">
                     Acciones
                   </th>
                   </tr>
@@ -2758,13 +2758,13 @@ export default function ProductsPage() {
                     }`}
                   >
 
-                    {isAdmin && showIdColumn && <td className="px-4 py-3">{p.id}</td>}
-                    <td className="px-4 py-3">{p.sku}</td>
-                    <td className="px-4 py-3 min-w-[260px]">{p.name}</td>
-                    <td className="px-4 py-3">{p.group_name}</td>
-                    <td className="px-4 py-3">{p.brand}</td>
-                    <td className="px-4 py-3">{p.supplier}</td>
-                    <td className="px-4 py-3 text-right">
+                    {isAdmin && showIdColumn && <td className="px-3 py-2.5">{p.id}</td>}
+                    <td className="px-3 py-2.5">{p.sku}</td>
+                    <td className="px-3 py-2.5 min-w-[230px]">{p.name}</td>
+                    <td className="px-3 py-2.5 min-w-[160px]">{p.group_name}</td>
+                    <td className="px-3 py-2.5 min-w-[120px]">{p.brand}</td>
+                    <td className="px-3 py-2.5 min-w-[130px]">{p.supplier}</td>
+                    <td className="px-3 py-2.5 text-right">
                       {p.price.toLocaleString("es-ES", {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 0,
@@ -2772,45 +2772,45 @@ export default function ProductsPage() {
                       })}
 
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-3 py-2.5 text-right">
                       {p.cost.toLocaleString("es-ES", {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 0,
                         useGrouping: true,
                       })}
                     </td>
-                    <td className="px-4 py-3">{p.barcode}</td>
-                    <td className="px-4 py-3">{p.label_format ?? DEFAULT_LABEL_FORMAT}</td>
-                    <td className="px-4 py-3">{p.unit}</td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-3 py-2.5">{p.barcode}</td>
+                    <td className="px-3 py-2.5">{p.label_format ?? DEFAULT_LABEL_FORMAT}</td>
+                    <td className="px-3 py-2.5">{p.unit}</td>
+                    <td className="px-3 py-2.5 text-right">
                       {p.preferred_qty}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-3 py-2.5 text-right">
                       {p.reorder_point}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       {p.low_stock_alert ? "⚠️" : "—"}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-3 py-2.5 text-right">
                       {p.stock_min}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       {p.allow_price_change ? "✅" : "—"}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       {p.active ? "✅" : "❌"}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       {p.service ? "🛠️" : "—"}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       {p.includes_tax ? "✔️" : "—"}
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       {p.is_investment ? "💼" : "—"}
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-2 whitespace-nowrap">
+                    <td className="px-3 py-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
                         <button
                           onClick={() => openEdit(p)}
                           className="inline-flex items-center rounded-md border border-emerald-400 px-2 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/10"
@@ -2862,7 +2862,7 @@ export default function ProductsPage() {
               </table>
             </div>
 
-            <div className="flex items-center justify-between px-4 py-3 text-xs dashboard-table-footer ui-text-muted">
+            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs dashboard-table-footer ui-text-muted">
               <div>
                 Página{" "}
                 <span className="font-semibold ui-text">
@@ -2873,7 +2873,7 @@ export default function ProductsPage() {
                   {totalPages}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
                 <button
                   disabled={currentPage <= 1}
                   onClick={() => setPage(1)}
@@ -2987,10 +2987,10 @@ export default function ProductsPage() {
 
       {/* MODAL CREACIÓN */}
       {createOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="w-full max-w-xl rounded-xl bg-slate-900 border border-slate-700 p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Nuevo producto</h2>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-5xl rounded-xl bg-slate-900 border border-slate-700 shadow-2xl max-h-[88vh] overflow-hidden flex flex-col">
+            <div className="shrink-0 flex items-center justify-between border-b border-slate-700 bg-slate-900 px-5 py-4">
+              <h2 className="text-base font-semibold">Nuevo producto</h2>
               <button
                 onClick={handleCloseCreateModal}
                 className="text-slate-400 hover:text-slate-100 text-sm"
@@ -3001,8 +3001,10 @@ export default function ProductsPage() {
 
             <form
               onSubmit={handleSubmitCreate}
-              className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm"
+              className="flex min-h-0 flex-1 flex-col"
             >
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 text-[13px] [&_input]:py-1.5 [&_select]:py-1.5 [&_label]:text-[13px]">
               <div className="space-y-1">
                 <label className="block text-slate-300">SKU</label>
                 <div className="relative">
@@ -3092,7 +3094,7 @@ export default function ProductsPage() {
                 />
               </div>
 
-              <div className="space-y-1 md:col-span-2">
+              <div className="space-y-1 md:col-span-2 xl:col-span-1">
                 <label className="block text-slate-300">Proveedor</label>
                 <input
                   name="supplier"
@@ -3102,7 +3104,7 @@ export default function ProductsPage() {
                 />
               </div>
 
-              <div className="space-y-1 md:max-w-[320px]">
+              <div className="space-y-1">
                 <label className="block text-slate-300">Precio</label>
                 <input
                   name="price"
@@ -3116,8 +3118,8 @@ export default function ProductsPage() {
 
               <div className="space-y-1">
                 <label className="block text-slate-300">Costo</label>
-                <div className="md:flex md:items-end md:gap-3">
-                  <div className="md:w-[320px]">
+                <div className="flex items-end gap-2">
+                  <div className="min-w-0 flex-1">
                     <input
                       name="cost"
                       type="text"
@@ -3127,7 +3129,7 @@ export default function ProductsPage() {
                       className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
                     />
                   </div>
-                  <div className="mt-2 md:mt-0 md:flex-1">
+                  <div className="shrink-0">
                     <button
                       type="button"
                       onClick={() => void handleSuggestCreateCost()}
@@ -3313,7 +3315,10 @@ export default function ProductsPage() {
                 )}
               </div>
 
-              <div className="md:col-span-2 flex justify-end mt-2 gap-2">
+                </div>
+              </div>
+
+              <div className="shrink-0 flex justify-end gap-2 border-t border-slate-700 bg-slate-900 px-5 py-4">
                 <button
                   type="button"
                   onClick={handleCloseCreateModal}
@@ -3336,10 +3341,10 @@ export default function ProductsPage() {
 
       {/* MODAL EDICIÓN */}
       {editOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="w-full max-w-xl rounded-xl bg-slate-900 border border-slate-700 p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-5xl rounded-xl bg-slate-900 border border-slate-700 shadow-2xl max-h-[88vh] overflow-hidden flex flex-col">
+            <div className="shrink-0 flex items-center justify-between border-b border-slate-700 bg-slate-900 px-5 py-4">
+              <h2 className="text-base font-semibold">
                 Editar producto #{editId}
               </h2>
               <button
@@ -3352,8 +3357,10 @@ export default function ProductsPage() {
 
             <form
               onSubmit={handleSubmitEdit}
-              className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm"
+              className="flex min-h-0 flex-1 flex-col"
             >
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 text-[13px] [&_input]:py-1.5 [&_select]:py-1.5 [&_label]:text-[13px]">
               <div className="space-y-1">
                 <label className="block text-slate-300">SKU</label>
                 <div className="relative">
@@ -3442,7 +3449,7 @@ export default function ProductsPage() {
                 />
               </div>
 
-              <div className="space-y-1 md:col-span-2">
+              <div className="space-y-1 md:col-span-2 xl:col-span-1">
                 <label className="block text-slate-300">Proveedor</label>
                 <input
                   name="supplier"
@@ -3452,7 +3459,7 @@ export default function ProductsPage() {
                 />
               </div>
 
-              <div className="space-y-1 md:max-w-[320px]">
+              <div className="space-y-1">
                 <label className="block text-slate-300">Precio</label>
                 <input
                   name="price"
@@ -3466,8 +3473,8 @@ export default function ProductsPage() {
 
               <div className="space-y-1">
                 <label className="block text-slate-300">Costo</label>
-                <div className="md:flex md:items-end md:gap-3">
-                  <div className="md:w-[320px]">
+                <div className="flex items-end gap-2">
+                  <div className="min-w-0 flex-1">
                     <input
                       name="cost"
                       type="text"
@@ -3477,7 +3484,7 @@ export default function ProductsPage() {
                       className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
                     />
                   </div>
-                  <div className="mt-2 md:mt-0 md:flex-1">
+                  <div className="shrink-0">
                     <button
                       type="button"
                       onClick={() => void handleSuggestEditCost()}
@@ -3664,125 +3671,140 @@ export default function ProductsPage() {
               </div>
 
               {editedProduct && (
-                <div className="md:col-span-2 space-y-3">
+                <div className="md:col-span-2 xl:col-span-3">
                   <button
                     type="button"
                     onClick={() => setShowAppearanceSettings((prev) => !prev)}
-                    className="w-full flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-left text-sm font-semibold text-slate-100 hover:bg-slate-800"
+                    className="w-full flex items-center justify-between rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-left text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
                   >
                     <span>Apariencia en POS (opcional)</span>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-slate-500">
                       {showAppearanceSettings ? "Ocultar" : "Mostrar"}
                     </span>
                   </button>
-                  {showAppearanceSettings && (
-                    <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 space-y-4">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                        {editedProductPreview ? (
-                          <Image
-                            src={editedProductPreview}
-                            alt={editedProduct.name}
-                            width={96}
-                            height={96}
-                            unoptimized
-                            className="h-24 w-24 rounded-lg object-cover border border-slate-800"
-                          />
-                        ) : (
-                          <div className="h-24 w-24 rounded-lg border border-dashed border-slate-700 text-slate-400 text-xs flex items-center justify-center">
-                            Sin imagen
+
+                  <div
+                    className={[
+                      "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
+                      showAppearanceSettings
+                        ? "grid-rows-[1fr] opacity-100"
+                        : "grid-rows-[0fr] opacity-0",
+                    ].join(" ")}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <div className="pt-3">
+                        <div className="space-y-4 rounded-lg border border-slate-300 bg-slate-50 p-4">
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                            {editedProductPreview ? (
+                              <Image
+                                src={editedProductPreview}
+                                alt={editedProduct.name}
+                                width={96}
+                                height={96}
+                                unoptimized
+                                className="h-24 w-24 rounded-lg object-cover border border-slate-300"
+                              />
+                            ) : (
+                              <div className="h-24 w-24 rounded-lg border border-dashed border-slate-300 text-slate-500 text-xs flex items-center justify-center">
+                                Sin imagen
+                              </div>
+                            )}
+                            <div className="text-xs text-slate-600">
+                              <p>
+                                Esta imagen y el color seleccionado se mostrarán en el POS para este producto.
+                              </p>
+                              {editedProduct.image_url && (
+                                <p className="mt-1 text-slate-500 break-all">
+                                  URL actual: {editedProduct.image_url}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        )}
-                        <div className="text-xs text-slate-400">
-                          <p>
-                            Esta imagen y el color seleccionado se mostrarán en el POS para este producto.
-                          </p>
-                          {editedProduct.image_url && (
-                            <p className="mt-1 text-slate-500 break-all">
-                              URL actual: {editedProduct.image_url}
+
+                          <div className="space-y-2">
+                            <label className="block text-slate-700 text-sm">
+                              Imagen del producto
+                            </label>
+                            <input
+                              type="file"
+                              ref={productImageInputRef}
+                              accept="image/png,image/jpeg,image/webp"
+                              disabled={productAppearanceLoading}
+                              onChange={handleProductImageInputChange}
+                              className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-md file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-100 hover:file:bg-slate-700 disabled:opacity-50"
+                            />
+                            <p className="text-xs text-slate-500">
+                              Puedes reemplazar o eliminar la imagen actual. (JPG, PNG o WebP · máx. 2 MB)
                             </p>
+                            <button
+                              type="button"
+                              disabled={productAppearanceLoading || !editedProductHasImage}
+                              onClick={() => void removeImageForProduct()}
+                              className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                            >
+                              Quitar imagen
+                            </button>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="block text-slate-700 text-sm">
+                              Color del tile
+                            </label>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="color"
+                                value={productTileColorValue}
+                                onChange={(e) => setProductTileColorValue(e.target.value)}
+                                className="h-10 w-16 rounded border border-slate-300 bg-transparent"
+                              />
+                              <span className="text-xs text-slate-500">
+                                {productTileColorValue}
+                              </span>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={productAppearanceLoading}
+                                onClick={() => void saveProductTileColorValue()}
+                                className="px-3 py-2 rounded-lg border border-emerald-500 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
+                              >
+                                Guardar color
+                              </button>
+                              <button
+                                type="button"
+                                disabled={productAppearanceLoading || !editedProduct.tile_color}
+                                onClick={() => void clearProductTileColorValue()}
+                                className="px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                              >
+                                Quitar color
+                              </button>
+                            </div>
+                          </div>
+
+                          {productAppearanceLoading && (
+                            <div className="text-xs text-emerald-700">Procesando...</div>
+                          )}
+                          {productAppearanceError && (
+                            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                              {productAppearanceError}
+                            </div>
+                          )}
+                          {productAppearanceSuccess && (
+                            <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2">
+                              {productAppearanceSuccess}
+                            </div>
                           )}
                         </div>
                       </div>
-
-                      <div className="space-y-2">
-                        <label className="block text-slate-300 text-sm">
-                          Imagen del producto
-                        </label>
-                        <input
-                          type="file"
-                          ref={productImageInputRef}
-                          accept="image/png,image/jpeg,image/webp"
-                          disabled={productAppearanceLoading}
-                          onChange={handleProductImageInputChange}
-                          className="block w-full text-sm text-slate-200 file:mr-4 file:rounded-md file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-100 hover:file:bg-slate-700 disabled:opacity-50"
-                        />
-                        <p className="text-xs text-slate-500">
-                          Puedes reemplazar o eliminar la imagen actual. (JPG, PNG o WebP · máx. 2 MB)
-                        </p>
-                        <button
-                          type="button"
-                          disabled={productAppearanceLoading || !editedProductHasImage}
-                          onClick={() => void removeImageForProduct()}
-                          className="px-3 py-2 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-40"
-                        >
-                          Quitar imagen
-                        </button>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="block text-slate-300 text-sm">
-                          Color del tile
-                        </label>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="color"
-                            value={productTileColorValue}
-                            onChange={(e) => setProductTileColorValue(e.target.value)}
-                            className="h-10 w-16 rounded border border-slate-600 bg-transparent"
-                          />
-                          <span className="text-xs text-slate-400">
-                            {productTileColorValue}
-                          </span>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            disabled={productAppearanceLoading}
-                            onClick={() => void saveProductTileColorValue()}
-                            className="px-3 py-2 rounded-lg border border-emerald-500 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40"
-                          >
-                            Guardar color
-                          </button>
-                          <button
-                            type="button"
-                            disabled={productAppearanceLoading || !editedProduct.tile_color}
-                            onClick={() => void clearProductTileColorValue()}
-                            className="px-3 py-2 rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-40"
-                          >
-                            Quitar color
-                          </button>
-                        </div>
-                      </div>
-
-                      {productAppearanceLoading && (
-                        <div className="text-xs text-emerald-300">Procesando...</div>
-                      )}
-                      {productAppearanceError && (
-                        <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">
-                          {productAppearanceError}
-                        </div>
-                      )}
-                      {productAppearanceSuccess && (
-                        <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-md px-3 py-2">
-                          {productAppearanceSuccess}
-                        </div>
-                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
 
-              <div className="md:col-span-2 flex justify-between items-center mt-2 gap-2">
+                </div>
+              </div>
+
+              <div className="shrink-0 flex justify-between items-center gap-2 border-t border-slate-700 bg-slate-900 px-5 py-4">
                 <button
                   type="button"
                   onClick={() => {

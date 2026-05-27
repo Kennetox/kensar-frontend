@@ -22,16 +22,16 @@ export default function DescargasPage() {
           "url('https://images.unsplash.com/photo-1556742044-3c52d6e88c62?auto=format&fit=crop&q=80&w=2070')",
       }}
     >
-      <div className="min-h-screen bg-white/70 backdrop-blur-sm">
-        <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-10 sm:px-6 lg:px-12">
-          <nav className="flex flex-col gap-4 rounded-3xl bg-white/80 px-6 py-5 shadow-lg sm:flex-row sm:items-center sm:justify-between sm:px-8">
-            <div className="flex items-center gap-4">
+      <div className="min-h-dvh bg-white/70 backdrop-blur-sm">
+        <div className="mx-auto flex min-h-dvh w-full max-w-[62rem] flex-col px-4 py-6 sm:px-5 lg:py-8">
+          <nav className="flex flex-col gap-4 rounded-[1.35rem] bg-white/80 px-5 py-4 shadow-lg sm:flex-row sm:items-center sm:justify-between sm:px-8 sm:py-[1.125rem]">
+            <div className="flex items-center gap-3.5">
               <Image
                 src="/branding/metriklogo.png"
                 alt="Logo Metrik"
-                width={48}
-                height={48}
-                className="h-12 w-12 rounded-2xl"
+                width={44}
+                height={44}
+                className="h-11 w-11 rounded-xl"
                 priority
               />
               <div>
@@ -59,21 +59,21 @@ export default function DescargasPage() {
             </div>
           </nav>
 
-          <section className="mt-8 rounded-3xl bg-white/85 p-5 shadow-2xl sm:p-9">
-            <p className="text-sm uppercase tracking-[0.35em] text-slate-500">
+          <section className="mt-8 rounded-[1.35rem] bg-white/85 p-5 shadow-2xl sm:mt-10 sm:p-7">
+            <p className="text-[11px] uppercase tracking-[0.32em] text-slate-500 sm:text-xs">
               Recursos para nuevas estaciones
             </p>
-            <h1 className="mt-3 text-[1.7rem] font-bold text-slate-900 sm:text-[2.8rem]">
+            <h1 className="mt-3 text-[clamp(2rem,4.2vw,3rem)] font-bold leading-tight text-slate-900">
               Descargas de Metrik
             </h1>
-            <p className="mt-3 text-[0.95rem] text-slate-600 sm:text-[1.05rem]">
+            <p className="mt-3 max-w-3xl text-base text-slate-600">
               Un solo espacio con todas las apps oficiales para instalar y dejar
               operativo un nuevo equipo en escritorio o tablet.
             </p>
             <DownloadsAccessPanel resources={downloadResources} />
           </section>
 
-          <footer className="mt-10 rounded-3xl bg-white/80 px-5 py-5 text-center text-xs text-slate-500 shadow-lg sm:px-10 sm:text-sm">
+          <footer className="mt-6 px-5 pb-2 pt-1 text-center text-xs text-slate-600 sm:text-sm">
             © {new Date().getFullYear()} Metrik · Kensar Electronic
             {" · "}
             <Link href="/politica-de-cookies" className="font-medium text-slate-700 hover:text-slate-900">

@@ -23,7 +23,7 @@ const CONTACT_MESSAGE = "Hola%20Kensar,%20quiero%20informaci%C3%B3n%20de%20Metri
 
 const contactWhatsAppUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${CONTACT_MESSAGE}`;
 const contactMailtoUrl = `mailto:${CONTACT_EMAIL}?cc=${CONTACT_EMAIL_CC}&subject=Contacto%20Metrik`;
-const KENSAR_WEB_URL = "https://kensar-web.vercel.app/";
+const KENSAR_WEB_URL = "https://www.kensarelectronic.com";
 const mapEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(MAP_QUERY)}&z=15&output=embed`;
 const mapOpenUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(MAP_QUERY)}`;
 
@@ -36,16 +36,16 @@ export default function ContactPage() {
           "url('https://images.unsplash.com/photo-1556742044-3c52d6e88c62?auto=format&fit=crop&q=80&w=2070')",
       }}
     >
-      <div className="min-h-screen bg-white/70 backdrop-blur-sm">
-        <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-10 sm:px-6 lg:px-12">
-          <nav className="flex flex-col gap-4 rounded-3xl bg-white/80 px-6 py-5 shadow-lg sm:flex-row sm:items-center sm:justify-between sm:px-8">
-            <div className="flex items-center gap-4">
+      <div className="min-h-dvh bg-white/70 backdrop-blur-sm">
+        <div className="mx-auto flex min-h-dvh w-full max-w-[62rem] flex-col px-4 py-6 sm:px-5 lg:py-8">
+          <nav className="flex flex-col gap-4 rounded-[1.35rem] bg-white/80 px-5 py-4 shadow-lg sm:flex-row sm:items-center sm:justify-between sm:px-8 sm:py-[1.125rem]">
+            <div className="flex items-center gap-3.5">
               <Image
                 src="/branding/metriklogo.png"
                 alt="Logo Metrik"
-                width={48}
-                height={48}
-                className="h-12 w-12 rounded-2xl"
+                width={44}
+                height={44}
+                className="h-11 w-11 rounded-xl"
                 priority
               />
               <div>
@@ -71,41 +71,41 @@ export default function ContactPage() {
             </div>
           </nav>
 
-          <section className="mt-10 rounded-3xl bg-white/85 p-6 shadow-2xl sm:p-10">
-            <p className="text-sm uppercase tracking-[0.35em] text-slate-500">
+          <section className="mt-8 rounded-[1.35rem] bg-white/85 p-5 shadow-2xl sm:mt-10 sm:p-7">
+            <p className="text-[11px] uppercase tracking-[0.32em] text-slate-500 sm:text-xs">
               Canales oficiales
             </p>
-            <h1 className="mt-4 text-3xl font-bold text-slate-900 sm:text-5xl">
+            <h1 className="mt-3 text-[clamp(2rem,4.2vw,3rem)] font-bold leading-tight text-slate-900">
               Contacta a Kensar
             </h1>
-            <p className="mt-4 text-base text-slate-600 sm:text-lg">
+            <p className="mt-3 max-w-3xl text-base text-slate-600">
               Usa estos canales para ventas, implementacion y soporte tecnico de Metrik.
             </p>
 
-            <div className="mt-8">
+            <div className="mt-6">
               <article
                 id="ventas"
-                className="relative rounded-2xl border border-slate-200/80 bg-white/80 p-6"
+                className="relative rounded-xl border border-slate-200/80 bg-white/80 p-5"
               >
-                <h2 className="text-xl font-semibold text-slate-900">Contacto</h2>
-                <div className="pointer-events-none absolute right-6 top-6 hidden items-center gap-3 rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 md:flex">
+                <h2 className="text-lg font-semibold text-slate-900">Contacto</h2>
+                <div className="pointer-events-none absolute right-5 top-5 hidden items-center gap-3 rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 md:flex">
                   <Image
                     src="/branding/metriklogo_square.png"
                     alt="Logo Metrik"
-                    width={64}
-                    height={64}
-                    className="h-[64px] w-[64px] rounded-lg object-contain"
+                    width={52}
+                    height={52}
+                    className="h-[52px] w-[52px] rounded-lg object-contain"
                   />
-                  <div className="h-12 w-px bg-slate-200" />
+                  <div className="h-10 w-px bg-slate-200" />
                   <Image
                     src="/assets/kensarlogoticket.svg"
                     alt="Logo Kensar Electronic"
                     width={200}
                     height={56}
-                    className="h-[56px] w-auto object-contain"
+                    className="h-11 w-auto object-contain"
                   />
                 </div>
-                <p className="mt-2 text-slate-600 md:pr-[320px]">
+                <p className="mt-2 text-sm text-slate-600 md:pr-[280px]">
                   Kensar web:{" "}
                   <a
                     href={KENSAR_WEB_URL}
@@ -116,7 +116,7 @@ export default function ContactPage() {
                     {KENSAR_WEB_URL}
                   </a>
                 </p>
-                <p className="mt-2 text-slate-600 md:pr-[320px]">
+                <p className="mt-2 text-sm text-slate-600 md:pr-[280px]">
                   Correo:{" "}
                   <a
                     href={contactMailtoUrl}
@@ -125,7 +125,7 @@ export default function ContactPage() {
                     {CONTACT_EMAIL}
                   </a>
                 </p>
-                <p className="mt-2 text-slate-600 md:pr-[320px]">
+                <p className="mt-2 text-sm text-slate-600 md:pr-[280px]">
                   WhatsApp:{" "}
                   <a
                     href={contactWhatsAppUrl}
@@ -140,13 +140,13 @@ export default function ContactPage() {
                   href={contactWhatsAppUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-3 inline-block text-sm font-semibold text-slate-700 underline underline-offset-2 hover:text-slate-900 md:pr-[320px]"
+                  className="mt-3 inline-block text-sm font-semibold text-slate-700 underline underline-offset-2 hover:text-slate-900 md:pr-[280px]"
                 >
                   Abrir WhatsApp
                 </a>
 
-                <div className="mt-6 border-t border-slate-200/80 pt-5">
-                  <p className="text-slate-600">
+                <div className="mt-5 border-t border-slate-200/80 pt-4">
+                  <p className="text-sm text-slate-600">
                     Dirección: <span className="font-medium text-slate-700">{ADDRESS}</span>
                   </p>
                   <a
@@ -162,7 +162,7 @@ export default function ContactPage() {
                       title="Mapa ubicación Kensar"
                       src={mapEmbedUrl}
                       width="100%"
-                      height="220"
+                      height="180"
                       loading="lazy"
                       referrerPolicy="no-referrer-when-downgrade"
                     />
@@ -174,7 +174,7 @@ export default function ContactPage() {
             </div>
           </section>
 
-          <footer className="mt-12 rounded-3xl bg-white/80 px-5 py-6 text-center text-sm text-slate-500 shadow-lg sm:px-10">
+          <footer className="mt-6 px-5 pb-2 pt-1 text-center text-xs text-slate-600 sm:text-sm">
             © {new Date().getFullYear()} Metrik · Kensar Electronic
           </footer>
         </div>

@@ -145,6 +145,7 @@ export default function MovementsPage() {
   const [latestEntriesFilter, setLatestEntriesFilter] = useState<
     "all" | "app" | "manual"
   >("all");
+  const [showInventorySaleValue, setShowInventorySaleValue] = useState(false);
   const [openingFormKind, setOpeningFormKind] = useState<ManualMovementKind | null>(null);
 
   const [inventoryPage, setInventoryPage] = useState<InventoryProductPage | null>(null);
@@ -736,37 +737,37 @@ export default function MovementsPage() {
     const recentMovementsCount = overview?.recent_movements?.length ?? 0;
     return [
       {
+        key: "stock_total",
         title: "Stock total",
         value: `${formatQty(totalQty)} uds`,
         isNegative: totalQty < 0,
       },
       {
-        title: "Valor inventario (costo)",
-        value: formatMoney(totalCostValue),
-        isNegative: totalCostValue < 0,
+        key: "inventory_value",
+        title: showInventorySaleValue ? "Valor inventario (venta)" : "Valor inventario (costo)",
+        value: formatMoney(showInventorySaleValue ? totalPriceValue : totalCostValue),
+        isNegative: showInventorySaleValue ? totalPriceValue < 0 : totalCostValue < 0,
       },
       {
-        title: "Valor inventario (venta)",
-        value: formatMoney(totalPriceValue),
-        isNegative: totalPriceValue < 0,
-      },
-      {
+        key: "low_stock",
         title: "SKUs bajo mínimo",
         value: `${lowStockCount}`,
         isNegative: lowStockCount < 0,
       },
       {
+        key: "critical",
         title: "SKUs críticos",
         value: `${criticalCount}`,
         isNegative: criticalCount < 0,
       },
       {
+        key: "movements_24h",
         title: "Movimientos 24h",
         value: `${recentMovementsCount}`,
         isNegative: recentMovementsCount < 0,
       },
     ];
-  }, [overview, summaryInventoryTotals]);
+  }, [overview, showInventorySaleValue, summaryInventoryTotals]);
 
   const latestEntriesVisible = useMemo(() => {
     const filtered =
@@ -1374,17 +1375,17 @@ export default function MovementsPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <section className="px-1">
+    <div className="mx-auto flex w-full max-w-[84rem] min-w-0 flex-col gap-4 px-20 xl:px-24">
+      <section className="min-w-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h1 className="text-2xl font-semibold leading-none text-slate-900">Movimientos</h1>
-            <p className="text-sm leading-none text-slate-600">Control y trazabilidad de inventario.</p>
+            <h1 className="text-[1.55rem] font-semibold leading-none text-slate-900">Movimientos</h1>
+            <p className="text-xs leading-none text-slate-600">Control y trazabilidad de inventario.</p>
           </div>
           {isRecountDocumentFocused ? (
             <button
               onClick={() => setRecountView("home")}
-              className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
             >
               Volver a recuentos
             </button>
@@ -1393,14 +1394,14 @@ export default function MovementsPage() {
       </section>
 
       {!isRecountDocumentFocused ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="flex flex-wrap gap-2">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
+          <div className="flex flex-wrap gap-1.5">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 aria-current={activeTab === tab.key ? "page" : undefined}
-                className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                className={`rounded-xl px-3 py-1.5 text-[13px] font-medium transition ${
                   activeTab === tab.key
                     ? "bg-slate-900 text-white shadow-sm"
                     : "bg-slate-100 text-slate-700 hover:bg-slate-200"
@@ -1414,29 +1415,54 @@ export default function MovementsPage() {
       ) : null}
 
       {activeTab === "summary" ? (
-        <section className="space-y-4">
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {summaryCards.map((card) => (
-              <div
-                key={card.title}
-                className="min-w-[230px] flex-1 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-              >
-                <p className="text-xs uppercase tracking-[0.12em] text-slate-500">{card.title}</p>
-                <p
-                  className={`mt-2 text-xl font-semibold ${
-                    card.isNegative ? "text-rose-700" : "text-slate-900"
-                  }`}
+        <section className="min-w-0 space-y-3.5">
+          <div className="grid min-w-0 gap-2.5 sm:grid-cols-2 xl:grid-cols-5">
+            {summaryCards.map((card) => {
+              const content = (
+                <>
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{card.title}</p>
+                  <p
+                    className={`mt-1.5 truncate text-[17px] font-semibold ${
+                      card.isNegative ? "text-rose-700" : "text-slate-900"
+                    }`}
+                    title={card.value}
+                  >
+                    {card.value}
+                  </p>
+                </>
+              );
+
+              if (card.key === "inventory_value") {
+                return (
+                  <button
+                    key={card.key}
+                    type="button"
+                    onClick={() => setShowInventorySaleValue((current) => !current)}
+                    aria-label={`Alternar valor inventario a ${
+                      showInventorySaleValue ? "costo" : "venta"
+                    }`}
+                    className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/40"
+                  >
+                    {content}
+                  </button>
+                );
+              }
+
+              return (
+                <div
+                  key={card.key}
+                  className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
                 >
-                  {card.value}
-                </p>
-              </div>
-            ))}
+                  {content}
+                </div>
+              );
+            })}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="text-base font-semibold text-slate-900">Movimientos recientes</h2>
-              <div className="mt-4 space-y-2">
+          <div className="grid min-w-0 gap-3.5 lg:grid-cols-2">
+            <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900">Movimientos recientes</h2>
+              <div className="mt-3 space-y-2">
                 {overviewLoading ? (
                   <div className="space-y-2">
                     {Array.from({ length: 6 }).map((_, index) => (
@@ -1454,11 +1480,29 @@ export default function MovementsPage() {
                   (overview?.recent_movements ?? []).map((row) => (
                     <div
                       key={row.id}
-                      className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"
+                      title={`${row.product_name} · SKU: ${row.sku || "-"} · ${
+                        reasonLabel[row.reason as InventoryMovementReason] ?? row.reason
+                      }${row.reason === "sale" && row.sale_pos_name ? ` · POS: ${row.sale_pos_name}` : ""}${
+                        row.reason === "sale" && row.sale_seller_name
+                          ? ` · Vendedor: ${row.sale_seller_name}`
+                          : ""
+                      } · ${formatDate(row.created_at)}`}
+                      className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
                     >
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{row.product_name}</p>
-                        <p className="text-xs text-slate-500">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[12px] font-semibold leading-4 text-slate-900" title={row.product_name}>
+                          {row.product_name}
+                        </p>
+                        <p
+                          className="truncate whitespace-nowrap text-[11px] leading-4 text-slate-500"
+                          title={`SKU: ${row.sku || "-"} · ${
+                            reasonLabel[row.reason as InventoryMovementReason] ?? row.reason
+                          }${row.reason === "sale" && row.sale_pos_name ? ` · POS: ${row.sale_pos_name}` : ""}${
+                            row.reason === "sale" && row.sale_seller_name
+                              ? ` · Vendedor: ${row.sale_seller_name}`
+                              : ""
+                          }`}
+                        >
                           SKU: {row.sku || "-"} ·{" "}
                           {reasonLabel[row.reason as InventoryMovementReason] ?? row.reason}
                           {row.reason === "sale" && row.sale_pos_name ? (
@@ -1475,12 +1519,12 @@ export default function MovementsPage() {
                           ) : null}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className={`text-sm font-semibold ${row.qty_delta < 0 ? "text-rose-700" : "text-emerald-700"}`}>
+                      <div className="shrink-0 text-right">
+                        <p className={`text-[12px] font-semibold ${row.qty_delta < 0 ? "text-rose-700" : "text-emerald-700"}`}>
                           {row.qty_delta > 0 ? "+" : ""}
                           {formatQty(row.qty_delta)}
                         </p>
-                        <p className="text-xs text-slate-500">{formatDate(row.created_at)}</p>
+                        <p className="text-[11px] text-slate-500">{formatDate(row.created_at)}</p>
                       </div>
                     </div>
                   ))
@@ -1488,9 +1532,9 @@ export default function MovementsPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-semibold text-slate-900">Últimas entradas de Stock</h2>
+                <h2 className="text-sm font-semibold text-slate-900">Últimas entradas de Stock</h2>
                 <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
                   <button
                     onClick={() => setLatestEntriesFilter("all")}
@@ -1524,7 +1568,7 @@ export default function MovementsPage() {
                   </button>
                 </div>
               </div>
-              <div className="mt-4 space-y-2">
+              <div className="mt-3 space-y-2">
                 {latestEntriesLoading ? (
                   <p className="text-sm text-slate-500">Cargando entradas...</p>
                 ) : latestEntriesError ? (
@@ -1535,19 +1579,25 @@ export default function MovementsPage() {
                   latestEntriesVisible.map((row) => (
                     <div
                       key={row.id}
-                      className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2"
+                      title={`${row.product_name} · SKU: ${row.sku || "-"} · ${resolveEntrySourceLabel(row)} · ${formatDate(row.created_at)}`}
+                      className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
                     >
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{row.product_name}</p>
-                        <p className="text-xs text-slate-500">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[12px] font-semibold leading-4 text-slate-900" title={row.product_name}>
+                          {row.product_name}
+                        </p>
+                        <p
+                          className="truncate whitespace-nowrap text-[11px] leading-4 text-slate-500"
+                          title={`SKU: ${row.sku || "-"} · ${resolveEntrySourceLabel(row)} · ${formatDate(row.created_at)}`}
+                        >
                           SKU: {row.sku || "-"} · {resolveEntrySourceLabel(row)} · {formatDate(row.created_at)}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex h-7 w-[116px] items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-2 text-sm font-semibold text-emerald-700">
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <span className="inline-flex h-5 w-[78px] items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-semibold text-emerald-700">
                           Entrada
                         </span>
-                        <span className="text-sm font-semibold text-emerald-700 tabular-nums">
+                        <span className="text-[12px] font-semibold text-emerald-700 tabular-nums">
                           +{formatQty(row.qty_delta)}
                         </span>
                       </div>
@@ -1561,11 +1611,11 @@ export default function MovementsPage() {
       ) : null}
 
       {activeTab === "inventory" ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Inventario</h2>
-              <p className="text-sm text-slate-600">
+              <h2 className="text-base font-semibold text-slate-900">Inventario</h2>
+              <p className="text-xs text-slate-600">
                 Lista simplificada de productos con estado y último movimiento.
               </p>
             </div>
@@ -1580,30 +1630,30 @@ export default function MovementsPage() {
                   setInventoryPageSize(100);
                   setInventoryPageNo(1);
                 }}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
               >
                 Limpiar filtros
               </button>
               <button
                 onClick={openInventoryExportModal}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
               >
                 Exportar búsqueda
               </button>
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 lg:grid-cols-5">
+          <div className="mt-3 grid min-w-0 gap-2.5 lg:grid-cols-5">
             <input
               value={inventorySearch}
               onChange={(e) => setInventorySearch(e.target.value)}
               placeholder="Buscar por nombre, SKU o código"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 lg:col-span-2"
+              className="min-w-0 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-900 lg:col-span-2"
             />
             <select
               value={inventoryGroupFilter}
               onChange={(e) => setInventoryGroupFilter(e.target.value)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              className="min-w-0 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-900"
             >
               <option value="all">Todas las categorías</option>
               {groupOptions.map((group) => (
@@ -1617,7 +1667,7 @@ export default function MovementsPage() {
               onChange={(e) =>
                 setInventoryStockFilter(e.target.value as "all" | "positive" | "zero" | "negative")
               }
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              className="min-w-0 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-900"
             >
               <option value="all">Todos los stocks</option>
               <option value="positive">Stock positivo</option>
@@ -1627,7 +1677,7 @@ export default function MovementsPage() {
             <select
               value={inventoryStatusFilter}
               onChange={(e) => setInventoryStatusFilter(e.target.value as StatusFilter)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              className="min-w-0 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-900"
             >
               <option value="all">Todos los estados</option>
               <option value="ok">Saludable</option>
@@ -1637,7 +1687,7 @@ export default function MovementsPage() {
             </select>
           </div>
 
-          <div className="mt-3 grid gap-3 lg:grid-cols-4">
+          <div className="mt-2.5 grid min-w-0 gap-2.5 lg:grid-cols-4">
             <select
               value={inventorySort}
               onChange={(e) =>
@@ -1654,7 +1704,7 @@ export default function MovementsPage() {
                     | "price_stock_desc"
                 )
               }
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              className="min-w-0 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-900"
             >
               <option value="name_asc">Orden alfabético</option>
               <option value="stock_asc">Stock menor a mayor (más negativos primero)</option>
@@ -1669,13 +1719,13 @@ export default function MovementsPage() {
             <select
               value={inventoryPageSize}
               onChange={(e) => setInventoryPageSize(Number(e.target.value))}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+              className="min-w-0 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-900"
             >
               <option value={50}>50 por página</option>
               <option value={100}>100 por página</option>
               <option value={200}>200 por página</option>
             </select>
-            <div className="text-sm text-slate-600 lg:col-span-2">
+            <div className="text-[13px] text-slate-600 lg:col-span-2">
               Mostrando {inventoryItems.length} de {inventoryTotal} · Resultados: {inventoryTotal} · Página{" "}
               {inventoryPageNo} de {inventoryPages}
             </div>
@@ -1687,38 +1737,38 @@ export default function MovementsPage() {
             ) : null}
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 text-xs text-slate-600">
+          <div className="mt-4 min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3.5 py-2.5 text-xs text-slate-600">
               <div>
                 Página <span className="font-semibold text-slate-900">{inventoryPageNo}</span> de{" "}
                 <span className="font-semibold text-slate-900">{inventoryPages}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <button
                   onClick={() => setInventoryPageNo(1)}
                   disabled={inventoryPageNo <= 1}
-                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                  className="rounded-full border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"
                 >
                   ⇤ Primera
                 </button>
                 <button
                   onClick={() => setInventoryPageNo((prev) => Math.max(1, prev - 1))}
                   disabled={inventoryPageNo <= 1}
-                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                  className="rounded-full border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"
                 >
                   ← Anterior
                 </button>
                 <button
                   onClick={() => setInventoryPageNo((prev) => Math.min(inventoryPages, prev + 1))}
                   disabled={inventoryPageNo >= inventoryPages}
-                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                  className="rounded-full border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"
                 >
                   Siguiente →
                 </button>
                 <button
                   onClick={() => setInventoryPageNo(inventoryPages)}
                   disabled={inventoryPageNo >= inventoryPages}
-                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                  className="rounded-full border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"
                 >
                   Última ⇥
                 </button>
@@ -1726,29 +1776,29 @@ export default function MovementsPage() {
             </div>
 
             <div className="h-[min(62vh,720px)] min-h-[340px] overflow-auto">
-              <table className="w-full table-fixed">
+              <table className="w-full min-w-[1040px] table-fixed text-[12px]">
               <colgroup>
-                <col style={{ width: "24%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "15%" }} />
-                <col style={{ width: "7%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "8%" }} />
+                <col style={{ width: "240px" }} />
+                <col style={{ width: "56px" }} />
+                <col style={{ width: "150px" }} />
+                <col style={{ width: "58px" }} />
+                <col style={{ width: "112px" }} />
+                <col style={{ width: "122px" }} />
+                <col style={{ width: "122px" }} />
+                <col style={{ width: "108px" }} />
+                <col style={{ width: "88px" }} />
               </colgroup>
               <thead className="sticky top-0 z-10 bg-slate-50">
-                <tr className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">
-                  <th className="px-3 py-3 text-left">Producto</th>
-                  <th className="px-3 py-3 text-left">SKU</th>
-                  <th className="px-3 py-3 text-left">Categoría</th>
-                  <th className="px-3 py-3 text-center">Stock</th>
-                  <th className="px-3 py-3 text-left">Estado</th>
-                  <th className="px-3 py-3 text-left">Costo en stock</th>
-                  <th className="px-3 py-3 text-left">Precio en stock</th>
-                  <th className="px-3 py-3 text-left">Último mov.</th>
-                  <th className="px-3 py-3 text-left" />
+                <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+                  <th className="px-2 py-2.5 text-left">Producto</th>
+                  <th className="px-2 py-2.5 text-left">SKU</th>
+                  <th className="px-2 py-2.5 text-left">Categoría</th>
+                  <th className="px-2 py-2.5 text-center">Stock</th>
+                  <th className="px-2 py-2.5 text-left">Estado</th>
+                  <th className="px-2 py-2.5 text-left">Costo en stock</th>
+                  <th className="px-2 py-2.5 text-left">Precio en stock</th>
+                  <th className="px-2 py-2.5 text-left">Último mov.</th>
+                  <th className="py-2.5 pl-2 pr-4 text-left" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -1782,8 +1832,8 @@ export default function MovementsPage() {
                             ? "bg-amber-50/60"
                             : "bg-emerald-50/70";
                     return (
-                      <tr key={row.product_id} className="group text-sm">
-                        <td className={`${rowBg} px-3 py-3 transition-colors group-hover:bg-sky-50/60`}>
+                      <tr key={row.product_id} className="group">
+                        <td className={`${rowBg} px-2 py-2 transition-colors group-hover:bg-sky-50/60`}>
                           <span
                             className={`block truncate font-medium ${
                               row.qty_on_hand < 0 ? "text-rose-600" : "text-slate-900"
@@ -1793,12 +1843,12 @@ export default function MovementsPage() {
                             {row.product_name}
                           </span>
                         </td>
-                        <td className={`${rowBg} px-3 py-3 transition-colors group-hover:bg-sky-50/60`}>
+                        <td className={`${rowBg} px-2 py-2 transition-colors group-hover:bg-sky-50/60`}>
                           <span className="block truncate text-slate-600" title={row.sku || "-"}>
                             {row.sku || "-"}
                           </span>
                         </td>
-                        <td className={`${rowBg} px-3 py-3 transition-colors group-hover:bg-sky-50/60`}>
+                        <td className={`${rowBg} px-2 py-2 transition-colors group-hover:bg-sky-50/60`}>
                           <span
                             className="block truncate text-slate-600"
                             title={row.group_name || "Sin categoría"}
@@ -1807,52 +1857,52 @@ export default function MovementsPage() {
                           </span>
                         </td>
                         <td
-                          className={`${rowBg} px-3 py-3 text-center font-semibold tabular-nums transition-colors group-hover:bg-sky-50/60 ${
+                          className={`${rowBg} px-2 py-2 text-center font-semibold tabular-nums transition-colors group-hover:bg-sky-50/60 ${
                             row.qty_on_hand < 0 ? "text-rose-700" : "text-slate-800"
                           }`}
                         >
                           {formatQty(row.qty_on_hand)}
                         </td>
-                        <td className={`${rowBg} px-3 py-3 transition-colors group-hover:bg-sky-50/60`}>
+                        <td className={`${rowBg} px-2 py-2 transition-colors group-hover:bg-sky-50/60`}>
                           <span className={badgeClass(status)}>{statusLabel(status)}</span>
                         </td>
                         <td
-                          className={`${rowBg} px-3 py-3 text-slate-700 tabular-nums transition-colors group-hover:bg-sky-50/60`}
+                          className={`${rowBg} px-2 py-2 align-top text-slate-700 tabular-nums transition-colors group-hover:bg-sky-50/60`}
                         >
                           <span
-                            className={`block ${
+                            className={`block whitespace-nowrap ${
                               row.cost * row.qty_on_hand < 0 ? "text-rose-600" : "text-slate-700"
                             }`}
                           >
                             {formatMoney(row.cost * row.qty_on_hand)}
                           </span>
-                          <span className="text-xs text-slate-500">
+                          <span className="whitespace-nowrap text-[11px] text-slate-500">
                             Unit: {formatMoney(row.cost)}
                           </span>
                         </td>
                         <td
-                          className={`${rowBg} px-3 py-3 text-slate-700 tabular-nums transition-colors group-hover:bg-sky-50/60`}
+                          className={`${rowBg} px-2 py-2 align-top text-slate-700 tabular-nums transition-colors group-hover:bg-sky-50/60`}
                         >
                           <span
-                            className={`block ${
+                            className={`block whitespace-nowrap ${
                               row.price * row.qty_on_hand < 0 ? "text-rose-600" : "text-slate-700"
                             }`}
                           >
                             {formatMoney(row.price * row.qty_on_hand)}
                           </span>
-                          <span className="text-xs text-slate-500">
+                          <span className="whitespace-nowrap text-[11px] text-slate-500">
                             Unit: {formatMoney(row.price)}
                           </span>
                         </td>
                         <td
-                          className={`${rowBg} px-3 py-3 text-slate-600 transition-colors group-hover:bg-sky-50/60`}
+                          className={`${rowBg} px-2 py-2 align-top text-[11px] leading-4 text-slate-600 transition-colors group-hover:bg-sky-50/60`}
                         >
                           {row.last_movement_at ? formatDate(row.last_movement_at) : "-"}
                         </td>
-                        <td className={`${rowBg} px-3 py-3 transition-colors group-hover:bg-sky-50/60`}>
+                        <td className={`${rowBg} py-2 pl-2 pr-4 align-top transition-colors group-hover:bg-sky-50/60`}>
                           <button
                             onClick={() => openHistory(row.product_id)}
-                            className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                            className="rounded-lg border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                           >
                             Historial
                           </button>
@@ -1865,37 +1915,37 @@ export default function MovementsPage() {
               </table>
             </div>
 
-            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-xs text-slate-600">
+            <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-3.5 py-2.5 text-xs text-slate-600">
               <div>
                 Página <span className="font-semibold text-slate-900">{inventoryPageNo}</span> de{" "}
                 <span className="font-semibold text-slate-900">{inventoryPages}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <button
                   onClick={() => setInventoryPageNo(1)}
                   disabled={inventoryPageNo <= 1}
-                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                  className="rounded-full border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"
                 >
                   ⇤ Primera
                 </button>
                 <button
                   onClick={() => setInventoryPageNo((prev) => Math.max(1, prev - 1))}
                   disabled={inventoryPageNo <= 1}
-                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                  className="rounded-full border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"
                 >
                   ← Anterior
                 </button>
                 <button
                   onClick={() => setInventoryPageNo((prev) => Math.min(inventoryPages, prev + 1))}
                   disabled={inventoryPageNo >= inventoryPages}
-                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                  className="rounded-full border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"
                 >
                   Siguiente →
                 </button>
                 <button
                   onClick={() => setInventoryPageNo(inventoryPages)}
                   disabled={inventoryPageNo >= inventoryPages}
-                  className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
+                  className="rounded-full border border-slate-300 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 disabled:opacity-40"
                 >
                   Última ⇥
                 </button>
@@ -1906,19 +1956,19 @@ export default function MovementsPage() {
       ) : null}
 
       {activeTab === "movements" ? (
-        <section className="space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="min-w-0 space-y-3.5">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">
+                <h2 className="text-base font-semibold text-slate-900">
                   Formularios de movimientos manuales
                 </h2>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-xs text-slate-600">
                   Selecciona el tipo de operación y abre su formulario en una vista separada.
                 </p>
               </div>
             </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-3 grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-4">
               {kindOptions.map((kind) => (
                 <div
                   key={kind.id}
@@ -1992,32 +2042,37 @@ export default function MovementsPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="grid min-w-0 gap-3.5 lg:grid-cols-2">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">
+                  <h2 className="text-base font-semibold text-slate-900">
                     Documentos abiertos o en curso
                   </h2>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-xs text-slate-600">
                     Seguimiento de documentos activos (recepciones y salidas manuales por ahora).
                   </p>
                 </div>
               </div>
-              <div className="mt-4 space-y-2">
+              <div className="mt-3 space-y-2">
                 {openReceivingLotsLoading ? (
-                  <p className="text-sm text-slate-500">Cargando documentos abiertos...</p>
+                  <p className="text-xs text-slate-500">Cargando documentos abiertos...</p>
                 ) : openReceivingLotsError ? (
-                  <p className="text-sm text-rose-600">{openReceivingLotsError}</p>
+                  <p className="text-xs text-rose-600">{openReceivingLotsError}</p>
                 ) : openDocsSorted.length === 0 ? (
-                  <p className="text-sm text-slate-500">No hay documentos en curso en este momento.</p>
+                  <p className="text-xs text-slate-500">No hay documentos en curso en este momento.</p>
                 ) : (
                   <>
                     {openDocsSorted.map((entry) =>
                       entry.type === "receiving" ? (
                         <div
                           key={`rc-${entry.lot.id}`}
-                          className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2"
+                          title={`${entry.lot.lot_number} · Recepción · ${
+                            entry.lot.purchase_type === "invoice" ? "Factura" : "Efectivo"
+                          } · ${formatDate(entry.lot.created_at)} · Inició: ${
+                            entry.lot.created_by_user_name || "Usuario no disponible"
+                          }`}
+                          className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
                         >
                           {(() => {
                             const lot = entry.lot;
@@ -2025,36 +2080,36 @@ export default function MovementsPage() {
                               (lot.origin_name || "").trim().toLowerCase() === WEB_RECEIVING_ORIGIN;
                             return (
                               <>
-                                <div className="text-sm text-slate-700">
+                                <div className="min-w-0 flex-1 truncate whitespace-nowrap text-[12px] text-slate-700">
                                   <span className="font-semibold text-slate-900">{lot.lot_number}</span>
-                                  <span className="mx-2 text-slate-400">·</span>
+                                  <span className="mx-1.5 text-slate-400">·</span>
                                   <span>Recepción</span>
-                                  <span className="mx-2 text-slate-400">·</span>
+                                  <span className="mx-1.5 text-slate-400">·</span>
                                   <span>{lot.purchase_type === "invoice" ? "Factura" : "Efectivo"}</span>
-                                  <span className="mx-2 text-slate-400">·</span>
+                                  <span className="mx-1.5 text-slate-400">·</span>
                                   <span>{formatDate(lot.created_at)}</span>
-                                  <span className="mx-2 text-slate-400">·</span>
+                                  <span className="mx-1.5 text-slate-400">·</span>
                                   <span>Inició: {lot.created_by_user_name || "Usuario no disponible"}</span>
                                   {!isWebOrigin ? (
                                     <>
-                                      <span className="mx-2 text-slate-400">·</span>
+                                      <span className="mx-1.5 text-slate-400">·</span>
                                       <span className="text-amber-700">Solo lectura (creado en app)</span>
                                     </>
                                   ) : null}
                                 </div>
-                                <div className="ml-auto flex items-center justify-end gap-2">
+                                <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
                                   {isWebOrigin ? (
                                     <>
                                       <button
                                         onClick={() => router.push(`/dashboard/movements/form/entrada_manual?lotId=${lot.id}`)}
-                                        className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                        className="cursor-pointer rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                                       >
                                         Continuar
                                       </button>
                                       <button
                                         onClick={() => void handleCancelOpenReception(lot.id, lot.lot_number)}
                                         disabled={cancellingLotId === lot.id}
-                                        className="cursor-pointer rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                        className="cursor-pointer rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                                       >
                                         {cancellingLotId === lot.id ? "Cancelando..." : "Cancelar"}
                                       </button>
@@ -2062,7 +2117,7 @@ export default function MovementsPage() {
                                   ) : (
                                     <button
                                       onClick={() => void openLotDetail(lot.id)}
-                                      className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                      className="cursor-pointer rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                                     >
                                       Ver detalle
                                     </button>
@@ -2075,13 +2130,20 @@ export default function MovementsPage() {
                       ) : (
                         <div
                           key={`sm-${entry.doc.id}`}
-                          className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2"
+                          title={`${entry.doc.document_number} · ${manualKindLabel[entry.doc.kind]} · ${String(
+                            (entry.doc.header?.exit_type as string) ||
+                              (entry.doc.header?.movement_type as string) ||
+                              "Sin tipo"
+                          )} · ${formatDate(entry.doc.created_at)} · Inició: ${
+                            entry.doc.created_by_user_name || "Usuario no disponible"
+                          }`}
+                          className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
                         >
-                          <div className="text-sm text-slate-700">
+                          <div className="min-w-0 flex-1 truncate whitespace-nowrap text-[12px] text-slate-700">
                             <span className="font-semibold text-slate-900">{entry.doc.document_number}</span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>{manualKindLabel[entry.doc.kind]}</span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>
                               {String(
                                 (entry.doc.header?.exit_type as string) ||
@@ -2089,15 +2151,15 @@ export default function MovementsPage() {
                                   "Sin tipo"
                               )}
                             </span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>{formatDate(entry.doc.created_at)}</span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>Inició: {entry.doc.created_by_user_name || "Usuario no disponible"}</span>
                           </div>
-                          <div className="ml-auto flex items-center justify-end gap-2">
+                          <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
                             <button
                               onClick={() => router.push(`/dashboard/movements/form/${entry.doc.kind}?docId=${entry.doc.id}`)}
-                              className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              className="cursor-pointer rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                             >
                               Continuar
                             </button>
@@ -2111,7 +2173,7 @@ export default function MovementsPage() {
                                   showToast(err instanceof Error ? err.message : "No se pudo cancelar.");
                                 }
                               }}
-                              className="cursor-pointer rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700"
+                              className="cursor-pointer rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700"
                             >
                               Cancelar
                             </button>
@@ -2124,45 +2186,45 @@ export default function MovementsPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">
+                  <h2 className="text-base font-semibold text-slate-900">
                     Documentos cerrados recientes
                   </h2>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-xs text-slate-600">
                     Últimos documentos cerrados para consulta rápida.
                   </p>
                 </div>
               </div>
-              <div className="mt-4 space-y-2">
+              <div className="mt-3 space-y-2">
                 {closedReceivingLotsLoading ? (
-                  <p className="text-sm text-slate-500">Cargando documentos cerrados...</p>
+                  <p className="text-xs text-slate-500">Cargando documentos cerrados...</p>
                 ) : closedReceivingLotsError ? (
-                  <p className="text-sm text-rose-600">{closedReceivingLotsError}</p>
+                  <p className="text-xs text-rose-600">{closedReceivingLotsError}</p>
                 ) : closedDocsVisible.length === 0 ? (
-                  <p className="text-sm text-slate-500">No hay documentos cerrados recientes.</p>
+                  <p className="text-xs text-slate-500">No hay documentos cerrados recientes.</p>
                 ) : (
                   <>
                     {closedDocsVisible.map((entry) =>
                       entry.type === "receiving" ? (
                         <div
                           key={`rc-closed-${entry.lot.id}`}
-                          className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2"
+                          className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
                         >
-                          <div className="text-sm text-slate-700">
+                          <div className="min-w-0 flex-1 truncate whitespace-nowrap text-[12px] text-slate-700">
                             <span className="font-semibold text-slate-900">{entry.lot.lot_number}</span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>Recepción</span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>{entry.lot.purchase_type === "invoice" ? "Factura" : "Efectivo"}</span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>{formatDate(entry.lot.closed_at || entry.lot.updated_at)}</span>
                           </div>
-                          <div className="ml-auto flex items-center justify-end gap-2">
+                          <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
                             <button
                               onClick={() => void openLotDetail(entry.lot.id)}
-                              className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              className="cursor-pointer rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                             >
                               Ver detalle
                             </button>
@@ -2171,13 +2233,13 @@ export default function MovementsPage() {
                       ) : (
                         <div
                           key={`sm-closed-${entry.doc.id}`}
-                          className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2"
+                          className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
                         >
-                          <div className="text-sm text-slate-700">
+                          <div className="min-w-0 flex-1 truncate whitespace-nowrap text-[12px] text-slate-700">
                             <span className="font-semibold text-slate-900">{entry.doc.document_number}</span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>{manualKindLabel[entry.doc.kind]}</span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>
                               {String(
                                 (entry.doc.header?.exit_type as string) ||
@@ -2185,13 +2247,13 @@ export default function MovementsPage() {
                                   "Sin tipo"
                               )}
                             </span>
-                            <span className="mx-2 text-slate-400">·</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>{formatDate(entry.doc.closed_at || entry.doc.updated_at)}</span>
                           </div>
-                          <div className="ml-auto flex items-center justify-end gap-2">
+                          <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
                             <button
                               onClick={() => void openManualDetail(entry.doc.id)}
-                              className="cursor-pointer rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              className="cursor-pointer rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                             >
                               Ver detalle
                             </button>
@@ -2209,67 +2271,67 @@ export default function MovementsPage() {
       ) : null}
 
       {activeTab === "recounts" ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">Recuentos de inventario</h2>
-          <p className="mt-1 text-sm text-slate-600">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900">Recuentos de inventario</h2>
+          <p className="mt-1 text-xs text-slate-600">
             Crea documentos de conteo, captura cantidades y aplica diferencias con trazabilidad.
           </p>
 
           {recountView === "form" ? (
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-base font-semibold text-slate-900">Formulario de nuevo recuento (Web)</h3>
-                  <p className="text-sm text-slate-600">
+                  <h3 className="text-[15px] font-semibold text-slate-900">Formulario de nuevo recuento (Web)</h3>
+                  <p className="text-xs text-slate-600">
                     Configura alcance y crea el documento. Al crear, se abre de inmediato para captura manual.
                   </p>
                 </div>
                 <button
                   onClick={() => setRecountView("home")}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-white"
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-700 hover:bg-white"
                 >
                   Volver
                 </button>
               </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <label className="block text-sm text-slate-700">
+              <div className="mt-3 grid gap-2.5 md:grid-cols-2">
+                <label className="block text-[13px] text-slate-700">
                   Título (opcional)
                   <input
                     value={newRecountTitle}
                     onChange={(e) => setNewRecountTitle(e.target.value)}
                     placeholder="Ej: Conteo bodega marzo"
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] text-slate-900"
                   />
                 </label>
-                <label className="block text-sm text-slate-700">
+                <label className="block text-[13px] text-slate-700">
                   Modo de conteo
                   <select
                     value={newRecountMode}
                     onChange={(e) => setNewRecountMode(e.target.value as "blind" | "visible")}
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] text-slate-900"
                   >
                     <option value="blind">Ciego (recomendado)</option>
                     <option value="visible">Visible</option>
                   </select>
                 </label>
-                <label className="block text-sm text-slate-700">
+                <label className="block text-[13px] text-slate-700">
                   Alcance
                   <select
                     value={newRecountScopeType}
                     onChange={(e) => setNewRecountScopeType(e.target.value as "all" | "group")}
-                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] text-slate-900"
                   >
                     <option value="all">Inventario completo</option>
                     <option value="group">Solo una categoría</option>
                   </select>
                 </label>
                 {newRecountScopeType === "group" ? (
-                  <label className="block text-sm text-slate-700">
+                  <label className="block text-[13px] text-slate-700">
                     Categoría
                     <select
                       value={newRecountScopeValue}
                       onChange={(e) => setNewRecountScopeValue(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                      className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] text-slate-900"
                     >
                       <option value="">Selecciona categoría...</option>
                       {groupOptions.map((group) => (
@@ -2281,13 +2343,13 @@ export default function MovementsPage() {
                   </label>
                 ) : null}
               </div>
-              <label className="mt-3 block text-sm text-slate-700">
+              <label className="mt-3 block text-[13px] text-slate-700">
                 Notas
                 <textarea
                   value={newRecountNotes}
                   onChange={(e) => setNewRecountNotes(e.target.value)}
                   rows={2}
-                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] text-slate-900"
                 />
               </label>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
@@ -2302,14 +2364,14 @@ export default function MovementsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setRecountView("home")}
-                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-white"
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-700 hover:bg-white"
                   >
                     Cancelar
                   </button>
                   <button
                     onClick={submitCreateRecount}
                     disabled={creatingRecount || recountCreationBlocked}
-                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    className="rounded-lg bg-slate-900 px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
                   >
                     {creatingRecount ? "Creando..." : "Crear y abrir documento"}
                   </button>
@@ -2317,21 +2379,21 @@ export default function MovementsPage() {
               </div>
             </div>
           ) : recountView === "document" ? (
-            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-base font-semibold text-slate-900">Documento de recuento</h3>
-                  <p className="text-sm text-slate-600">Captura, revisión y cierre en vista dedicada.</p>
+                  <h3 className="text-[15px] font-semibold text-slate-900">Documento de recuento</h3>
+                  <p className="text-xs text-slate-600">Captura, revisión y cierre en vista dedicada.</p>
                 </div>
                 <button
                   onClick={() => setRecountView("home")}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
                 >
                   Volver a recuentos
                 </button>
               </div>
               {!selectedRecountId ? (
-                <p className="text-sm text-slate-600">No hay documento seleccionado.</p>
+                <p className="text-xs text-slate-600">No hay documento seleccionado.</p>
               ) : recountDetailLoading ? (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2354,10 +2416,10 @@ export default function MovementsPage() {
                   </div>
                   <div className="h-10 w-full animate-pulse rounded-lg bg-slate-100" />
                   <div className="h-[260px] animate-pulse rounded-lg border border-slate-200 bg-slate-50" />
-                  <p className="text-sm text-slate-500">Cargando detalle...</p>
+                  <p className="text-xs text-slate-500">Cargando detalle...</p>
                 </div>
               ) : recountDetailError ? (
-                <p className="text-sm text-rose-600">{recountDetailError}</p>
+                <p className="text-xs text-rose-600">{recountDetailError}</p>
               ) : recountDetail ? (
                 <div>
                   {(() => {
@@ -2371,7 +2433,7 @@ export default function MovementsPage() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base font-semibold text-slate-900">
+                        <h3 className="text-sm font-semibold text-slate-900">
                           {recountDetail.recount.code} · {recountDetail.recount.title || "Recuento"}
                         </h3>
                         <span
@@ -2384,7 +2446,7 @@ export default function MovementsPage() {
                           {recountDetail.recount.source === "app" ? "Origen: app/tablet" : "Origen: web"}
                         </span>
                       </div>
-                      <p className="text-sm text-slate-600">
+                      <p className="text-xs text-slate-600">
                         Estado: {statusLabelRecount(recountDetail.recount.status)} · Modo:{" "}
                         {recountDetail.recount.count_mode === "blind" ? "Ciego" : "Visible"} · Por:{" "}
                         {recountDetail.recount.created_by_user_name || "-"}
@@ -2394,7 +2456,7 @@ export default function MovementsPage() {
                       {showPrintFormButton ? (
                         <button
                           onClick={() => void printSelectedRecountSheet("all", "form")}
-                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
                         >
                           Imprimir formulario
                         </button>
@@ -2402,7 +2464,7 @@ export default function MovementsPage() {
                       {showPrintReportButton ? (
                         <button
                           onClick={() => setRecountPrintModalOpen(true)}
-                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
                         >
                           Imprimir reporte
                         </button>
@@ -2413,7 +2475,7 @@ export default function MovementsPage() {
                           recountActionLoading !== null ||
                           !["draft", "counting"].includes(recountDetail.recount.status)
                         }
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
                       >
                         {recountActionLoading === "close" ? "Cerrando..." : "Cerrar recuento"}
                       </button>
@@ -2423,7 +2485,7 @@ export default function MovementsPage() {
                           recountActionLoading !== null ||
                           recountDetail.recount.status !== "closed"
                         }
-                        className="rounded-lg border border-emerald-500 bg-emerald-500 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:border-emerald-600 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
+                        className="rounded-lg border border-emerald-500 bg-emerald-500 px-3 py-1.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:border-emerald-600 hover:bg-emerald-600 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
                       >
                         {recountActionLoading === "apply" ? "Aplicando..." : "Aplicar ajustes"}
                       </button>
@@ -2433,22 +2495,22 @@ export default function MovementsPage() {
                   })()}
 
                   {(recountDetail.recount.status === "draft" || recountDetail.recount.status === "counting") ? (
-                    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
                       Recuento en captura: puedes registrar conteos manuales en web e imprimir formulario las veces que necesites para conteo físico en tienda.
                     </div>
                   ) : null}
                   {recountDetail.recount.status === "closed" ? (
-                    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-900">
                       Siguiente paso natural: revisar diferencias y luego aplicar ajustes para actualizar stock.
                     </div>
                   ) : null}
                   {recountDetail.recount.status === "applied" ? (
-                    <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                    <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-900">
                       Ajustes aplicados. Este recuento quedó en solo lectura para trazabilidad.
                     </div>
                   ) : null}
 
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
                     <StatCard
                       label="Líneas contadas"
                       value={`${recountDetail.recount.summary.counted_lines}/${recountDetail.recount.summary.total_lines}`}
@@ -2474,7 +2536,7 @@ export default function MovementsPage() {
                     />
                   </div>
 
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <div className="inline-flex rounded-lg border border-slate-300 bg-slate-50 p-1">
                       <button
                         type="button"
@@ -2509,12 +2571,12 @@ export default function MovementsPage() {
                           setRecountSearchApplied(recountSearch);
                         }}
                         placeholder="Buscar línea registrada por nombre, SKU o código"
-                        className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                        className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-900"
                       />
                       <button
                         type="button"
                         onClick={() => setRecountSearchApplied(recountSearch)}
-                        className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                        className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
                         aria-label="Buscar"
                         title="Buscar"
                       >
@@ -2529,21 +2591,21 @@ export default function MovementsPage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 max-h-[520px] overflow-auto rounded-lg border border-slate-200">
+                  <div className="mt-3 max-h-[520px] overflow-auto rounded-lg border border-slate-200">
                     <table className="w-full table-fixed">
-                      <thead className="bg-slate-50 text-xs uppercase tracking-[0.06em] text-slate-600">
+                      <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.06em] text-slate-600">
                         <tr>
-                          <th className="px-3 py-2 text-left">Producto</th>
-                          <th className="px-3 py-2 text-right">Sistema</th>
-                          <th className="px-3 py-2 text-right">Contado</th>
-                          <th className="px-3 py-2 text-right">Dif.</th>
-                          <th className="px-3 py-2 text-right" />
+                          <th className="px-2.5 py-2 text-left">Producto</th>
+                          <th className="px-2.5 py-2 text-right">Sistema</th>
+                          <th className="px-2.5 py-2 text-right">Contado</th>
+                          <th className="px-2.5 py-2 text-right">Dif.</th>
+                          <th className="px-2.5 py-2 text-right" />
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200 text-sm">
+                      <tbody className="divide-y divide-slate-200 text-[12px]">
                         {recountLinesVisible.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-500">
+                            <td colSpan={5} className="px-3 py-5 text-center text-xs text-slate-500">
                               No hay líneas para el filtro seleccionado.
                             </td>
                           </tr>
@@ -2556,14 +2618,14 @@ export default function MovementsPage() {
                           const diff = counted == null || Number.isNaN(counted) ? null : counted - line.system_qty;
                           return (
                             <tr key={line.id} className="odd:bg-white even:bg-slate-50">
-                              <td className="px-3 py-2">
+                              <td className="px-2.5 py-1.5">
                                 <p className="truncate font-medium text-slate-900">{line.product_name}</p>
-                                <p className="text-xs text-slate-500">{line.sku || "-"}</p>
+                                <p className="text-[11px] text-slate-500">{line.sku || "-"}</p>
                               </td>
-                              <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                              <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-700">
                                 {formatQty(line.system_qty)}
                               </td>
-                              <td className="px-3 py-2 text-right">
+                              <td className="px-2.5 py-1.5 text-right">
                                 <input
                                   ref={(node) => {
                                     recountInputRefs.current[line.product_id] = node;
@@ -2596,11 +2658,11 @@ export default function MovementsPage() {
                                   min="0"
                                   step="1"
                                   disabled={["applied", "cancelled"].includes(recountDetail.recount.status)}
-                                  className="w-24 rounded border border-slate-300 px-2 py-1 text-right tabular-nums text-slate-900"
+                                  className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-[12px] tabular-nums text-slate-900"
                                 />
                               </td>
                               <td
-                                className={`px-3 py-2 text-right tabular-nums ${
+                                className={`px-2.5 py-1.5 text-right tabular-nums ${
                                   diff == null
                                     ? "text-slate-500"
                                     : diff === 0
@@ -2612,14 +2674,14 @@ export default function MovementsPage() {
                               >
                                 {diff == null ? "-" : formatQty(diff)}
                               </td>
-                              <td className="px-3 py-2 text-right">
+                              <td className="px-2.5 py-1.5 text-right">
                                 <button
                                   onClick={() => void submitRecountLine(line.product_id)}
                                   disabled={
                                     recountLineSavingId === line.product_id ||
                                     ["applied", "cancelled"].includes(recountDetail.recount.status)
                                   }
-                                  className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
                                 >
                                   {recountLineSavingId === line.product_id ? "Guardando..." : "Guardar"}
                                 </button>
@@ -2635,9 +2697,9 @@ export default function MovementsPage() {
             </div>
           ) : (
             <>
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
                 <h3 className="text-sm font-semibold text-slate-900">Iniciar recuento desde web</h3>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-xs text-slate-600">
                   Crea el documento con un formulario dedicado, igual al flujo de formularios en Movimientos.
                 </p>
                 {recountCreationBlocked ? (
@@ -2651,60 +2713,65 @@ export default function MovementsPage() {
                     setRecountView("form");
                   }}
                   disabled={recountCreationBlocked}
-                  className="mt-3 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Iniciar formulario
                 </button>
               </div>
 
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="mt-3 grid gap-3.5 lg:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <h3 className="text-sm font-semibold text-slate-900">Documentos abiertos o en curso</h3>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-xs text-slate-600">
                     Incluye borradores, en captura y cerrados pendientes de aplicar al stock.
                   </p>
                   <div className="mt-3 space-y-2">
                     {recountDocsLoading ? (
-                      <p className="text-sm text-slate-500">Cargando recuentos...</p>
+                      <p className="text-xs text-slate-500">Cargando recuentos...</p>
                     ) : recountDocsError ? (
-                      <p className="text-sm text-rose-600">{recountDocsError}</p>
+                      <p className="text-xs text-rose-600">{recountDocsError}</p>
                     ) : openRecountDocsVisible.length === 0 ? (
-                      <p className="text-sm text-slate-500">No hay recuentos abiertos.</p>
+                      <p className="text-xs text-slate-500">No hay recuentos abiertos.</p>
                     ) : (
                       openRecountDocsVisible.map((doc) => (
                         <div
                           key={doc.id}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2"
+                          title={`${doc.code}${doc.title ? ` · ${doc.title}` : ""}${
+                            doc.created_by_user_name ? ` · ${doc.created_by_user_name}` : ""
+                          } · ${statusLabelRecount(doc.status)} · ${doc.summary.counted_lines}/${
+                            doc.summary.total_lines
+                          } líneas · ${formatDate(doc.applied_at || doc.closed_at || doc.created_at)}`}
+                          className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
                         >
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[12px] font-semibold leading-4 text-slate-900">
                               {doc.code}
                               {doc.title ? ` · ${doc.title}` : ""}
                               {doc.created_by_user_name ? ` · ${doc.created_by_user_name}` : ""}
                             </p>
-                            <p className="text-xs text-slate-600">
+                            <p className="truncate whitespace-nowrap text-[11px] leading-4 text-slate-600">
                               {statusLabelRecount(doc.status)} · {doc.summary.counted_lines}/{doc.summary.total_lines} líneas ·{" "}
                               {formatDate(doc.applied_at || doc.closed_at || doc.created_at)}
                             </p>
                             {doc.status === "closed" ? (
-                              <p className="mt-0.5 text-[11px] font-medium text-amber-700">
+                              <p className="truncate text-[10px] font-medium leading-3 text-amber-700">
                                 Pendiente de aplicar ajustes
                               </p>
                             ) : null}
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex shrink-0 items-center gap-1.5">
                             {doc.source === "web" ? (
                               <button
                                 onClick={() => {
                                   setSelectedRecountId(doc.id);
                                   setRecountView("document");
                                 }}
-                                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                               >
                                 Continuar
                               </button>
                             ) : (
-                              <span className="rounded-md border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500">
+                              <span className="rounded-md border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
                                 En app/tablet
                               </span>
                             )}
@@ -2714,14 +2781,14 @@ export default function MovementsPage() {
                                 closingRecountId === doc.id ||
                                 !["draft", "counting"].includes(doc.status)
                               }
-                              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                              className="rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
                             >
                               {closingRecountId === doc.id ? "Cerrando..." : "Cerrar"}
                             </button>
                             <button
                               onClick={() => void applyRecountFromList(doc)}
                               disabled={applyingRecountId === doc.id || doc.status !== "closed"}
-                              className="rounded-md border border-emerald-500 bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:border-emerald-600 hover:bg-emerald-600 disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
+                              className="rounded-md border border-emerald-500 bg-emerald-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition-colors hover:border-emerald-600 hover:bg-emerald-600 disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
                             >
                               {applyingRecountId === doc.id ? "Aplicando..." : "Aplicar"}
                             </button>
@@ -2731,7 +2798,7 @@ export default function MovementsPage() {
                                 cancellingRecountId === doc.id ||
                                 !["draft", "counting", "closed"].includes(doc.status)
                               }
-                              className="rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                              className="rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700 hover:bg-rose-100 disabled:opacity-50"
                             >
                               {cancellingRecountId === doc.id ? "Cancelando..." : "Cancelar"}
                             </button>
@@ -2744,29 +2811,34 @@ export default function MovementsPage() {
 
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <h3 className="text-sm font-semibold text-slate-900">Documentos cerrados recientes</h3>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-xs text-slate-600">
                     Solo recuentos aplicados al stock para consulta y trazabilidad.
                   </p>
                   <div className="mt-3 space-y-2">
                     {recountDocsLoading ? (
-                      <p className="text-sm text-slate-500">Cargando recuentos...</p>
+                      <p className="text-xs text-slate-500">Cargando recuentos...</p>
                     ) : recountDocsError ? (
-                      <p className="text-sm text-rose-600">{recountDocsError}</p>
+                      <p className="text-xs text-rose-600">{recountDocsError}</p>
                     ) : closedRecountDocsVisible.length === 0 ? (
-                      <p className="text-sm text-slate-500">No hay recuentos cerrados recientes.</p>
+                      <p className="text-xs text-slate-500">No hay recuentos cerrados recientes.</p>
                     ) : (
                       closedRecountDocsVisible.map((doc) => (
                         <div
                           key={doc.id}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2"
+                          title={`${doc.code}${doc.title ? ` · ${doc.title}` : ""}${
+                            doc.created_by_user_name ? ` · ${doc.created_by_user_name}` : ""
+                          } · ${statusLabelRecount(doc.status)} · ${doc.summary.counted_lines}/${
+                            doc.summary.total_lines
+                          } líneas · ${formatDate(doc.applied_at || doc.closed_at || doc.created_at)}`}
+                          className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
                         >
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[12px] font-semibold leading-4 text-slate-900">
                               {doc.code}
                               {doc.title ? ` · ${doc.title}` : ""}
                               {doc.created_by_user_name ? ` · ${doc.created_by_user_name}` : ""}
                             </p>
-                            <p className="text-xs text-slate-600">
+                            <p className="truncate whitespace-nowrap text-[11px] leading-4 text-slate-600">
                               {statusLabelRecount(doc.status)} · {doc.summary.counted_lines}/{doc.summary.total_lines} líneas ·{" "}
                               {formatDate(doc.applied_at || doc.closed_at || doc.created_at)}
                             </p>
@@ -2776,7 +2848,7 @@ export default function MovementsPage() {
                               setSelectedRecountId(doc.id);
                               setRecountView("document");
                             }}
-                            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                            className="shrink-0 rounded-md border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                           >
                             Ver
                           </button>
@@ -2788,44 +2860,44 @@ export default function MovementsPage() {
               </div>
             </>
           )}
-          {recountFeedback ? <p className="mt-4 text-sm text-slate-700">{recountFeedback}</p> : null}
+          {recountFeedback ? <p className="mt-3 text-xs text-slate-700">{recountFeedback}</p> : null}
         </section>
       ) : null}
 
       {activeTab === "receptions" ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">Recepciones (Metrik Stock)</h2>
-              <p className="text-sm text-slate-600">
+              <h2 className="text-base font-semibold text-slate-900">Recepciones (Metrik Stock)</h2>
+              <p className="text-xs text-slate-600">
                 Consulta de lotes cerrados y soportes documentales sincronizados desde móvil.
               </p>
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
-            <label className="text-sm text-slate-700">
+          <div className="mt-3 grid min-w-0 gap-2.5 md:grid-cols-4">
+            <label className="text-[13px] text-slate-700">
               Desde
               <input
                 type="date"
                 value={receivingDateFrom}
                 onChange={(e) => setReceivingDateFrom(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-900"
               />
             </label>
-            <label className="text-sm text-slate-700">
+            <label className="text-[13px] text-slate-700">
               Hasta
               <input
                 type="date"
                 value={receivingDateTo}
                 onChange={(e) => setReceivingDateTo(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-900"
               />
             </label>
             <div className="md:col-span-2 flex items-end gap-2">
               <button
                 onClick={() => setReceivingPage(1)}
-                className="cursor-pointer rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-700 hover:bg-slate-100"
               >
                 Aplicar filtros
               </button>
@@ -2835,15 +2907,16 @@ export default function MovementsPage() {
                   setReceivingDateTo("");
                   setReceivingPage(1);
                 }}
-                className="cursor-pointer rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] text-slate-700 hover:bg-slate-100"
               >
                 Limpiar
               </button>
             </div>
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
-            <div className="grid grid-cols-[0.8fr_0.7fr_0.9fr_0.8fr_0.9fr_0.9fr_0.8fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">
+          <div className="mt-3.5 min-w-0 overflow-hidden rounded-xl border border-slate-200">
+            <div className="overflow-auto">
+            <div className="grid min-w-[900px] grid-cols-[0.8fr_0.7fr_0.9fr_0.8fr_0.9fr_0.9fr_0.8fr] gap-3 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
               <span>Lote</span>
               <span>Tipo</span>
               <span>Origen</span>
@@ -2852,37 +2925,42 @@ export default function MovementsPage() {
               <span>Cerrado</span>
               <span></span>
             </div>
-            <div className="divide-y divide-slate-200 bg-white">
+            <div className="min-w-[900px] divide-y divide-slate-200 bg-white">
               {receivingLoading ? (
-                <div className="px-4 py-6 text-sm text-slate-500">Cargando recepciones...</div>
+                <div className="px-3 py-5 text-xs text-slate-500">Cargando recepciones...</div>
               ) : receivingError ? (
-                <div className="px-4 py-6 text-sm text-rose-600">{receivingError}</div>
+                <div className="px-3 py-5 text-xs text-rose-600">{receivingError}</div>
               ) : (receivingDocs?.items ?? []).length === 0 ? (
-                <div className="px-4 py-6 text-sm text-slate-500">No hay lotes cerrados en ese rango.</div>
+                <div className="px-3 py-5 text-xs text-slate-500">No hay lotes cerrados en ese rango.</div>
               ) : (
                 (receivingDocs?.items ?? []).map((row) => (
                   <div
                     key={row.id}
-                    className="grid grid-cols-[0.8fr_0.7fr_0.9fr_0.8fr_0.9fr_0.9fr_0.8fr] items-center gap-3 px-4 py-3 text-sm"
+                    title={`${row.lot_number} · ${row.purchase_type === "invoice" ? "Factura" : "Efectivo"} · ${
+                      row.origin_name
+                    } · ${row.lines_count} / ${formatQty(row.units_total)} · ${
+                      row.invoice_reference || "-"
+                    } · ${row.closed_at ? formatDate(row.closed_at) : "-"}`}
+                    className="grid grid-cols-[0.8fr_0.7fr_0.9fr_0.8fr_0.9fr_0.9fr_0.8fr] items-center gap-3 px-3 py-2 text-[12px]"
                   >
-                    <span className="font-medium text-slate-900">{row.lot_number}</span>
-                    <span className="text-slate-700">{row.purchase_type === "invoice" ? "Factura" : "Efectivo"}</span>
-                    <span className="text-slate-600">{row.origin_name}</span>
-                    <span className="text-slate-600">{row.lines_count} / {formatQty(row.units_total)}</span>
-                    <span className="text-slate-600">{row.invoice_reference || "-"}</span>
-                    <span className="text-slate-600">{row.closed_at ? formatDate(row.closed_at) : "-"}</span>
-                    <div className="flex items-center justify-end gap-2">
+                    <span className="truncate font-medium text-slate-900">{row.lot_number}</span>
+                    <span className="truncate text-slate-700">{row.purchase_type === "invoice" ? "Factura" : "Efectivo"}</span>
+                    <span className="truncate text-slate-600">{row.origin_name}</span>
+                    <span className="truncate text-slate-600">{row.lines_count} / {formatQty(row.units_total)}</span>
+                    <span className="truncate text-slate-600">{row.invoice_reference || "-"}</span>
+                    <span className="truncate text-slate-600">{row.closed_at ? formatDate(row.closed_at) : "-"}</span>
+                    <div className="flex items-center justify-end gap-1.5">
                       {row.support_file_name ? (
                         <button
                           onClick={() => handleDownloadSupport(row.id, row.lot_number)}
-                          className="cursor-pointer rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                          className="cursor-pointer rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-100"
                         >
                           Soporte
                         </button>
                       ) : null}
                       <button
                         onClick={() => openLotDetail(row.id)}
-                        className="cursor-pointer rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                        className="cursor-pointer rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-100"
                       >
                         Ver
                       </button>
@@ -2891,13 +2969,14 @@ export default function MovementsPage() {
                 ))
               )}
             </div>
+            </div>
           </div>
 
-          <div className="mt-4 flex items-center justify-end gap-2">
+          <div className="mt-3 flex items-center justify-end gap-2">
             <button
               onClick={() => setReceivingPage((prev) => Math.max(1, prev - 1))}
               disabled={receivingPage <= 1}
-              className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1 text-[13px] text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Anterior
             </button>
@@ -2907,7 +2986,7 @@ export default function MovementsPage() {
                 const pages = Math.max(1, Math.ceil(total / receivingLimit));
                 setReceivingPage((prev) => Math.min(pages, prev + 1));
               }}
-              className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1 text-[13px] text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Siguiente
             </button>
@@ -3452,7 +3531,7 @@ function mapHistoryReferenceToDocumentsType(referenceType?: string | null) {
 
 function badgeClass(status: StatusFilter) {
   const base =
-    "inline-flex h-7 w-[116px] items-center justify-center rounded-full border px-2 text-sm font-semibold leading-none";
+    "inline-flex h-6 w-[98px] items-center justify-center rounded-full border px-2 text-xs font-semibold leading-none";
   if (status === "negative") {
     return `${base} border-rose-300 bg-rose-50 text-rose-700`;
   }

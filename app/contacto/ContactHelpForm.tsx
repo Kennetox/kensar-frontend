@@ -80,19 +80,19 @@ export default function ContactHelpForm() {
   };
 
   return (
-    <section id="solicitud" className="mt-6 border-t border-slate-200/80 pt-5">
-      <h3 className="text-lg font-semibold text-slate-900">Solicitar ayuda</h3>
+    <section id="solicitud" className="mt-5 border-t border-slate-200/80 pt-4">
+      <h3 className="text-base font-semibold text-slate-900">Solicitar ayuda</h3>
       <p className="mt-1 text-sm text-slate-600">
         Completa este formulario y te enviaremos la solicitud por correo directamente.
       </p>
 
-      <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+      <form onSubmit={handleSubmit} className="mt-4 space-y-3.5">
         <label className="block">
           <span className="text-sm font-medium text-slate-700">Tipo de ayuda</span>
           <select
             value={queryType}
             onChange={(event) => setQueryType(event.target.value as QueryType)}
-            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500"
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500"
             required
           >
             {QUERY_OPTIONS.map((option) => (
@@ -110,7 +110,7 @@ export default function ContactHelpForm() {
               type="text"
               value={senderName}
               onChange={(event) => setSenderName(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500"
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500"
               placeholder="Tu nombre"
               maxLength={80}
               required
@@ -124,7 +124,7 @@ export default function ContactHelpForm() {
               type="email"
               value={senderEmail}
               onChange={(event) => setSenderEmail(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500"
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500"
               placeholder="correo@empresa.com"
               maxLength={120}
             />
@@ -138,7 +138,7 @@ export default function ContactHelpForm() {
             onChange={(event) =>
               setMessage(event.target.value.slice(0, MAX_MESSAGE_LENGTH))
             }
-            className="mt-1 min-h-[130px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500"
+            className="mt-1 min-h-[110px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500"
             placeholder="Cuéntanos qué necesitas y te respondemos lo antes posible."
             required
           />
@@ -150,7 +150,7 @@ export default function ContactHelpForm() {
         <button
           type="submit"
           disabled={submitting || !message.trim() || !senderName.trim()}
-          className="rounded-xl bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:brightness-110"
+          className="rounded-lg bg-gradient-to-r from-[#2563eb] to-[#4338ca] px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:brightness-110"
         >
           {submitting ? "Enviando..." : "Enviar solicitud"}
         </button>

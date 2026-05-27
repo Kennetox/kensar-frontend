@@ -374,14 +374,14 @@ export default function LabelsPage() {
   }, [canUseApi, labelItems, token]);
 
   return (
-    <main className="flex-1 px-6 py-6 dashboard-theme text-slate-900">
-      <div className="w-full max-w-7xl mx-auto space-y-6">
+    <main className="flex-1 px-6 py-4 dashboard-theme text-slate-900">
+      <div className="labels-workspace-scale w-full max-w-7xl mx-auto space-y-4">
         {/* Encabezado principal */}
         <header className="space-y-1">
           <p className="text-xs uppercase tracking-wide text-emerald-700 font-semibold">
             Panel Metrik
           </p>
-          <h1 className="text-3xl font-bold text-slate-900">Etiquetas</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Etiquetas</h1>
           <p className="text-sm text-slate-600 max-w-2xl">
             Construye rápidamente una lista de productos para etiquetar y
             genera el archivo de Excel compatible.
@@ -389,11 +389,11 @@ export default function LabelsPage() {
         </header>
 
         {/* Bloque 1: búsqueda de productos */}
-        <section className="rounded-3xl ui-surface p-5 md:p-6">
-          <div className="space-y-4">
+        <section className="labels-panel rounded-2xl ui-surface p-4">
+          <div className="space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">
+                <h2 className="text-base font-semibold text-slate-900">
                   Buscar producto
                 </h2>
                 <p className="text-sm text-slate-600">
@@ -417,7 +417,7 @@ export default function LabelsPage() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Ej. HDMI, 3280, cable plug..."
-                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200"
                   />
                 </label>
               </div>
@@ -425,14 +425,14 @@ export default function LabelsPage() {
                 <button
                   type="submit"
                   disabled={searchLoading || !canUseApi}
-                  className="px-4 py-2.5 rounded-md text-sm font-semibold border border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 rounded-md text-sm font-semibold border border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {searchLoading ? "Buscando..." : "Buscar"}
                 </button>
                 <button
                   type="button"
                   onClick={handleClearSearch}
-                  className="px-4 py-2.5 rounded-md text-sm font-semibold border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  className="px-4 py-2 rounded-md text-sm font-semibold border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                 >
                   Limpiar
                 </button>
@@ -458,7 +458,7 @@ export default function LabelsPage() {
                   Doble clic en un producto para agregarlo a la lista
                 </span>
               </div>
-              <div className="max-h-80 overflow-auto text-sm">
+              <div className="max-h-72 overflow-auto text-sm">
                 <table className="w-full min-w-[520px] text-left">
                   <thead className="bg-slate-100 text-[11px] uppercase tracking-wide text-slate-700">
                     <tr>
@@ -518,11 +518,11 @@ export default function LabelsPage() {
         </section>
 
         {/* Bloque 2: lista de productos a etiquetar */}
-        <section className="rounded-3xl ui-surface p-5 md:p-6">
-          <div className="space-y-4">
+        <section className="labels-panel rounded-2xl ui-surface p-4">
+          <div className="space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">
+                <h2 className="text-base font-semibold text-slate-900">
                   Lista de productos para etiquetar
                 </h2>
                 <p className="text-sm text-slate-600">
@@ -566,7 +566,7 @@ export default function LabelsPage() {
                   {totalLabels !== 1 ? "s" : ""}
                 </span>
               </div>
-              <div className="max-h-80 overflow-auto text-sm">
+              <div className="max-h-72 overflow-auto text-sm">
                 <table className="w-full min-w-[520px] text-left">
                   <thead className="bg-slate-100 text-[11px] uppercase tracking-wide text-slate-700">
                     <tr>

@@ -145,7 +145,7 @@ export default function MovementFormPage() {
 
   if (!kind) {
     return (
-      <div className="space-y-4">
+      <div className="movement-form-scale space-y-4">
         <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
           Tipo de formulario inválido.
           <div className="mt-3">
@@ -221,6 +221,7 @@ function EntryReceptionForm() {
 
   const items = detail?.items ?? [];
   const lotIsOpen = lot?.status === "open";
+  const registrationLocked = !headerCompleted || !headerCollapsed;
 
   useEffect(() => {
     if (!lot || lot.status !== "open") return;
@@ -472,6 +473,11 @@ function EntryReceptionForm() {
 
   useEffect(() => {
     if (!token) return;
+    if (registrationLocked) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
     if (searchQuery.trim().length < 2) {
       setSearchResults([]);
       return;
@@ -501,7 +507,7 @@ function EntryReceptionForm() {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [token, searchQuery]);
+  }, [registrationLocked, token, searchQuery]);
 
   const saveReceptionHeader = async () => {
     if (!token || !lot) return false;
@@ -759,7 +765,7 @@ function EntryReceptionForm() {
   }, []);
 
   return (
-    <div className="space-y-4">
+    <div className="movement-form-scale space-y-3.5">
       <section className="flex items-start justify-between gap-3 px-1">
         <div>
           <h1 className="text-2xl font-semibold leading-none text-slate-900">
@@ -856,8 +862,9 @@ function EntryReceptionForm() {
               </div>
             </div>
 
-            {!headerCollapsed ? (
-              <>
+            <div className={`movement-header-motion ${!headerCollapsed ? "is-open" : ""}`}>
+              <div>
+                <div className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-4">
                   <label className="text-sm text-slate-700 md:col-span-1">
                     Tipo compra
@@ -950,17 +957,22 @@ function EntryReceptionForm() {
                     </p>
                   </div>
                 </div>
-              </>
-            ) : (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                </div>
+              </div>
+            </div>
+
+            <div className={`movement-header-motion ${headerCollapsed ? "is-open" : ""}`}>
+              <div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 Encabezado guardado · Tipo:{" "}
                 <span className="font-semibold text-slate-800">
                   {purchaseType === "invoice" ? "Factura" : purchaseType === "cash" ? "Efectivo" : "-"}
                 </span>{" "}
                 · Proveedor: <span className="font-semibold text-slate-800">{supplierName || "-"}</span> · Ref:{" "}
                 <span className="font-semibold text-slate-800">{invoiceReference || "-"}</span>
+                </div>
               </div>
-            )}
+            </div>
 
             {!headerCompleted ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -968,10 +980,16 @@ function EntryReceptionForm() {
               </div>
             ) : null}
 
+            {headerCompleted ? (
+              <div className="movement-form-divider" aria-hidden="true">
+                <span>Proceso de registro</span>
+              </div>
+            ) : null}
+
             <div
               className={`overflow-hidden transition-all duration-500 ease-out ${
                 headerCompleted
-                  ? "max-h-[2200px] translate-y-0 opacity-100"
+                  ? `max-h-[2200px] translate-y-0 ${registrationLocked ? "pointer-events-none opacity-50" : "opacity-100"}`
                   : "pointer-events-none max-h-0 -translate-y-2 opacity-0"
               }`}
             >
@@ -1117,7 +1135,7 @@ function EntryReceptionForm() {
                         <button
                           type="button"
                           onClick={() => void handleAddLine()}
-                          disabled={!lotIsOpen || working}
+                          disabled={!lotIsOpen || working || registrationLocked}
                           className="w-full max-w-3xl cursor-pointer rounded-xl border border-slate-900 bg-slate-900 px-6 py-2 text-sm font-semibold tracking-[0.01em] text-white shadow-sm transition-all hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 disabled:text-white disabled:shadow-none"
                         >
                           Agregar a recepción
@@ -1214,7 +1232,7 @@ function EntryReceptionForm() {
                                 <button
                                   type="button"
                                   onClick={() => void handlePrintLabel(item)}
-                                  disabled={printingItemId === item.id}
+                                  disabled={registrationLocked || printingItemId === item.id}
                                   className="cursor-pointer rounded-md border border-slate-300 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   {printingItemId === item.id ? "Imprimiendo..." : "Imprimir etiqueta"}
@@ -1271,7 +1289,7 @@ function EntryReceptionForm() {
               <button
                 type="button"
                 onClick={() => void handleCancelReception()}
-                disabled={!lotIsOpen || working}
+                disabled={!lotIsOpen || working || registrationLocked}
                 className="cursor-pointer rounded-md border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancelar recepción
@@ -1279,7 +1297,7 @@ function EntryReceptionForm() {
               <button
                 type="button"
                 onClick={() => void handleCloseReception()}
-                disabled={!lotIsOpen || working || items.length === 0}
+                disabled={!lotIsOpen || working || registrationLocked || items.length === 0}
                 className="force-light-text cursor-pointer rounded-md border border-emerald-500 bg-emerald-500 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:text-white disabled:[-webkit-text-fill-color:white] disabled:opacity-50"
               >
                 Terminar recepción
@@ -1347,6 +1365,7 @@ function ManualExitForm() {
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
+  const registrationLocked = !headerSaved || !headerCollapsed;
 
   useEffect(() => {
     if (!document || document.status !== "open") return;
@@ -1449,6 +1468,11 @@ function ManualExitForm() {
 
   useEffect(() => {
     if (!token) return;
+    if (registrationLocked) {
+      setLookup([]);
+      setLookupLoading(false);
+      return;
+    }
     const query = productQuery.trim();
     const looksLikeCode = /^[0-9]+$/.test(query);
     if (query.length < 2 && !looksLikeCode) {
@@ -1480,7 +1504,7 @@ function ManualExitForm() {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [productQuery, token]);
+  }, [productQuery, registrationLocked, token]);
 
   const saveHeader = async () => {
     if (!token || !document) return;
@@ -1514,8 +1538,11 @@ function ManualExitForm() {
   };
 
   const addLine = () => {
-    if (!headerSaved) {
-      showToast("Guarda primero el encabezado.", "error");
+    if (registrationLocked) {
+      showToast(
+        headerSaved ? "Minimiza el encabezado para continuar el registro." : "Guarda primero el encabezado.",
+        "error"
+      );
       return;
     }
     if (!selectedProduct) {
@@ -1577,8 +1604,11 @@ function ManualExitForm() {
       showToast("No se encontró el documento de salida.", "error");
       return;
     }
-    if (!headerSaved) {
-      showToast("Guarda primero el encabezado.", "error");
+    if (registrationLocked) {
+      showToast(
+        headerSaved ? "Minimiza el encabezado para cerrar la salida." : "Guarda primero el encabezado.",
+        "error"
+      );
       return;
     }
     if (lines.length === 0) {
@@ -1616,7 +1646,7 @@ function ManualExitForm() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="movement-form-scale space-y-3.5">
       <section className="flex items-start justify-between gap-3 px-1">
         <div>
           <h1 className="text-2xl font-semibold leading-none text-slate-900">
@@ -1655,8 +1685,9 @@ function ManualExitForm() {
             ) : null}
           </div>
 
-          {!headerCollapsed ? (
-            <div className="grid gap-3 md:grid-cols-4">
+          <div className={`movement-header-motion ${!headerCollapsed ? "is-open" : ""}`}>
+            <div>
+              <div className="grid gap-3 md:grid-cols-4">
               <label className="text-sm text-slate-700">
                 Tipo salida *
                 <select
@@ -1704,16 +1735,27 @@ function ManualExitForm() {
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
               </label>
+              </div>
             </div>
-          ) : (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          </div>
+
+          <div className={`movement-header-motion ${headerCollapsed ? "is-open" : ""}`}>
+            <div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
               Salida guardada · Tipo: <span className="font-semibold text-slate-800">{exitType || "-"}</span> · Destino:{" "}
               <span className="font-semibold text-slate-800">{destination || "-"}</span> · Ref:{" "}
               <span className="font-semibold text-slate-800">{reference || "-"}</span>
+              </div>
             </div>
-          )}
+          </div>
 
-          <div className={`rounded-xl border border-slate-200 bg-white ${headerSaved ? "" : "pointer-events-none opacity-50"}`}>
+          {headerSaved ? (
+            <div className="movement-form-divider" aria-hidden="true">
+              <span>Proceso de registro</span>
+            </div>
+          ) : null}
+
+          <div className={`rounded-xl border border-slate-200 bg-white transition-opacity duration-300 ${registrationLocked ? "pointer-events-none opacity-50" : ""}`}>
             <div className="border-b border-slate-200 px-4 py-3">
               <p className="text-sm font-semibold text-slate-900">Buscar producto</p>
               <p className="text-xs text-slate-600">Por nombre, SKU o código de barras.</p>
@@ -1822,7 +1864,7 @@ function ManualExitForm() {
             </div>
           </div>
 
-          <div className={`rounded-xl border border-slate-200 bg-white ${headerSaved ? "" : "pointer-events-none opacity-50"}`}>
+          <div className={`rounded-xl border border-slate-200 bg-white transition-opacity duration-300 ${registrationLocked ? "pointer-events-none opacity-50" : ""}`}>
             <div className="border-b border-slate-200 px-4 py-3">
               <p className="text-sm font-semibold text-slate-900">Productos en salida ({lines.length})</p>
             </div>
@@ -1883,7 +1925,7 @@ function ManualExitForm() {
             <button
               type="button"
               onClick={() => void closeExit()}
-              disabled={submitting || lines.length === 0}
+              disabled={submitting || registrationLocked || lines.length === 0}
               className="rounded-md border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {submitting ? "Registrando..." : "Cerrar salida"}
@@ -1958,6 +2000,7 @@ function ManualSaleForm() {
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
+  const registrationLocked = !headerSaved || !headerCollapsed;
 
   useEffect(() => {
     if (!document || document.status !== "open") return;
@@ -2114,6 +2157,11 @@ function ManualSaleForm() {
 
   useEffect(() => {
     if (!token) return;
+    if (registrationLocked) {
+      setLookup([]);
+      setLookupLoading(false);
+      return;
+    }
     const query = productQuery.trim();
     const looksLikeCode = /^[0-9]+$/.test(query);
     if (query.length < 2 && !looksLikeCode) {
@@ -2145,7 +2193,7 @@ function ManualSaleForm() {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [productQuery, token]);
+  }, [productQuery, registrationLocked, token]);
 
   const saveHeader = async () => {
     if (!token || !document) return;
@@ -2214,8 +2262,11 @@ function ManualSaleForm() {
   };
 
   const addLine = () => {
-    if (!headerSaved) {
-      showToast("Guarda primero el encabezado.", "error");
+    if (registrationLocked) {
+      showToast(
+        headerSaved ? "Minimiza el encabezado para continuar el registro." : "Guarda primero el encabezado.",
+        "error"
+      );
       return;
     }
     if (!selectedProduct) {
@@ -2316,8 +2367,11 @@ function ManualSaleForm() {
 
   const closeSale = async () => {
     if (!token || !document) return;
-    if (!headerSaved) {
-      showToast("Guarda primero el encabezado.", "error");
+    if (registrationLocked) {
+      showToast(
+        headerSaved ? "Minimiza el encabezado para cerrar la venta." : "Guarda primero el encabezado.",
+        "error"
+      );
       return;
     }
     if (lines.length === 0) {
@@ -2382,7 +2436,7 @@ function ManualSaleForm() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="movement-form-scale space-y-3.5">
       <section className="flex items-start justify-between gap-3 px-1">
         <div>
           <h1 className="text-2xl font-semibold leading-none text-slate-900">
@@ -2421,8 +2475,9 @@ function ManualSaleForm() {
             ) : null}
           </div>
 
-          {!headerCollapsed ? (
-            <div className="space-y-3">
+          <div className={`movement-header-motion ${!headerCollapsed ? "is-open" : ""}`}>
+            <div>
+              <div className="space-y-3">
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="text-sm text-slate-700 md:col-span-2">
                   <div className="flex items-center justify-between gap-2">
@@ -2503,19 +2558,30 @@ function ManualSaleForm() {
                   Guardar datos
                 </button>
               </div>
+              </div>
             </div>
-          ) : (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          </div>
+
+          <div className={`movement-header-motion ${headerCollapsed ? "is-open" : ""}`}>
+            <div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
               Encabezado guardado · Cliente:{" "}
               <span className="font-semibold text-slate-800">
                 {selectedCustomer?.name || "Sin cliente"}
               </span>{" "}
               · Método: <span className="font-semibold text-slate-800">{paymentMethod}</span>{" "}
               · Descuento: <span className="font-semibold text-slate-800">{formatMoney(discountSafe)}</span>
+              </div>
             </div>
-          )}
+          </div>
 
-          <div className={`rounded-xl border border-slate-200 bg-white ${headerSaved ? "" : "pointer-events-none opacity-50"}`}>
+          {headerSaved ? (
+            <div className="movement-form-divider" aria-hidden="true">
+              <span>Proceso de registro</span>
+            </div>
+          ) : null}
+
+          <div className={`rounded-xl border border-slate-200 bg-white transition-opacity duration-300 ${registrationLocked ? "pointer-events-none opacity-50" : ""}`}>
             <div className="border-b border-slate-200 px-4 py-3">
               <p className="text-sm font-semibold text-slate-900">Agregar productos</p>
             </div>
@@ -2630,7 +2696,7 @@ function ManualSaleForm() {
             </div>
           </div>
 
-          <div className={`rounded-xl border border-slate-200 bg-white ${headerSaved ? "" : "pointer-events-none opacity-50"}`}>
+          <div className={`rounded-xl border border-slate-200 bg-white transition-opacity duration-300 ${registrationLocked ? "pointer-events-none opacity-50" : ""}`}>
             <div className="border-b border-slate-200 px-4 py-3">
               <p className="text-sm font-semibold text-slate-900">Productos en venta ({lines.length})</p>
             </div>
@@ -2715,7 +2781,7 @@ function ManualSaleForm() {
             <button
               type="button"
               onClick={() => void closeSale()}
-              disabled={submitting || lines.length === 0}
+              disabled={submitting || registrationLocked || lines.length === 0}
               className="rounded-md border border-slate-900 bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
               {submitting ? "Registrando..." : "Cerrar venta"}
@@ -3075,7 +3141,7 @@ function GenericMovementForm({ kind }: { kind: Exclude<FormKind, "entrada_manual
   const meta = formMeta[kind];
 
   return (
-    <div className="space-y-4">
+    <div className="movement-form-scale space-y-3.5">
       <section className="flex items-start justify-between gap-3 px-1">
         <div>
           <h1 className="text-2xl font-semibold leading-none text-slate-900">{meta.title}</h1>
@@ -3091,7 +3157,7 @@ function GenericMovementForm({ kind }: { kind: Exclude<FormKind, "entrada_manual
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mx-auto max-w-2xl space-y-4">
+        <div className="w-full space-y-3.5">
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
             <span className="font-semibold">Documento:</span> {document?.document_number || "Generando..."}
             {bootLoading ? <span className="ml-2 text-slate-500">Cargando…</span> : null}

@@ -557,11 +557,11 @@ export default function LabelsPilotPage() {
   }, [router, searchParams]);
 
   return (
-    <main className="flex-1 px-6 py-6 dashboard-theme text-slate-900">
-      <div className="w-full max-w-7xl mx-auto space-y-6">
+    <main className="flex-1 px-6 py-4 dashboard-theme text-slate-900">
+      <div className="labels-workspace-scale w-full max-w-7xl mx-auto space-y-4">
         <header className="flex items-start justify-between gap-3">
           <div className="space-y-1">
-            <h1 className="text-2xl md:text-[2rem] font-bold text-slate-900 leading-tight">
+            <h1 className="text-2xl font-bold text-slate-900 leading-tight">
               Impresion directa SATO
             </h1>
             <p className="text-sm text-slate-600 max-w-2xl">
@@ -579,7 +579,7 @@ export default function LabelsPilotPage() {
           ) : null}
         </header>
 
-        <section className="rounded-3xl ui-surface p-5 md:p-6 space-y-4">
+        <section className="labels-panel rounded-2xl ui-surface p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
               <span>
@@ -741,10 +741,10 @@ export default function LabelsPilotPage() {
           </div>
         )}
 
-        <section className="rounded-3xl ui-surface p-5 md:p-6">
-          <div className="space-y-4">
+        <section className="labels-panel rounded-2xl ui-surface p-4">
+          <div className="space-y-3">
             <div>
-              <h2 className="text-lg font-semibold text-slate-900">
+              <h2 className="text-base font-semibold text-slate-900">
                 Buscar producto
               </h2>
               <p className="text-sm text-slate-600">
@@ -772,7 +772,7 @@ export default function LabelsPilotPage() {
               <div className="flex gap-2">
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-60"
+                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold disabled:opacity-60"
                   disabled={searchLoading || !canUseApi}
                 >
                   {searchLoading ? "Buscando..." : "Buscar"}
@@ -780,7 +780,7 @@ export default function LabelsPilotPage() {
                 <button
                   type="button"
                   onClick={handleClearSearch}
-                  className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50"
+                  className="px-4 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 text-sm font-semibold hover:bg-slate-50"
                 >
                   Limpiar
                 </button>
@@ -861,11 +861,11 @@ export default function LabelsPilotPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl ui-surface p-5 md:p-6 space-y-4">
+        <section className="labels-panel rounded-2xl ui-surface p-4 space-y-3">
           <div>
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">
+                <h2 className="text-base font-semibold text-slate-900">
                   Lista de impresion
                 </h2>
                 <p className="text-sm text-slate-600">

@@ -120,6 +120,19 @@ function isDashboardRole(role?: string | null): role is DashboardRole {
   );
 }
 
+function isAbortLikeError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      error.name === "AbortError" ||
+      message.includes("signal is aborted") ||
+      message.includes("aborted without reason")
+    );
+  }
+  return false;
+}
+
 function toNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -404,6 +417,7 @@ export default function ReportsPage() {
           setDayMethodMap({});
         }
       } catch (err) {
+        if (isAbortLikeError(err)) return;
         console.error(err);
         if (!cancelled) {
           setError(
@@ -460,6 +474,7 @@ export default function ReportsPage() {
           setPreviousYearSeries(Array.isArray(previousJson) ? previousJson : []);
         }
       } catch (err) {
+        if (isAbortLikeError(err)) return;
         console.error("No pudimos cargar serie mensual dashboard.", err);
         if (!cancelled) {
           setMonthlySeries([]);
@@ -512,6 +527,7 @@ export default function ReportsPage() {
         }
         if (!cancelled) setYearLeaderDay(best);
       } catch (err) {
+        if (isAbortLikeError(err)) return;
         console.error("No pudimos cargar día líder anual.", err);
         if (!cancelled) setYearLeaderDay(null);
       }
@@ -574,6 +590,7 @@ export default function ReportsPage() {
           setPreviousYearCutTickets(tickets);
         }
       } catch (err) {
+        if (isAbortLikeError(err)) return;
         console.error("No pudimos cargar corte del año anterior.", err);
         if (!cancelled) {
           setPreviousYearCutSales(null);
@@ -647,6 +664,7 @@ export default function ReportsPage() {
           setPreviousMonthDailySeries(Array.isArray(previousJson) ? previousJson : []);
         }
       } catch (err) {
+        if (isAbortLikeError(err)) return;
         console.error("No pudimos cargar serie diaria dashboard.", err);
         if (!cancelled) {
           setDailySeries([]);
@@ -1763,8 +1781,8 @@ export default function ReportsPage() {
                   </p>
                 </div>
 
-                <div className="flex flex-wrap justify-end gap-2">
-                  <div className="report-chart-kpi min-h-[80px] w-[220px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
                     <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       Venta del mes
                     </p>
@@ -1781,7 +1799,7 @@ export default function ReportsPage() {
                         : "Sin base comparativa"}
                     </p>
                   </div>
-                  <div className="report-chart-kpi min-h-[80px] w-[240px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                  <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
                     <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       {selectedDay == null ? "Día líder" : "Día seleccionado"}
                     </p>
@@ -1792,7 +1810,7 @@ export default function ReportsPage() {
                       {activeDay ? formatMoney(activeDay.total) : "$0"}
                     </p>
                   </div>
-                  <div className="report-chart-kpi min-h-[80px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                  <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
                     <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       Tickets del mes
                     </p>
@@ -1809,7 +1827,7 @@ export default function ReportsPage() {
                         : "Sin base comparativa"}
                     </p>
                   </div>
-                  <div className="report-chart-kpi min-h-[80px] w-[200px] max-w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 max-sm:w-full">
+                  <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
                     <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       Promedio diario
                     </p>
@@ -1828,10 +1846,10 @@ export default function ReportsPage() {
                 }`}
               >
                 <div className="h-full overflow-x-auto px-5 py-2">
-                  <div className="min-w-[1180px]">
+                  <div className="min-w-0">
                     <svg
                       viewBox={`0 0 ${dailyChart.width} ${dailyChart.height}`}
-                      className="block min-w-[1180px]"
+                      className="block w-full"
                       role="img"
                       aria-label={`Evolución diaria ${selectedMonthKey}`}
                     >

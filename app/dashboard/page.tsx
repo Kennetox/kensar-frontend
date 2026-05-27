@@ -1213,20 +1213,20 @@ export default function DashboardHomePage() {
   /* ================= RENDER ================= */
 
   return (
-    <main className="flex-1 px-6 py-6">
-      <div className="w-full max-w-7xl mx-auto space-y-6">
+    <main className="flex-1 px-0 py-5">
+      <div className="w-full max-w-[84rem] mx-auto space-y-4 px-20 xl:px-24">
         {/* Título + botón Refrescar */}
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl md:text-3xl font-semibold text-slate-50">
+              <h1 className="text-2xl md:text-[1.55rem] font-semibold text-slate-50">
                 Panel general
               </h1>
-              <span className="text-sm uppercase tracking-[0.08em] text-slate-200 font-semibold">
+              <span className="text-xs md:text-sm uppercase tracking-[0.08em] text-slate-200 font-semibold">
                 {todayLabel}
               </span>
             </div>
-            <p className="text-sm text-slate-400">
+            <p className="text-xs text-slate-400">
               Resumen de ventas y actividad reciente del POS de Metrik,
               la suite de Kensar Electronic.
             </p>
@@ -1274,16 +1274,16 @@ export default function DashboardHomePage() {
         </header>
 
         {/* KPIs principales */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2.5">
           {/* Ventas hoy */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
+          <div className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Ventas de hoy (movimientos)
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-emerald-600 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
+              <div className="mt-1.5 pb-px px-px text-xl leading-[1.1] font-semibold text-emerald-600 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {formatMoney(adjustedTodaySales)}
               </div>
             )}
@@ -1310,14 +1310,14 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Tickets hoy */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
+          <div className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Tickets de hoy
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-16 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-slate-100 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
+              <div className="mt-1.5 pb-px px-px text-xl leading-[1.1] font-semibold text-slate-100 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {data?.today_tickets ?? 0}
               </div>
             )}
@@ -1337,14 +1337,14 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Ventas mes actual */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
+          <div className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Ventas mes actual (movimientos)
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-sky-400 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
+              <div className="mt-1.5 pb-px px-px text-xl leading-[1.1] font-semibold text-sky-400 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {formatMoney(adjustedMonthSales)}
               </div>
             )}
@@ -1371,14 +1371,14 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Ventas semana actual */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
+          <div className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Ventas semana actual (movimientos)
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-28 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-emerald-600 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
+              <div className="mt-1.5 pb-px px-px text-xl leading-[1.1] font-semibold text-emerald-600 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {formatMoney(adjustedWeekSales)}
               </div>
             )}
@@ -1398,14 +1398,14 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Ticket promedio mes */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-4 py-4 relative overflow-hidden">
+          <div className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
               Ticket promedio (mes)
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-24 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-2 pb-px px-px text-2xl leading-[1.1] font-semibold text-slate-100 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
+              <div className="mt-1.5 pb-px px-px text-xl leading-[1.1] font-semibold text-slate-100 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
                 {formatMoney(adjustedMonthAvgTicket)}
               </div>
             )}
@@ -1426,9 +1426,9 @@ export default function DashboardHomePage() {
         </section>
 
         {/* Sección inferior: gráfica + métodos de pago */}
-        <section className="grid gap-4 mt-6 lg:grid-cols-2 md:grid-cols-2">
+        <section className="grid gap-3.5 mt-4 xl:grid-cols-2">
           {/* Gráfico últimos 7 días */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4 min-h-[300px] relative overflow-hidden">
+          <div className="rounded-xl ui-surface dashboard-kpi-card px-3.5 py-3 min-h-[255px] relative overflow-hidden">
             <div className="flex items-center justify-between mb-3 gap-3">
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">
@@ -1583,8 +1583,8 @@ export default function DashboardHomePage() {
               <div
                 className={
                   trendMode === "year"
-                    ? "h-52 pt-4 overflow-x-auto"
-                    : "h-48 pt-8"
+                    ? "h-[11rem] pt-3 overflow-x-auto"
+                    : "h-[10.5rem] pt-6"
                 }
               >
                 <div
@@ -1655,7 +1655,7 @@ export default function DashboardHomePage() {
                       </div>
 
                       <div
-                          className={`w-6 sm:w-8 h-32 rounded-full overflow-hidden flex items-end dashboard-chart-track ${
+                          className={`w-6 sm:w-7 h-[6.5rem] rounded-full overflow-hidden flex items-end dashboard-chart-track ${
                           isZero ? "dashboard-chart-track-empty" : ""
                         } ${isCurrentDay ? "dashboard-chart-current" : ""}`}
                       >
@@ -1707,7 +1707,7 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Métodos de pago */}
-          <div className="rounded-2xl ui-surface dashboard-kpi-card px-5 py-4 h-[300px] flex flex-col relative overflow-hidden">
+          <div className="rounded-xl ui-surface dashboard-kpi-card px-3.5 py-3 h-[255px] flex flex-col relative overflow-hidden">
             <div className="flex items-center justify-between gap-3 mb-1">
               <div>
                 <h2 className="text-sm font-semibold text-slate-100">
@@ -1835,7 +1835,7 @@ export default function DashboardHomePage() {
         </section>
 
         {/* Últimas ventas */}
-        <section className="mt-6 rounded-2xl ui-surface dashboard-kpi-card px-5 py-4">
+        <section className="mt-4 rounded-xl ui-surface dashboard-kpi-card px-3.5 py-3">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
             <div>
               <div className="flex items-center gap-2">
