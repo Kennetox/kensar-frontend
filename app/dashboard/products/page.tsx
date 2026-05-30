@@ -12,6 +12,7 @@ import React, {
 import Image from "next/image";
 import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
+import LoadingSpinner from "@/app/components/ui/LoadingSpinner";
 
 type Product = {
   id: number;
@@ -149,6 +150,33 @@ type ProductCostSuggestionMeta = {
   mode: "create" | "edit";
 };
 
+type ProductDuplicateCandidate = {
+  product_id: number;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  group_name: string | null;
+  brand: string | null;
+  supplier: string | null;
+  similarity_score: number;
+  risk_level: "alto" | "medio" | "bajo";
+  match_reasons: string[];
+};
+
+type ProductDuplicateCandidatesResponse = {
+  candidates: ProductDuplicateCandidate[];
+  has_high_risk: boolean;
+};
+
+type DuplicateProbeInput = {
+  name: string;
+  sku: string;
+  barcode: string;
+  group_name: string;
+  brand: string;
+  supplier: string;
+};
+
 const API_BASE = getApiBase();
 const DEFAULT_TILE_COLOR = "#1f2937";
 const DEFAULT_LABEL_FORMAT = "Kensar1";
@@ -264,6 +292,43 @@ function normalizeLabelFormat(value: string | null | undefined, groupName: strin
     return trimmed;
   }
   return resolveLabelFormatByGroup(groupName);
+}
+
+function suggestProductNameSpelling(rawValue: string): string | null {
+  const value = rawValue.trim();
+  if (!value) return null;
+
+  const replacements: Array<[RegExp, string]> = [
+    [/\bextencion\b/gi, "Extension"],
+    [/\bextensión\b/gi, "Extension"],
+    [/\belectria\b/gi, "Electrica"],
+    [/\belectrico\b/gi, "Electrico"],
+    [/\bceluar\b/gi, "Celular"],
+    [/\bcargadora\b/gi, "Cargadora"],
+    [/\biphon\b/gi, "iPhone"],
+    [/\bihpone\b/gi, "iPhone"],
+  ];
+
+  let corrected = value;
+  replacements.forEach(([pattern, replacement]) => {
+    corrected = corrected.replace(pattern, replacement);
+  });
+
+  const normalizedWords = corrected.split(/\s+/).map((word) => {
+    // Mantener códigos/referencias como C01, WJ-C01, V8, 10M.
+    if (/[0-9]/.test(word) || /[-_/]/.test(word)) return word;
+    const lower = word.toLowerCase();
+    if (lower === "iphone") return "iPhone";
+    if (lower.length <= 2) return lower;
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  });
+
+  corrected = normalizedWords.join(" ").replace(/\s+,/g, ",").trim();
+  corrected = corrected
+    .replace(/\busb\b/gi, "USB")
+    .replace(/\bhdmi\b/gi, "HDMI");
+  if (!corrected || corrected === value) return null;
+  return corrected;
 }
 
 function getAuditSourceLabel(entry: ProductAuditEntry): string | null {
@@ -427,6 +492,16 @@ export default function ProductsPage() {
   const [createLabelFormatLocked, setCreateLabelFormatLocked] = useState(true);
   const [createCostSuggestion, setCreateCostSuggestion] = useState<ProductCostSuggestion | null>(null);
   const [createCostSuggesting, setCreateCostSuggesting] = useState(false);
+  const [createDuplicateCandidates, setCreateDuplicateCandidates] = useState<
+    ProductDuplicateCandidate[]
+  >([]);
+  const [createDuplicateChecking, setCreateDuplicateChecking] = useState(false);
+  const [createDuplicateError, setCreateDuplicateError] = useState<string | null>(null);
+  const [createHasHighDuplicateRisk, setCreateHasHighDuplicateRisk] = useState(false);
+  const createNameSpellingSuggestion = useMemo(
+    () => suggestProductNameSpelling(createForm.name),
+    [createForm.name],
+  );
 
   // edición
   const [editOpen, setEditOpen] = useState(false);
@@ -580,6 +655,98 @@ export default function ProductsPage() {
     }, 200);
     return () => window.clearTimeout(id);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (!createOpen) return;
+    if (!authHeaders) return;
+    const name = createForm.name.trim();
+    if (name.length < 3) {
+      setCreateDuplicateCandidates([]);
+      setCreateHasHighDuplicateRisk(false);
+      setCreateDuplicateError(null);
+      setCreateDuplicateChecking(false);
+      return;
+    }
+
+    let cancelled = false;
+    const probeInput: DuplicateProbeInput = {
+      name: createForm.name,
+      sku: createForm.sku,
+      barcode: createForm.barcode,
+      group_name: createForm.group_name,
+      brand: createForm.brand,
+      supplier: createForm.supplier,
+    };
+    async function fetchDuplicateCandidates(
+      form: DuplicateProbeInput,
+    ): Promise<ProductDuplicateCandidatesResponse> {
+      const normalizedName = form.name.trim();
+      if (normalizedName.length < 3) {
+        return { candidates: [], has_high_risk: false };
+      }
+      const res = await fetch(`${API_BASE}/products/duplicate-candidates`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          name: normalizedName,
+          sku: form.sku.trim() || null,
+          barcode: form.barcode.trim() || null,
+          group_name: form.group_name.trim() || null,
+          brand: form.brand.trim() || null,
+          supplier: form.supplier.trim() || null,
+          limit: 6,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const msg =
+          (data && (data.detail as string)) ||
+          `No se pudo validar duplicados (código ${res.status})`;
+        throw new Error(msg);
+      }
+      return (await res.json()) as ProductDuplicateCandidatesResponse;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setCreateDuplicateChecking(true);
+      setCreateDuplicateError(null);
+      void fetchDuplicateCandidates(probeInput)
+        .then((result) => {
+          if (cancelled) return;
+          setCreateDuplicateCandidates(result.candidates ?? []);
+          setCreateHasHighDuplicateRisk(Boolean(result.has_high_risk));
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setCreateDuplicateCandidates([]);
+          setCreateHasHighDuplicateRisk(false);
+          setCreateDuplicateError(
+            err instanceof Error ? err.message : "No se pudo validar posibles duplicados."
+          );
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setCreateDuplicateChecking(false);
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    createOpen,
+    createForm.name,
+    createForm.sku,
+    createForm.barcode,
+    createForm.group_name,
+    createForm.brand,
+    createForm.supplier,
+    authHeaders,
+  ]);
 
   // restaurar filtros mientras la sesión esté activa
   useEffect(() => {
@@ -776,6 +943,12 @@ export default function ProductsPage() {
     return (await res.json()) as ProductCostSuggestion;
   }
 
+  function formatDuplicateRiskLabel(level: ProductDuplicateCandidate["risk_level"]): string {
+    if (level === "alto") return "Riesgo alto";
+    if (level === "medio") return "Riesgo medio";
+    return "Riesgo bajo";
+  }
+
   async function handleSuggestCreateCost() {
     try {
       setCreateCostSuggesting(true);
@@ -919,6 +1092,10 @@ export default function ProductsPage() {
     setCreateBarcodeLocked(true);
     setCreateLabelFormatLocked(true);
     setCreateCostSuggestion(null);
+    setCreateDuplicateCandidates([]);
+    setCreateDuplicateChecking(false);
+    setCreateDuplicateError(null);
+    setCreateHasHighDuplicateRisk(false);
   }
 
   function handleCreateGroupInput(nextGroupName: string) {
@@ -975,6 +1152,10 @@ export default function ProductsPage() {
     setCreateLabelFormatLocked(true);
     setCreateCostSuggestion(null);
     setCreateCostSuggesting(false);
+    setCreateDuplicateCandidates([]);
+    setCreateDuplicateChecking(false);
+    setCreateDuplicateError(null);
+    setCreateHasHighDuplicateRisk(false);
   }
 
   function handleCloseEditModal() {
@@ -1718,6 +1899,17 @@ export default function ProductsPage() {
     if (!confirmUngroupedProduct(createForm.group_name)) {
       return;
     }
+    if (createHasHighDuplicateRisk && createDuplicateCandidates.length > 0) {
+      const top = createDuplicateCandidates[0];
+      const proceed = window.confirm(
+        `Detectamos un posible duplicado de riesgo alto: "${top.name}"` +
+          `${top.sku ? ` (SKU ${top.sku})` : ""}. ` +
+          "¿Deseas crear el producto de todos modos?"
+      );
+      if (!proceed) {
+        return;
+      }
+    }
     try {
       setSavingCreate(true);
       setError(null);
@@ -2304,6 +2496,11 @@ export default function ProductsPage() {
 
   const [createGroupFocused, setCreateGroupFocused] = useState(false);
   const [editGroupFocused, setEditGroupFocused] = useState(false);
+  const showDuplicatePanel =
+    createForm.name.trim().length >= 3 ||
+    createDuplicateChecking ||
+    createDuplicateCandidates.length > 0 ||
+    createDuplicateError;
 
   const totalCount = products.length;
   const filteredCount = filteredProducts.length;
@@ -3040,6 +3237,112 @@ export default function ProductsPage() {
                   required
                   className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
                 />
+                {createNameSpellingSuggestion ? (
+                  <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-300">
+                    <span>
+                      Sugerencia: <span className="font-semibold text-slate-200">{createNameSpellingSuggestion}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          name: createNameSpellingSuggestion,
+                        }))
+                      }
+                      className="rounded-md border border-slate-600 px-2 py-0.5 text-[11px] text-slate-200 hover:bg-slate-800"
+                    >
+                      Aplicar
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div
+                className={[
+                  "md:col-span-2 xl:col-span-3 grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out",
+                  showDuplicatePanel
+                    ? "grid-rows-[1fr] opacity-100 mt-0"
+                    : "grid-rows-[0fr] opacity-0 -mt-2 pointer-events-none",
+                ].join(" ")}
+                aria-hidden={!showDuplicatePanel}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-amber-900">
+                      Validación inteligente de posibles duplicados
+                    </div>
+                    {createDuplicateChecking ? (
+                      <div className="flex items-center gap-2 text-[11px] text-amber-700">
+                        <LoadingSpinner size={18} className="!gap-0" />
+                        <span>Analizando...</span>
+                      </div>
+                    ) : createHasHighDuplicateRisk ? (
+                      <div className="text-[11px] text-red-700 font-semibold">Riesgo alto detectado</div>
+                    ) : (
+                      <div className="text-[11px] text-amber-700">Sugerencias activas</div>
+                    )}
+                  </div>
+
+                  {createDuplicateError ? (
+                    <div className="mt-2 text-[11px] text-red-700">{createDuplicateError}</div>
+                  ) : null}
+
+                  {!createDuplicateError && createDuplicateCandidates.length === 0 ? (
+                    <div className="mt-2 text-[11px] text-slate-700">
+                      {createDuplicateChecking
+                        ? "Buscando coincidencias relevantes..."
+                        : "Sin coincidencias relevantes por ahora."}
+                    </div>
+                  ) : null}
+
+                  {createDuplicateCandidates.length > 0 ? (
+                    <div className="mt-2 space-y-2">
+                      {createDuplicateCandidates.map((candidate) => (
+                        <div
+                          key={candidate.product_id}
+                          className="rounded-md border border-amber-200 bg-white p-2"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="text-xs text-slate-900">
+                              {candidate.name}
+                              {candidate.sku ? ` (SKU ${candidate.sku})` : ""}
+                            </div>
+                            <div className="text-[11px] text-slate-700">
+                              {formatDuplicateRiskLabel(candidate.risk_level)} ·{" "}
+                              {Math.round(candidate.similarity_score * 100)}%
+                            </div>
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-600">
+                            {(candidate.brand || "Sin marca")} ·{" "}
+                            {(candidate.group_name || "Sin grupo")}
+                          </div>
+                          {candidate.match_reasons.length > 0 ? (
+                            <div className="mt-1 text-[11px] text-amber-800">
+                              {candidate.match_reasons.join(" ")}
+                            </div>
+                          ) : null}
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const existing = products.find((p) => p.id === candidate.product_id);
+                                if (!existing) return;
+                                handleCloseCreateModal();
+                                openEdit(existing);
+                              }}
+                              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-800 hover:bg-slate-100"
+                            >
+                              Abrir producto existente
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-1">
