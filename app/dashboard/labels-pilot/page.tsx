@@ -427,6 +427,34 @@ export default function LabelsPilotPage() {
     [handleQuantityChange, quantityDrafts]
   );
 
+  const handleIncrement = useCallback((productId: number) => {
+    setLabelItems((prev) =>
+      prev.map((p) =>
+        p.productId === productId ? { ...p, quantity: p.quantity + 1 } : p
+      )
+    );
+    setQuantityDrafts((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+  }, []);
+
+  const handleDecrement = useCallback((productId: number) => {
+    setLabelItems((prev) =>
+      prev.map((p) =>
+        p.productId === productId
+          ? { ...p, quantity: Math.max(1, p.quantity - 1) }
+          : p
+      )
+    );
+    setQuantityDrafts((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+  }, []);
+
   const handleClearList = useCallback(() => {
     setLabelItems([]);
     setActiveItemId(null);
@@ -559,7 +587,7 @@ export default function LabelsPilotPage() {
   return (
     <main className="flex-1 px-6 py-4 dashboard-theme text-slate-900">
       <div className="labels-workspace-scale w-full max-w-7xl mx-auto space-y-4">
-        <header className="flex items-start justify-between gap-3">
+        <header className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
           <div className="space-y-1">
             <h1 className="text-2xl font-bold text-slate-900 leading-tight">
               Impresion directa SATO
@@ -569,18 +597,7 @@ export default function LabelsPilotPage() {
               agente local en este equipo.
             </p>
           </div>
-          {searchParams.get("returnTo") ? (
-            <Link
-              href={searchParams.get("returnTo") || "/dashboard/movements?tab=movements"}
-              className="inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Volver
-            </Link>
-          ) : null}
-        </header>
-
-        <section className="labels-panel rounded-2xl ui-surface p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 lg:w-auto lg:min-w-[560px] lg:max-w-[680px] lg:justify-between">
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
               <span>
                 <span className="font-semibold">Modo:</span> Agente local
@@ -601,15 +618,28 @@ export default function LabelsPilotPage() {
                   : "verificando agente"}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50"
-            >
-              Configuracion
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                className="px-3 py-1.5 rounded-md border border-slate-300 bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200"
+              >
+                Configuracion
+              </button>
+              {searchParams.get("returnTo") ? (
+                <Link
+                  href={
+                    searchParams.get("returnTo") ||
+                    "/dashboard/movements?tab=movements"
+                  }
+                  className="inline-flex rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Volver
+                </Link>
+              ) : null}
+            </div>
           </div>
-        </section>
+        </header>
 
         {settingsOpen && (
           <div
@@ -907,7 +937,7 @@ export default function LabelsPilotPage() {
                       <th className="px-3 py-2">SKU</th>
                       <th className="px-3 py-2">Producto</th>
                       <th className="px-3 py-2 text-right">Precio</th>
-                      <th className="px-3 py-2 w-24 text-center">Copias</th>
+                      <th className="px-3 py-2 w-40 text-center">Copias</th>
                       <th className="px-3 py-2 w-28 text-center">Accion</th>
                     </tr>
                   </thead>
@@ -942,33 +972,55 @@ export default function LabelsPilotPage() {
                             {formatPriceForPayload(item.price)}
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <input
-                              type="number"
-                              min={1}
-                              className="ui-input w-20 px-2 py-1 text-xs text-center"
-                              value={
-                                quantityDrafts[item.productId] ??
-                                String(item.quantity)
-                              }
-                              onChange={(e) =>
-                                handleQuantityDraftChange(
-                                  item.productId,
-                                  e.target.value
-                                )
-                              }
-                              onFocus={(e) => e.currentTarget.select()}
-                              onClick={(e) => e.currentTarget.select()}
-                              onBlur={() =>
-                                handleQuantityDraftCommit(item.productId)
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  handleQuantityDraftCommit(item.productId);
-                                  (e.currentTarget as HTMLInputElement).blur();
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDecrement(item.productId);
+                                }}
+                                className="w-7 h-7 flex items-center justify-center rounded-md border border-slate-300 text-slate-600 bg-white hover:bg-slate-50"
+                              >
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                min={1}
+                                className="ui-input w-16 px-2 py-1 text-xs text-center"
+                                value={
+                                  quantityDrafts[item.productId] ??
+                                  String(item.quantity)
                                 }
-                              }}
-                            />
+                                onChange={(e) =>
+                                  handleQuantityDraftChange(
+                                    item.productId,
+                                    e.target.value
+                                  )
+                                }
+                                onFocus={(e) => e.currentTarget.select()}
+                                onClick={(e) => e.currentTarget.select()}
+                                onBlur={() =>
+                                  handleQuantityDraftCommit(item.productId)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleQuantityDraftCommit(item.productId);
+                                    (e.currentTarget as HTMLInputElement).blur();
+                                  }
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleIncrement(item.productId);
+                                }}
+                                className="w-7 h-7 flex items-center justify-center rounded-md border border-slate-300 text-slate-600 bg-white hover:bg-slate-50"
+                              >
+                                +
+                              </button>
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-center">
                             <div className="flex items-center justify-center gap-2">
