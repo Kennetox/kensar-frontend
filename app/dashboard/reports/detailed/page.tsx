@@ -831,6 +831,42 @@ const buildRowChunks = (
     }
     return chunks.length ? chunks : ([[]] as string[][][]);
   }
+  if (presetId === "free-sales-traceability") {
+    // La primera pagina incluye resumen/KPIs; las siguientes pueden cargar mas filas.
+    // Ajustamos por longitud del motivo para evitar cortes visuales por wrapping.
+    const firstPageBudget = 34;
+    const nextPageBudget = 40;
+    const calcRowWeight = (row: string[]): number => {
+      const reasonLen = (row[1] ?? "").length;
+      const reasonExtra = Math.max(0, Math.ceil((reasonLen - 52) / 28));
+      return 1 + reasonExtra * 0.25;
+    };
+
+    const chunks: string[][][] = [];
+    let cursor = 0;
+    let currentBudget = firstPageBudget;
+    while (cursor < rows.length) {
+      let pageWeight = 0;
+      const pageRows: string[][] = [];
+      while (cursor < rows.length) {
+        const row = rows[cursor];
+        const rowWeight = calcRowWeight(row);
+        if (pageRows.length > 0 && pageWeight + rowWeight > currentBudget) {
+          break;
+        }
+        pageRows.push(row);
+        pageWeight += rowWeight;
+        cursor += 1;
+      }
+      if (!pageRows.length && cursor < rows.length) {
+        pageRows.push(rows[cursor]);
+        cursor += 1;
+      }
+      chunks.push(pageRows);
+      currentBudget = nextPageBudget;
+    }
+    return chunks.length ? chunks : ([[]] as string[][][]);
+  }
   return chunkArray(rows, defaultSize);
 };
 
@@ -3836,6 +3872,7 @@ export default function ReportsPage() {
   const [salesError, setSalesError] = useState<string | null>(null);
   const [summaryRequested, setSummaryRequested] = useState(false);
   const salesLoadedRef = useRef(false);
+  const lastLoadedSalesSignatureRef = useRef("");
   const [favoriteReportIds, setFavoriteReportIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -4350,8 +4387,10 @@ export default function ReportsPage() {
   };
 
   const loadSales = useCallback(async () => {
+    const requestSignature = `${fromDate}|${toDate}|${sourceFilter}`;
     if (!canViewReportDataset) {
       salesLoadedRef.current = false;
+      lastLoadedSalesSignatureRef.current = "";
       setSalesData([]);
       setChangesData([]);
       salesDataRef.current = [];
@@ -4454,6 +4493,7 @@ export default function ReportsPage() {
       setSalesData(nextSales);
       salesDataRef.current = nextSales;
       salesLoadedRef.current = true;
+      lastLoadedSalesSignatureRef.current = requestSignature;
       if (changesResult.status === "fulfilled") {
         setChangesData(changesResult.value);
         changesDataRef.current = changesResult.value;
@@ -4464,6 +4504,7 @@ export default function ReportsPage() {
     } catch (err) {
       console.error(err);
       salesLoadedRef.current = false;
+      lastLoadedSalesSignatureRef.current = "";
       if (err instanceof DOMException && err.name === "AbortError") {
         setSalesError(
           "La consulta tardó demasiado. Reduce el rango de fechas o usa modo agrupado."
@@ -4481,10 +4522,16 @@ export default function ReportsPage() {
   }, [authHeaders, canViewReportDataset, fromDate, sourceFilter, toDate]);
 
   const ensureSalesLoaded = useCallback(async () => {
-    if (salesLoadedRef.current) return true;
+    const requestSignature = `${fromDate}|${toDate}|${sourceFilter}`;
+    if (
+      salesLoadedRef.current &&
+      lastLoadedSalesSignatureRef.current === requestSignature
+    ) {
+      return true;
+    }
     await loadSales();
     return salesLoadedRef.current;
-  }, [loadSales]);
+  }, [fromDate, sourceFilter, toDate, loadSales]);
 
   useEffect(() => {
     let active = true;
