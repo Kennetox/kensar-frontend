@@ -307,7 +307,7 @@ function EntryReceptionForm() {
   }, [lot]);
 
   useEffect(() => {
-    if (!lot || typeof window === "undefined") return;
+    if (!lot || lot.status !== "open" || typeof window === "undefined") return;
     const lotId = lot.id;
     const timeoutId = window.setTimeout(() => {
       const snapshot: EntryReceptionUiState = {

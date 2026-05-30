@@ -283,6 +283,22 @@ export default function MovementsPage() {
         window.sessionStorage.removeItem(ACTIVE_MOVEMENT_FORM_KEY);
         return;
       }
+      if (parsed.href.startsWith("/dashboard/movements/form/entrada_manual")) {
+        const draftLotIdRaw = window.localStorage.getItem(RECEIVING_DRAFT_LOT_KEY);
+        const draftLotId = draftLotIdRaw ? Number(draftLotIdRaw) : NaN;
+        const hrefLotIdRaw = parsed.href.match(/[?&]lotId=(\d+)/)?.[1];
+        const hrefLotId = hrefLotIdRaw ? Number(hrefLotIdRaw) : NaN;
+        const hasOpenDraft =
+          Number.isFinite(draftLotId) &&
+          draftLotId > 0 &&
+          Number.isFinite(hrefLotId) &&
+          hrefLotId > 0 &&
+          draftLotId === hrefLotId;
+        if (!hasOpenDraft) {
+          window.sessionStorage.removeItem(ACTIVE_MOVEMENT_FORM_KEY);
+          return;
+        }
+      }
       router.replace(parsed.href, { scroll: false });
     } catch {
       window.sessionStorage.removeItem(ACTIVE_MOVEMENT_FORM_KEY);
