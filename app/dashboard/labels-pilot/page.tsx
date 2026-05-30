@@ -120,6 +120,10 @@ export default function LabelsPilotPage() {
     {}
   );
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const totalLabelCopies = useMemo(
+    () => labelItems.reduce((sum, item) => sum + Math.max(1, item.quantity || 0), 0),
+    [labelItems]
+  );
 
   const canUseApi = !!authHeaders;
 
@@ -795,6 +799,8 @@ export default function LabelsPilotPage() {
                     className="ui-input w-full px-3 py-2 text-sm"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onClick={(e) => e.currentTarget.select()}
                     placeholder="Ej. HDMI, 3280, cable plug..."
                   />
                 </label>
@@ -926,7 +932,8 @@ export default function LabelsPilotPage() {
               <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 text-xs text-slate-600">
                 <span>
                   Productos en la lista ·{" "}
-                  {labelItems.length.toLocaleString("es-CO")}
+                  {labelItems.length.toLocaleString("es-CO")} · Etiquetas totales ·{" "}
+                  {totalLabelCopies.toLocaleString("es-CO")}
                 </span>
                 <span className="text-[11px]">Selecciona un producto para imprimir.</span>
               </div>
