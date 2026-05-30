@@ -35,9 +35,11 @@ import {
 } from "@/lib/api/comercioWebCatalog";
 import {
   createComercioWebDiscountCode,
+  fetchComercioWebDiscountCodeUsage,
   fetchComercioWebDiscountCodes,
   updateComercioWebDiscountCode,
   type ComercioWebDiscountCode,
+  type ComercioWebDiscountCodeUsageRow,
 } from "@/lib/api/comercioWebDiscountCodes";
 import {
   fetchComercioWebHomeSliders,
@@ -159,7 +161,21 @@ type DiscountCodePeriodOption = "day" | "week" | "month" | "indefinite" | "custo
 
 type DiscountCodeEditorState = {
   code: string;
-  discount_percent: string;
+  discount_type: "percent" | "fixed_amount";
+  discount_value: string;
+  period: DiscountCodePeriodOption;
+  max_uses: string;
+  starts_at: string;
+  ends_at: string;
+  is_active: boolean;
+};
+
+type DiscountCodeStatusFilter = "all" | "active" | "inactive";
+
+type DiscountCodeBatchState = {
+  quantity: string;
+  discount_type: "percent" | "fixed_amount";
+  discount_value: string;
   period: DiscountCodePeriodOption;
   max_uses: string;
   starts_at: string;
@@ -417,7 +433,19 @@ const emptyCatalogEditorState: CatalogEditorState = {
 
 const emptyDiscountCodeEditorState: DiscountCodeEditorState = {
   code: "",
-  discount_percent: "",
+  discount_type: "percent",
+  discount_value: "",
+  period: "indefinite",
+  max_uses: "",
+  starts_at: "",
+  ends_at: "",
+  is_active: true,
+};
+
+const emptyDiscountCodeBatchState: DiscountCodeBatchState = {
+  quantity: "10",
+  discount_type: "percent",
+  discount_value: "",
   period: "indefinite",
   max_uses: "",
   starts_at: "",
@@ -451,6 +479,16 @@ function formatMoney(value: number): string {
     currency: "COP",
     maximumFractionDigits: 0,
   });
+}
+
+function formatCopInputValue(value: string): string {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (!digits) return "";
+  return Number(digits).toLocaleString("es-CO");
+}
+
+function sanitizeCopInputValue(value: string): string {
+  return String(value || "").replace(/\D/g, "");
 }
 
 function formatDateTime(value?: string | null): string {
@@ -1553,12 +1591,27 @@ export default function ComercioWebPage() {
   const [discountCodeLoading, setDiscountCodeLoading] = useState(false);
   const [discountCodeError, setDiscountCodeError] = useState<string | null>(null);
   const [discountCodePage, setDiscountCodePage] = useState(1);
+  const [discountCodeStatusFilter, setDiscountCodeStatusFilter] = useState<DiscountCodeStatusFilter>("all");
+  const [discountCodeTypeFilter, setDiscountCodeTypeFilter] = useState<"all" | "percent" | "fixed_amount">("all");
   const [discountCodeEditor, setDiscountCodeEditor] = useState<DiscountCodeEditorState>(
     emptyDiscountCodeEditorState
   );
   const [discountCodeComposerOpen, setDiscountCodeComposerOpen] = useState(false);
   const [discountCodeEditingId, setDiscountCodeEditingId] = useState<number | null>(null);
   const [discountCodeSaving, setDiscountCodeSaving] = useState(false);
+  const [discountCodeBatchOpen, setDiscountCodeBatchOpen] = useState(false);
+  const [discountCodeBatchEditor, setDiscountCodeBatchEditor] =
+    useState<DiscountCodeBatchState>(emptyDiscountCodeBatchState);
+  const [discountCodeBatchSaving, setDiscountCodeBatchSaving] = useState(false);
+  const [discountCodeBatchError, setDiscountCodeBatchError] = useState<string | null>(null);
+  const [discountCodeBatchCreated, setDiscountCodeBatchCreated] = useState<string[]>([]);
+  const [selectedDiscountCodeMap, setSelectedDiscountCodeMap] = useState<Record<number, ComercioWebDiscountCode>>({});
+  const [discountCodeHistoryOpenId, setDiscountCodeHistoryOpenId] = useState<number | null>(null);
+  const [discountCodeHistoryOpenCode, setDiscountCodeHistoryOpenCode] = useState<string>("");
+  const [discountCodeHistoryRows, setDiscountCodeHistoryRows] = useState<ComercioWebDiscountCodeUsageRow[]>([]);
+  const [discountCodeHistoryTotal, setDiscountCodeHistoryTotal] = useState(0);
+  const [discountCodeHistoryLoading, setDiscountCodeHistoryLoading] = useState(false);
+  const [discountCodeHistoryError, setDiscountCodeHistoryError] = useState<string | null>(null);
   const [catalogCategories, setCatalogCategories] = useState<ComercioWebCatalogCategory[]>([]);
   const [catalogCategoryLoading, setCatalogCategoryLoading] = useState(false);
   const [catalogCategoryError, setCatalogCategoryError] = useState<string | null>(null);
@@ -1821,9 +1874,16 @@ export default function ComercioWebPage() {
         setDiscountCodeEditingId(draft.discountCodeEditingId ?? null);
       }
       if (draft.discountCodeEditor) {
+        const legacyPercent = (draft.discountCodeEditor as { discount_percent?: string }).discount_percent;
         setDiscountCodeEditor({
           ...emptyDiscountCodeEditorState,
           ...draft.discountCodeEditor,
+          discount_value:
+            typeof draft.discountCodeEditor.discount_value === "string"
+              ? draft.discountCodeEditor.discount_value
+              : typeof legacyPercent === "string"
+                ? legacyPercent
+                : "",
         });
       }
       if (typeof draft.catalogCategoryEditingId === "number" || draft.catalogCategoryEditingId === null) {
@@ -2588,13 +2648,23 @@ export default function ComercioWebPage() {
     () => Math.max(1, Math.ceil(discountCodeTotal / DISCOUNT_CODE_TABLE_PAGE_SIZE)),
     [discountCodeTotal]
   );
-  const discountCodeStartIndex = discountCodeTotal
-    ? (discountCodePage - 1) * DISCOUNT_CODE_TABLE_PAGE_SIZE + 1
-    : 0;
-  const discountCodeEndIndex =
-    discountCodeStartIndex === 0
-      ? 0
-      : Math.min(discountCodeStartIndex + discountCodeRows.length - 1, discountCodeTotal);
+  const visibleDiscountCodeRows = useMemo(
+    () =>
+      discountCodeRows.filter((row) => {
+        if (discountCodeTypeFilter === "all") return true;
+        return (row.discount_type || "percent") === discountCodeTypeFilter;
+      }),
+    [discountCodeRows, discountCodeTypeFilter]
+  );
+  const selectedDiscountCodeRows = useMemo(
+    () => Object.values(selectedDiscountCodeMap),
+    [selectedDiscountCodeMap]
+  );
+  const selectedVisibleCount = useMemo(
+    () => visibleDiscountCodeRows.filter((row) => Boolean(selectedDiscountCodeMap[row.id])).length,
+    [visibleDiscountCodeRows, selectedDiscountCodeMap]
+  );
+  const allVisibleSelected = visibleDiscountCodeRows.length > 0 && selectedVisibleCount === visibleDiscountCodeRows.length;
 
   useEffect(() => {
     const normalizedCategoryKey = normalizeCategoryLookupKey(publishedCatalogCategoryFilter);
@@ -2635,6 +2705,10 @@ export default function ComercioWebPage() {
       setDiscountCodePage(discountCodeTotalPages);
     }
   }, [discountCodePage, discountCodeTotalPages]);
+
+  useEffect(() => {
+    setDiscountCodePage(1);
+  }, [discountCodeStatusFilter, discountCodeTypeFilter]);
 
   const previewGalleryImages = useMemo(() => {
     const candidates = [
@@ -3296,6 +3370,10 @@ export default function ComercioWebPage() {
       const page = await fetchComercioWebDiscountCodes(token, {
         skip: (discountCodePage - 1) * DISCOUNT_CODE_TABLE_PAGE_SIZE,
         limit: DISCOUNT_CODE_TABLE_PAGE_SIZE,
+        active_only:
+          discountCodeStatusFilter === "all"
+            ? undefined
+            : discountCodeStatusFilter === "active",
       });
       setDiscountCodeRows(page.items);
       setDiscountCodeTotal(page.total);
@@ -3306,7 +3384,7 @@ export default function ComercioWebPage() {
     } finally {
       setDiscountCodeLoading(false);
     }
-  }, [discountCodePage, token]);
+  }, [discountCodePage, discountCodeStatusFilter, token]);
 
   const searchCatalogProducts = useCallback(async () => {
     if (!token) return;
@@ -4376,7 +4454,10 @@ export default function ComercioWebPage() {
     setDiscountCodeEditingId(row.id);
     setDiscountCodeEditor({
       code: row.code,
-      discount_percent: String(row.discount_percent ?? ""),
+      discount_type: row.discount_type === "fixed_amount" ? "fixed_amount" : "percent",
+      discount_value: String(
+        (row.discount_type === "fixed_amount" ? row.discount_value : row.discount_percent) ?? ""
+      ),
       period,
       max_uses: row.max_uses ? String(row.max_uses) : "",
       starts_at: toDateTimeLocalInput(row.starts_at),
@@ -4396,6 +4477,269 @@ export default function ComercioWebPage() {
     setDiscountCodeComposerOpen(true);
   }
 
+  function buildExistingDiscountCodeSet(extraCodes: string[] = []): Set<string> {
+    return new Set(
+      [...discountCodeRows.map((row) => (row.code || "").trim().toUpperCase()), ...extraCodes]
+        .map((value) => value.trim().toUpperCase())
+        .filter((value) => value.length > 0)
+    );
+  }
+
+  function createGeneratedDiscountCode(existing: Set<string>): string {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const makeCode = (length: number) =>
+      Array.from({ length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const candidate = makeCode(attempt < 12 ? 6 : 7);
+      if (!existing.has(candidate)) {
+        return candidate;
+      }
+    }
+    return makeCode(7);
+  }
+
+  function generateUniqueDiscountCode() {
+    const existing = buildExistingDiscountCodeSet();
+    const nextCode = createGeneratedDiscountCode(existing);
+    setDiscountCodeEditor((prev) => ({ ...prev, code: nextCode }));
+    setDiscountCodeError(null);
+  }
+
+  function exportDiscountCodesCsv(rows: ComercioWebDiscountCode[], filenamePrefix = "cupones") {
+    const header = ["codigo", "tipo", "valor_descuento", "estado", "max_uses", "inicio", "fin"];
+    const body = rows.map((row) => [
+      row.code || "",
+      row.discount_type === "fixed_amount" ? "valor_fijo" : "porcentaje",
+      String(row.discount_type === "fixed_amount" ? row.discount_value || 0 : row.discount_percent || 0),
+      row.is_active ? "activo" : "inactivo",
+      row.max_uses ?? "",
+      row.starts_at ?? "",
+      row.ends_at ?? "",
+    ]);
+    const csvContent = [header, ...body]
+      .map((line) => line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    link.href = url;
+    link.download = `${filenamePrefix}-${timestamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
+  function exportDiscountCodesPrintSheet(rows: ComercioWebDiscountCode[], title = "Cupones promocionales") {
+    if (!rows.length) return;
+    const formatPrintDate = (value?: string | null) => {
+      if (!value) return "";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      return new Intl.DateTimeFormat("es-CO", { dateStyle: "short" }).format(date);
+    };
+    const qrTargetUrl = "https://kensarelectronic.com";
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrTargetUrl)}`;
+    const printableRows = rows
+      .map((row) => {
+        const discountLabel =
+          row.discount_type === "fixed_amount"
+            ? `${formatMoney(row.discount_value || 0)} OFF`
+            : `${row.discount_percent || 0}% OFF`;
+        const startDate = formatPrintDate(row.starts_at);
+        const endDate = formatPrintDate(row.ends_at);
+        const validity = startDate && endDate
+          ? `Vigencia: ${startDate} - ${endDate}`
+          : startDate
+            ? `Vigencia desde: ${startDate}`
+            : endDate
+              ? `Vigencia hasta: ${endDate}`
+              : "Vigencia: Sin fecha límite";
+        const usageHint = "Úsalo al finalizar tu compra en el campo de código de descuento.";
+        return `
+          <article class="coupon-card">
+            <div class="coupon-header">
+              <div class="brand">KENSAR ELECTRONIC</div>
+              <img class="qr" src="${qrImageUrl}" alt="QR kensarelectronic.com" />
+            </div>
+            <div class="code">${row.code}</div>
+            <div class="discount">${discountLabel}</div>
+            <div class="meta">${validity}</div>
+            <div class="meta">${usageHint}</div>
+            <div class="meta">Escanea para entrar a kensarelectronic.com</div>
+          </article>
+        `;
+      })
+      .join("");
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${title}</title>
+          <style>
+            @page { size: A4 portrait; margin: 10mm; }
+            * { box-sizing: border-box; }
+            body { margin: 0; font-family: Arial, sans-serif; color: #0f172a; }
+            .sheet-title { margin: 0 0 10px; font-size: 16px; font-weight: 700; }
+            .grid {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 8px;
+            }
+            .coupon-card {
+              border: 1px dashed #334155;
+              border-radius: 10px;
+              padding: 10px;
+              min-height: 145px;
+              display: flex;
+              flex-direction: column;
+              justify-content: space-between;
+            }
+            .coupon-header {
+              display: flex;
+              align-items: flex-start;
+              justify-content: space-between;
+              gap: 8px;
+            }
+            .brand { font-size: 11px; letter-spacing: .08em; font-weight: 700; color: #475569; }
+            .qr { width: 56px; height: 56px; border: 1px solid #cbd5e1; border-radius: 6px; }
+            .code { font-size: 24px; font-weight: 800; letter-spacing: .05em; margin: 8px 0 4px; }
+            .discount { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+            .meta { font-size: 10px; color: #64748b; }
+          </style>
+        </head>
+        <body>
+          <h1 class="sheet-title">${title}</h1>
+          <section class="grid">${printableRows}</section>
+          <script>
+            window.onload = () => { window.print(); };
+          </script>
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const printUrl = window.URL.createObjectURL(blob);
+    const opened = window.open(printUrl, "_blank");
+    if (!opened) {
+      window.URL.revokeObjectURL(printUrl);
+      showToast("Safari bloqueó la ventana de impresión. Permite pop-ups e intenta de nuevo.", "error");
+      return;
+    }
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(printUrl);
+    }, 45000);
+  }
+
+  function openDiscountCodeBatchComposer() {
+    const initial = {
+      ...emptyDiscountCodeBatchState,
+      ...getRangeForPeriod(emptyDiscountCodeBatchState.period),
+      discount_type: discountCodeEditor.discount_type || "percent",
+      discount_value: discountCodeEditor.discount_value || "",
+      max_uses: discountCodeEditor.max_uses || "",
+      is_active: discountCodeEditor.is_active,
+    };
+    setDiscountCodeBatchEditor(initial);
+    setDiscountCodeBatchCreated([]);
+    setDiscountCodeBatchError(null);
+    setDiscountCodeBatchOpen(true);
+  }
+
+  function handleDiscountCodeBatchPeriodChange(period: DiscountCodePeriodOption) {
+    const range = getRangeForPeriod(period);
+    setDiscountCodeBatchEditor((prev) => ({
+      ...prev,
+      period,
+      starts_at: period === "custom" ? prev.starts_at || range.startsAt : range.startsAt,
+      ends_at: period === "custom" ? prev.ends_at : range.endsAt,
+    }));
+  }
+
+  async function handleCreateDiscountCodesBatch() {
+    if (!token || !canManage) return;
+    const quantity = Number(discountCodeBatchEditor.quantity || 0);
+    const discountValue = Number(discountCodeBatchEditor.discount_value || 0);
+    const maxUsesRaw = discountCodeBatchEditor.max_uses.trim();
+    const maxUses = maxUsesRaw ? Number(maxUsesRaw) : null;
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 200) {
+      setDiscountCodeBatchError("La cantidad debe ser un entero entre 1 y 200.");
+      return;
+    }
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+      setDiscountCodeBatchError("El valor del descuento debe ser mayor a 0.");
+      return;
+    }
+    if (discountCodeBatchEditor.discount_type === "percent" && discountValue > 100) {
+      setDiscountCodeBatchError("El descuento porcentual debe ser un valor entre 0 y 100.");
+      return;
+    }
+    if (
+      maxUsesRaw &&
+      (!Number.isInteger(maxUses) || !Number.isFinite(maxUses) || Number(maxUses) < 1)
+    ) {
+      setDiscountCodeBatchError("El uso máximo debe ser un número entero mayor o igual a 1.");
+      return;
+    }
+
+    let startsAt: string | null = null;
+    let endsAt: string | null = null;
+    if (discountCodeBatchEditor.period === "custom") {
+      startsAt = fromDateTimeLocalInput(discountCodeBatchEditor.starts_at);
+      endsAt = fromDateTimeLocalInput(discountCodeBatchEditor.ends_at);
+      if (!startsAt || !endsAt) {
+        setDiscountCodeBatchError("Debes definir fecha inicio y fecha fin para el periodo personalizado.");
+        return;
+      }
+    } else {
+      startsAt = fromDateTimeLocalInput(discountCodeBatchEditor.starts_at);
+      endsAt = fromDateTimeLocalInput(discountCodeBatchEditor.ends_at);
+    }
+
+    try {
+      setDiscountCodeBatchSaving(true);
+      setDiscountCodeBatchError(null);
+      const created: string[] = [];
+      const existing = buildExistingDiscountCodeSet();
+      for (let index = 0; index < quantity; index += 1) {
+        let success = false;
+        let retries = 0;
+        while (!success && retries < 6) {
+          const code = createGeneratedDiscountCode(existing);
+          try {
+            await createComercioWebDiscountCode(token, {
+              code,
+              discount_type: discountCodeBatchEditor.discount_type,
+              discount_value: discountValue,
+              discount_percent: discountCodeBatchEditor.discount_type === "percent" ? discountValue : 0,
+              is_active: discountCodeBatchEditor.is_active,
+              max_uses: maxUses,
+              starts_at: startsAt,
+              ends_at: endsAt,
+            });
+            created.push(code);
+            existing.add(code);
+            success = true;
+          } catch (error) {
+            retries += 1;
+            if (retries >= 6) throw error;
+          }
+        }
+      }
+      setDiscountCodeBatchCreated(created);
+      showToast(`Se crearon ${created.length} cupones.`);
+      await loadDiscountCodes();
+    } catch (err) {
+      setDiscountCodeBatchError(err instanceof Error ? err.message : "No se pudo crear el lote de cupones.");
+      showToast("No se pudo crear el lote de cupones.", "error");
+    } finally {
+      setDiscountCodeBatchSaving(false);
+    }
+  }
+
   function handleDiscountCodePeriodChange(period: DiscountCodePeriodOption) {
     const range = getRangeForPeriod(period);
     setDiscountCodeEditor((prev) => ({
@@ -4409,15 +4753,20 @@ export default function ComercioWebPage() {
   async function handleSaveDiscountCode() {
     if (!token || !canManage) return;
     const code = discountCodeEditor.code.trim().toUpperCase();
-    const percent = Number(discountCodeEditor.discount_percent);
+    const discountType = discountCodeEditor.discount_type;
+    const discountValue = Number(discountCodeEditor.discount_value);
     const maxUsesRaw = discountCodeEditor.max_uses.trim();
     const maxUses = maxUsesRaw ? Number(maxUsesRaw) : null;
     if (!code) {
       setDiscountCodeError("Debes ingresar el código.");
       return;
     }
-    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
-      setDiscountCodeError("El descuento debe ser un porcentaje válido entre 0 y 100.");
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+      setDiscountCodeError("El valor del descuento debe ser mayor a 0.");
+      return;
+    }
+    if (discountType === "percent" && discountValue > 100) {
+      setDiscountCodeError("El descuento porcentual debe ser un valor entre 0 y 100.");
       return;
     }
     if (
@@ -4447,7 +4796,9 @@ export default function ComercioWebPage() {
       setDiscountCodeError(null);
       const payload = {
         code,
-        discount_percent: percent,
+        discount_type: discountType,
+        discount_value: discountValue,
+        discount_percent: discountType === "percent" ? discountValue : 0,
         is_active: discountCodeEditor.is_active,
         max_uses: maxUses,
         starts_at: startsAt,
@@ -4484,6 +4835,53 @@ export default function ComercioWebPage() {
     } finally {
       setDiscountCodeSaving(false);
     }
+  }
+
+  async function openDiscountCodeHistory(row: ComercioWebDiscountCode) {
+    if (!token) return;
+    try {
+      setDiscountCodeHistoryLoading(true);
+      setDiscountCodeHistoryError(null);
+      setDiscountCodeHistoryOpenId(row.id);
+      setDiscountCodeHistoryOpenCode(row.code);
+      const page = await fetchComercioWebDiscountCodeUsage(token, row.id, { skip: 0, limit: 100 });
+      setDiscountCodeHistoryRows(page.items || []);
+      setDiscountCodeHistoryTotal(page.total || 0);
+    } catch (err) {
+      setDiscountCodeHistoryRows([]);
+      setDiscountCodeHistoryTotal(0);
+      setDiscountCodeHistoryError(err instanceof Error ? err.message : "No se pudo cargar el historial.");
+    } finally {
+      setDiscountCodeHistoryLoading(false);
+    }
+  }
+
+  function toggleDiscountCodeSelection(row: ComercioWebDiscountCode) {
+    setSelectedDiscountCodeMap((prev) => {
+      const next = { ...prev };
+      if (next[row.id]) {
+        delete next[row.id];
+      } else {
+        next[row.id] = row;
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisibleDiscountCodes(checked: boolean) {
+    setSelectedDiscountCodeMap((prev) => {
+      const next = { ...prev };
+      if (checked) {
+        visibleDiscountCodeRows.forEach((row) => {
+          next[row.id] = row;
+        });
+      } else {
+        visibleDiscountCodeRows.forEach((row) => {
+          delete next[row.id];
+        });
+      }
+      return next;
+    });
   }
 
   function resetCategoryEditor() {
@@ -7442,154 +7840,124 @@ export default function ComercioWebPage() {
               subtitle="Crea, activa y controla vigencia de códigos promocionales para el canal web."
             >
               <div className="space-y-4">
-                {!discountCodeComposerOpen ? (
-                  <div>
-                    <button
-                      type="button"
-                      disabled={!canManage || discountCodeSaving}
-                      onClick={openCreateDiscountCodeComposer}
-                      className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
-                      style={{
-                        backgroundColor: canManage && !discountCodeSaving ? "#2563eb" : "#bfdbfe",
-                        borderColor: canManage && !discountCodeSaving ? "#1d4ed8" : "#93c5fd",
-                        color: canManage && !discountCodeSaving ? "#ffffff" : "#1e3a8a",
-                      }}
+                <div className="flex flex-wrap items-end gap-2">
+                  <button
+                    type="button"
+                    disabled={!canManage || discountCodeSaving}
+                    onClick={openCreateDiscountCodeComposer}
+                    className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
+                    style={{
+                      backgroundColor: canManage && !discountCodeSaving ? "#2563eb" : "#bfdbfe",
+                      borderColor: canManage && !discountCodeSaving ? "#1d4ed8" : "#93c5fd",
+                      color: canManage && !discountCodeSaving ? "#ffffff" : "#1e3a8a",
+                    }}
+                  >
+                    + Crear cupón
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canManage || discountCodeSaving}
+                    onClick={openDiscountCodeBatchComposer}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    + Crear lote
+                  </button>
+                  <button
+                    type="button"
+                    disabled={visibleDiscountCodeRows.length === 0}
+                    onClick={() => exportDiscountCodesCsv(visibleDiscountCodeRows, "cupones-visibles")}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Exportar CSV
+                  </button>
+                  <button
+                    type="button"
+                    disabled={visibleDiscountCodeRows.length === 0}
+                    onClick={() => exportDiscountCodesPrintSheet(visibleDiscountCodeRows, "Cupones visibles")}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Imprimir / PDF
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedDiscountCodeRows.length === 0}
+                    onClick={() => exportDiscountCodesCsv(selectedDiscountCodeRows, "cupones-seleccionados")}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Exportar seleccionados ({selectedDiscountCodeRows.length})
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedDiscountCodeRows.length === 0}
+                    onClick={() => exportDiscountCodesPrintSheet(selectedDiscountCodeRows, "Cupones seleccionados")}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Imprimir seleccionados ({selectedDiscountCodeRows.length})
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedDiscountCodeRows.length === 0}
+                    onClick={() => setSelectedDiscountCodeMap({})}
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Limpiar selección
+                  </button>
+                  <label className="ml-auto flex items-center gap-2 text-xs font-medium text-slate-600">
+                    Estado
+                    <select
+                      value={discountCodeStatusFilter}
+                      onChange={(event) =>
+                        setDiscountCodeStatusFilter(event.target.value as DiscountCodeStatusFilter)
+                      }
+                      className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none"
                     >
-                      + Crear cupón
-                    </button>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                      {discountCodeEditingId ? "Editar cupón" : "Crear cupón"}
-                    </p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
-                      <input
-                        value={discountCodeEditor.code}
-                        onChange={(event) =>
-                          setDiscountCodeEditor((prev) => ({
-                            ...prev,
-                            code: event.target.value.toUpperCase(),
-                          }))
-                        }
-                        placeholder="Código (ej: KENSAR10)"
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                      />
-                      <input
-                        type="number"
-                        min={1}
-                        max={100}
-                        step={0.1}
-                        value={discountCodeEditor.discount_percent}
-                        onChange={(event) =>
-                          setDiscountCodeEditor((prev) => ({ ...prev, discount_percent: event.target.value }))
-                        }
-                        placeholder="% descuento"
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                      />
-                      <select
-                        value={discountCodeEditor.period}
-                        onChange={(event) =>
-                          handleDiscountCodePeriodChange(event.target.value as DiscountCodePeriodOption)
-                        }
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                      >
-                        {DISCOUNT_PERIOD_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={discountCodeEditor.max_uses}
-                        onChange={(event) =>
-                          setDiscountCodeEditor((prev) => ({ ...prev, max_uses: event.target.value }))
-                        }
-                        placeholder="Uso máximo (opcional)"
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
-                      />
-                      <input
-                        type="datetime-local"
-                        value={discountCodeEditor.starts_at}
-                        onChange={(event) =>
-                          setDiscountCodeEditor((prev) => ({ ...prev, starts_at: event.target.value }))
-                        }
-                        disabled={discountCodeEditor.period !== "custom"}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                      />
-                      <input
-                        type="datetime-local"
-                        value={discountCodeEditor.ends_at}
-                        onChange={(event) =>
-                          setDiscountCodeEditor((prev) => ({ ...prev, ends_at: event.target.value }))
-                        }
-                        disabled={discountCodeEditor.period !== "custom"}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                      />
-                      <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={discountCodeEditor.is_active}
-                          onChange={(event) =>
-                            setDiscountCodeEditor((prev) => ({ ...prev, is_active: event.target.checked }))
-                          }
-                        />
-                        Activo
-                      </label>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={!canManage || discountCodeSaving}
-                        onClick={() => void handleSaveDiscountCode()}
-                        className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
-                        style={{
-                          backgroundColor: canManage && !discountCodeSaving ? "#2563eb" : "#bfdbfe",
-                          borderColor: canManage && !discountCodeSaving ? "#1d4ed8" : "#93c5fd",
-                          color: canManage && !discountCodeSaving ? "#ffffff" : "#1e3a8a",
-                        }}
-                      >
-                        {discountCodeSaving
-                          ? "Guardando..."
-                          : discountCodeEditingId
-                            ? "Guardar cambios"
-                            : "Crear cupón"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => resetDiscountCodeEditor(true)}
-                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                    {discountCodeError ? (
-                      <p className="mt-2 text-sm text-rose-600">{discountCodeError}</p>
-                    ) : null}
-                  </div>
-                )}
+                      <option value="all">Todos</option>
+                      <option value="active">Activos</option>
+                      <option value="inactive">Inactivos</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                    Tipo
+                    <select
+                      value={discountCodeTypeFilter}
+                      onChange={(event) =>
+                        setDiscountCodeTypeFilter(event.target.value as "all" | "percent" | "fixed_amount")
+                      }
+                      className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none"
+                    >
+                      <option value="all">Todos</option>
+                      <option value="percent">Porcentaje</option>
+                      <option value="fixed_amount">Valor fijo</option>
+                    </select>
+                  </label>
+                </div>
 
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-slate-900">Tabla de códigos</h3>
                   <span className="text-xs text-slate-500">
-                    Mostrando {discountCodeStartIndex}-{discountCodeEndIndex} de {discountCodeTotal}
+                    Mostrando {visibleDiscountCodeRows.length} en esta página · Seleccionados {selectedDiscountCodeRows.length}
                   </span>
                 </div>
 
                 <div className="max-h-[30rem] overflow-auto rounded-2xl border border-slate-200">
                   {discountCodeLoading ? (
                     <div className="px-4 py-8 text-sm text-slate-500">Cargando códigos…</div>
-                  ) : discountCodeRows.length === 0 ? (
+                  ) : visibleDiscountCodeRows.length === 0 ? (
                     <div className="px-4 py-8 text-sm text-slate-500">
-                      Aún no hay códigos de descuento configurados.
+                      No hay códigos para los filtros seleccionados.
                     </div>
                   ) : (
                     <table className="min-w-full text-sm">
                       <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
                         <tr>
+                          <th className="sticky top-0 z-10 w-12 bg-slate-50 px-3 py-3">
+                            <input
+                              type="checkbox"
+                              checked={allVisibleSelected}
+                              onChange={(event) => toggleSelectAllVisibleDiscountCodes(event.target.checked)}
+                              aria-label="Seleccionar todos los códigos visibles"
+                            />
+                          </th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Código</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Descuento</th>
                           <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Uso</th>
@@ -7600,10 +7968,22 @@ export default function ComercioWebPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {discountCodeRows.map((row) => (
+                        {visibleDiscountCodeRows.map((row) => (
                           <tr key={row.id} className="border-b border-slate-100">
+                            <td className="px-3 py-3">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(selectedDiscountCodeMap[row.id])}
+                                onChange={() => toggleDiscountCodeSelection(row)}
+                                aria-label={`Seleccionar cupón ${row.code}`}
+                              />
+                            </td>
                             <td className="px-4 py-3 font-semibold text-slate-900">{row.code}</td>
-                            <td className="px-4 py-3 text-slate-700">{row.discount_percent}%</td>
+                            <td className="px-4 py-3 text-slate-700">
+                              {row.discount_type === "fixed_amount"
+                                ? formatMoney(row.discount_value || 0)
+                                : `${row.discount_percent}%`}
+                            </td>
                             <td className="px-4 py-3 text-slate-700">
                               {row.max_uses ? `${row.uses_count || 0} / ${row.max_uses}` : "Ilimitado"}
                             </td>
@@ -7622,6 +8002,13 @@ export default function ComercioWebPage() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void openDiscountCodeHistory(row)}
+                                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                                >
+                                  Historial
+                                </button>
                                 <button
                                   type="button"
                                   onClick={() => editDiscountCodeRow(row)}
@@ -7676,6 +8063,496 @@ export default function ComercioWebPage() {
             </SectionCard>
           ) : null}
           </section>
+        ) : null}
+
+        {activeTab === "catalog" &&
+        catalogWorkspaceView === "discount_codes" &&
+        discountCodeComposerOpen ? (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true">
+            <div className="w-full max-w-6xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">
+                    {discountCodeEditingId ? "Editar cupón" : "Crear cupón"}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">Configura código, porcentaje, vigencia y estado.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => resetDiscountCodeEditor(true)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Código
+                  </span>
+                  <input
+                    value={discountCodeEditor.code}
+                    onChange={(event) =>
+                      setDiscountCodeEditor((prev) => ({
+                        ...prev,
+                        code: event.target.value.toUpperCase(),
+                      }))
+                    }
+                    placeholder="Código (ej: KENSAR10)"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Tipo de descuento
+                  </span>
+                  <select
+                    value={discountCodeEditor.discount_type}
+                    onChange={(event) =>
+                      setDiscountCodeEditor((prev) => ({
+                        ...prev,
+                        discount_type: event.target.value as "percent" | "fixed_amount",
+                      }))
+                    }
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  >
+                    <option value="percent">Porcentaje (%)</option>
+                    <option value="fixed_amount">Valor fijo (COP)</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Valor
+                  </span>
+                  <input
+                    type={discountCodeEditor.discount_type === "percent" ? "number" : "text"}
+                    inputMode={discountCodeEditor.discount_type === "percent" ? "decimal" : "numeric"}
+                    min={discountCodeEditor.discount_type === "percent" ? 1 : undefined}
+                    max={discountCodeEditor.discount_type === "percent" ? 100 : undefined}
+                    step={discountCodeEditor.discount_type === "percent" ? 0.1 : undefined}
+                    value={
+                      discountCodeEditor.discount_type === "percent"
+                        ? discountCodeEditor.discount_value
+                        : formatCopInputValue(discountCodeEditor.discount_value)
+                    }
+                    onChange={(event) => {
+                      const nextValue =
+                        discountCodeEditor.discount_type === "percent"
+                          ? event.target.value
+                          : sanitizeCopInputValue(event.target.value);
+                      setDiscountCodeEditor((prev) => ({ ...prev, discount_value: nextValue }));
+                    }}
+                    placeholder={discountCodeEditor.discount_type === "percent" ? "% descuento" : "Valor fijo (COP)"}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Vigencia
+                  </span>
+                  <select
+                    value={discountCodeEditor.period}
+                    onChange={(event) =>
+                      handleDiscountCodePeriodChange(event.target.value as DiscountCodePeriodOption)
+                    }
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  >
+                    {DISCOUNT_PERIOD_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Uso máximo
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={discountCodeEditor.max_uses}
+                    onChange={(event) =>
+                      setDiscountCodeEditor((prev) => ({ ...prev, max_uses: event.target.value }))
+                    }
+                    placeholder="Uso máximo (opcional)"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Inicio
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={discountCodeEditor.starts_at}
+                    onChange={(event) =>
+                      setDiscountCodeEditor((prev) => ({ ...prev, starts_at: event.target.value }))
+                    }
+                    disabled={discountCodeEditor.period !== "custom"}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Fin
+                  </span>
+                  <input
+                    type="datetime-local"
+                    value={discountCodeEditor.ends_at}
+                    onChange={(event) =>
+                      setDiscountCodeEditor((prev) => ({ ...prev, ends_at: event.target.value }))
+                    }
+                    disabled={discountCodeEditor.period !== "custom"}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={discountCodeEditor.is_active}
+                    onChange={(event) =>
+                      setDiscountCodeEditor((prev) => ({ ...prev, is_active: event.target.checked }))
+                    }
+                  />
+                  Activo
+                </label>
+              </div>
+
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={generateUniqueDiscountCode}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Generar código
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!canManage || discountCodeSaving}
+                  onClick={() => void handleSaveDiscountCode()}
+                  className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
+                  style={{
+                    backgroundColor: canManage && !discountCodeSaving ? "#2563eb" : "#bfdbfe",
+                    borderColor: canManage && !discountCodeSaving ? "#1d4ed8" : "#93c5fd",
+                    color: canManage && !discountCodeSaving ? "#ffffff" : "#1e3a8a",
+                  }}
+                >
+                  {discountCodeSaving ? "Guardando..." : discountCodeEditingId ? "Guardar cambios" : "Crear cupón"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resetDiscountCodeEditor(true)}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cancelar
+                </button>
+              </div>
+              {discountCodeError ? <p className="mt-2 text-sm text-rose-600">{discountCodeError}</p> : null}
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === "catalog" &&
+        catalogWorkspaceView === "discount_codes" &&
+        discountCodeBatchOpen ? (
+          <div className="fixed inset-0 z-[123] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true">
+            <div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">Crear lote de cupones</h3>
+                  <p className="mt-1 text-xs text-slate-500">Genera varios códigos únicos con la misma configuración.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (discountCodeBatchSaving) return;
+                    setDiscountCodeBatchOpen(false);
+                  }}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+                <input
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={discountCodeBatchEditor.quantity}
+                  onChange={(event) =>
+                    setDiscountCodeBatchEditor((prev) => ({ ...prev, quantity: event.target.value }))
+                  }
+                  placeholder="Cantidad (ej: 10)"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                />
+                <select
+                  value={discountCodeBatchEditor.discount_type}
+                  onChange={(event) =>
+                    setDiscountCodeBatchEditor((prev) => ({
+                      ...prev,
+                      discount_type: event.target.value as "percent" | "fixed_amount",
+                    }))
+                  }
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                >
+                  <option value="percent">Porcentaje (%)</option>
+                  <option value="fixed_amount">Valor fijo (COP)</option>
+                </select>
+                <input
+                  type={discountCodeBatchEditor.discount_type === "percent" ? "number" : "text"}
+                  inputMode={discountCodeBatchEditor.discount_type === "percent" ? "decimal" : "numeric"}
+                  min={discountCodeBatchEditor.discount_type === "percent" ? 1 : undefined}
+                  max={discountCodeBatchEditor.discount_type === "percent" ? 100 : undefined}
+                  step={discountCodeBatchEditor.discount_type === "percent" ? 0.1 : undefined}
+                  value={
+                    discountCodeBatchEditor.discount_type === "percent"
+                      ? discountCodeBatchEditor.discount_value
+                      : formatCopInputValue(discountCodeBatchEditor.discount_value)
+                  }
+                  onChange={(event) => {
+                    const nextValue =
+                      discountCodeBatchEditor.discount_type === "percent"
+                        ? event.target.value
+                        : sanitizeCopInputValue(event.target.value);
+                    setDiscountCodeBatchEditor((prev) => ({ ...prev, discount_value: nextValue }));
+                  }}
+                  placeholder={
+                    discountCodeBatchEditor.discount_type === "percent" ? "% descuento" : "Valor fijo (COP)"
+                  }
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                />
+                <select
+                  value={discountCodeBatchEditor.period}
+                  onChange={(event) =>
+                    handleDiscountCodeBatchPeriodChange(event.target.value as DiscountCodePeriodOption)
+                  }
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                >
+                  {DISCOUNT_PERIOD_OPTIONS.map((option) => (
+                    <option key={`batch-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={discountCodeBatchEditor.max_uses}
+                  onChange={(event) =>
+                    setDiscountCodeBatchEditor((prev) => ({ ...prev, max_uses: event.target.value }))
+                  }
+                  placeholder="Uso máximo (opcional)"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400"
+                />
+                <input
+                  type="datetime-local"
+                  value={discountCodeBatchEditor.starts_at}
+                  onChange={(event) =>
+                    setDiscountCodeBatchEditor((prev) => ({ ...prev, starts_at: event.target.value }))
+                  }
+                  disabled={discountCodeBatchEditor.period !== "custom"}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                />
+                <input
+                  type="datetime-local"
+                  value={discountCodeBatchEditor.ends_at}
+                  onChange={(event) =>
+                    setDiscountCodeBatchEditor((prev) => ({ ...prev, ends_at: event.target.value }))
+                  }
+                  disabled={discountCodeBatchEditor.period !== "custom"}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                />
+              </div>
+
+              <label className="mt-3 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={discountCodeBatchEditor.is_active}
+                  onChange={(event) =>
+                    setDiscountCodeBatchEditor((prev) => ({ ...prev, is_active: event.target.checked }))
+                  }
+                />
+                Activo
+              </label>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!canManage || discountCodeBatchSaving}
+                  onClick={() => void handleCreateDiscountCodesBatch()}
+                  className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
+                  style={{
+                    backgroundColor: canManage && !discountCodeBatchSaving ? "#2563eb" : "#bfdbfe",
+                    borderColor: canManage && !discountCodeBatchSaving ? "#1d4ed8" : "#93c5fd",
+                    color: canManage && !discountCodeBatchSaving ? "#ffffff" : "#1e3a8a",
+                  }}
+                >
+                  {discountCodeBatchSaving ? "Creando lote..." : "Crear lote"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiscountCodeBatchOpen(false)}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={discountCodeBatchCreated.length === 0}
+                  onClick={() => {
+                    const rows = discountCodeBatchCreated.map((code) => ({
+                      id: 0,
+                      code,
+                      discount_type: discountCodeBatchEditor.discount_type,
+                      discount_value: Number(discountCodeBatchEditor.discount_value || 0),
+                      discount_percent:
+                        discountCodeBatchEditor.discount_type === "percent"
+                          ? Number(discountCodeBatchEditor.discount_value || 0)
+                          : 0,
+                      is_active: discountCodeBatchEditor.is_active,
+                      max_uses: discountCodeBatchEditor.max_uses
+                        ? Number(discountCodeBatchEditor.max_uses)
+                        : null,
+                      uses_count: 0,
+                      starts_at: fromDateTimeLocalInput(discountCodeBatchEditor.starts_at),
+                      ends_at: fromDateTimeLocalInput(discountCodeBatchEditor.ends_at),
+                      created_by_user_id: null,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }));
+                    exportDiscountCodesCsv(rows, "cupones-lote");
+                  }}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Exportar lote (CSV)
+                </button>
+                <button
+                  type="button"
+                  disabled={discountCodeBatchCreated.length === 0}
+                  onClick={() => {
+                    const rows = discountCodeBatchCreated.map((code) => ({
+                      id: 0,
+                      code,
+                      discount_type: discountCodeBatchEditor.discount_type,
+                      discount_value: Number(discountCodeBatchEditor.discount_value || 0),
+                      discount_percent:
+                        discountCodeBatchEditor.discount_type === "percent"
+                          ? Number(discountCodeBatchEditor.discount_value || 0)
+                          : 0,
+                      is_active: discountCodeBatchEditor.is_active,
+                      max_uses: discountCodeBatchEditor.max_uses
+                        ? Number(discountCodeBatchEditor.max_uses)
+                        : null,
+                      uses_count: 0,
+                      starts_at: fromDateTimeLocalInput(discountCodeBatchEditor.starts_at),
+                      ends_at: fromDateTimeLocalInput(discountCodeBatchEditor.ends_at),
+                      created_by_user_id: null,
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    }));
+                    exportDiscountCodesPrintSheet(rows, "Lote de cupones");
+                  }}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Imprimir lote / PDF
+                </button>
+              </div>
+              {discountCodeBatchError ? <p className="mt-2 text-sm text-rose-600">{discountCodeBatchError}</p> : null}
+              {discountCodeBatchCreated.length > 0 ? (
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                    Códigos creados ({discountCodeBatchCreated.length})
+                  </p>
+                  <p className="mt-2 text-sm text-emerald-900">
+                    {discountCodeBatchCreated.join(", ")}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === "catalog" &&
+        catalogWorkspaceView === "discount_codes" &&
+        discountCodeHistoryOpenId !== null ? (
+          <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/50 p-4" role="dialog" aria-modal="true">
+            <div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">Historial de uso</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Cupón <span className="font-semibold text-slate-700">{discountCodeHistoryOpenCode || "-"}</span> · usos registrados: {discountCodeHistoryTotal}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiscountCodeHistoryOpenId(null);
+                    setDiscountCodeHistoryOpenCode("");
+                    setDiscountCodeHistoryRows([]);
+                    setDiscountCodeHistoryError(null);
+                  }}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              <div className="mt-4 max-h-[60vh] overflow-auto rounded-2xl border border-slate-200">
+                {discountCodeHistoryLoading ? (
+                  <div className="px-4 py-8 text-sm text-slate-500">Cargando historial…</div>
+                ) : discountCodeHistoryError ? (
+                  <div className="px-4 py-8 text-sm text-rose-600">{discountCodeHistoryError}</div>
+                ) : discountCodeHistoryRows.length === 0 ? (
+                  <div className="px-4 py-8 text-sm text-slate-500">Este cupón aún no registra usos.</div>
+                ) : (
+                  <table className="min-w-full text-sm">
+                    <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                      <tr>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Fecha uso</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Orden</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Cliente</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Total</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Estado</th>
+                        <th className="sticky top-0 z-10 bg-slate-50 px-4 py-3">Pago</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {discountCodeHistoryRows.map((entry) => (
+                        <tr key={`coupon-usage-${entry.order_id}-${entry.created_at}`} className="border-b border-slate-100">
+                          <td className="px-4 py-3 text-slate-700">{formatDateTime(entry.used_at || entry.created_at)}</td>
+                          <td className="px-4 py-3 font-medium text-slate-900">{entry.document_number || `OW-${entry.order_id}`}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <p className="font-medium text-slate-900">{entry.customer_name || "Cliente web"}</p>
+                            <p className="text-xs text-slate-500">{entry.customer_email || "Sin correo"}</p>
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">{formatMoney(entry.total || 0)}</td>
+                          <td className="px-4 py-3">
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusBadgeClass(entry.order_status)}`}>
+                              {translateOrderStatus(entry.order_status)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${statusBadgeClass(entry.payment_status)}`}>
+                              {translatePaymentStatus(entry.payment_status)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
         ) : null}
 
         {activeTab === "orders" ? (

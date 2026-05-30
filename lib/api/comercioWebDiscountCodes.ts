@@ -5,6 +5,8 @@ import { getApiBase } from "@/lib/api/base";
 export type ComercioWebDiscountCode = {
   id: number;
   code: string;
+  discount_type: "percent" | "fixed_amount";
+  discount_value: number;
   discount_percent: number;
   is_active: boolean;
   max_uses: number | null;
@@ -23,9 +25,31 @@ export type ComercioWebDiscountCodePage = {
   limit: number;
 };
 
+export type ComercioWebDiscountCodeUsageRow = {
+  order_id: number;
+  document_number: string | null;
+  customer_name: string | null;
+  customer_email: string | null;
+  total: number;
+  currency: string;
+  order_status: string;
+  payment_status: string;
+  used_at: string | null;
+  created_at: string;
+};
+
+export type ComercioWebDiscountCodeUsagePage = {
+  items: ComercioWebDiscountCodeUsageRow[];
+  total: number;
+  skip: number;
+  limit: number;
+};
+
 export type ComercioWebDiscountCodeCreateInput = {
   code: string;
-  discount_percent: number;
+  discount_type: "percent" | "fixed_amount";
+  discount_value: number;
+  discount_percent?: number;
   is_active: boolean;
   max_uses?: number | null;
   starts_at?: string | null;
@@ -102,4 +126,23 @@ export async function updateComercioWebDiscountCode(
   });
   if (!res.ok) throw await parseError(res);
   return (await res.json()) as ComercioWebDiscountCode;
+}
+
+export async function fetchComercioWebDiscountCodeUsage(
+  token: string,
+  discountCodeId: number,
+  params?: { skip?: number; limit?: number }
+): Promise<ComercioWebDiscountCodeUsagePage> {
+  const qs = new URLSearchParams();
+  qs.set("skip", String(params?.skip ?? 0));
+  qs.set("limit", String(params?.limit ?? 50));
+  const res = await fetch(
+    `${getApiBase()}/comercio-web/catalog/discount-codes/${discountCodeId}/usage?${qs.toString()}`,
+    {
+      headers: buildHeaders(token),
+      credentials: "include",
+    }
+  );
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as ComercioWebDiscountCodeUsagePage;
 }
