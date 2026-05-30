@@ -56,18 +56,24 @@ type LabelsPilotSessionState = {
   activeItemId: number | null;
 };
 
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 async function printLabelDirect(
   targetUrl: string,
-  payload: PrintPayload
+  payload: PrintPayload | PrintPayload[]
 ): Promise<void> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 3000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 8000);
 
   try {
     const res = await fetch(targetUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify([payload]),
+      body: JSON.stringify(Array.isArray(payload) ? payload : [payload]),
       signal: controller.signal,
     });
 
@@ -477,7 +483,7 @@ export default function LabelsPilotPage() {
   const validateTarget = useCallback(() => {}, []);
 
   const sendPrint = useCallback(
-    async (payload: PrintPayload) => {
+    async (payload: PrintPayload | PrintPayload[]) => {
       await printLabelDirect(LABEL_AGENT_DEFAULT_PRINT_URL, payload);
     },
     []
@@ -535,7 +541,31 @@ export default function LabelsPilotPage() {
       setPrintError(null);
       for (const item of labelItems) {
         setActiveItemId(item.productId);
-        await sendPrint(buildPayload(item));
+        const basePayload = buildPayload(item);
+        const totalCopies = Math.max(1, Math.floor(Number(basePayload.copies) || 1));
+        const expandedPayloads: PrintPayload[] = Array.from(
+          { length: totalCopies },
+          () => ({ ...basePayload, copies: 1 })
+        );
+        for (const payload of expandedPayloads) {
+          let lastError: unknown = null;
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+              await sendPrint(payload);
+              lastError = null;
+              break;
+            } catch (err) {
+              lastError = err;
+              if (attempt < 2) {
+                await sleep(180 * (attempt + 1));
+              }
+            }
+          }
+          if (lastError) {
+            throw lastError;
+          }
+          await sleep(90);
+        }
       }
       setPrintStatus("success");
     } catch (err) {

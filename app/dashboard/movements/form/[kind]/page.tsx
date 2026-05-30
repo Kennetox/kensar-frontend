@@ -46,6 +46,7 @@ import {
 
 const RECEIVING_DRAFT_LOT_KEY = "metrik_receiving_draft_lot_id_v1";
 const RECEIVING_HEADER_SAVED_PREFIX = "metrik_receiving_header_saved_v1";
+const RECEIVING_ENTRY_UI_STATE_PREFIX = "metrik_receiving_entry_ui_state_v1";
 const MAX_OPEN_RECEIVING_LOTS = 2;
 const GENERIC_DRAFT_DOC_KEY_PREFIX = "metrik_generic_movement_draft_doc_v1";
 const GENERIC_DRAFT_STATE_KEY_PREFIX = "metrik_generic_movement_draft_state_v1";
@@ -56,6 +57,16 @@ type ActiveMovementFormSnapshot = {
   savedAt: number;
 };
 
+type EntryReceptionUiState = {
+  searchQuery: string;
+  selectedProduct: InventoryProductRow | null;
+  lineQty: string;
+  lineCost: string;
+  lineNotes: string;
+  headerCollapsed: boolean;
+  scrollY: number;
+};
+
 type LabelPrintPayload = {
   CODIGO: string;
   BARRAS: string;
@@ -64,6 +75,12 @@ type LabelPrintPayload = {
   format: string;
   copies: number;
 };
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
 const TEST_LABEL_PAYLOAD: LabelPrintPayload = {
   CODIGO: "3519",
@@ -76,16 +93,16 @@ const TEST_LABEL_PAYLOAD: LabelPrintPayload = {
 
 async function printLabelDirect(
   targetUrl: string,
-  payload: LabelPrintPayload
+  payload: LabelPrintPayload | LabelPrintPayload[]
 ): Promise<void> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 3000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 8000);
 
   try {
     const res = await fetch(targetUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify([payload]),
+      body: JSON.stringify(Array.isArray(payload) ? payload : [payload]),
       signal: controller.signal,
     });
 
@@ -114,6 +131,10 @@ function persistActiveMovementForm(href: string) {
 function clearActiveMovementForm() {
   if (typeof window === "undefined") return;
   window.sessionStorage.removeItem(ACTIVE_MOVEMENT_FORM_KEY);
+}
+
+function buildReceivingEntryUiStateKey(lotId: number) {
+  return `${RECEIVING_ENTRY_UI_STATE_PREFIX}_${lotId}`;
 }
 
 const formMeta = {
@@ -221,6 +242,7 @@ function EntryReceptionForm() {
     "checking"
   );
   const [printingItemId, setPrintingItemId] = useState<number | null>(null);
+  const [bulkPrintingLabels, setBulkPrintingLabels] = useState(false);
   const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
   const [probeStatus, setProbeStatus] = useState<"idle" | "printing" | "success" | "error">("idle");
   const [probeMessage, setProbeMessage] = useState<string | null>(null);
@@ -232,8 +254,17 @@ function EntryReceptionForm() {
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" } | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
+  const uiStateRestoredLotRef = useRef<number | null>(null);
 
-  const items = detail?.items ?? [];
+  const items = useMemo(() => detail?.items ?? [], [detail]);
+  const totalLabelsInReception = useMemo(
+    () =>
+      items.reduce(
+        (sum, item) => sum + Math.max(1, Math.round(Number(item.qty_received) || 1)),
+        0
+      ),
+    [items]
+  );
   const lotIsOpen = lot?.status === "open";
   const registrationLocked = !headerCompleted || !headerCollapsed;
 
@@ -241,6 +272,61 @@ function EntryReceptionForm() {
     if (!lot || lot.status !== "open") return;
     persistActiveMovementForm(`/dashboard/movements/form/entrada_manual?lotId=${lot.id}`);
   }, [lot]);
+
+  useEffect(() => {
+    if (!lot || typeof window === "undefined") return;
+    const lotId = lot.id;
+    if (uiStateRestoredLotRef.current === lotId) return;
+    uiStateRestoredLotRef.current = lotId;
+    try {
+      const raw = window.sessionStorage.getItem(buildReceivingEntryUiStateKey(lotId));
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<EntryReceptionUiState>;
+      if (typeof parsed.searchQuery === "string") setSearchQuery(parsed.searchQuery);
+      if (typeof parsed.lineQty === "string") setLineQty(parsed.lineQty);
+      if (typeof parsed.lineCost === "string") setLineCost(parsed.lineCost);
+      if (typeof parsed.lineNotes === "string") setLineNotes(parsed.lineNotes);
+      if (typeof parsed.headerCollapsed === "boolean") {
+        setHeaderCollapsed(parsed.headerCollapsed);
+      }
+      if (parsed.selectedProduct && typeof parsed.selectedProduct === "object") {
+        const row = parsed.selectedProduct as InventoryProductRow;
+        if (typeof row.product_id === "number" && typeof row.product_name === "string") {
+          setSelectedProduct(row);
+        }
+      }
+      if (Number.isFinite(Number(parsed.scrollY)) && Number(parsed.scrollY) >= 0) {
+        const targetY = Number(parsed.scrollY);
+        window.requestAnimationFrame(() => {
+          window.scrollTo({ top: targetY, behavior: "auto" });
+        });
+      }
+    } catch {
+      return;
+    }
+  }, [lot]);
+
+  useEffect(() => {
+    if (!lot || typeof window === "undefined") return;
+    const lotId = lot.id;
+    const timeoutId = window.setTimeout(() => {
+      const snapshot: EntryReceptionUiState = {
+        searchQuery,
+        selectedProduct,
+        lineQty,
+        lineCost,
+        lineNotes,
+        headerCollapsed,
+        scrollY: window.scrollY,
+      };
+      window.sessionStorage.setItem(
+        buildReceivingEntryUiStateKey(lotId),
+        JSON.stringify(snapshot)
+      );
+      persistActiveMovementForm(`/dashboard/movements/form/entrada_manual?lotId=${lotId}`);
+    }, 150);
+    return () => window.clearTimeout(timeoutId);
+  }, [headerCollapsed, lineCost, lineNotes, lineQty, lot, searchQuery, selectedProduct]);
 
   const goBackToMovements = useCallback(() => {
     clearActiveMovementForm();
@@ -726,6 +812,9 @@ function EntryReceptionForm() {
       await loadDetail(lot.id);
       window.localStorage.removeItem(RECEIVING_DRAFT_LOT_KEY);
       window.localStorage.removeItem(`${RECEIVING_HEADER_SAVED_PREFIX}_${lot.id}`);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(buildReceivingEntryUiStateKey(lot.id));
+      }
       clearActiveMovementForm();
       await loadOpenLotsCount();
       router.push("/dashboard/movements?tab=movements");
@@ -749,6 +838,9 @@ function EntryReceptionForm() {
       await cancelReceivingLot(token, lot.id);
       window.localStorage.removeItem(RECEIVING_DRAFT_LOT_KEY);
       window.localStorage.removeItem(`${RECEIVING_HEADER_SAVED_PREFIX}_${lot.id}`);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(buildReceivingEntryUiStateKey(lot.id));
+      }
       clearActiveMovementForm();
       setFeedback(`Recepción ${lot.lot_number} cancelada.`);
       router.push("/dashboard/movements?tab=movements");
@@ -799,6 +891,66 @@ function EntryReceptionForm() {
     },
     [loadDetail, lot, token]
   );
+
+  const handlePrintAllLabels = useCallback(async () => {
+    if (!token || !lot || items.length === 0) return;
+    try {
+      setBulkPrintingLabels(true);
+      for (const item of items) {
+        const sku = item.sku_snapshot?.trim();
+        const barcode = item.barcode_snapshot?.trim();
+        const codigo = sku && sku.length > 0 ? sku : String(item.product_id);
+        const barras = barcode && barcode.length > 0 ? barcode : codigo;
+        const copies = Math.max(1, Math.round(Number(item.qty_received) || 1));
+        const payload: LabelPrintPayload = {
+          CODIGO: codigo,
+          BARRAS: barras,
+          NOMBRE: item.product_name_snapshot,
+          PRECIO: formatMoney(item.unit_price_snapshot ?? 0),
+          format: item.label_format_snapshot?.trim() || LABEL_AGENT_DEFAULT_FORMAT,
+          copies,
+        };
+        const expandedPayloads: LabelPrintPayload[] = Array.from(
+          { length: copies },
+          () => ({ ...payload, copies: 1 })
+        );
+        setPrintingItemId(item.id);
+        for (const singlePayload of expandedPayloads) {
+          let lastError: unknown = null;
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+              await printLabelDirect(LABEL_AGENT_DEFAULT_PRINT_URL, singlePayload);
+              lastError = null;
+              break;
+            } catch (err) {
+              lastError = err;
+              if (attempt < 2) {
+                await sleep(180 * (attempt + 1));
+              }
+            }
+          }
+          if (lastError) {
+            throw lastError;
+          }
+          await sleep(90);
+        }
+        await markReceivingLotItemLabelsPrinted(token, lot.id, item.id, copies);
+      }
+      await loadDetail(lot.id);
+      setFeedback(
+        totalLabelsInReception === 1
+          ? "Etiqueta enviada a impresión."
+          : `Etiquetas enviadas a impresión (${totalLabelsInReception.toLocaleString("es-CO")} copias).`
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudieron imprimir todas las etiquetas."
+      );
+    } finally {
+      setPrintingItemId(null);
+      setBulkPrintingLabels(false);
+    }
+  }, [items, loadDetail, lot, token, totalLabelsInReception]);
 
   const selectSearchProduct = useCallback((row: InventoryProductRow) => {
     setSelectedProduct(row);
@@ -1192,8 +1344,16 @@ function EntryReceptionForm() {
               <div className="mt-4 rounded-xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/60 px-4 py-3">
                 <p className="text-sm font-semibold text-slate-900">
-                  Paso 2 · Productos en recepción ({items.length})
+                  Paso 2 · Productos en recepción ({items.length}) · Etiquetas ({totalLabelsInReception.toLocaleString("es-CO")})
                 </p>
+                <button
+                  type="button"
+                  onClick={() => void handlePrintAllLabels()}
+                  disabled={registrationLocked || items.length === 0 || bulkPrintingLabels || printingItemId !== null}
+                  className="cursor-pointer rounded-md border border-emerald-500 bg-emerald-500 px-2.5 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {bulkPrintingLabels ? "Imprimiendo todo..." : "Imprimir todo"}
+                </button>
               </div>
               <div className="max-h-80 overflow-auto">
                 <table className="w-full text-left text-sm">
@@ -1275,7 +1435,7 @@ function EntryReceptionForm() {
                                 <button
                                   type="button"
                                   onClick={() => void handlePrintLabel(item)}
-                                  disabled={registrationLocked || printingItemId === item.id}
+                                  disabled={registrationLocked || bulkPrintingLabels || printingItemId === item.id}
                                   className="cursor-pointer rounded-md border border-slate-300 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                                 >
                                   {printingItemId === item.id ? "Imprimiendo..." : "Imprimir etiqueta"}
