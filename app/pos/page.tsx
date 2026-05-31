@@ -3660,18 +3660,22 @@ const matchesStationLabel = useCallback(
           if (Array.isArray(previewData.station_breakdown)) {
             setClosureStationBreakdown(
               previewData.station_breakdown
-                .map((row) => ({
-                  stationId: row.station_id || "unassigned",
-                  stationLabel: row.station_label || "Sin estación",
-                  stationType: row.station_type === "tablet" ? "tablet" : "desktop",
-                  isPrimary: (row.station_id || null) === (activeStationId || null),
-                  salesCount: Number(row.sales_count ?? 0),
-                  gross: Number((row.total_amount ?? 0).toFixed(2)),
-                  refunds: Number((row.total_refunds ?? 0).toFixed(2)),
-                  changeExtra: Number((row.change_extra_total ?? 0).toFixed(2)),
-                  changeRefund: Number((row.change_refund_total ?? 0).toFixed(2)),
-                  net: Number((row.net_amount ?? 0).toFixed(2)),
-                }))
+                .map((row): ClosureStationContribution => {
+                  const stationType: "desktop" | "tablet" =
+                    row.station_type === "tablet" ? "tablet" : "desktop";
+                  return {
+                    stationId: row.station_id || "unassigned",
+                    stationLabel: row.station_label || "Sin estación",
+                    stationType,
+                    isPrimary: (row.station_id || null) === (activeStationId || null),
+                    salesCount: Number(row.sales_count ?? 0),
+                    gross: Number((row.total_amount ?? 0).toFixed(2)),
+                    refunds: Number((row.total_refunds ?? 0).toFixed(2)),
+                    changeExtra: Number((row.change_extra_total ?? 0).toFixed(2)),
+                    changeRefund: Number((row.change_refund_total ?? 0).toFixed(2)),
+                    net: Number((row.net_amount ?? 0).toFixed(2)),
+                  };
+                })
                 .filter(
                   (row) =>
                     row.salesCount > 0 ||
