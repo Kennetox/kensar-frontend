@@ -331,6 +331,8 @@ type ClosureSeparatedOverview = {
   reservedTotal: number;
   pendingTotal: number;
   paymentsTotal: number;
+  dayCollectedTotal?: number;
+  dayWithPendingTotal?: number;
 };
 
 type ClosureCustomMethod = {
