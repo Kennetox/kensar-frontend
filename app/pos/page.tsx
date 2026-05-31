@@ -173,15 +173,62 @@ type PosClosureResult = {
     payments_total: number;
     reserved_total: number;
     pending_total: number;
+    day_collected_total?: number;
+    day_with_pending_total?: number;
   } | null;
   adjusted_totals?: ClosureAdjustedTotals | null;
   custom_methods?: ClosureCustomMethod[] | null;
+  methods_breakdown?: {
+    key: string;
+    label: string;
+    gross?: number;
+    refunds?: number;
+    net?: number;
+    is_standard?: boolean;
+  }[] | null;
+  user_breakdown?: { name: string; total: number }[] | null;
   station_breakdown?: {
     station_id?: string | null;
     station_label: string;
     station_type?: string | null;
     sales_count?: number | null;
     total_amount?: number | null;
+    net_amount?: number | null;
+  }[] | null;
+};
+
+type PosClosurePreviewResult = {
+  pos_name?: string | null;
+  pos_identifier?: string | null;
+  station_id?: string | null;
+  opened_at?: string | null;
+  closed_at?: string | null;
+  total_amount: number;
+  total_cash: number;
+  total_card: number;
+  total_qr: number;
+  total_nequi: number;
+  total_daviplata: number;
+  total_credit: number;
+  total_refunds: number;
+  net_amount: number;
+  change_extra_total?: number | null;
+  change_refund_total?: number | null;
+  change_count?: number | null;
+  counted_cash: number;
+  difference: number;
+  notes?: string | null;
+  total_surcharge?: number | null;
+  sales_count?: number | null;
+  station_breakdown?: {
+    station_id?: string | null;
+    station_label: string;
+    station_type?: string | null;
+    sales_count?: number | null;
+    total_amount?: number | null;
+    total_refunds?: number | null;
+    change_extra_total?: number | null;
+    change_refund_total?: number | null;
     net_amount?: number | null;
   }[] | null;
 };
@@ -3488,6 +3535,7 @@ const matchesStationLabel = useCallback(
         changeRefundTotal: Number(changeRefundTotal.toFixed(2)),
         changeCount,
       };
+      let finalRoundedTotals = roundedTotals;
 
       const extraMethodDetailsMap = new Map<
         string,
@@ -3578,10 +3626,74 @@ const matchesStationLabel = useCallback(
       ].filter((entry) => entry.gross !== 0 || entry.refunds !== 0 || entry.net !== 0);
       setClosureMethodDetails(methodDetails);
 
+      try {
+        const previewPayload = {
+          pos_name: resolvedPosName,
+          station_id: activeStationId ?? undefined,
+          counted_cash: roundedTotals.totalCash,
+          notes: closureForm.notes.trim() || undefined,
+        };
+        const previewRes = await fetch(`${apiBase}/pos/closures/preview`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+          body: JSON.stringify(previewPayload),
+        });
+        if (previewRes.ok) {
+          const previewData = (await previewRes.json()) as PosClosurePreviewResult;
+          finalRoundedTotals = {
+            totalAmount: Number((previewData.total_amount ?? 0).toFixed(2)),
+            totalRefunds: Number((previewData.total_refunds ?? 0).toFixed(2)),
+            totalCash: Number((previewData.total_cash ?? 0).toFixed(2)),
+            totalCard: Number((previewData.total_card ?? 0).toFixed(2)),
+            totalQr: Number((previewData.total_qr ?? 0).toFixed(2)),
+            totalNequi: Number((previewData.total_nequi ?? 0).toFixed(2)),
+            totalDaviplata: Number((previewData.total_daviplata ?? 0).toFixed(2)),
+            totalCredit: Number((previewData.total_credit ?? 0).toFixed(2)),
+            changeExtraTotal: Number((previewData.change_extra_total ?? 0).toFixed(2)),
+            changeRefundTotal: Number((previewData.change_refund_total ?? 0).toFixed(2)),
+            changeCount: Number(previewData.change_count ?? 0),
+          };
+          if (Array.isArray(previewData.station_breakdown)) {
+            setClosureStationBreakdown(
+              previewData.station_breakdown
+                .map((row) => ({
+                  stationId: row.station_id || "unassigned",
+                  stationLabel: row.station_label || "Sin estación",
+                  stationType: row.station_type === "tablet" ? "tablet" : "desktop",
+                  isPrimary: (row.station_id || null) === (activeStationId || null),
+                  salesCount: Number(row.sales_count ?? 0),
+                  gross: Number((row.total_amount ?? 0).toFixed(2)),
+                  refunds: Number((row.total_refunds ?? 0).toFixed(2)),
+                  changeExtra: Number((row.change_extra_total ?? 0).toFixed(2)),
+                  changeRefund: Number((row.change_refund_total ?? 0).toFixed(2)),
+                  net: Number((row.net_amount ?? 0).toFixed(2)),
+                }))
+                .filter(
+                  (row) =>
+                    row.salesCount > 0 ||
+                    row.gross !== 0 ||
+                    row.refunds !== 0 ||
+                    row.changeExtra !== 0 ||
+                    row.changeRefund !== 0 ||
+                    row.net !== 0
+                )
+            );
+          }
+        } else {
+          console.warn("No se pudo obtener preview de cierre; usando cálculo local.");
+        }
+      } catch (previewErr) {
+        console.warn("Preview de cierre no disponible; usando cálculo local.", previewErr);
+      }
+
       setClosureForm((prev) => ({
         ...prev,
-        ...roundedTotals,
-        countedCash: roundedTotals.totalCash,
+        ...finalRoundedTotals,
+        countedCash: finalRoundedTotals.totalCash,
       }));
 
       if (rangeStartKey && rangeEndKey) {
@@ -3613,7 +3725,7 @@ const matchesStationLabel = useCallback(
     } finally {
       setClosureTotalsLoading(false);
     }
-  }, [token, paymentMethodIndex, activeStationId, isWebMode, isPosWebName, matchesStationLabel]);
+  }, [token, paymentMethodIndex, activeStationId, isWebMode, isPosWebName, matchesStationLabel, resolvedPosName, closureForm.notes]);
 
   const processPendingSale = useCallback(
     async (
@@ -4034,12 +4146,25 @@ const matchesStationLabel = useCallback(
               paymentsTotal: data.separated_summary.payments_total ?? 0,
               reservedTotal: data.separated_summary.reserved_total ?? 0,
               pendingTotal: data.separated_summary.pending_total ?? 0,
+              dayCollectedTotal:
+                data.separated_summary.day_collected_total ?? data.net_amount ?? 0,
+              dayWithPendingTotal:
+                data.separated_summary.day_with_pending_total ??
+                ((data.net_amount ?? 0) + (data.separated_summary.pending_total ?? 0)),
             }
           : null);
       const normalizedCustomMethods =
         (Array.isArray(data.custom_methods) && data.custom_methods.length > 0
           ? data.custom_methods
-          : closureCustomMethods
+          : Array.isArray(data.methods_breakdown)
+            ? data.methods_breakdown
+                .filter((method) => !method.is_standard && (method.net ?? 0) > 0)
+                .map((method) => ({
+                  label: method.label,
+                  amount: method.net ?? 0,
+                  slug: method.key ?? null,
+                }))
+            : closureCustomMethods
         )
           .map((method) => ({
             label: method.label,
@@ -4048,20 +4173,20 @@ const matchesStationLabel = useCallback(
           }))
           .filter((method) => method.amount > 0);
       const adjustedTotals: ClosureAdjustedTotals = {
-        total_amount: closureForm.totalAmount,
-        total_cash: closureForm.totalCash,
-        total_card: closureForm.totalCard,
-        total_qr: closureForm.totalQr,
-        total_nequi: closureForm.totalNequi,
-        total_daviplata: closureForm.totalDaviplata,
-        total_credit: closureForm.totalCredit,
-        total_refunds: closureForm.totalRefunds,
-        net_amount: closureNetAmount,
-        change_extra_total: closureForm.changeExtraTotal,
-        change_refund_total: closureForm.changeRefundTotal,
-        change_count: closureForm.changeCount,
-        counted_cash: closureForm.countedCash,
-        difference: closureDifference,
+        total_amount: data.total_amount,
+        total_cash: data.total_cash,
+        total_card: data.total_card,
+        total_qr: data.total_qr,
+        total_nequi: data.total_nequi,
+        total_daviplata: data.total_daviplata,
+        total_credit: data.total_credit,
+        total_refunds: data.total_refunds,
+        net_amount: data.net_amount,
+        change_extra_total: data.change_extra_total ?? 0,
+        change_refund_total: data.change_refund_total ?? 0,
+        change_count: data.change_count ?? 0,
+        counted_cash: data.counted_cash,
+        difference: data.difference,
       };
       const enrichedData: PosClosureResult & {
         separated_summary?: PosClosureResult["separated_summary"];
@@ -4072,12 +4197,17 @@ const matchesStationLabel = useCallback(
           ? normalizedCustomMethods
           : null,
         adjusted_totals: adjustedTotals,
-        separated_summary: normalizedSeparated
+            separated_summary: normalizedSeparated
           ? {
               tickets: normalizedSeparated.tickets,
               payments_total: normalizedSeparated.paymentsTotal,
               reserved_total: normalizedSeparated.reservedTotal,
               pending_total: normalizedSeparated.pendingTotal,
+              day_collected_total:
+                normalizedSeparated.dayCollectedTotal ?? closureNetAmount,
+              day_with_pending_total:
+                normalizedSeparated.dayWithPendingTotal ??
+                (closureNetAmount + normalizedSeparated.pendingTotal),
             }
           : data.separated_summary ?? null,
       };
@@ -4184,6 +4314,10 @@ const matchesStationLabel = useCallback(
           ? closureUsers
               .filter((user) => user.total > 0)
               .map((user) => ({ name: user.name, total: user.total }))
+          : payload.user_breakdown && payload.user_breakdown.length > 0
+            ? payload.user_breakdown
+                .filter((user) => (user.total ?? 0) > 0)
+                .map((user) => ({ name: user.name, total: user.total }))
           : undefined;
       const separatedSummary =
         closureSeparatedInfo ??
@@ -4193,6 +4327,12 @@ const matchesStationLabel = useCallback(
               paymentsTotal: payload.separated_summary.payments_total ?? 0,
               reservedTotal: payload.separated_summary.reserved_total ?? 0,
               pendingTotal: payload.separated_summary.pending_total ?? 0,
+              dayCollectedTotal:
+                payload.separated_summary.day_collected_total ??
+                totalsSource.net_amount,
+              dayWithPendingTotal:
+                payload.separated_summary.day_with_pending_total ??
+                (totalsSource.net_amount + (payload.separated_summary.pending_total ?? 0)),
             }
           : null);
       const stationBreakdown =

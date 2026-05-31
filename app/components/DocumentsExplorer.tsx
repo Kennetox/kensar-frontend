@@ -219,11 +219,30 @@ type ClosureRecord = {
   difference: number;
   notes?: string | null;
   closed_by_user_name: string;
+  methods_breakdown?: {
+    key: string;
+    label: string;
+    gross?: number;
+    refunds?: number;
+    net?: number;
+    is_standard?: boolean;
+  }[] | null;
+  station_breakdown?: {
+    station_id?: string | null;
+    station_label: string;
+    station_type?: string | null;
+    sales_count?: number | null;
+    total_amount?: number | null;
+    net_amount?: number | null;
+  }[] | null;
+  user_breakdown?: { name: string; total: number }[] | null;
   separated_summary?: {
     tickets: number;
     payments_total: number;
     reserved_total: number;
     pending_total: number;
+    day_collected_total?: number;
+    day_with_pending_total?: number;
   } | null;
 };
 
@@ -652,22 +671,52 @@ function buildSaleLineBreakdown(sale: SaleRecord) {
 function printClosureTicket(closure: ClosureRecord, settings?: PosSettingsPayload | null) {
   if (typeof window === "undefined") return;
   const now = closure.closed_at ? new Date(closure.closed_at) : new Date();
-  const methodRows = [
-    { label: "Efectivo", value: closure.total_cash },
-    { label: "Tarjeta", value: closure.total_card },
-    { label: "Transferencias / QR", value: closure.total_qr },
-    { label: "Nequi", value: closure.total_nequi },
-    { label: "Daviplata", value: closure.total_daviplata },
-    { label: "Crédito / separado", value: closure.total_credit },
-  ].filter((m) => m.value > 0);
+  const methodRows =
+    closure.methods_breakdown && closure.methods_breakdown.length > 0
+      ? closure.methods_breakdown.map((row) => ({
+          label: row.label,
+          gross: Number(row.gross ?? 0),
+          refunds: Number(row.refunds ?? 0),
+          net: Number(row.net ?? (row.gross ?? 0) - (row.refunds ?? 0)),
+        }))
+      : [
+          { label: "Efectivo", amount: closure.total_cash },
+          { label: "Tarjeta Datáfono", amount: closure.total_card },
+          { label: "Transferencias / QR", amount: closure.total_qr },
+          { label: "Nequi", amount: closure.total_nequi },
+          { label: "Daviplata", amount: closure.total_daviplata },
+          { label: "Crédito / separado", amount: closure.total_credit },
+        ].filter((m) => (m.amount ?? 0) > 0);
   const separatedSummary = closure.separated_summary
     ? {
         tickets: closure.separated_summary.tickets ?? 0,
         paymentsTotal: closure.separated_summary.payments_total ?? 0,
         reservedTotal: closure.separated_summary.reserved_total ?? 0,
         pendingTotal: closure.separated_summary.pending_total ?? 0,
+        dayCollectedTotal:
+          closure.separated_summary.day_collected_total ?? closure.net_amount,
+        dayWithPendingTotal:
+          closure.separated_summary.day_with_pending_total ??
+          (closure.net_amount + (closure.separated_summary.pending_total ?? 0)),
       }
     : undefined;
+  const userBreakdown =
+    closure.user_breakdown && closure.user_breakdown.length > 0
+      ? closure.user_breakdown
+          .filter((row) => (row.total ?? 0) > 0)
+          .map((row) => ({ name: row.name, total: row.total }))
+      : undefined;
+  const stationBreakdown =
+    closure.station_breakdown && closure.station_breakdown.length > 0
+      ? closure.station_breakdown.map((row) => ({
+          stationId: row.station_id ?? null,
+          stationLabel: row.station_label || "Sin estación",
+          stationType: row.station_type ?? null,
+          salesCount: Math.max(0, Number(row.sales_count ?? 0)),
+          totalAmount: Number(row.total_amount ?? 0),
+          netAmount: Number(row.net_amount ?? row.total_amount ?? 0),
+        }))
+      : undefined;
   const html = renderClosureTicket({
     documentNumber: closure.consecutive ?? `CL-${closure.id.toString().padStart(5, "0")}`,
     closedAt: now,
@@ -684,8 +733,10 @@ function printClosureTicket(closure: ClosureRecord, settings?: PosSettingsPayloa
       changeRefund: closure.change_refund_total ?? 0,
       changeCount: closure.change_count ?? 0,
     },
-    methods: methodRows.map((m) => ({ label: m.label, amount: m.value })),
+    methods: methodRows,
     separatedSummary,
+    userBreakdown,
+    stationBreakdown,
     notes: closure.notes ?? null,
     settings,
   });

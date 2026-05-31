@@ -207,6 +207,8 @@ export type ClosureTicketOptions = {
     paymentsTotal: number;
     reservedTotal: number;
     pendingTotal: number;
+    dayCollectedTotal?: number;
+    dayWithPendingTotal?: number;
   };
 };
 
@@ -1478,6 +1480,18 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
           )
           .join("")
       : "";
+  const showSeparatedClarification = Boolean(
+    options.separatedSummary && (options.separatedSummary.tickets ?? 0) > 0
+  );
+  const separatedDayCollectedTotal = showSeparatedClarification
+    ? Number(options.separatedSummary?.dayCollectedTotal ?? options.totals.net)
+    : 0;
+  const separatedDayWithPendingTotal = showSeparatedClarification
+    ? Number(
+        options.separatedSummary?.dayWithPendingTotal ??
+          (separatedDayCollectedTotal + Number(options.separatedSummary?.pendingTotal ?? 0))
+      )
+    : 0;
 
   const notesBlock =
     options.notes && options.notes.trim().length
@@ -1591,6 +1605,20 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
         <div class="block">
           <div class="muted">Ventas por usuario</div>
           ${userRows}
+        </div>`
+          : ""
+      }
+      ${
+        showSeparatedClarification
+          ? `<hr />
+        <div class="block">
+          <div class="muted">Aclaración de total del día</div>
+          <div class="row emphasize"><span>Total del día (sin saldo de separados)</span><span>${formatMoney(
+            separatedDayCollectedTotal
+          )}</span></div>
+          <div class="row emphasize"><span>Total del día + saldo pendiente separados</span><span>${formatMoney(
+            separatedDayWithPendingTotal
+          )}</span></div>
         </div>`
           : ""
       }
