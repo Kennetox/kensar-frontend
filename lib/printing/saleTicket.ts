@@ -1616,7 +1616,7 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
           <div class="row emphasize"><span>Total del día (sin saldo de separados)</span><span>${formatMoney(
             separatedDayCollectedTotal
           )}</span></div>
-          <div class="row emphasize"><span>Total del día + saldo pendiente separados</span><span>${formatMoney(
+          <div class="row emphasize"><span>Total del día + saldo separados</span><span>${formatMoney(
             separatedDayWithPendingTotal
           )}</span></div>
         </div>`
