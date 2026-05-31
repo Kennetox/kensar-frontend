@@ -1483,8 +1483,17 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
   const showSeparatedClarification = Boolean(
     options.separatedSummary && (options.separatedSummary.tickets ?? 0) > 0
   );
-  const separatedDayCollectedTotal = showSeparatedClarification
+  const dayBaseWithoutSeparated = showSeparatedClarification
     ? Number(options.separatedSummary?.dayCollectedTotal ?? options.totals.net)
+    : Number(options.totals.net);
+  const headerRegisteredTotal = showSeparatedClarification
+    ? dayBaseWithoutSeparated
+    : Number(options.totals.registered);
+  const headerNetTotal = showSeparatedClarification
+    ? dayBaseWithoutSeparated
+    : Number(options.totals.net);
+  const separatedDayCollectedTotal = showSeparatedClarification
+    ? dayBaseWithoutSeparated
     : 0;
   const separatedDayWithPendingTotal = showSeparatedClarification
     ? Number(
@@ -1578,7 +1587,7 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
       </div>
       <hr />
       <div class="block">
-        <div class="row"><span>Total registrado</span><span>${formatMoney(options.totals.registered)}</span></div>
+        <div class="row"><span>Total registrado</span><span>${formatMoney(headerRegisteredTotal)}</span></div>
         <div class="row"><span>Devoluciones / reembolsos</span><span>- ${formatMoney(options.totals.refunds)}</span></div>
         ${
           hasChanges
@@ -1587,7 +1596,7 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
                ${changeCount > 0 ? `<div class="row"><span>Total cambios</span><span>${changeCount}</span></div>` : ""}`
             : ""
         }
-        <div class="row emphasize"><span>Neto del día</span><span>${formatMoney(options.totals.net)}</span></div>
+        <div class="row emphasize"><span>Neto del día</span><span>${formatMoney(headerNetTotal)}</span></div>
         <div class="row"><span>Efectivo esperado</span><span>${formatMoney(options.totals.expectedCash)}</span></div>
         <div class="row"><span>Efectivo contado</span><span>${formatMoney(options.totals.countedCash)}</span></div>
         <div class="row"><span>Diferencia</span><span>${formatMoney(options.totals.difference)}</span></div>
