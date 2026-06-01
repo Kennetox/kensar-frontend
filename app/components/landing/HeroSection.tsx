@@ -1,5 +1,8 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import HeroVisualMotion from "./HeroVisualMotion";
 import RevealOnScroll from "./RevealOnScroll";
 
@@ -11,6 +14,19 @@ const heroBenefits = [
 ];
 
 export default function HeroSection() {
+  const [showBackFace, setShowBackFace] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (media.matches) return;
+
+    const intervalId = window.setInterval(() => {
+      setShowBackFace((current) => !current);
+    }, 9000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   return (
     <section id="producto" className="grid items-center gap-8 py-8 sm:py-10 lg:grid-cols-[1.05fr_1fr] lg:gap-10 lg:py-14">
       <div>
@@ -71,15 +87,28 @@ export default function HeroSection() {
       <RevealOnScroll delayMs={150} className="relative lg:pl-1" y={10}>
         <div className="hero-soft-glow absolute -inset-4 -z-10 rounded-3xl bg-gradient-to-r from-emerald-100/70 via-white to-blue-100/70 blur-2xl" />
         <HeroVisualMotion>
-          <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-2.5 shadow-[0_30px_70px_-30px_rgba(37,99,235,0.45)]">
-            <Image
-              src="/landing-v2/primer-hero.png"
-              alt="Dashboard de Metrik"
-              width={1536}
-              height={1024}
-              className="h-auto w-full rounded-2xl object-cover"
-              priority
-            />
+          <div className={`landing-hero-flip-scene ${showBackFace ? "is-flipped" : ""}`}>
+            <div className="landing-hero-flip-inner">
+              <div className="landing-hero-flip-face overflow-hidden rounded-3xl border border-slate-200 bg-white p-2.5 shadow-[0_30px_70px_-30px_rgba(37,99,235,0.45)]">
+                <Image
+                  src="/landing-v2/primer-hero.png"
+                  alt="Dashboard de Metrik"
+                  width={1536}
+                  height={1024}
+                  className="h-auto w-full rounded-2xl object-cover"
+                  priority
+                />
+              </div>
+              <div className="landing-hero-flip-face landing-hero-flip-face-back overflow-hidden rounded-3xl border border-slate-200 bg-white p-2.5 shadow-[0_30px_70px_-30px_rgba(37,99,235,0.45)]">
+                <Image
+                  src="/landing-v2/productos-hero.png"
+                  alt="Vista de productos en Metrik"
+                  width={1536}
+                  height={1024}
+                  className="h-auto w-full scale-[1.035] rounded-2xl object-cover object-center"
+                />
+              </div>
+            </div>
           </div>
         </HeroVisualMotion>
       </RevealOnScroll>

@@ -1413,6 +1413,36 @@ body::-webkit-scrollbar-thumb:hover {
   transform: translateY(-4px) scale(1.006);
 }
 
+.landing-hero-flip-scene {
+  position: relative;
+  width: 100%;
+  perspective: 1400px;
+}
+
+.landing-hero-flip-inner {
+  position: relative;
+  width: 100%;
+  transform-style: preserve-3d;
+  transition: transform 960ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.landing-hero-flip-scene.is-flipped .landing-hero-flip-inner {
+  transform: rotateY(180deg);
+}
+
+.landing-hero-flip-face {
+  position: relative;
+  width: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.landing-hero-flip-face-back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+}
+
 .landing-benefit-item {
   opacity: 0;
   transform: translateX(-8px);
@@ -1441,6 +1471,10 @@ body::-webkit-scrollbar-thumb:hover {
 
 .landing-panel-surface {
   border-radius: 1.75rem;
+}
+
+.landing-problem-detail-enter {
+  animation: landing-detail-enter 480ms var(--landing-ease-out);
 }
 
 .landing-stack-stage {
@@ -1510,6 +1544,17 @@ body::-webkit-scrollbar-thumb:hover {
   }
 }
 
+@keyframes landing-detail-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .metrik-ambient-grain,
   .landing-reveal,
@@ -1522,6 +1567,11 @@ body::-webkit-scrollbar-thumb:hover {
   .hero-soft-glow {
     animation: none !important;
     transition: none !important;
+    transform: none !important;
+  }
+
+  .landing-hero-flip-inner,
+  .landing-hero-flip-scene.is-flipped .landing-hero-flip-inner {
     transform: none !important;
   }
 
