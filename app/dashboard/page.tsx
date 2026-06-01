@@ -1160,6 +1160,9 @@ export default function DashboardHomePage() {
     });
 
     separatedOrders.forEach((order) => {
+      const isCancelledOrder =
+        order.status?.toLowerCase() === "cancelado" || Boolean(order.cancelled_at);
+      if (isCancelledOrder) return;
       const orderDate = parseDateInput(order.created_at);
       const orderInRange = orderDate ? isWithinRange(orderDate) : false;
       if (orderInRange) {
