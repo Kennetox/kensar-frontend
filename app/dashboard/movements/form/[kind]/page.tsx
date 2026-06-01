@@ -1208,13 +1208,14 @@ function EntryReceptionForm() {
                           <th className="px-3 py-2">Producto</th>
                           <th className="px-3 py-2">SKU</th>
                           <th className="px-3 py-2 text-right">Costo</th>
+                          <th className="px-3 py-2 text-right">Precio</th>
                           <th className="px-3 py-2 text-right"></th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
                         {searchResults.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="px-3 py-4 text-xs text-slate-500">
+                            <td colSpan={5} className="px-3 py-4 text-xs text-slate-500">
                               Sin resultados.
                             </td>
                           </tr>
@@ -1228,6 +1229,7 @@ function EntryReceptionForm() {
                               <td className="px-3 py-2">{row.product_name}</td>
                               <td className="px-3 py-2 text-slate-600">{row.sku || "-"}</td>
                               <td className="px-3 py-2 text-right">{formatMoney(row.cost)}</td>
+                              <td className="px-3 py-2 text-right">{formatMoney(row.price)}</td>
                               <td className="px-3 py-2 text-right">
                                 <button
                                   type="button"
