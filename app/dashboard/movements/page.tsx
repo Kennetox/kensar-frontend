@@ -43,6 +43,13 @@ import {
   type ReceivingProductGroupOption,
   type ManualMovementDocumentRead,
 } from "@/lib/api/inventory";
+import {
+  LABEL_AGENT_DEFAULT_FORMAT,
+  LABEL_AGENT_DEFAULT_PRINT_URL,
+  LABEL_AGENT_HEALTH_URL,
+  LABEL_AGENT_UI_URL,
+  LABEL_AGENT_WINDOWS_DOWNLOAD_URL,
+} from "@/lib/printing/labelAgentConfig";
 
 const tabs = [
   { key: "summary", label: "Resumen" },
@@ -59,6 +66,24 @@ const INVENTORY_FILTERS_KEY = "metrik_movements_inventory_filters_v1";
 const INVENTORY_FILTERS_TTL_MS = 1000 * 60 * 60 * 8;
 const WEB_RECEIVING_ORIGIN = "recepción web";
 const CLOSED_DOCS_PANEL_LIMIT = 8;
+type AgentProbeStatus = "idle" | "printing" | "success" | "error";
+type LabelPrintPayload = {
+  CODIGO: string;
+  BARRAS: string;
+  NOMBRE: string;
+  PRECIO: string;
+  format: string;
+  copies: number;
+};
+
+const TEST_LABEL_PAYLOAD: LabelPrintPayload = {
+  CODIGO: "3519",
+  BARRAS: "3519",
+  NOMBRE: "Microfono Condensador TCM-304",
+  PRECIO: "$22.000",
+  format: LABEL_AGENT_DEFAULT_FORMAT,
+  copies: 1,
+};
 
 type TabKey = (typeof tabs)[number]["key"];
 
@@ -235,6 +260,12 @@ export default function MovementsPage() {
   const [manualDetailLoading, setManualDetailLoading] = useState(false);
   const [manualDetailError, setManualDetailError] = useState<string | null>(null);
   const [manualDetail, setManualDetail] = useState<ManualMovementDocumentDetail | null>(null);
+  const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
+  const [agentHealth, setAgentHealth] = useState<"checking" | "online" | "offline">(
+    "checking"
+  );
+  const [probeStatus, setProbeStatus] = useState<AgentProbeStatus>("idle");
+  const [probeMessage, setProbeMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
@@ -1390,6 +1421,100 @@ export default function MovementsPage() {
     }
   };
 
+  const checkAgentHealth = async () => {
+    if (typeof window === "undefined") return;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 2000);
+    try {
+      const res = await fetch(LABEL_AGENT_HEALTH_URL, {
+        method: "GET",
+        signal: controller.signal,
+      });
+      setAgentHealth(res.ok ? "online" : "offline");
+    } catch {
+      setAgentHealth("offline");
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+
+  useEffect(() => {
+    void checkAgentHealth();
+    if (typeof document === "undefined") return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      void checkAgentHealth();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void checkAgentHealth();
+    }, 30000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!printerSettingsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPrinterSettingsOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [printerSettingsOpen]);
+
+  const handleOpenAgentUi = () => {
+    window.open(LABEL_AGENT_UI_URL, "_blank", "noopener,noreferrer");
+  };
+
+  const printLabelDirect = async (
+    targetUrl: string,
+    payload: LabelPrintPayload | LabelPrintPayload[]
+  ) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Array.isArray(payload) ? payload : [payload]),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`Error ${res.status}`);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new Error("Tiempo de espera agotado (8s).");
+      }
+      if (err instanceof TypeError) {
+        throw new Error("No se pudo conectar a la impresora. Revisa la URL o red.");
+      }
+      throw err;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+
+  const handleProbePrinter = async () => {
+    try {
+      setProbeStatus("printing");
+      setProbeMessage(null);
+      await printLabelDirect(LABEL_AGENT_DEFAULT_PRINT_URL, TEST_LABEL_PAYLOAD);
+      setProbeStatus("success");
+      setProbeMessage("Impresion de prueba enviada.");
+    } catch (err) {
+      setProbeStatus("error");
+      setProbeMessage(
+        err instanceof Error ? err.message : "No pudimos enviar la impresion de prueba."
+      );
+    }
+  };
+
   return (
     <div className="mx-auto flex w-full max-w-[84rem] min-w-0 flex-col gap-4 px-20 xl:px-24">
       <section className="min-w-0">
@@ -1411,21 +1536,52 @@ export default function MovementsPage() {
 
       {!isRecountDocumentFocused ? (
         <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
-          <div className="flex flex-wrap gap-1.5">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                aria-current={activeTab === tab.key ? "page" : undefined}
-                className={`rounded-xl px-3 py-1.5 text-[13px] font-medium transition ${
-                  activeTab === tab.key
-                    ? "bg-slate-900 text-white shadow-sm"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  aria-current={activeTab === tab.key ? "page" : undefined}
+                  className={`rounded-xl px-3 py-1.5 text-[13px] font-medium transition ${
+                    activeTab === tab.key
+                      ? "bg-slate-900 text-white shadow-sm"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            {activeTab === "movements" ? (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700">
+                  <span className="font-semibold">Agente:</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      agentHealth === "online"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : agentHealth === "offline"
+                        ? "bg-rose-100 text-rose-700"
+                        : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {agentHealth === "online"
+                      ? "online"
+                      : agentHealth === "offline"
+                      ? "offline"
+                      : "verificando"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPrinterSettingsOpen(true)}
+                  className="cursor-pointer rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+                >
+                  Configuración impresora
+                </button>
+              </div>
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -3458,6 +3614,130 @@ export default function MovementsPage() {
             }`}
           >
             {toastMessage}
+          </div>
+        </div>
+      ) : null}
+
+      {printerSettingsOpen ? (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/45 p-4 backdrop-blur-[2px] md:p-8"
+          onClick={() => setPrinterSettingsOpen(false)}
+        >
+          <div
+            className="mx-auto mt-4 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl md:mt-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">
+                  Configuración de impresión
+                </h3>
+                <p className="text-xs text-slate-600">
+                  Ajusta el agente local y prueba conexión.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrinterSettingsOpen(false)}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <span className="text-xs text-slate-600">
+                  Abre la app del agente para autodetección y selección de impresora.
+                </span>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={LABEL_AGENT_WINDOWS_DOWNLOAD_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                  >
+                    Descargar agente (Windows)
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleOpenAgentUi}
+                    className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                  >
+                    Abrir app del agente
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-900">
+                    Conexión del agente
+                  </h4>
+                  <p className="text-xs text-slate-600">
+                    Datos técnicos para conectar con el print-agent local.
+                  </p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">
+                      Modo
+                    </label>
+                    <input
+                      className="ui-input w-full bg-white px-3 py-2 text-sm"
+                      value="Agente local"
+                      disabled
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <label className="text-sm font-semibold text-slate-700">
+                      URL del agente
+                    </label>
+                    <input
+                      className="ui-input w-full bg-white px-3 py-2 text-sm"
+                      value={LABEL_AGENT_DEFAULT_PRINT_URL}
+                      placeholder={LABEL_AGENT_DEFAULT_PRINT_URL}
+                      disabled
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1 text-sm">
+                <button
+                  type="button"
+                  className="rounded-xl border border-emerald-500 bg-emerald-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  onClick={() => void handleProbePrinter()}
+                  disabled={probeStatus === "printing"}
+                >
+                  {probeStatus === "printing"
+                    ? "Probando..."
+                    : "Probar conexión (imprimir test)"}
+                </button>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    probeStatus === "success"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : probeStatus === "error"
+                      ? "bg-rose-100 text-rose-700"
+                      : probeStatus === "printing"
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {probeStatus === "success"
+                    ? "éxito"
+                    : probeStatus === "error"
+                    ? "error"
+                    : probeStatus === "printing"
+                    ? "imprimiendo"
+                    : "inactivo"}
+                </span>
+                {probeMessage ? (
+                  <span className="text-sm text-slate-600">{probeMessage}</span>
+                ) : null}
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
