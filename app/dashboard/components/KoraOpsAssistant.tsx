@@ -198,6 +198,7 @@ const KORA_MAX_FEEDBACK = 300;
 const KORA_SESSION_NUDGE_KEY_PREFIX = "kora_ops_session_nudge_seen_v1";
 const KORA_NUDGE_VISIBLE_MS = 20_000;
 const KORA_NUDGE_REPEAT_MS = 30 * 60 * 1000;
+const KORA_SESSION_NUDGE_ENABLED = false;
 
 const INVENTORY_ACTIONS: KoraAction[] = [
   { id: "go-movements", label: "Abrir Movimientos", href: "/dashboard/movements" },
@@ -691,6 +692,11 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;
+    if (!KORA_SESSION_NUDGE_ENABLED) {
+      setShowSessionNudge(false);
+      clearNudgeTimers();
+      return;
+    }
     const userKey =
       normalizeQuery(userName || "usuario").replace(/\s+/g, "-").slice(0, 40) || "usuario";
     const tokenTail = (token || "").slice(-12) || "no-token";
@@ -3605,7 +3611,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
   return (
     <div ref={rootRef} className="fixed right-5 bottom-5 z-[140] md:right-6 md:bottom-6">
-      {showSessionNudge && !open ? (
+      {KORA_SESSION_NUDGE_ENABLED && showSessionNudge && !open ? (
         <div
           className="fixed right-3 z-[145] w-[min(320px,calc(100vw-24px))] rounded-xl border px-3 py-2.5 shadow-lg md:right-6"
           style={{

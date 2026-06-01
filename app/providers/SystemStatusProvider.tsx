@@ -7,13 +7,15 @@ type HealthState = "healthy" | "degraded" | "maintenance";
 
 const POLL_MS = 15000;
 const REQUEST_TIMEOUT_MS = 2500;
-const FAILURES_TO_OPEN = 1;
+const FAILURES_TO_OPEN = 3;
 const SUCCESSES_TO_CLOSE = 2;
+const MIN_DEGRADED_SECONDS = 20;
 
 export function SystemStatusProvider() {
   const [state, setState] = useState<HealthState>("healthy");
   const consecutiveFailures = useRef(0);
   const consecutiveSuccesses = useRef(0);
+  const degradedSinceRef = useRef<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -32,6 +34,15 @@ export function SystemStatusProvider() {
         consecutiveFailures.current += 1;
         consecutiveSuccesses.current = 0;
         if (consecutiveFailures.current >= FAILURES_TO_OPEN && active) {
+          const now = Date.now();
+          if (degradedSinceRef.current == null) {
+            degradedSinceRef.current = now;
+          }
+          const degradedElapsedSeconds = (now - degradedSinceRef.current) / 1000;
+          if (degradedElapsedSeconds < MIN_DEGRADED_SECONDS) {
+            schedule();
+            return;
+          }
           setState("degraded");
         }
         schedule();
@@ -51,6 +62,7 @@ export function SystemStatusProvider() {
         if (res.ok) {
           consecutiveFailures.current = 0;
           consecutiveSuccesses.current += 1;
+          degradedSinceRef.current = null;
           if (consecutiveSuccesses.current >= SUCCESSES_TO_CLOSE && active) {
             setState("healthy");
           }
@@ -63,6 +75,10 @@ export function SystemStatusProvider() {
 
           consecutiveFailures.current += 1;
           consecutiveSuccesses.current = 0;
+          const now = Date.now();
+          if (degradedSinceRef.current == null) {
+            degradedSinceRef.current = now;
+          }
 
           if (nextState === "maintenance" && active) {
             setState("maintenance");
@@ -71,13 +87,27 @@ export function SystemStatusProvider() {
           }
 
           if (consecutiveFailures.current >= FAILURES_TO_OPEN && active) {
+            const degradedElapsedSeconds = (now - (degradedSinceRef.current || now)) / 1000;
+            if (degradedElapsedSeconds < MIN_DEGRADED_SECONDS) {
+              schedule();
+              return;
+            }
             setState(nextState);
           }
         }
       } catch {
         consecutiveFailures.current += 1;
         consecutiveSuccesses.current = 0;
+        const now = Date.now();
+        if (degradedSinceRef.current == null) {
+          degradedSinceRef.current = now;
+        }
         if (consecutiveFailures.current >= FAILURES_TO_OPEN && active) {
+          const degradedElapsedSeconds = (now - (degradedSinceRef.current || now)) / 1000;
+          if (degradedElapsedSeconds < MIN_DEGRADED_SECONDS) {
+            schedule();
+            return;
+          }
           setState("degraded");
         }
       } finally {
