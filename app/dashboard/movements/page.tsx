@@ -229,8 +229,14 @@ export default function MovementsPage() {
   const [applyingRecountId, setApplyingRecountId] = useState<number | null>(null);
   const [recountFeedback, setRecountFeedback] = useState<string | null>(null);
   const [newRecountTitle, setNewRecountTitle] = useState("");
-  const [newRecountScopeType, setNewRecountScopeType] = useState<"all" | "group">("all");
+  const [newRecountScopeType, setNewRecountScopeType] = useState<"all" | "group" | "free">("all");
   const [newRecountScopeValue, setNewRecountScopeValue] = useState("");
+  const [recountFreeSearch, setRecountFreeSearch] = useState("");
+  const [recountFreeSearchApplied, setRecountFreeSearchApplied] = useState("");
+  const [recountFreeSearchLoading, setRecountFreeSearchLoading] = useState(false);
+  const [recountFreeSearchError, setRecountFreeSearchError] = useState<string | null>(null);
+  const [recountFreeSearchResults, setRecountFreeSearchResults] = useState<InventoryProductRow[]>([]);
+  const [recountFreeCountDraft, setRecountFreeCountDraft] = useState<Record<number, string>>({});
   const [newRecountMode, setNewRecountMode] = useState<"blind" | "visible">("blind");
   const [newRecountNotes, setNewRecountNotes] = useState("");
   const [creatingRecount, setCreatingRecount] = useState(false);
@@ -299,6 +305,14 @@ export default function MovementsPage() {
     if (!activeTabReady) return;
     window.localStorage.setItem(MOVEMENTS_ACTIVE_TAB_KEY, activeTab);
   }, [activeTab, activeTabReady]);
+
+  useEffect(() => {
+    setRecountFreeSearch("");
+    setRecountFreeSearchApplied("");
+    setRecountFreeSearchResults([]);
+    setRecountFreeSearchError(null);
+    setRecountFreeCountDraft({});
+  }, [selectedRecountId]);
 
   useEffect(() => {
     if (!activeTabReady) return;
@@ -786,6 +800,54 @@ export default function MovementsPage() {
   ]);
 
   useEffect(() => {
+    if (!token || activeTab !== "recounts" || recountView !== "document" || !selectedRecountId || !recountDetail) {
+      return;
+    }
+    if (recountDetail.recount.scope_type !== "free") return;
+    if (!["draft", "counting"].includes(recountDetail.recount.status)) return;
+    const query = recountFreeSearchApplied.trim();
+    if (query.length < 2) {
+      setRecountFreeSearchResults([]);
+      setRecountFreeSearchError(null);
+      return;
+    }
+    let cancelled = false;
+    setRecountFreeSearchLoading(true);
+    setRecountFreeSearchError(null);
+    fetchInventoryProducts(token, {
+      search: query,
+      skip: 0,
+      limit: 20,
+      stock: "all",
+      status: "all",
+      sort: "name_asc",
+    })
+      .then((page) => {
+        if (cancelled) return;
+        setRecountFreeSearchResults(page.items);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setRecountFreeSearchResults([]);
+          setRecountFreeSearchError(err instanceof Error ? err.message : "No se pudo buscar productos.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRecountFreeSearchLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    token,
+    activeTab,
+    recountView,
+    selectedRecountId,
+    recountDetail,
+    recountFreeSearchApplied,
+  ]);
+
+  useEffect(() => {
     setInventoryPageNo(1);
   }, [inventorySearch, inventorySort, inventoryStockFilter, inventoryStatusFilter, inventoryGroupFilter, inventoryPageSize]);
 
@@ -1027,6 +1089,10 @@ export default function MovementsPage() {
       setNewRecountTitle("");
       setNewRecountScopeType("all");
       setNewRecountScopeValue("");
+      setRecountFreeSearch("");
+      setRecountFreeSearchApplied("");
+      setRecountFreeSearchResults([]);
+      setRecountFreeCountDraft({});
       setNewRecountMode("blind");
       setNewRecountNotes("");
       setSelectedRecountId(created.id);
@@ -1065,20 +1131,30 @@ export default function MovementsPage() {
       });
       setRecountDetail((prev) => {
         if (!prev) return prev;
-        const nextLines = prev.lines.map((line) =>
-          line.product_id === productId
-            ? {
-                ...line,
-                counted_qty: savedLine.counted_qty ?? counted,
-                diff_qty:
-                  savedLine.counted_qty != null
-                    ? Number(savedLine.counted_qty) - Number(line.system_qty)
-                    : null,
-                counted_at: savedLine.counted_at ?? line.counted_at,
-                counted_by_user_id: savedLine.counted_by_user_id ?? line.counted_by_user_id,
-              }
-            : line
-        );
+        const updatedLine = {
+          id: savedLine.id,
+          product_id: savedLine.product_id,
+          product_name: savedLine.product_name,
+          sku: savedLine.sku,
+          barcode: savedLine.barcode,
+          group_name: savedLine.group_name,
+          system_qty: Number(savedLine.system_qty ?? 0),
+          counted_qty: savedLine.counted_qty ?? counted,
+          diff_qty:
+            savedLine.counted_qty != null
+              ? Number(savedLine.counted_qty) - Number(savedLine.system_qty ?? 0)
+              : null,
+          notes: savedLine.notes,
+          counted_at: savedLine.counted_at,
+          counted_by_user_id: savedLine.counted_by_user_id,
+        };
+        const existingIndex = prev.lines.findIndex((line) => line.product_id === productId);
+        const nextLines = [...prev.lines];
+        if (existingIndex >= 0) {
+          nextLines[existingIndex] = { ...nextLines[existingIndex], ...updatedLine };
+        } else {
+          nextLines.unshift(updatedLine);
+        }
         const countedLines = nextLines.filter((line) => line.counted_qty != null);
         const differenceLines = countedLines.filter(
           (line) => Math.abs((line.counted_qty ?? 0) - line.system_qty) >= 0.000001
@@ -1116,6 +1192,19 @@ export default function MovementsPage() {
     } finally {
       setRecountLineSavingId(null);
     }
+  };
+
+  const addFreeRecountProduct = async (productId: number) => {
+    const draft = recountFreeCountDraft[productId];
+    if (!draft) {
+      setRecountFeedback("Indica cantidad contada (0 o mayor) para agregar al recuento.");
+      return;
+    }
+    setRecountCountedDraft((prev) => ({ ...prev, [productId]: draft }));
+    const saved = await submitRecountLine(productId);
+    if (!saved) return;
+    setRecountFreeCountDraft((prev) => ({ ...prev, [productId]: "" }));
+    setRecountFeedback("Producto agregado al recuento.");
   };
 
   const printSelectedRecountSheet = async (
@@ -1159,7 +1248,9 @@ export default function MovementsPage() {
       const scopeLabel =
         recountDetail.recount.scope_type === "group"
           ? `Categoría: ${recountDetail.recount.scope_value || "-"}`
-          : "Inventario completo";
+          : recountDetail.recount.scope_type === "free"
+            ? "Selección libre de productos"
+            : "Inventario completo";
       const htmlRows = printableLines
         .map((line) => {
           const diff =
@@ -2516,11 +2607,14 @@ export default function MovementsPage() {
                   Alcance
                   <select
                     value={newRecountScopeType}
-                    onChange={(e) => setNewRecountScopeType(e.target.value as "all" | "group")}
+                    onChange={(e) =>
+                      setNewRecountScopeType(e.target.value as "all" | "group" | "free")
+                    }
                     className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] text-slate-900"
                   >
                     <option value="all">Inventario completo</option>
                     <option value="group">Solo una categoría</option>
+                    <option value="free">Selección libre (SKU puntuales)</option>
                   </select>
                 </label>
                 {newRecountScopeType === "group" ? (
@@ -2705,6 +2799,101 @@ export default function MovementsPage() {
                   {recountDetail.recount.status === "applied" ? (
                     <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-900">
                       Ajustes aplicados. Este recuento quedó en solo lectura para trazabilidad.
+                    </div>
+                  ) : null}
+                  {recountDetail.recount.scope_type === "free" &&
+                  ["draft", "counting"].includes(recountDetail.recount.status) ? (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs font-semibold text-slate-900">
+                        Agregar productos al recuento libre
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          value={recountFreeSearch}
+                          onChange={(e) => setRecountFreeSearch(e.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return;
+                            event.preventDefault();
+                            setRecountFreeSearchApplied(recountFreeSearch);
+                          }}
+                          placeholder="Buscar por nombre, SKU o código"
+                          className="min-w-[260px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] text-slate-900"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setRecountFreeSearchApplied(recountFreeSearch)}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100"
+                        >
+                          Buscar
+                        </button>
+                      </div>
+                      {recountFreeSearchLoading ? (
+                        <p className="mt-2 text-xs text-slate-500">Buscando productos...</p>
+                      ) : recountFreeSearchError ? (
+                        <p className="mt-2 text-xs text-rose-600">{recountFreeSearchError}</p>
+                      ) : recountFreeSearchApplied.trim().length < 2 ? (
+                        <p className="mt-2 text-xs text-slate-500">Escribe al menos 2 caracteres.</p>
+                      ) : (
+                        <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-slate-200 bg-white">
+                          <table className="w-full table-fixed">
+                            <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.06em] text-slate-600">
+                              <tr>
+                                <th className="px-2.5 py-2 text-left">Producto</th>
+                                <th className="px-2.5 py-2 text-left">SKU</th>
+                                <th className="px-2.5 py-2 text-right">Costo</th>
+                                <th className="px-2.5 py-2 text-right">Cantidad</th>
+                                <th className="px-2.5 py-2 text-right" />
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 text-[12px]">
+                              {recountFreeSearchResults.length === 0 ? (
+                                <tr>
+                                  <td colSpan={5} className="px-3 py-3 text-center text-xs text-slate-500">
+                                    Sin resultados.
+                                  </td>
+                                </tr>
+                              ) : (
+                                recountFreeSearchResults.map((row) => (
+                                  <tr key={`recount-free-${row.product_id}`}>
+                                    <td className="px-2.5 py-1.5">
+                                      <p className="truncate font-medium text-slate-900">{row.product_name}</p>
+                                    </td>
+                                    <td className="px-2.5 py-1.5 text-slate-600">{row.sku || "-"}</td>
+                                    <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-700">
+                                      {formatMoney(row.cost)}
+                                    </td>
+                                    <td className="px-2.5 py-1.5 text-right">
+                                      <input
+                                        value={recountFreeCountDraft[row.product_id] ?? ""}
+                                        onChange={(e) =>
+                                          setRecountFreeCountDraft((prev) => ({
+                                            ...prev,
+                                            [row.product_id]: e.target.value.replace(/[^\d]/g, ""),
+                                          }))
+                                        }
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-[12px] tabular-nums text-slate-900"
+                                      />
+                                    </td>
+                                    <td className="px-2.5 py-1.5 text-right">
+                                      <button
+                                        type="button"
+                                        onClick={() => void addFreeRecountProduct(row.product_id)}
+                                        disabled={recountLineSavingId === row.product_id}
+                                        className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                                      >
+                                        {recountLineSavingId === row.product_id ? "Agregando..." : "Agregar"}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   ) : null}
 

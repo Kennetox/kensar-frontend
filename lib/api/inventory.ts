@@ -310,7 +310,7 @@ export type InventoryRecountStatus =
   | "applied"
   | "cancelled";
 
-export type InventoryRecountScope = "all" | "group";
+export type InventoryRecountScope = "all" | "group" | "free";
 export type InventoryRecountMode = "blind" | "visible";
 
 export type InventoryRecountSummary = {
