@@ -16,6 +16,7 @@ import {
   exportInventoryProducts,
   exportInventoryProductsPdf,
   fetchInventoryLatestEntries,
+  fetchInventoryMovements,
   fetchManualMovementDocumentDetail,
   fetchManualMovementDocuments,
   fetchInventoryOverview,
@@ -29,6 +30,7 @@ import {
   fetchReceivingProductGroups,
   upsertInventoryRecountLine,
   type InventoryMovementReason,
+  type InventoryMovementRecord,
   type InventoryLatestEntryRecord,
   type InventoryOverview,
   type InventoryRecountDetail,
@@ -163,7 +165,10 @@ export default function MovementsPage() {
 
   const [overview, setOverview] = useState<InventoryOverview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
-  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [, setOverviewError] = useState<string | null>(null);
+  const [recentMovements, setRecentMovements] = useState<InventoryMovementRecord[]>([]);
+  const [recentMovementsLoading, setRecentMovementsLoading] = useState(false);
+  const [recentMovementsError, setRecentMovementsError] = useState<string | null>(null);
   const [latestEntries, setLatestEntries] = useState<InventoryLatestEntryRecord[]>([]);
   const [latestEntriesLoading, setLatestEntriesLoading] = useState(false);
   const [latestEntriesError, setLatestEntriesError] = useState<string | null>(null);
@@ -470,6 +475,25 @@ export default function MovementsPage() {
   useEffect(() => {
     if (!token || activeTab !== "summary") return;
     let cancelled = false;
+    setRecentMovementsLoading(true);
+    setRecentMovementsError(null);
+    fetchInventoryMovements(token, { skip: 0, limit: 120 })
+      .then((rows) => {
+        if (cancelled) return;
+        const normalized = [...rows].sort(
+          (a, b) => parseMovementDateMs(b.created_at) - parseMovementDateMs(a.created_at)
+        );
+        setRecentMovements(normalized.slice(0, 8));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRecentMovements([]);
+        setRecentMovementsError(err instanceof Error ? err.message : "Error");
+      })
+      .finally(() => {
+        if (!cancelled) setRecentMovementsLoading(false);
+      });
+
     setLatestEntriesLoading(true);
     setLatestEntriesError(null);
     fetchInventoryLatestEntries(token, {
@@ -1644,12 +1668,14 @@ export default function MovementsPage() {
                       />
                     ))}
                   </div>
-                ) : overviewError ? (
-                  <p className="text-sm text-rose-600">{overviewError}</p>
-                ) : (overview?.recent_movements ?? []).length === 0 ? (
+                ) : recentMovementsLoading ? (
+                  <p className="text-sm text-slate-500">Cargando movimientos recientes...</p>
+                ) : recentMovementsError ? (
+                  <p className="text-sm text-rose-600">{recentMovementsError}</p>
+                ) : recentMovements.length === 0 ? (
                   <p className="text-sm text-slate-500">Sin movimientos recientes.</p>
                 ) : (
-                  (overview?.recent_movements ?? []).map((row) => (
+                  recentMovements.map((row) => (
                     <div
                       key={row.id}
                       title={`${row.product_name} · SKU: ${row.sku || "-"} · ${
@@ -3855,7 +3881,7 @@ function formatMoney(value: number) {
 }
 
 function formatDate(value: string) {
-  const date = new Date(value);
+  const date = parseMovementDate(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("es-CO", {
     timeZone: "America/Bogota",
@@ -3864,6 +3890,19 @@ function formatDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function parseMovementDate(value: string) {
+  const raw = String(value || "").trim();
+  const hasZone = /(?:Z|[+\-]\d{2}:\d{2})$/i.test(raw);
+  const normalized = hasZone ? raw : `${raw}Z`;
+  return new Date(normalized);
+}
+
+function parseMovementDateMs(value: string) {
+  const date = parseMovementDate(value);
+  const ms = date.getTime();
+  return Number.isFinite(ms) ? ms : Number.NEGATIVE_INFINITY;
 }
 
 function escapeHtml(value: string) {
