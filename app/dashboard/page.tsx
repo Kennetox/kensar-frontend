@@ -135,6 +135,9 @@ type RecentChangeReturnItem = {
   product_name?: string | null;
   product_sku?: string | null;
   quantity: number;
+  unit_price_original?: number;
+  unit_price_net?: number;
+  total_credit?: number;
 };
 
 type RecentChangeNewItem = {
@@ -142,6 +145,8 @@ type RecentChangeNewItem = {
   product_name?: string | null;
   product_sku?: string | null;
   quantity: number;
+  unit_price?: number;
+  total?: number;
 };
 
 type RecentChange = {
@@ -164,7 +169,18 @@ type RecentChangePopoverItem = {
   changeDoc: string;
   saleDoc: string;
   createdAt: string;
-  summary: string;
+  returnedItems: {
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }[];
+  newItems: {
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }[];
   extraPayment: number;
   refundDue: number;
 };
@@ -1189,22 +1205,19 @@ export default function DashboardHomePage() {
         saleDocById.get(change.sale_id) ||
         `Venta #${change.sale_id.toString()}`;
       const returnedLabels =
-        (change.items_returned ?? [])
-          .map((item) => item.product_name?.trim())
-          .filter((value): value is string => Boolean(value))
-          .slice(0, 2);
+        (change.items_returned ?? []).map((item) => ({
+          name: item.product_name?.trim() || "Producto",
+          quantity: Number(item.quantity ?? 0),
+          unitPrice: Number(item.unit_price_net ?? item.unit_price_original ?? 0),
+          total: Number(item.total_credit ?? 0),
+        }));
       const newLabels =
-        (change.items_new ?? [])
-          .map((item) => item.product_name?.trim())
-          .filter((value): value is string => Boolean(value))
-          .slice(0, 2);
-      const summaryParts: string[] = [];
-      if (returnedLabels.length) {
-        summaryParts.push(`Devuelve: ${returnedLabels.join(", ")}`);
-      }
-      if (newLabels.length) {
-        summaryParts.push(`Nuevo: ${newLabels.join(", ")}`);
-      }
+        (change.items_new ?? []).map((item) => ({
+          name: item.product_name?.trim() || "Producto",
+          quantity: Number(item.quantity ?? 0),
+          unitPrice: Number(item.unit_price ?? 0),
+          total: Number(item.total ?? 0),
+        }));
       const extra = Math.max(change.extra_payment ?? 0, 0);
       const refund = Math.max(change.refund_due ?? 0, 0);
       items.push({
@@ -1212,9 +1225,8 @@ export default function DashboardHomePage() {
         changeDoc,
         saleDoc,
         createdAt,
-        summary: summaryParts.length
-          ? summaryParts.join(" · ")
-          : "Cambio sin detalle de productos",
+        returnedItems: returnedLabels,
+        newItems: newLabels,
         extraPayment: extra,
         refundDue: refund,
       });
@@ -1550,14 +1562,64 @@ export default function DashboardHomePage() {
                               })}
                             </div>
                           </div>
-                          <div className="text-right text-sm font-semibold text-sky-300">
-                            {item.extraPayment > 0
-                              ? `+${formatMoney(item.extraPayment)}`
-                              : `-${formatMoney(item.refundDue)}`}
-                          </div>
+                        <div className="text-right text-sm font-semibold text-sky-300">
+                          {item.extraPayment > 0
+                            ? `+${formatMoney(item.extraPayment)}`
+                            : `-${formatMoney(item.refundDue)}`}
                         </div>
-                        <div className="mt-1 text-[11px] text-slate-300 leading-snug">
-                          {item.summary}
+                      </div>
+                        <div className="mt-2 space-y-2 text-[11px] text-slate-300">
+                          {item.returnedItems.length > 0 && (
+                            <div className="space-y-1">
+                              <div className="font-semibold text-slate-400 uppercase tracking-wide">
+                                Devuelve
+                              </div>
+                              {item.returnedItems.map((line) => (
+                                <div
+                                  key={`${item.changeId}-return-${line.name}-${line.quantity}-${line.total}`}
+                                  className="flex items-start justify-between gap-3"
+                                >
+                                  <span className="min-w-0 flex-1">
+                                    {line.name} x{line.quantity}{" "}
+                                    <span className="text-slate-500">
+                                      @ {formatMoney(line.unitPrice)}
+                                    </span>
+                                  </span>
+                                  <span className="font-semibold text-slate-200">
+                                    {formatMoney(line.total)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {item.newItems.length > 0 && (
+                            <div className="space-y-1">
+                              <div className="font-semibold text-slate-400 uppercase tracking-wide">
+                                Nuevo
+                              </div>
+                              {item.newItems.map((line) => (
+                                <div
+                                  key={`${item.changeId}-new-${line.name}-${line.quantity}-${line.total}`}
+                                  className="flex items-start justify-between gap-3"
+                                >
+                                  <span className="min-w-0 flex-1">
+                                    {line.name} x{line.quantity}{" "}
+                                    <span className="text-slate-500">
+                                      @ {formatMoney(line.unitPrice)}
+                                    </span>
+                                  </span>
+                                  <span className="font-semibold text-slate-200">
+                                    {formatMoney(line.total)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {!item.returnedItems.length && !item.newItems.length && (
+                            <div className="text-slate-400">
+                              Cambio sin detalle de productos
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))
