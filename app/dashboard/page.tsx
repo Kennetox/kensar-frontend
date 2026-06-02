@@ -47,6 +47,11 @@ type PaymentMethodSummary = {
   tickets: number;
 };
 
+type PaymentMethodAggregate = {
+  total: number;
+  tickets: number;
+};
+
 type SeparatedOverview = {
   tickets: number;
   reservedTotal: number;
@@ -272,6 +277,13 @@ function formatMoneyCompact(value: number): string {
   return `${sign}${Math.round(abs)}`;
 }
 
+const normalizePaymentMethodKey = (value?: string | null) =>
+  (value ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
 const buildSaleItemKey = (item: {
   product_id?: number | null;
   product_name?: string | null;
@@ -449,7 +461,7 @@ export default function DashboardHomePage() {
   const searchParams = useSearchParams();
   const posPreview = searchParams.get("posPreview") === "1";
   const { token, user } = useAuth();
-  const { getPaymentLabel } = usePaymentMethodLabelResolver();
+  const { catalog, getPaymentLabel } = usePaymentMethodLabelResolver();
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
@@ -1065,6 +1077,79 @@ export default function DashboardHomePage() {
     todayStart,
   ]);
 
+  const paymentMethodKeyAliasMap = useMemo(() => {
+    const map = new Map<string, string>();
+    catalog.forEach((method) => {
+      const slugKey = normalizePaymentMethodKey(method.slug);
+      if (slugKey) {
+        map.set(slugKey, method.slug.toLowerCase());
+      }
+      const nameKey = normalizePaymentMethodKey(method.name);
+      if (nameKey) {
+        map.set(nameKey, method.slug.toLowerCase());
+      }
+    });
+    map.set(normalizePaymentMethodKey("cash"), "cash");
+    map.set(normalizePaymentMethodKey("efectivo"), "cash");
+    map.set(normalizePaymentMethodKey("qr"), "qr");
+    map.set(normalizePaymentMethodKey("transferencia"), "qr");
+    return map;
+  }, [catalog]);
+
+  const separatedPaymentMethodTotals = useMemo(() => {
+    const map = new Map<string, PaymentMethodAggregate>();
+    const todayMonthKey = todayDateKey.slice(0, 7);
+    const currentWeekStartKey = getBogotaDateKey(currentWeekStart);
+    const currentWeekEnd = new Date(currentWeekStart);
+    currentWeekEnd.setUTCDate(currentWeekStart.getUTCDate() + 7);
+    const currentWeekEndKey = getBogotaDateKey(currentWeekEnd);
+
+    const isWithinRange = (paidKey: string) => {
+      if (paymentRange === "day") return paidKey === todayDateKey;
+      if (paymentRange === "week") {
+        return (
+          !!currentWeekStartKey &&
+          !!currentWeekEndKey &&
+          paidKey >= currentWeekStartKey &&
+          paidKey < currentWeekEndKey
+        );
+      }
+      return paidKey.slice(0, 7) === todayMonthKey;
+    };
+
+    const normalizeKey = (value?: string | null) => {
+      const token = normalizePaymentMethodKey(value);
+      if (!token) return "desconocido";
+      return paymentMethodKeyAliasMap.get(token) ?? token;
+    };
+
+    separatedOrders.forEach((order) => {
+      const isCancelledOrder =
+        order.status?.toLowerCase() === "cancelado" || Boolean(order.cancelled_at);
+      if (isCancelledOrder) return;
+      order.payments?.forEach((payment) => {
+        if (payment.status === "voided") return;
+        const amount = Math.max(Number(payment.amount ?? 0), 0);
+        if (amount <= 0) return;
+        const paidKey = getBogotaDateKey(payment.paid_at);
+        if (!paidKey || !isWithinRange(paidKey)) return;
+        const key = normalizeKey(payment.method);
+        const current = map.get(key) ?? { total: 0, tickets: 0 };
+        current.total += amount;
+        current.tickets += 1;
+        map.set(key, current);
+      });
+    });
+
+    return map;
+  }, [
+    currentWeekStart,
+    paymentMethodKeyAliasMap,
+    paymentRange,
+    separatedOrders,
+    todayDateKey,
+  ]);
+
   const separatedPaymentRows = useMemo<SeparatedPaymentRow[]>(() => {
     const rows: SeparatedPaymentRow[] = [];
     separatedOrders.forEach((order) => {
@@ -1550,8 +1635,36 @@ export default function DashboardHomePage() {
       }
     });
 
+    const mergedEntriesMap = new Map<string, PaymentMethodSummary>();
+    paymentMethodEntries.forEach((entry) => {
+      const key = paymentMethodKeyAliasMap.get(
+        normalizePaymentMethodKey(entry.method)
+      ) ?? normalizePaymentMethodKey(entry.method) ?? entry.method.toLowerCase();
+      mergedEntriesMap.set(key, {
+        method: key,
+        total: entry.total,
+        tickets: entry.tickets,
+      });
+    });
+    separatedPaymentMethodTotals.forEach((value, methodKey) => {
+      const existing = mergedEntriesMap.get(methodKey);
+      if (existing) {
+        existing.total += value.total;
+        existing.tickets += value.tickets;
+        mergedEntriesMap.set(methodKey, existing);
+      } else {
+        mergedEntriesMap.set(methodKey, {
+          method: methodKey,
+          total: value.total,
+          tickets: value.tickets,
+        });
+      }
+    });
+
     return {
-      entries: paymentMethodEntries,
+      entries: Array.from(mergedEntriesMap.values()).sort(
+        (a, b) => b.total - a.total
+      ),
       separated:
         separatedSummary.tickets > 0 ||
         separatedSummary.paymentsTotal > 0 ||
@@ -1560,10 +1673,12 @@ export default function DashboardHomePage() {
           : null,
     };
   }, [
+    paymentMethodKeyAliasMap,
     paymentMethodEntries,
     paymentRange,
     recentSales,
     separatedOrders,
+    separatedPaymentMethodTotals,
     todayDateKey,
     weekStart,
   ]);
