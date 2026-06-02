@@ -175,6 +175,8 @@ export type ClosureTicketStationBreakdown = {
   salesCount: number;
   totalAmount: number;
   netAmount: number;
+  pendingTotal?: number;
+  netAmountWithoutSeparatedPending?: number;
 };
 
 export type ClosureTicketOptions = {
@@ -1475,7 +1477,9 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
             (entry) => `
         <div class="row">
           <span>${escapeHtml(entry.stationLabel)} (${Math.max(0, Number(entry.salesCount || 0))})</span>
-          <span>${formatMoney(Number(entry.netAmount || 0))}</span>
+          <span>${formatMoney(
+            Number(entry.netAmountWithoutSeparatedPending ?? entry.netAmount ?? 0)
+          )}</span>
         </div>`
           )
           .join("")
@@ -1542,9 +1546,8 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
         .row { display: flex; justify-content: space-between; font-size: 12px; }
         .row.emphasize {
           font-weight: 700;
-          border-bottom: 1px solid #111827;
           padding-bottom: 4px;
-          margin-bottom: 6px;
+          margin-bottom: 2px;
         }
         .method-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 6px; font-size: 11px; }
         .method-grid span:not(:first-child) { text-align: right; }
