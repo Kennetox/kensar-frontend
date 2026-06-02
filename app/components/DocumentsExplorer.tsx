@@ -944,8 +944,8 @@ export default function DocumentsExplorer({
             createdAt: operationDate,
             documentNumber: recount.code || `RCN-${recount.id.toString().padStart(6, "0")}`,
             reference: `Recuento - ${statusLabel} - ${sourceLabel}`,
-            detail: `${detail.lines.length}/${detail.recount.summary?.total_lines ?? detail.lines.length} líneas · Dif: ${
-              recount.summary?.total_diff_units ?? 0
+            detail: `${detail.lines.length}/${recount.summary.total_lines} líneas · Dif: ${
+              recount.summary.total_diff_qty
             } · ${scopeLabel}`,
             total: 0,
             paymentMethod: undefined,
