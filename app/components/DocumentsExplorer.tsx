@@ -990,6 +990,10 @@ export default function DocumentsExplorer({
       referenceId: referenceIdRaw,
     };
   }, [resolveHistoryReferenceDocumentType, searchParams]);
+  const isFromMovementsRoute = useMemo(
+    () => searchParams.get("fromMovements") === "1",
+    [searchParams]
+  );
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -1981,6 +1985,9 @@ export default function DocumentsExplorer({
 
   useEffect(() => {
     if (!authHeaders || !filtersReady) return;
+    if (isFromMovementsRoute && !fastOpenHandledRef.current && !fastOpenInProgressRef.current) {
+      return;
+    }
     if (
       (routeFastOpenReference && !fastOpenHandledRef.current) ||
       suppressBulkLoad ||
@@ -1997,6 +2004,7 @@ export default function DocumentsExplorer({
     appliedFilterTo,
     appliedFilterType,
     routeFastOpenReference,
+    isFromMovementsRoute,
   ]);
 
   useEffect(() => {
