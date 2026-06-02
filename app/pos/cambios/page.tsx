@@ -137,6 +137,15 @@ function normalizeDocument(value: string): string {
   return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 }
 
+function extractDigits(value: string): string {
+  return value.replace(/[^\d]/g, "");
+}
+
+function extractDocumentDigits(value: string): string {
+  const normalized = normalizeDocument(value);
+  return normalized.replace(/^[A-Z]+/, "");
+}
+
 function formatMoney(value: number | undefined | null): string {
   if (value == null || Number.isNaN(value)) return "0";
   return value.toLocaleString("es-CO", {
@@ -520,7 +529,8 @@ export default function CambiosPage() {
     async (identifier: string) => {
       const value = identifier.trim();
       if (!value) return null;
-      const digitsOnly = value.replace(/[^\d]/g, "");
+      const digitsOnly = extractDigits(value);
+      const numericIdentifier = digitsOnly ? Number.parseInt(digitsOnly, 10) : null;
       const normalizedDoc = normalizeDocument(value);
       if (normalizedDoc.startsWith("DV") || normalizedDoc.startsWith("CB")) {
         throw new Error("Ese codigo no corresponde a una venta.");
@@ -537,6 +547,7 @@ export default function CambiosPage() {
       const saleFromList =
         list.find((s) => {
           const saleDocNormalized = normalizeDocument(s.document_number ?? "");
+          const saleDocDigits = extractDocumentDigits(s.document_number ?? "");
           if (
             saleDocNormalized &&
             normalizedDoc &&
@@ -544,15 +555,26 @@ export default function CambiosPage() {
           ) {
             return true;
           }
-          if (digitsOnly && `${s.sale_number ?? ""}` === digitsOnly) {
+          if (
+            digitsOnly &&
+            saleDocDigits &&
+            saleDocDigits === digitsOnly
+          ) {
+            return true;
+          }
+          if (
+            numericIdentifier != null &&
+            s.sale_number != null &&
+            Number(s.sale_number) === numericIdentifier
+          ) {
             return true;
           }
           return false;
         }) ?? null;
       if (saleFromList) return saleFromList;
-      if (digitsOnly) {
+      if (numericIdentifier != null) {
         try {
-          const saleById = await fetchSaleById(digitsOnly);
+          const saleById = await fetchSaleById(String(numericIdentifier));
           return saleById;
         } catch (err) {
           console.warn("No se encontro la venta por ID", err);
