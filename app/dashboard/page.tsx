@@ -70,9 +70,15 @@ type DashboardSummary = {
   today_sales_total: number;
   today_tickets: number;
   today_avg_ticket: number;
+  today_change_count?: number;
+  today_change_extra_total?: number;
+  today_change_refund_total?: number;
   month_sales_total: number;
   month_tickets: number;
   month_avg_ticket: number;
+  month_change_count?: number;
+  month_change_extra_total?: number;
+  month_change_refund_total?: number;
   payment_methods: PaymentMethodSummary[];
   last_7_days: SalesTrendPoint[];
   trend_days?: SalesTrendPoint[];
@@ -1278,7 +1284,7 @@ export default function DashboardHomePage() {
         </header>
 
         {/* KPIs principales */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2.5">
+        <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-2.5">
           {/* Ventas hoy */}
           <div className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-hidden">
             <div className="text-xs font-medium text-slate-400">
@@ -1327,6 +1333,48 @@ export default function DashboardHomePage() {
             )}
             <div className="mt-1 text-[11px] text-slate-400">
               Ventas registradas en el POS.
+            </div>
+            {!canViewTodayMetrics && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">
+                Sin permiso para métricas de hoy
+              </div>
+            )}
+            {showSummarySkeleton && canViewTodayMetrics && (
+              <div className="absolute inset-0 z-[5] flex items-center justify-center bg-[var(--surface-2)]">
+                <LoadingSpinner size={34} />
+              </div>
+            )}
+          </div>
+
+          {/* Cambios hoy */}
+          <div className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-hidden">
+            <div className="text-xs font-medium text-slate-400">
+              Cambios hoy
+            </div>
+            {showSummarySkeleton ? (
+              <div className="mt-2 h-7 w-20 rounded bg-slate-800/70 animate-pulse" />
+            ) : (
+              <div className="mt-1.5 pb-px px-px text-xl leading-[1.1] font-semibold text-sky-400 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
+                {data?.today_change_count ?? 0}
+              </div>
+            )}
+            <div className="mt-1 text-[11px] text-slate-400">
+              Excedente:{" "}
+              {showSummarySkeleton ? (
+                <span className="ml-1 inline-flex h-4 w-16 rounded bg-slate-800/70 animate-pulse" />
+              ) : (
+                <span className="font-semibold text-slate-200">
+                  +{formatMoney(data?.today_change_extra_total ?? 0)}
+                </span>
+              )}
+              {" "}· Reembolsos:{" "}
+              {showSummarySkeleton ? (
+                <span className="ml-1 inline-flex h-4 w-16 rounded bg-slate-800/70 animate-pulse" />
+              ) : (
+                <span className="font-semibold text-slate-200">
+                  -{formatMoney(data?.today_change_refund_total ?? 0)}
+                </span>
+              )}
             </div>
             {!canViewTodayMetrics && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 backdrop-blur-[3px] text-[11px] text-slate-100 font-medium">

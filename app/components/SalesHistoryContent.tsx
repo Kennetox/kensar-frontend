@@ -1895,6 +1895,8 @@ export default function SalesHistoryContent({
     () => getLatestChange(selectedSale?.changes),
     [selectedSale?.changes]
   );
+  const latestSelectedChangeExtra = latestSelectedChange?.extra_payment ?? 0;
+  const latestSelectedChangeRefund = latestSelectedChange?.refund_due ?? 0;
 
   const handlePrintReturnTicket = useCallback(async () => {
     if (!selectedSale?.returns?.length) return;
@@ -3032,6 +3034,50 @@ export default function SalesHistoryContent({
                       {selectedSale.refund_count ?? 0}
                     </span>
                   </div>
+
+                  {latestSelectedChange && (
+                    <div className="mt-3 rounded-xl border border-sky-500/30 bg-sky-500/5 px-3 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sky-200 font-semibold">
+                          Cambio asociado
+                        </span>
+                        <span className="font-mono text-sky-100">
+                          {latestSelectedChange.document_number ||
+                            `CB-${latestSelectedChange.id.toString().padStart(6, "0")}`}
+                        </span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
+                        <div className="flex justify-between gap-3">
+                          <span className="text-slate-400">Fecha</span>
+                          <span className="text-slate-100 text-right">
+                            {formatDateTime(
+                              latestSelectedChange.created_at || selectedSale.created_at
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <span className="text-slate-400">Crédito</span>
+                          <span className="text-slate-100 text-right">
+                            {formatMoney(latestSelectedChange.total_credit ?? 0)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <span className="text-slate-400">Nuevo</span>
+                          <span className="text-slate-100 text-right">
+                            {formatMoney(latestSelectedChange.total_new ?? 0)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between gap-3">
+                          <span className="text-slate-400">Excedente / reembolso</span>
+                          <span className="text-slate-100 text-right">
+                            {latestSelectedChangeExtra > 0
+                              ? `+${formatMoney(latestSelectedChangeExtra)}`
+                              : `-${formatMoney(latestSelectedChangeRefund)}`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {hasRefunds && (
                     <div className="flex justify-between">
