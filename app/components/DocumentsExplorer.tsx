@@ -36,7 +36,10 @@ import {
   fetchComercioWebOrders,
   type ComercioWebOrder,
 } from "@/lib/api/comercioWeb";
-import { getInventoryRecountDetail } from "@/lib/api/inventory";
+import {
+  getInventoryRecountDetail,
+  type InventoryRecountDetail,
+} from "@/lib/api/inventory";
 import {
   buildBogotaDateFromKey,
   formatBogotaDate,
@@ -443,6 +446,15 @@ function formatMoney(value: number | string | undefined | null): string {
   });
   if (/^0+$/.test(formatted)) return "0";
   return formatted;
+}
+
+function formatQty(value: number | string | undefined | null): string {
+  if (value == null) return "0";
+  const numeric = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(numeric)) return "0";
+  return new Intl.NumberFormat("es-CO", {
+    maximumFractionDigits: 2,
+  }).format(numeric);
 }
 
 function parseMoneyString(raw: string): number {
@@ -960,6 +972,7 @@ export default function DocumentsExplorer({
             closureId: null,
             data: recount,
           },
+          recountDetail: detail,
         } as const;
       }
 
@@ -1081,10 +1094,14 @@ export default function DocumentsExplorer({
     useState<SeparatedOrder | null>(null);
   const [selectedReceivingDetail, setSelectedReceivingDetail] =
     useState<ReceivingLotDetailRecord | null>(null);
+  const [selectedRecountDetail, setSelectedRecountDetail] =
+    useState<InventoryRecountDetail | null>(null);
   const [loadingReceivingDetail, setLoadingReceivingDetail] = useState(false);
+  const [loadingRecountDetail, setLoadingRecountDetail] = useState(false);
   const [receivingDetailError, setReceivingDetailError] = useState<string | null>(
     null
   );
+  const [recountDetailError, setRecountDetailError] = useState<string | null>(null);
 
   const [filterType, setFilterType] = useState("all");
   const [filterFrom, setFilterFrom] = useState(today);
@@ -2212,6 +2229,11 @@ export default function DocumentsExplorer({
         } else {
           setSelectedReceivingDetail(null);
         }
+        if ("recountDetail" in result && result.recountDetail) {
+          setSelectedRecountDetail(result.recountDetail);
+        } else {
+          setSelectedRecountDetail(null);
+        }
         setError(null);
 
         setSuppressBulkLoad(false);
@@ -2913,6 +2935,55 @@ const handleDocumentsTableKeyDown = useCallback(
 useEffect(() => {
   setDetailExpanded(false);
 }, [selectedDoc?.id]);
+
+  useEffect(() => {
+    const isRecountDoc = selectedDoc?.type === "recuento";
+    const recountId = isRecountDoc ? selectedDoc.recordId : null;
+
+    if (!isRecountDoc || !recountId || !authHeaders) {
+      setSelectedRecountDetail(null);
+      setRecountDetailError(null);
+      setLoadingRecountDetail(false);
+      return;
+    }
+
+    if (selectedRecountDetail?.recount?.id === recountId) {
+      setRecountDetailError(null);
+      setLoadingRecountDetail(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingRecountDetail(true);
+    setRecountDetailError(null);
+
+    const loadRecountDetail = async () => {
+      try {
+        if (!token) throw new Error("Sin sesión activa");
+        const detail = await getInventoryRecountDetail(token, recountId);
+        if (!cancelled) {
+          setSelectedRecountDetail(detail);
+        }
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) {
+          setSelectedRecountDetail(null);
+          setRecountDetailError(
+            err instanceof Error ? err.message : "Error al cargar detalle de recuento."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingRecountDetail(false);
+        }
+      }
+    };
+
+    void loadRecountDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDoc, authHeaders, token, selectedRecountDetail?.recount?.id]);
 
   useEffect(() => {
     const isReceivingDoc = selectedDoc?.type === "recepcion";
@@ -5030,6 +5101,138 @@ useEffect(() => {
                   ) : (
                     <div className="text-xs text-slate-500">
                       Este documento no tiene líneas registradas.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedDoc.type === "recuento" && (
+                <div className="space-y-3">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Detalle de recuento
+                  </div>
+                  {loadingRecountDetail ? (
+                    <div className="text-xs text-slate-400">
+                      Cargando líneas del recuento…
+                    </div>
+                  ) : recountDetailError ? (
+                    <div className="text-xs text-rose-300">
+                      {recountDetailError}
+                    </div>
+                  ) : selectedRecountDetail ? (
+                    <>
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                        {[
+                          {
+                            label: "Líneas totales",
+                            value: formatQty(selectedRecountDetail.recount.summary.total_lines),
+                          },
+                          {
+                            label: "Líneas contadas",
+                            value: formatQty(selectedRecountDetail.recount.summary.counted_lines),
+                          },
+                          {
+                            label: "Líneas pendientes",
+                            value: formatQty(selectedRecountDetail.recount.summary.pending_lines),
+                          },
+                          {
+                            label: "Líneas con diferencia",
+                            value: formatQty(selectedRecountDetail.recount.summary.difference_lines),
+                          },
+                          {
+                            label: "Cantidad sistema",
+                            value: formatQty(selectedRecountDetail.recount.summary.total_system_qty),
+                          },
+                          {
+                            label: "Cantidad contada",
+                            value: formatQty(selectedRecountDetail.recount.summary.total_counted_qty),
+                          },
+                          {
+                            label: "Diferencia total",
+                            value: formatQty(selectedRecountDetail.recount.summary.total_diff_qty),
+                          },
+                        ].map((card) => (
+                          <div
+                            key={card.label}
+                            className="rounded-2xl border border-slate-800/60 bg-slate-950/30 p-3"
+                          >
+                            <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                              {card.label}
+                            </div>
+                            <div className="text-lg font-semibold text-slate-100">
+                              {card.value}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {selectedRecountDetail.lines.length > 0 ? (
+                        <div className="rounded-2xl border border-slate-800/60 overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full text-left text-[12px]">
+                              <thead className="bg-slate-950 text-[11px] text-slate-400 uppercase tracking-wide">
+                                <tr>
+                                  <th className="px-3 py-2 font-normal">Producto</th>
+                                  <th className="px-3 py-2 font-normal">SKU</th>
+                                  <th className="px-3 py-2 font-normal">Código barras</th>
+                                  <th className="px-3 py-2 font-normal text-right">Sistema</th>
+                                  <th className="px-3 py-2 font-normal text-right">Contado</th>
+                                  <th className="px-3 py-2 font-normal text-right">Dif.</th>
+                                  <th className="px-3 py-2 font-normal">Notas</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedRecountDetail.lines.map((line) => {
+                                  const diff = line.diff_qty ?? 0;
+                                  return (
+                                    <tr
+                                      key={line.id}
+                                      className="border-t border-slate-800/40 text-slate-100"
+                                    >
+                                      <td className="px-3 py-2">{line.product_name}</td>
+                                      <td className="px-3 py-2 text-slate-200">
+                                        {line.sku || "—"}
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-200">
+                                        {line.barcode || "—"}
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-slate-200 font-mono">
+                                        {formatQty(line.system_qty)}
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-slate-200 font-mono">
+                                        {line.counted_qty == null ? "—" : formatQty(line.counted_qty)}
+                                      </td>
+                                      <td
+                                        className={`px-3 py-2 text-right font-mono ${
+                                          diff < 0
+                                            ? "text-rose-300"
+                                            : diff > 0
+                                            ? "text-emerald-300"
+                                            : "text-slate-200"
+                                        }`}
+                                      >
+                                        {line.counted_qty == null
+                                          ? "—"
+                                          : `${diff > 0 ? "+" : ""}${formatQty(diff)}`}
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-300">
+                                        {line.notes || "—"}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-500">
+                          Este recuento no tiene líneas registradas.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-xs text-slate-500">
+                      No se pudo cargar el detalle del recuento.
                     </div>
                   )}
                 </div>
