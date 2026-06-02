@@ -640,8 +640,22 @@ export default function SalesHistoryContent({
     amount: number;
     method?: string | null;
   };
+  type SeparatedPaymentRow = {
+    paymentId: number;
+    saleId: number;
+    saleDocumentNumber: string;
+    paymentDocumentNumber: string;
+    paidAt: string;
+    createdAt: string;
+    method: string;
+    amount: number;
+    customerName?: string | null;
+  };
   const [separatedPaymentsMap, setSeparatedPaymentsMap] =
     useState<Record<number, SeparatedPaymentInfo[]>>({});
+  const [separatedPaymentRows, setSeparatedPaymentRows] = useState<
+    SeparatedPaymentRow[]
+  >([]);
   const [salesAdjustments, setSalesAdjustments] = useState<
     Record<number, DocumentAdjustmentRecord[]>
   >({});
@@ -1118,6 +1132,67 @@ export default function SalesHistoryContent({
         }
       } else {
         setSalesAdjustments({});
+      }
+
+      try {
+        if (!token) {
+          setSeparatedPaymentRows([]);
+        } else {
+          const separatedParams = new URLSearchParams();
+          if (filterFrom) separatedParams.set("paid_from", filterFrom);
+          if (filterTo) separatedParams.set("paid_to", filterTo);
+          separatedParams.set("limit", "500");
+          const separatedRes = await fetch(
+            `${apiBase}/separated-orders?${separatedParams.toString()}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+            }
+          );
+          if (separatedRes.ok) {
+            const separatedOrders = (await separatedRes.json()) as SeparatedOrder[];
+            const rows: SeparatedPaymentRow[] = [];
+            separatedOrders.forEach((order) => {
+              const isCancelledOrder =
+                order.status?.toLowerCase() === "cancelado" ||
+                Boolean(order.cancelled_at);
+              if (isCancelledOrder) return;
+              order.payments?.forEach((payment) => {
+                if (payment.status === "voided" || !payment.paid_at) return;
+                const paidKey = getBogotaDateKey(payment.paid_at);
+                if (filterFrom && paidKey && paidKey < filterFrom) return;
+                if (filterTo && paidKey && paidKey > filterTo) return;
+                const amount = Math.max(Number(payment.amount ?? 0), 0);
+                if (amount <= 0) return;
+                rows.push({
+                  paymentId: payment.id,
+                  saleId: order.sale_id,
+                  saleDocumentNumber:
+                    order.sale_document_number?.trim() ||
+                    `V-${order.sale_id.toString().padStart(6, "0")}`,
+                  paymentDocumentNumber: `AB-${payment.id.toString().padStart(6, "0")}`,
+                  paidAt: payment.paid_at,
+                  createdAt: order.created_at ?? payment.paid_at,
+                  method: payment.method,
+                  amount,
+                  customerName: order.customer_name ?? null,
+                });
+              });
+            });
+            rows.sort((a, b) => {
+              const timeDiff =
+                new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime();
+              if (timeDiff !== 0) return timeDiff;
+              return b.paymentId - a.paymentId;
+            });
+            setSeparatedPaymentRows(rows);
+          } else {
+            setSeparatedPaymentRows([]);
+          }
+        }
+      } catch (err) {
+        console.warn("No pudimos cargar los abonos del rango", err);
+        setSeparatedPaymentRows([]);
       }
 
       setSelectedSale((prev) => {
@@ -2587,6 +2662,72 @@ export default function SalesHistoryContent({
               Resultados: {loading ? "..." : salesTotal}
             </div>
           </div>
+
+          {separatedPaymentRows.length > 0 && (
+            <div className="mb-4 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/30 p-3">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-100">
+                    Abonos de separados
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Pagos recibidos en el rango filtrado, aunque la venta original sea anterior.
+                  </p>
+                </div>
+                <span className="text-xs text-slate-400">
+                  {separatedPaymentRows.length} registros
+                </span>
+              </div>
+              <div className="grid grid-cols-[120px_160px_150px_minmax(220px,1fr)_120px_120px] text-[11px] text-slate-400 mb-1 px-2 gap-2">
+                <span>Documento</span>
+                <span>Fecha / hora</span>
+                <span>Venta origen</span>
+                <span>Cliente</span>
+                <span className="text-right">Método</span>
+                <span className="text-right">Monto</span>
+              </div>
+              <div className="rounded-xl border border-slate-800/60 overflow-hidden">
+                <div className="max-h-[180px] overflow-auto">
+                  {separatedPaymentRows.map((row, rowIndex) => {
+                    const zebra =
+                      rowIndex % 2 === 0
+                        ? isPosTheme
+                          ? "bg-slate-900/60"
+                          : "bg-[var(--surface)]"
+                        : isPosTheme
+                        ? "bg-slate-900/40"
+                        : "bg-[var(--surface-2)]";
+                    return (
+                      <div
+                        key={row.paymentId}
+                        className={`grid grid-cols-[120px_160px_150px_minmax(220px,1fr)_120px_120px] text-xs px-2 py-2 gap-2 ${zebra}`}
+                        title="Abono a separado"
+                      >
+                        <div className="font-mono text-slate-200">
+                          {row.paymentDocumentNumber}
+                        </div>
+                        <div className="text-slate-300">
+                          {formatDateTime(row.paidAt)}
+                        </div>
+                        <div className="text-slate-100 font-medium">
+                          {row.saleDocumentNumber}
+                        </div>
+                        <div className="text-slate-300 truncate">
+                          {row.customerName ?? "Sin cliente"}
+                        </div>
+                        <div className="text-right text-slate-200">
+                          {mapPaymentMethod(row.method)}
+                        </div>
+                        <div className="text-right font-semibold text-emerald-300">
+                          {formatMoney(row.amount)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {sales.length === 0 && !loading ? (
             <p className="text-sm text-slate-500 mt-3">

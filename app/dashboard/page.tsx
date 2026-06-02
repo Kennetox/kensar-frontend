@@ -233,6 +233,18 @@ type RecentReturnPopoverItem = {
   }[];
 };
 
+type SeparatedPaymentRow = {
+  paymentId: number;
+  saleId: number;
+  saleDocumentNumber: string;
+  paymentDocumentNumber: string;
+  createdAt: string;
+  paidAt: string;
+  method: string;
+  amount: number;
+  customerName?: string | null;
+};
+
 /* =============== HELPERS =============== */
 
 function formatMoney(value: number): string {
@@ -1052,6 +1064,42 @@ export default function DashboardHomePage() {
     todayDateKey,
     todayStart,
   ]);
+
+  const separatedPaymentRows = useMemo<SeparatedPaymentRow[]>(() => {
+    const rows: SeparatedPaymentRow[] = [];
+    separatedOrders.forEach((order) => {
+      const isCancelledOrder =
+        order.status?.toLowerCase() === "cancelado" || Boolean(order.cancelled_at);
+      if (isCancelledOrder) return;
+      order.payments?.forEach((payment) => {
+        if (payment.status === "voided") return;
+        const amount = Math.max(Number(payment.amount ?? 0), 0);
+        if (amount <= 0) return;
+        const paidKey = getBogotaDateKey(payment.paid_at);
+        if (paidKey !== todayDateKey) return;
+        rows.push({
+          paymentId: payment.id,
+          saleId: order.sale_id,
+          saleDocumentNumber:
+            order.sale_document_number?.trim() ||
+            `V-${order.sale_id.toString().padStart(6, "0")}`,
+          paymentDocumentNumber: `AB-${payment.id.toString().padStart(6, "0")}`,
+          createdAt: order.created_at ?? payment.paid_at,
+          paidAt: payment.paid_at,
+          method: payment.method,
+          amount,
+          customerName: order.customer_name ?? null,
+        });
+      });
+    });
+
+    return rows.sort((a, b) => {
+      const timeDiff =
+        new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.paymentId - a.paymentId;
+    });
+  }, [separatedOrders, todayDateKey]);
   const trendDayMap = useMemo(() => {
     const map = new Map<string, { total: number; tickets: number }>();
     if (!data) return map;
@@ -2529,26 +2577,104 @@ export default function DashboardHomePage() {
               El rol auditor puede revisar métricas y reportes, pero no el feed
               operativo de tickets del POS.
             </p>
-          ) : !recentRows.length ? (
-            <p className="text-xs text-slate-500 mt-2">
-              Aún no hay ventas registradas.
-            </p>
           ) : (
-            <div className="mt-2 text-xs">
-              {/* Encabezados */}
-              <div className="grid min-w-[920px] grid-cols-[80px_160px_minmax(260px,1fr)_140px_120px_120px] text-[11px] text-slate-400 mb-1 px-3 gap-2">
-                <span>Nº venta</span>
-                <span>Fecha / hora</span>
-                <span>Detalle</span>
-                <span className="text-right">Código</span>
-                <span className="text-right">Total</span>
-                <span className="text-right">Método</span>
-              </div>
+            <div className="mt-2 text-xs space-y-3">
+              {separatedPaymentRows.length > 0 && (
+                <div className="mb-3 rounded-xl border border-dashed border-slate-700/80 bg-slate-950/30 p-3">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div>
+                      <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-200">
+                        Abonos de separados
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        Pagos recibidos hoy por separados abiertos en días anteriores.
+                      </p>
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      {separatedPaymentRows.length} registros
+                    </span>
+                  </div>
+                  <div className="grid min-w-[920px] grid-cols-[120px_160px_150px_minmax(220px,1fr)_120px_120px] text-[11px] text-slate-400 mb-1 px-3 gap-2">
+                    <span>Documento</span>
+                    <span>Fecha / hora</span>
+                    <span>Venta origen</span>
+                    <span>Cliente</span>
+                    <span className="text-right">Método</span>
+                    <span className="text-right">Monto</span>
+                  </div>
+                  <div className="rounded-xl border border-slate-800/60 overflow-hidden">
+                    <div className="max-h-52 overflow-auto">
+                      {separatedPaymentRows.map((row, rowIndex) => {
+                        const zebra =
+                          rowIndex % 2 === 0
+                            ? "dashboard-row-zebra"
+                            : "dashboard-row-zebra-alt";
+                        return (
+                          <div
+                            key={row.paymentId}
+                            className={`grid min-w-[920px] grid-cols-[120px_160px_150px_minmax(220px,1fr)_120px_120px] text-xs px-3 py-2 gap-2 ${zebra}`}
+                            onDoubleClick={() =>
+                              router.push(
+                                `/dashboard/sales?saleId=${row.saleId}&saleDate=${getBogotaDateKey(
+                                  row.createdAt
+                                ) ?? todayDateKey}${posPreview ? "&posPreview=1" : ""}`
+                              )
+                            }
+                            title="Doble click para abrir la venta origen en historial"
+                          >
+                            <div className="font-mono text-slate-200">
+                              {row.paymentDocumentNumber}
+                            </div>
+                            <div className="text-slate-300">
+                              {formatBogotaDate(row.paidAt, {
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                hour12: true,
+                              })}
+                            </div>
+                            <div className="text-slate-100 font-medium">
+                              {row.saleDocumentNumber}
+                            </div>
+                            <div className="text-slate-300 truncate">
+                              {row.customerName ?? "Sin cliente"}
+                            </div>
+                            <div className="text-right text-slate-200">
+                              {getPaymentLabel(row.method, row.method)}
+                            </div>
+                            <div className="text-right font-semibold text-emerald-300">
+                              {formatMoney(row.amount)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
 
-              {/* Contenedor con altura fija + scroll interno */}
-              <div className="rounded-xl border border-slate-800/60 overflow-hidden">
-                <div className="max-h-64 overflow-auto">
-                  {recentRows.map(
+              {recentRows.length === 0 ? (
+                <p className="text-xs text-slate-500 mt-2">
+                  Aún no hay ventas registradas.
+                </p>
+              ) : (
+                <>
+                  {/* Encabezados */}
+                  <div className="grid min-w-[920px] grid-cols-[80px_160px_minmax(260px,1fr)_140px_120px_120px] text-[11px] text-slate-400 mb-1 px-3 gap-2">
+                    <span>Nº venta</span>
+                    <span>Fecha / hora</span>
+                    <span>Detalle</span>
+                    <span className="text-right">Código</span>
+                    <span className="text-right">Total</span>
+                    <span className="text-right">Método</span>
+                  </div>
+
+                  {/* Contenedor con altura fija + scroll interno */}
+                  <div className="rounded-xl border border-slate-800/60 overflow-hidden">
+                    <div className="max-h-64 overflow-auto">
+                      {recentRows.map(
                     (
                       {
                         sale,
@@ -2661,11 +2787,13 @@ export default function DashboardHomePage() {
                             </div>
                           )}
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+                        </div>
+                      );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </section>
