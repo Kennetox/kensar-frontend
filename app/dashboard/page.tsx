@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -97,6 +98,7 @@ type RecentSale = {
   id: number;
   sale_number?: number;
   number?: number;
+  document_number?: string | null;
   created_at: string;
   status?: string;
   adjustment_reference?: string | null;
@@ -143,11 +145,28 @@ type RecentChangeNewItem = {
 };
 
 type RecentChange = {
+  id: number;
   sale_id: number;
+  document_number?: string | null;
+  created_at?: string;
   status: string;
   voided_at?: string | null;
+  extra_payment?: number;
+  refund_due?: number;
+  total_credit?: number;
+  total_new?: number;
   items_returned: RecentChangeReturnItem[];
   items_new: RecentChangeNewItem[];
+};
+
+type RecentChangePopoverItem = {
+  changeId: number;
+  changeDoc: string;
+  saleDoc: string;
+  createdAt: string;
+  summary: string;
+  extraPayment: number;
+  refundDue: number;
 };
 
 /* =============== HELPERS =============== */
@@ -382,6 +401,7 @@ export default function DashboardHomePage() {
   const [recentChanges, setRecentChanges] = useState<
     Record<number, RecentChange[]>
   >({});
+  const [changePopoverOpen, setChangePopoverOpen] = useState(false);
   const [recentMode, setRecentMode] = useState<"recent" | "top">("recent");
   const [paymentRange, setPaymentRange] = useState<"day" | "week" | "month">(
     "day"
@@ -403,6 +423,7 @@ export default function DashboardHomePage() {
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
     defaultRolePermissions
   );
+  const changePopoverRef = useRef<HTMLDivElement | null>(null);
   const canLoadRolePermissions = useMemo(() => {
     if (!isDashboardRole(user?.role)) return false;
     const settingsModule = defaultRolePermissions.find(
@@ -414,6 +435,20 @@ export default function DashboardHomePage() {
     if (!settingsAction) return false;
     return Boolean(settingsAction.roles[user.role]);
   }, [user?.role]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        changePopoverRef.current &&
+        !changePopoverRef.current.contains(event.target as Node)
+      ) {
+        setChangePopoverOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
 
   const readDashboardCache = useCallback(<T,>(key: string) => {
     if (typeof window === "undefined") return null;
@@ -1120,6 +1155,63 @@ export default function DashboardHomePage() {
     getPaymentLabel,
   ]);
 
+  const recentChangePopoverItems = useMemo<RecentChangePopoverItem[]>(() => {
+    const items: RecentChangePopoverItem[] = [];
+    const todayKey = todayDateKey;
+
+    recentSales.forEach((sale) => {
+      const saleDoc =
+        sale.document_number?.trim() ||
+        `V-${(sale.sale_number ?? sale.id).toString().padStart(6, "0")}`;
+      const changes = recentChanges[sale.id] ?? [];
+      changes.forEach((change) => {
+        if (change.status !== "confirmed" || change.voided_at) return;
+        const createdAt = change.created_at ?? sale.created_at;
+        const createdKey = getBogotaDateKey(createdAt);
+        if (createdKey !== todayKey) return;
+        const changeDoc =
+          change.document_number?.trim() ||
+          `CB-${change.id.toString().padStart(6, "0")}`;
+        const returnedLabels =
+          (change.items_returned ?? [])
+            .map((item) => item.product_name?.trim())
+            .filter((value): value is string => Boolean(value))
+            .slice(0, 2);
+        const newLabels =
+          (change.items_new ?? [])
+            .map((item) => item.product_name?.trim())
+            .filter((value): value is string => Boolean(value))
+            .slice(0, 2);
+        const summaryParts: string[] = [];
+        if (returnedLabels.length) {
+          summaryParts.push(`Devuelve: ${returnedLabels.join(", ")}`);
+        }
+        if (newLabels.length) {
+          summaryParts.push(`Nuevo: ${newLabels.join(", ")}`);
+        }
+        const extra = Math.max(change.extra_payment ?? 0, 0);
+        const refund = Math.max(change.refund_due ?? 0, 0);
+        items.push({
+          changeId: change.id,
+          changeDoc,
+          saleDoc,
+          createdAt,
+          summary: summaryParts.length
+            ? summaryParts.join(" · ")
+            : "Cambio sin detalle de productos",
+          extraPayment: extra,
+          refundDue: refund,
+        });
+      });
+    });
+
+    return items.sort((a, b) => {
+      const timeDiff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.changeId - a.changeId;
+    });
+  }, [recentSales, recentChanges, todayDateKey]);
+
   const navigateToSaleHistory = useCallback(
     (sale: RecentSale) => {
       const params = new URLSearchParams();
@@ -1347,9 +1439,33 @@ export default function DashboardHomePage() {
           </div>
 
           {/* Cambios hoy */}
-          <div className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-hidden">
-            <div className="text-xs font-medium text-slate-400">
-              Cambios hoy
+          <div
+            ref={changePopoverRef}
+            className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-visible"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-xs font-medium text-slate-400">
+                Cambios hoy
+              </div>
+              <button
+                type="button"
+                aria-label="Ver cambios de hoy"
+                title="Ver cambios de hoy"
+                onClick={() => setChangePopoverOpen((prev) => !prev)}
+                className="mt-[-2px] inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-600 text-slate-300 hover:text-slate-100 hover:border-slate-400 transition"
+              >
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  className="h-4 w-4"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <circle cx="10" cy="10" r="8" />
+                  <path d="M10 9v4" strokeLinecap="round" />
+                  <path d="M10 6.5h.01" strokeLinecap="round" />
+                </svg>
+              </button>
             </div>
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-20 rounded bg-slate-800/70 animate-pulse" />
@@ -1384,6 +1500,58 @@ export default function DashboardHomePage() {
             {showSummarySkeleton && canViewTodayMetrics && (
               <div className="absolute inset-0 z-[5] flex items-center justify-center bg-[var(--surface-2)]">
                 <LoadingSpinner size={34} />
+              </div>
+            )}
+            {changePopoverOpen && (
+              <div className="absolute right-2 top-11 z-30 w-[24rem] max-w-[calc(100vw-2rem)] rounded-xl border border-slate-700 bg-slate-950/95 shadow-2xl">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800">
+                  <div className="text-xs font-semibold text-slate-200 uppercase tracking-wide">
+                    Cambios de hoy
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {recentChangePopoverItems.length} registro
+                    {recentChangePopoverItems.length === 1 ? "" : "s"}
+                  </div>
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {recentChangePopoverItems.length ? (
+                    recentChangePopoverItems.map((item) => (
+                      <div
+                        key={item.changeId}
+                        className="px-3 py-2.5 border-b border-slate-800 last:border-b-0"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-slate-100">
+                              {item.changeDoc}
+                            </div>
+                            <div className="text-[11px] text-slate-400">
+                              Venta {item.saleDoc} ·{" "}
+                              {formatBogotaDate(item.createdAt, {
+                                day: "2-digit",
+                                month: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </div>
+                          </div>
+                          <div className="text-right text-sm font-semibold text-sky-300">
+                            {item.extraPayment > 0
+                              ? `+${formatMoney(item.extraPayment)}`
+                              : `-${formatMoney(item.refundDue)}`}
+                          </div>
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-300 leading-snug">
+                          {item.summary}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-3 py-4 text-sm text-slate-400">
+                      No hay cambios registrados hoy.
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
