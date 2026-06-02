@@ -227,6 +227,7 @@ export default function CambiosPage() {
   const [changeSuccess, setChangeSuccess] = useState<SaleChangeDetail | null>(
     null
   );
+  const lastDrawerChangeId = useRef<number | null>(null);
   const [toast, setToast] = useState<{ id: number; message: string; tone: "info" | "error" } | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
@@ -1142,6 +1143,65 @@ export default function CambiosPage() {
   }, [authHeaders, handleLoadSale, initialSaleId]);
 
   const paymentMismatch = extraPayment > 0 && Math.abs(totalPayments - extraPayment) > 0.01;
+  const cashChangeAmount = useMemo(() => {
+    if (!changeSuccess) return 0;
+    return (changeSuccess.payments ?? []).reduce((sum, payment) => {
+      if ((payment.method ?? "").trim().toLowerCase() !== "cash") return sum;
+      return sum + (Number(payment.amount) || 0);
+    }, 0);
+  }, [changeSuccess]);
+
+  const openDrawerWithQz = useCallback(async () => {
+    if (printerConfig.mode !== "qz-tray") return false;
+    if (!printerConfig.printerName.trim()) return false;
+    if (!qzClient) return false;
+    try {
+      configureQzSecurity();
+      if (!qzClient.websocket.isActive()) {
+        await qzClient.websocket.connect();
+      }
+      const cfg = qzClient.configs.create(printerConfig.printerName, {
+        altPrinting: true,
+      });
+      const drawerPulse = "\x1B\x70\x00\x19\xFA";
+      await qzClient.print(cfg, [
+        { type: "raw", format: "command", data: drawerPulse },
+      ]);
+      return true;
+    } catch (err) {
+      console.error("No se pudo abrir el cajón para el cambio", err);
+      return false;
+    }
+  }, [
+    configureQzSecurity,
+    printerConfig.mode,
+    printerConfig.printerName,
+    qzClient,
+  ]);
+
+  useEffect(() => {
+    if (!changeSuccess) return;
+    if (lastDrawerChangeId.current === changeSuccess.id) return;
+    if (!cashChangeAmount) return;
+    if (!printerConfig.autoOpenDrawer) return;
+    if (printerConfig.mode !== "qz-tray") return;
+
+    const run = async () => {
+      try {
+        await openDrawerWithQz();
+      } finally {
+        lastDrawerChangeId.current = changeSuccess.id;
+      }
+    };
+
+    void run();
+  }, [
+    cashChangeAmount,
+    changeSuccess,
+    openDrawerWithQz,
+    printerConfig.autoOpenDrawer,
+    printerConfig.mode,
+  ]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 px-6 py-6">
