@@ -170,12 +170,14 @@ type RecentChangePopoverItem = {
   saleDoc: string;
   createdAt: string;
   returnedItems: {
+    sku: string;
     name: string;
     quantity: number;
     unitPrice: number;
     total: number;
   }[];
   newItems: {
+    sku: string;
     name: string;
     quantity: number;
     unitPrice: number;
@@ -1206,6 +1208,7 @@ export default function DashboardHomePage() {
         `Venta #${change.sale_id.toString()}`;
       const returnedLabels =
         (change.items_returned ?? []).map((item) => ({
+          sku: item.product_sku?.trim() || "",
           name: item.product_name?.trim() || "Producto",
           quantity: Number(item.quantity ?? 0),
           unitPrice: Number(item.unit_price_net ?? item.unit_price_original ?? 0),
@@ -1213,6 +1216,7 @@ export default function DashboardHomePage() {
         }));
       const newLabels =
         (change.items_new ?? []).map((item) => ({
+          sku: item.product_sku?.trim() || "",
           name: item.product_name?.trim() || "Producto",
           quantity: Number(item.quantity ?? 0),
           unitPrice: Number(item.unit_price ?? 0),
@@ -1580,13 +1584,16 @@ export default function DashboardHomePage() {
                                   className="flex items-start justify-between gap-3"
                                 >
                                   <span className="min-w-0 flex-1">
+                                    <span className="font-mono text-slate-500">
+                                      {line.sku ? `${line.sku} · ` : ""}
+                                    </span>
                                     {line.name} x{line.quantity}{" "}
                                     <span className="text-slate-500">
                                       @ {formatMoney(line.unitPrice)}
                                     </span>
                                   </span>
                                   <span className="font-semibold text-slate-200">
-                                    {formatMoney(line.total)}
+                                    -{formatMoney(line.total)}
                                   </span>
                                 </div>
                               ))}
@@ -1603,6 +1610,9 @@ export default function DashboardHomePage() {
                                   className="flex items-start justify-between gap-3"
                                 >
                                   <span className="min-w-0 flex-1">
+                                    <span className="font-mono text-slate-500">
+                                      {line.sku ? `${line.sku} · ` : ""}
+                                    </span>
                                     {line.name} x{line.quantity}{" "}
                                     <span className="text-slate-500">
                                       @ {formatMoney(line.unitPrice)}
