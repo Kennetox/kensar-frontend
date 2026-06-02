@@ -327,6 +327,7 @@ type ReceivingLotRecord = {
   support_file_size?: number | null;
   created_at: string;
   closed_at?: string | null;
+  closed_by_user_name?: string | null;
 };
 
 type ReceivingLotItemRecord = {
@@ -2164,7 +2165,7 @@ export default function DocumentsExplorer({
         setLoadingReceivingDetail(false);
         if ("receivingDetail" in result && result.receivingDetail) {
           setSelectedReceivingDetail(result.receivingDetail);
-        } else if (result.doc.type !== "recepcion") {
+        } else {
           setSelectedReceivingDetail(null);
         }
         setError(null);
