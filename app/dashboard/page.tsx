@@ -152,6 +152,7 @@ type RecentChangeNewItem = {
 type RecentChange = {
   id: number;
   sale_id: number;
+  sale_document_number?: string | null;
   document_number?: string | null;
   created_at?: string;
   status: string;
@@ -1204,6 +1205,7 @@ export default function DashboardHomePage() {
         change.document_number?.trim() ||
         `CB-${change.id.toString().padStart(6, "0")}`;
       const saleDoc =
+        change.sale_document_number?.trim() ||
         saleDocById.get(change.sale_id) ||
         `Venta #${change.sale_id.toString()}`;
       const returnedLabels =
