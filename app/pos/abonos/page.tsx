@@ -790,6 +790,54 @@ export default function AbonosPage() {
     }
   }
 
+  const printTicketWithQz = useCallback(
+    async (html: string): Promise<boolean> => {
+      if (printerConfig.mode !== "qz-tray") return false;
+      if (!printerConfig.printerName.trim()) {
+        setLookupError("Selecciona la impresora en Configurar impresora.");
+        return false;
+      }
+      if (!qzClient) {
+        setLookupError("No detectamos QZ Tray. Ábrelo y autoriza este dominio.");
+        return false;
+      }
+      if (!configureQzSecurity()) {
+        setLookupError("No se pudo configurar QZ. Verifica tu sesión.");
+        return false;
+      }
+      try {
+        if (!qzClient.websocket.isActive()) {
+          await qzClient.websocket.connect();
+        }
+        const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+        const cfg = qzClient.configs.create(printerConfig.printerName, {
+          altPrinting: true,
+          units: "mm",
+          size: { width: sizeWidth },
+          margins: { top: 0, right: 0, bottom: 0, left: 0 },
+        });
+        await qzClient.print(cfg, [{ type: "html", format: "plain", data: html }]);
+        setLookupError(null);
+        return true;
+      } catch (err) {
+        console.error("No se pudo imprimir el ticket de abono con QZ Tray", err);
+        setLookupError(
+          err instanceof Error
+            ? `No se pudo imprimir con QZ Tray: ${err.message}`
+            : "No se pudo imprimir con QZ Tray."
+        );
+        return false;
+      }
+    },
+    [
+      configureQzSecurity,
+      printerConfig.mode,
+      printerConfig.printerName,
+      printerConfig.width,
+      qzClient,
+    ]
+  );
+
   function buildTicketHtml(order: SeparatedOrder): string | null {
     if (!saleDetail) return null;
     const computedItems = (saleDetail.items ?? []).map((item) => {
@@ -888,7 +936,7 @@ export default function AbonosPage() {
     });
   }
 
-  function handlePrintTicket() {
+  async function handlePrintTicket() {
     if (!result) return;
     if (!saleDetail) {
       window.alert(
@@ -901,6 +949,8 @@ export default function AbonosPage() {
       window.alert("No se pudo preparar el ticket para impresión.");
       return;
     }
+    const printedWithQz = await printTicketWithQz(html);
+    if (printedWithQz) return;
     openTicketWindow(html);
   }
 
@@ -1322,7 +1372,7 @@ export default function AbonosPage() {
               <button
                 type="button"
                 onClick={() => {
-                  handlePrintTicket();
+                  void handlePrintTicket();
                   setSuccessModalOpen(false);
                 }}
                 className="px-6 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-base font-semibold"
