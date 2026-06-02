@@ -1478,7 +1478,10 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
         <div class="row">
           <span>${escapeHtml(entry.stationLabel)} (${Math.max(0, Number(entry.salesCount || 0))})</span>
           <span>${formatMoney(
-            Number(entry.netAmountWithoutSeparatedPending ?? entry.netAmount ?? 0)
+            Math.max(
+              Number(entry.netAmount ?? 0) - Number(entry.pendingTotal ?? 0),
+              0
+            )
           )}</span>
         </div>`
           )

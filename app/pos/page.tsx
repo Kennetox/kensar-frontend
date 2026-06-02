@@ -123,7 +123,9 @@ type ClosureStationContribution = {
   refunds: number;
   changeExtra: number;
   changeRefund: number;
+  pending: number;
   net: number;
+  netWithoutSeparatedPending: number;
 };
 
 type PosStationNotice = {
@@ -232,7 +234,9 @@ type PosClosurePreviewResult = {
     total_refunds?: number | null;
     change_extra_total?: number | null;
     change_refund_total?: number | null;
+    pending_total?: number | null;
     net_amount?: number | null;
+    net_amount_without_separated_pending?: number | null;
   }[] | null;
 };
 
@@ -2978,6 +2982,8 @@ const matchesStationLabel = useCallback(
           refunds: number;
           changeExtra: number;
           changeRefund: number;
+          pending: number;
+          netWithoutSeparatedPending: number;
         }
       >();
       const ensureStationRow = (stationIdRaw: string | null) => {
@@ -2996,6 +3002,8 @@ const matchesStationLabel = useCallback(
             refunds: 0,
             changeExtra: 0,
             changeRefund: 0,
+            pending: 0,
+            netWithoutSeparatedPending: 0,
           });
         }
         return stationBreakdownMap.get(stationId)!;
@@ -3500,8 +3508,15 @@ const matchesStationLabel = useCallback(
             refunds: Number(row.refunds.toFixed(2)),
             changeExtra: Number(row.changeExtra.toFixed(2)),
             changeRefund: Number(row.changeRefund.toFixed(2)),
+            pending: Number((row.pending || 0).toFixed(2)),
             net: Number(
               (row.gross - row.refunds + row.changeExtra - row.changeRefund).toFixed(2)
+            ),
+            netWithoutSeparatedPending: Number(
+              (
+                row.netWithoutSeparatedPending ??
+                row.gross - row.refunds + row.changeExtra - row.changeRefund
+              ).toFixed(2)
             ),
           }))
           .filter(
@@ -3687,7 +3702,18 @@ const matchesStationLabel = useCallback(
                     refunds: Number((row.total_refunds ?? 0).toFixed(2)),
                     changeExtra: Number((row.change_extra_total ?? 0).toFixed(2)),
                     changeRefund: Number((row.change_refund_total ?? 0).toFixed(2)),
+                    pending: Number((row.pending_total ?? 0).toFixed(2)),
                     net: Number((row.net_amount ?? 0).toFixed(2)),
+                    netWithoutSeparatedPending: Number(
+                      (
+                        row.net_amount_without_separated_pending ??
+                        Math.max(
+                          Number(row.net_amount ?? 0) -
+                            Number(row.pending_total ?? 0),
+                          0
+                        )
+                      ).toFixed(2)
+                    ),
                   };
                 })
                 .filter(
@@ -4373,7 +4399,11 @@ const matchesStationLabel = useCallback(
           pendingTotal: Number(row.pending_total ?? 0),
           netAmount: Number(row.net_amount ?? 0),
           netAmountWithoutSeparatedPending: Number(
-            row.net_amount_without_separated_pending ?? row.net_amount ?? 0
+            row.net_amount_without_separated_pending ??
+              Math.max(
+                Number(row.net_amount ?? 0) - Number(row.pending_total ?? 0),
+                0
+              )
           ),
         })) ?? [];
       const hasAuxiliaryStationBreakdown = stationBreakdown.some(
@@ -7801,7 +7831,9 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                           <div className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1">
                             <p className="text-slate-400">Neto estación</p>
                             <p className="font-mono text-emerald-300">
-                              {formatMoney(stationRow.net)}
+                              {formatMoney(
+                                Math.max(stationRow.net - stationRow.pending, 0)
+                              )}
                             </p>
                           </div>
                         </div>
