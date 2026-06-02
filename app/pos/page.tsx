@@ -7832,7 +7832,14 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                             <p className="text-slate-400">Neto estación</p>
                             <p className="font-mono text-emerald-300">
                               {formatMoney(
-                                Math.max(stationRow.net - stationRow.pending, 0)
+                                Math.max(
+                                  stationRow.net -
+                                    (stationRow.pending ||
+                                      (closureStationBreakdown.length === 1
+                                        ? closureSeparatedInfo?.pendingTotal ?? 0
+                                        : 0)),
+                                  0
+                                )
                               )}
                             </p>
                           </div>
