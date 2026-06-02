@@ -165,6 +165,32 @@ type RecentChange = {
   items_new: RecentChangeNewItem[];
 };
 
+type ReturnRecord = {
+  id: number;
+  document_number?: string;
+  created_at?: string;
+  sale_document_number?: string | null;
+  sale_number?: number;
+  sale_id?: number;
+  status?: string;
+  voided_at?: string | null;
+  total_refund?: number;
+  notes?: string | null;
+  items?: {
+    sale_item_id: number;
+    quantity: number;
+    product_name?: string;
+    name?: string;
+    product_sku?: string | null;
+    unit_price_net?: number;
+    total_refund?: number;
+  }[];
+  payments?: {
+    method: string;
+    amount: number;
+  }[];
+};
+
 type RecentChangePopoverItem = {
   changeId: number;
   changeDoc: string;
@@ -186,6 +212,25 @@ type RecentChangePopoverItem = {
   }[];
   extraPayment: number;
   refundDue: number;
+};
+
+type RecentReturnPopoverItem = {
+  returnId: number;
+  returnDoc: string;
+  saleDoc: string;
+  createdAt: string;
+  totalRefund: number;
+  items: {
+    sku: string;
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }[];
+  payments: {
+    method: string;
+    amount: number;
+  }[];
 };
 
 /* =============== HELPERS =============== */
@@ -423,7 +468,11 @@ export default function DashboardHomePage() {
   const [recentChangeFeed, setRecentChangeFeed] = useState<RecentChange[]>(
     []
   );
-  const [changePopoverOpen, setChangePopoverOpen] = useState(false);
+  const [recentReturnFeed, setRecentReturnFeed] = useState<ReturnRecord[]>([]);
+  const [detailPopoverOpen, setDetailPopoverOpen] = useState(false);
+  const [detailPopoverMode, setDetailPopoverMode] = useState<
+    "changes" | "returns"
+  >("changes");
   const [recentMode, setRecentMode] = useState<"recent" | "top">("recent");
   const [paymentRange, setPaymentRange] = useState<"day" | "week" | "month">(
     "day"
@@ -445,7 +494,7 @@ export default function DashboardHomePage() {
   const [roleModules, setRoleModules] = useState<RolePermissionModule[]>(
     defaultRolePermissions
   );
-  const changePopoverRef = useRef<HTMLDivElement | null>(null);
+  const detailPopoverRef = useRef<HTMLDivElement | null>(null);
   const canLoadRolePermissions = useMemo(() => {
     if (!isDashboardRole(user?.role)) return false;
     const settingsModule = defaultRolePermissions.find(
@@ -462,10 +511,10 @@ export default function DashboardHomePage() {
     if (typeof document === "undefined") return;
     const handlePointerDown = (event: MouseEvent) => {
       if (
-        changePopoverRef.current &&
-        !changePopoverRef.current.contains(event.target as Node)
+        detailPopoverRef.current &&
+        !detailPopoverRef.current.contains(event.target as Node)
       ) {
-        setChangePopoverOpen(false);
+        setDetailPopoverOpen(false);
       }
     };
     document.addEventListener("mousedown", handlePointerDown);
@@ -606,6 +655,7 @@ export default function DashboardHomePage() {
     if (!canViewOperationalSales) {
       setRecentSales([]);
       setRecentChanges({});
+      setRecentReturnFeed([]);
       setRecentAdjustments({});
       setRecentError(null);
       setRecentLoading(false);
@@ -621,24 +671,30 @@ export default function DashboardHomePage() {
           recentSales: RecentSale[];
           recentChanges: Record<number, RecentChange[]>;
           recentChangeFeed: RecentChange[];
+          recentReturnFeed: ReturnRecord[];
           recentAdjustments: Record<number, DocumentAdjustmentRecord[]>;
         }>("recent-sales");
         if (cached) {
           setRecentSales(cached.recentSales);
           setRecentChanges(cached.recentChanges);
           setRecentChangeFeed(cached.recentChangeFeed ?? []);
+          setRecentReturnFeed(cached.recentReturnFeed ?? []);
           setRecentAdjustments(cached.recentAdjustments);
           return;
         }
       }
 
       const apiBase = getApiBase();
-      const [salesResult, changesResult] = await Promise.allSettled([
+      const [salesResult, changesResult, returnsResult] = await Promise.allSettled([
         fetch(`${apiBase}/pos/sales?skip=0&limit=50`, {
           headers: authHeaders,
           credentials: "include",
         }),
         fetch(`${apiBase}/pos/changes?skip=0&limit=200`, {
+          headers: authHeaders,
+          credentials: "include",
+        }),
+        fetch(`${apiBase}/pos/returns?skip=0&limit=200`, {
           headers: authHeaders,
           credentials: "include",
         }),
@@ -676,6 +732,13 @@ export default function DashboardHomePage() {
         setRecentChanges({});
         setRecentChangeFeed([]);
       }
+      let returnsFeed: ReturnRecord[] = [];
+      if (returnsResult.status === "fulfilled" && returnsResult.value.ok) {
+        returnsFeed = (await returnsResult.value.json()) as ReturnRecord[];
+        setRecentReturnFeed(returnsFeed);
+      } else {
+        setRecentReturnFeed([]);
+      }
       let adjustmentsMap: Record<number, DocumentAdjustmentRecord[]> = {};
       if (sales.length) {
         const ids = sales.map((sale) => sale.id);
@@ -706,6 +769,7 @@ export default function DashboardHomePage() {
         recentSales: sales,
         recentChanges: changesMap,
         recentChangeFeed: changesFeed,
+        recentReturnFeed: returnsFeed,
         recentAdjustments: adjustmentsMap,
       });
     } catch (err) {
@@ -1245,6 +1309,57 @@ export default function DashboardHomePage() {
     });
   }, [recentSales, recentChangeFeed, todayDateKey, dashboardNow]);
 
+  const recentReturnPopoverItems = useMemo<RecentReturnPopoverItem[]>(() => {
+    const items: RecentReturnPopoverItem[] = [];
+    const todayKey = todayDateKey;
+    const saleDocById = new Map<number, string>();
+    recentSales.forEach((sale) => {
+      saleDocById.set(
+        sale.id,
+        sale.document_number?.trim() ||
+          `V-${(sale.sale_number ?? sale.id).toString().padStart(6, "0")}`
+      );
+    });
+
+    recentReturnFeed.forEach((ret) => {
+      if (ret.status !== "confirmed" || ret.voided_at) return;
+      const createdAt = ret.created_at ?? dashboardNow.toISOString();
+      const createdKey = getBogotaDateKey(createdAt);
+      if (createdKey !== todayKey) return;
+      const returnDoc =
+        ret.document_number?.trim() ||
+        `DV-${ret.id.toString().padStart(6, "0")}`;
+      const saleDoc =
+        ret.sale_document_number?.trim() ||
+        saleDocById.get(ret.sale_id ?? 0) ||
+        `Venta #${(ret.sale_id ?? 0).toString()}`;
+      items.push({
+        returnId: ret.id,
+        returnDoc,
+        saleDoc,
+        createdAt,
+        totalRefund: Number(ret.total_refund ?? 0),
+        items: (ret.items ?? []).map((item) => ({
+          sku: item.product_sku?.trim() || "",
+          name: item.product_name?.trim() || item.name?.trim() || "Producto",
+          quantity: Number(item.quantity ?? 0),
+          unitPrice: Number(item.unit_price_net ?? 0),
+          total: Number(item.total_refund ?? 0),
+        })),
+        payments: (ret.payments ?? []).map((payment) => ({
+          method: payment.method,
+          amount: Number(payment.amount ?? 0),
+        })),
+      });
+    });
+
+    return items.sort((a, b) => {
+      const timeDiff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.returnId - a.returnId;
+    });
+  }, [recentSales, recentReturnFeed, todayDateKey, dashboardNow]);
+
   const navigateToSaleHistory = useCallback(
     (sale: RecentSale) => {
       const params = new URLSearchParams();
@@ -1473,8 +1588,22 @@ export default function DashboardHomePage() {
 
           {/* Cambios hoy */}
           <div
-            ref={changePopoverRef}
-            className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-visible"
+            ref={detailPopoverRef}
+            role="button"
+            tabIndex={0}
+            aria-label="Ver cambios o devoluciones de hoy"
+            onClick={() => {
+              setDetailPopoverMode("returns");
+              setDetailPopoverOpen(true);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setDetailPopoverMode("returns");
+                setDetailPopoverOpen(true);
+              }
+            }}
+            className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-visible cursor-pointer"
           >
             <div className="flex items-start justify-between gap-2">
               <div className="text-xs font-medium text-slate-400">
@@ -1484,7 +1613,11 @@ export default function DashboardHomePage() {
                 type="button"
                 aria-label="Ver cambios de hoy"
                 title="Ver cambios de hoy"
-                onClick={() => setChangePopoverOpen((prev) => !prev)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setDetailPopoverMode("changes");
+                  setDetailPopoverOpen((prev) => !prev);
+                }}
                 className="mt-[-2px] inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-600 text-slate-300 hover:text-slate-100 hover:border-slate-400 transition"
               >
                 <svg
@@ -1535,19 +1668,140 @@ export default function DashboardHomePage() {
                 <LoadingSpinner size={34} />
               </div>
             )}
-            {changePopoverOpen && (
+            {detailPopoverOpen && (
               <div className="absolute right-2 top-11 z-30 w-[24rem] max-w-[calc(100vw-2rem)] rounded-xl border border-slate-700 bg-slate-950/95 shadow-2xl">
-                <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800">
+                <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-800">
                   <div className="text-xs font-semibold text-slate-200 uppercase tracking-wide">
-                    Cambios de hoy
+                    {detailPopoverMode === "returns"
+                      ? "Devoluciones de hoy"
+                      : "Cambios de hoy"}
                   </div>
-                  <div className="text-[11px] text-slate-400">
-                    {recentChangePopoverItems.length} registro
-                    {recentChangePopoverItems.length === 1 ? "" : "s"}
+                  <div className="flex items-center gap-2">
+                    <div className="text-[11px] text-slate-400">
+                      {detailPopoverMode === "returns"
+                        ? recentReturnPopoverItems.length
+                        : recentChangePopoverItems.length}{" "}
+                      registro
+                      {(detailPopoverMode === "returns"
+                        ? recentReturnPopoverItems.length
+                        : recentChangePopoverItems.length) === 1
+                        ? ""
+                        : "s"}
+                    </div>
+                    <div className="flex overflow-hidden rounded-full border border-slate-700 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setDetailPopoverMode("changes")}
+                        className={`px-2.5 py-1 transition ${
+                          detailPopoverMode === "changes"
+                            ? "bg-slate-100 text-slate-900"
+                            : "bg-transparent text-slate-300 hover:text-slate-100"
+                        }`}
+                      >
+                        Cambios
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDetailPopoverMode("returns")}
+                        className={`px-2.5 py-1 transition ${
+                          detailPopoverMode === "returns"
+                            ? "bg-slate-100 text-slate-900"
+                            : "bg-transparent text-slate-300 hover:text-slate-100"
+                        }`}
+                      >
+                        Devoluciones
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <div className="max-h-72 overflow-y-auto">
-                  {recentChangePopoverItems.length ? (
+                  {detailPopoverMode === "returns" ? (
+                    recentReturnPopoverItems.length ? (
+                      recentReturnPopoverItems.map((item) => (
+                        <div
+                          key={item.returnId}
+                          className="px-3 py-2.5 border-b border-slate-800 last:border-b-0"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-slate-100">
+                                {item.returnDoc}
+                              </div>
+                              <div className="text-[11px] text-slate-400">
+                                Venta {item.saleDoc} ·{" "}
+                                {formatBogotaDate(item.createdAt, {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </div>
+                            </div>
+                            <div className="text-right text-sm font-semibold text-rose-300">
+                              -{formatMoney(item.totalRefund)}
+                            </div>
+                          </div>
+                          <div className="mt-2 space-y-2 text-[11px] text-slate-300">
+                            {item.items.length > 0 && (
+                              <div className="space-y-1">
+                                <div className="font-semibold text-slate-400 uppercase tracking-wide">
+                                  Productos devueltos
+                                </div>
+                                {item.items.map((line) => (
+                                  <div
+                                    key={`${item.returnId}-item-${line.name}-${line.quantity}-${line.total}`}
+                                    className="flex items-start justify-between gap-3"
+                                  >
+                                    <span className="min-w-0 flex-1">
+                                      <span className="font-mono text-slate-500">
+                                        {line.sku ? `${line.sku} · ` : ""}
+                                      </span>
+                                      {line.name} x{line.quantity}{" "}
+                                      <span className="text-slate-500">
+                                        @ {formatMoney(line.unitPrice)}
+                                      </span>
+                                    </span>
+                                    <span className="font-semibold text-slate-200">
+                                      -{formatMoney(line.total)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {item.payments.length > 0 && (
+                              <div className="space-y-1">
+                                <div className="font-semibold text-slate-400 uppercase tracking-wide">
+                                  Reembolsos
+                                </div>
+                                {item.payments.map((payment, index) => (
+                                  <div
+                                    key={`${item.returnId}-payment-${payment.method}-${index}`}
+                                    className="flex items-start justify-between gap-3"
+                                  >
+                                    <span className="min-w-0 flex-1">
+                                      {payment.method}
+                                    </span>
+                                    <span className="font-semibold text-slate-200">
+                                      -{formatMoney(payment.amount)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {!item.items.length && !item.payments.length && (
+                              <div className="text-slate-400">
+                                Devolución sin detalle de productos
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-3 py-4 text-sm text-slate-400">
+                        No hay devoluciones registradas hoy.
+                      </div>
+                    )
+                  ) : recentChangePopoverItems.length ? (
                     recentChangePopoverItems.map((item) => (
                       <div
                         key={item.changeId}
@@ -1568,12 +1822,12 @@ export default function DashboardHomePage() {
                               })}
                             </div>
                           </div>
-                        <div className="text-right text-sm font-semibold text-sky-300">
-                          {item.extraPayment > 0
-                            ? `+${formatMoney(item.extraPayment)}`
-                            : `-${formatMoney(item.refundDue)}`}
+                          <div className="text-right text-sm font-semibold text-sky-300">
+                            {item.extraPayment > 0
+                              ? `+${formatMoney(item.extraPayment)}`
+                              : `-${formatMoney(item.refundDue)}`}
+                          </div>
                         </div>
-                      </div>
                         <div className="mt-2 space-y-2 text-[11px] text-slate-300">
                           {item.returnedItems.length > 0 && (
                             <div className="space-y-1">
