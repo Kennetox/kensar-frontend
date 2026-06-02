@@ -30,7 +30,7 @@ import {
 } from "@/lib/time/bogota";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
 
-const DASHBOARD_CACHE_PREFIX = "kensar_dashboard_cache:";
+const DASHBOARD_CACHE_PREFIX = "kensar_dashboard_cache:v2:";
 const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
 
 type DashboardCacheEntry<T> = {
