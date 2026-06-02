@@ -10,6 +10,7 @@ import React, {
   FormEvent,
   useCallback,
   useRef,
+  type PointerEvent as ReactPointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 
@@ -640,6 +641,8 @@ const GRID_ZOOM_MIN = 0.8;
 const GRID_ZOOM_MAX = 1.25;
 const GRID_ZOOM_STEP = 0.05;
 const GRID_ZOOM_DEFAULT = 1;
+const GRID_SWIPE_MIN_DISTANCE = 56;
+const GRID_SWIPE_AXIS_LOCK_PX = 12;
 const FREE_SALE_REASON_MIN_LENGTH = 3;
 const FREE_SALE_NAME_MATCH = "venta libre";
 const REQUIRED_REASON_SERVICE_SKUS = new Set(["1087", "138"]);
@@ -1661,6 +1664,16 @@ const matchesStationLabel = useCallback(
   const discountInputRef = useRef<HTMLInputElement | null>(null);
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const gridViewportRef = useRef<HTMLDivElement | null>(null);
+  const gridSwipeGestureRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    swiping: boolean;
+  } | null>(null);
+  const suppressGridClickRef = useRef(false);
   const [cartPanelWidthPercent, setCartPanelWidthPercent] = useState<number>(CART_PANEL_DEFAULT_PERCENT);
   const [isResizingCartPanel, setIsResizingCartPanel] = useState(false);
   const [gridWidth, setGridWidth] = useState(0);
@@ -5197,6 +5210,128 @@ const matchesStationLabel = useCallback(
     setCurrentPage(1);
   }, [search, currentPath.length]);
 
+  useEffect(() => {
+    const viewport = gridViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollTo({ top: 0 });
+  }, [safePage, currentPath.length, search]);
+
+  const handleGridPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+      if (totalPages <= 1) return;
+      if (event.button !== 0) return;
+      gridSwipeGestureRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        swiping: false,
+      };
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Some browsers may reject capture on detached or unsupported nodes.
+      }
+    },
+    [totalPages]
+  );
+
+  const handleGridPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const gesture = gridSwipeGestureRef.current;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      gesture.lastX = event.clientX;
+      gesture.lastY = event.clientY;
+
+      const deltaX = event.clientX - gesture.startX;
+      const deltaY = event.clientY - gesture.startY;
+      const absDeltaX = Math.abs(deltaX);
+      const absDeltaY = Math.abs(deltaY);
+
+      if (!gesture.swiping) {
+        if (
+          absDeltaX >= GRID_SWIPE_AXIS_LOCK_PX &&
+          absDeltaX > absDeltaY + 6
+        ) {
+          gesture.swiping = true;
+        } else {
+          return;
+        }
+      }
+
+      event.preventDefault();
+    },
+    []
+  );
+
+  const finishGridSwipe = useCallback(
+    (pointerId: number) => {
+      const gesture = gridSwipeGestureRef.current;
+      if (!gesture || gesture.pointerId !== pointerId) return;
+
+      const deltaX = gesture.lastX - gesture.startX;
+      const deltaY = gesture.lastY - gesture.startY;
+      const absDeltaX = Math.abs(deltaX);
+      const absDeltaY = Math.abs(deltaY);
+
+      if (
+        gesture.swiping &&
+        absDeltaX >= GRID_SWIPE_MIN_DISTANCE &&
+        absDeltaX > absDeltaY
+      ) {
+        suppressGridClickRef.current = true;
+        window.setTimeout(() => {
+          suppressGridClickRef.current = false;
+        }, 0);
+        if (deltaX < 0 && safePage < totalPages) {
+          setCurrentPage((page) => Math.min(totalPages, page + 1));
+        } else if (deltaX > 0 && safePage > 1) {
+          setCurrentPage((page) => Math.max(1, page - 1));
+        }
+      }
+
+      gridSwipeGestureRef.current = null;
+    },
+    [safePage, totalPages]
+  );
+
+  const handleGridPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      finishGridSwipe(event.pointerId);
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Ignore if pointer capture was never granted.
+      }
+    },
+    [finishGridSwipe]
+  );
+
+  const handleGridPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      gridSwipeGestureRef.current = null;
+      suppressGridClickRef.current = false;
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Ignore if pointer capture was never granted.
+      }
+    },
+    []
+  );
+
+  const handleGridClickCapture = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!suppressGridClickRef.current) return;
+      suppressGridClickRef.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    []
+  );
+
   // --------- Carrito & totales ---------
   function calcLineTotal(item: CartItem): number {
   const gross = item.quantity * item.unitPrice;
@@ -7063,7 +7198,16 @@ const matchesStationLabel = useCallback(
           {/* Grid + paginación */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Grid */}
-            <div className="flex-1 overflow-auto px-3 py-3">
+            <div
+              ref={gridViewportRef}
+              className="flex-1 overflow-auto px-3 py-3"
+              style={{ touchAction: "pan-y", overscrollBehavior: "contain" }}
+              onPointerDown={handleGridPointerDown}
+              onPointerMove={handleGridPointerMove}
+              onPointerUp={handleGridPointerUp}
+              onPointerCancel={handleGridPointerCancel}
+              onClickCapture={handleGridClickCapture}
+            >
               <div
                 ref={gridRef}
                 className="grid w-full gap-4"
