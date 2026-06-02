@@ -401,6 +401,9 @@ export default function DashboardHomePage() {
   const [recentChanges, setRecentChanges] = useState<
     Record<number, RecentChange[]>
   >({});
+  const [recentChangeFeed, setRecentChangeFeed] = useState<RecentChange[]>(
+    []
+  );
   const [changePopoverOpen, setChangePopoverOpen] = useState(false);
   const [recentMode, setRecentMode] = useState<"recent" | "top">("recent");
   const [paymentRange, setPaymentRange] = useState<"day" | "week" | "month">(
@@ -598,11 +601,13 @@ export default function DashboardHomePage() {
         const cached = readDashboardCache<{
           recentSales: RecentSale[];
           recentChanges: Record<number, RecentChange[]>;
+          recentChangeFeed: RecentChange[];
           recentAdjustments: Record<number, DocumentAdjustmentRecord[]>;
         }>("recent-sales");
         if (cached) {
           setRecentSales(cached.recentSales);
           setRecentChanges(cached.recentChanges);
+          setRecentChangeFeed(cached.recentChangeFeed ?? []);
           setRecentAdjustments(cached.recentAdjustments);
           return;
         }
@@ -629,8 +634,10 @@ export default function DashboardHomePage() {
       const sales: RecentSale[] = await res.json();
       setRecentSales(sales);
       let changesMap: Record<number, RecentChange[]> = {};
+      let changesFeed: RecentChange[] = [];
       if (changesResult.status === "fulfilled" && changesResult.value.ok) {
         const changes: RecentChange[] = await changesResult.value.json();
+        changesFeed = changes;
         if (sales.length) {
           const ids = new Set(sales.map((sale) => sale.id));
           const map: Record<number, RecentChange[]> = {};
@@ -645,8 +652,10 @@ export default function DashboardHomePage() {
         } else {
           setRecentChanges({});
         }
+        setRecentChangeFeed(changes);
       } else {
         setRecentChanges({});
+        setRecentChangeFeed([]);
       }
       let adjustmentsMap: Record<number, DocumentAdjustmentRecord[]> = {};
       if (sales.length) {
@@ -677,6 +686,7 @@ export default function DashboardHomePage() {
       writeDashboardCache("recent-sales", {
         recentSales: sales,
         recentChanges: changesMap,
+        recentChangeFeed: changesFeed,
         recentAdjustments: adjustmentsMap,
       });
     } catch (err) {
@@ -1158,50 +1168,55 @@ export default function DashboardHomePage() {
   const recentChangePopoverItems = useMemo<RecentChangePopoverItem[]>(() => {
     const items: RecentChangePopoverItem[] = [];
     const todayKey = todayDateKey;
-
+    const saleDocById = new Map<number, string>();
     recentSales.forEach((sale) => {
-      const saleDoc =
+      saleDocById.set(
+        sale.id,
         sale.document_number?.trim() ||
-        `V-${(sale.sale_number ?? sale.id).toString().padStart(6, "0")}`;
-      const changes = recentChanges[sale.id] ?? [];
-      changes.forEach((change) => {
-        if (change.status !== "confirmed" || change.voided_at) return;
-        const createdAt = change.created_at ?? sale.created_at;
-        const createdKey = getBogotaDateKey(createdAt);
-        if (createdKey !== todayKey) return;
-        const changeDoc =
-          change.document_number?.trim() ||
-          `CB-${change.id.toString().padStart(6, "0")}`;
-        const returnedLabels =
-          (change.items_returned ?? [])
-            .map((item) => item.product_name?.trim())
-            .filter((value): value is string => Boolean(value))
-            .slice(0, 2);
-        const newLabels =
-          (change.items_new ?? [])
-            .map((item) => item.product_name?.trim())
-            .filter((value): value is string => Boolean(value))
-            .slice(0, 2);
-        const summaryParts: string[] = [];
-        if (returnedLabels.length) {
-          summaryParts.push(`Devuelve: ${returnedLabels.join(", ")}`);
-        }
-        if (newLabels.length) {
-          summaryParts.push(`Nuevo: ${newLabels.join(", ")}`);
-        }
-        const extra = Math.max(change.extra_payment ?? 0, 0);
-        const refund = Math.max(change.refund_due ?? 0, 0);
-        items.push({
-          changeId: change.id,
-          changeDoc,
-          saleDoc,
-          createdAt,
-          summary: summaryParts.length
-            ? summaryParts.join(" · ")
-            : "Cambio sin detalle de productos",
-          extraPayment: extra,
-          refundDue: refund,
-        });
+          `V-${(sale.sale_number ?? sale.id).toString().padStart(6, "0")}`
+      );
+    });
+
+    recentChangeFeed.forEach((change) => {
+      if (change.status !== "confirmed" || change.voided_at) return;
+      const createdAt = change.created_at ?? dashboardNow.toISOString();
+      const createdKey = getBogotaDateKey(createdAt);
+      if (createdKey !== todayKey) return;
+      const changeDoc =
+        change.document_number?.trim() ||
+        `CB-${change.id.toString().padStart(6, "0")}`;
+      const saleDoc =
+        saleDocById.get(change.sale_id) ||
+        `Venta #${change.sale_id.toString()}`;
+      const returnedLabels =
+        (change.items_returned ?? [])
+          .map((item) => item.product_name?.trim())
+          .filter((value): value is string => Boolean(value))
+          .slice(0, 2);
+      const newLabels =
+        (change.items_new ?? [])
+          .map((item) => item.product_name?.trim())
+          .filter((value): value is string => Boolean(value))
+          .slice(0, 2);
+      const summaryParts: string[] = [];
+      if (returnedLabels.length) {
+        summaryParts.push(`Devuelve: ${returnedLabels.join(", ")}`);
+      }
+      if (newLabels.length) {
+        summaryParts.push(`Nuevo: ${newLabels.join(", ")}`);
+      }
+      const extra = Math.max(change.extra_payment ?? 0, 0);
+      const refund = Math.max(change.refund_due ?? 0, 0);
+      items.push({
+        changeId: change.id,
+        changeDoc,
+        saleDoc,
+        createdAt,
+        summary: summaryParts.length
+          ? summaryParts.join(" · ")
+          : "Cambio sin detalle de productos",
+        extraPayment: extra,
+        refundDue: refund,
       });
     });
 
@@ -1210,7 +1225,7 @@ export default function DashboardHomePage() {
       if (timeDiff !== 0) return timeDiff;
       return b.changeId - a.changeId;
     });
-  }, [recentSales, recentChanges, todayDateKey]);
+  }, [recentSales, recentChangeFeed, todayDateKey, dashboardNow]);
 
   const navigateToSaleHistory = useCallback(
     (sale: RecentSale) => {
