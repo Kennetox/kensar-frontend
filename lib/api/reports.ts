@@ -79,6 +79,41 @@ export type ReportProductsByTargetResponse = {
   rows: ReportProductsByTargetRow[];
 };
 
+export type ReportProductsSoldRequest = {
+  date_from: string;
+  date_to: string;
+  source: "all" | "metrik" | "aronium";
+  pos_filter: string;
+  method_filter: string;
+  seller_filter: string;
+};
+
+export type ReportProductsSoldRow = {
+  date: string;
+  product: string;
+  sku: string;
+  unit_price: number;
+  quantity: number;
+  line_total: number;
+  document: string;
+  sale_id: number;
+  pos_name?: string | null;
+  seller_name?: string | null;
+  payment_method?: string | null;
+  is_separated: boolean;
+};
+
+export type ReportProductsSoldResponse = {
+  units: number;
+  unique_products: number;
+  product_value: number;
+  separated_pending: number;
+  collected_value: number;
+  documents: number;
+  rows_count: number;
+  rows: ReportProductsSoldRow[];
+};
+
 export class ReportFavoritesConflictError extends Error {
   constructor(message = "Conflicto de versión en favoritos") {
     super(message);
@@ -257,5 +292,50 @@ export async function fetchProductsByTarget(
     total_value: Number(json.total_value ?? 0),
     documents: Number(json.documents ?? 0),
     rows: Array.isArray(json.rows) ? (json.rows as ReportProductsByTargetRow[]) : [],
+  };
+}
+
+export async function fetchProductsSoldReport(
+  payload: ReportProductsSoldRequest,
+  token?: string | null
+): Promise<ReportProductsSoldResponse> {
+  if (!token) {
+    return {
+      units: 0,
+      unique_products: 0,
+      product_value: 0,
+      separated_pending: 0,
+      collected_value: 0,
+      documents: 0,
+      rows_count: 0,
+      rows: [],
+    };
+  }
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/reports/products/sold`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `Error ${res.status}`);
+  }
+
+  const json = (await res.json()) as Partial<ReportProductsSoldResponse>;
+  return {
+    units: Number(json.units ?? 0),
+    unique_products: Number(json.unique_products ?? 0),
+    product_value: Number(json.product_value ?? 0),
+    separated_pending: Number(json.separated_pending ?? 0),
+    collected_value: Number(json.collected_value ?? 0),
+    documents: Number(json.documents ?? 0),
+    rows_count: Number(json.rows_count ?? 0),
+    rows: Array.isArray(json.rows) ? (json.rows as ReportProductsSoldRow[]) : [],
   };
 }

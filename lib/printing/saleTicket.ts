@@ -1484,7 +1484,14 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
     options.separatedSummary && (options.separatedSummary.tickets ?? 0) > 0
   );
   const dayBaseWithoutSeparated = showSeparatedClarification
-    ? Number(options.separatedSummary?.dayCollectedTotal ?? options.totals.net)
+    ? Number(
+        options.separatedSummary?.dayCollectedTotal ??
+          Math.max(
+            Number(options.totals.net) -
+              Number(options.separatedSummary?.pendingTotal ?? 0),
+            0
+          )
+      )
     : Number(options.totals.net);
   const headerRegisteredTotal = showSeparatedClarification
     ? dayBaseWithoutSeparated
@@ -1495,13 +1502,6 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
   const separatedDayCollectedTotal = showSeparatedClarification
     ? dayBaseWithoutSeparated
     : 0;
-  const separatedDayWithPendingTotal = showSeparatedClarification
-    ? Number(
-        options.separatedSummary?.dayWithPendingTotal ??
-          (separatedDayCollectedTotal + Number(options.separatedSummary?.pendingTotal ?? 0))
-      )
-    : 0;
-
   const notesBlock =
     options.notes && options.notes.trim().length
       ? `<div class="block">
@@ -1622,11 +1622,8 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
           ? `<hr />
         <div class="block">
           <div class="muted">Aclaración de total del día</div>
-          <div class="row emphasize"><span>Total del día (sin saldo de separados)</span><span>${formatMoney(
+          <div class="row emphasize"><span>Total de HOY</span><span>${formatMoney(
             separatedDayCollectedTotal
-          )}</span></div>
-          <div class="row emphasize"><span>Total del día + saldo separados</span><span>${formatMoney(
-            separatedDayWithPendingTotal
           )}</span></div>
         </div>`
           : ""

@@ -2096,6 +2096,10 @@ export default function DocumentsExplorer({
 
     const closureDocs: DocumentRow[] = closuresList.map((closure) => {
       const detail = `Cierre de caja ${closure.pos_name ?? "POS"}`;
+      const displayTotal =
+        closure.separated_summary?.day_collected_total ??
+        closure.net_amount ??
+        closure.total_amount;
       return {
         id: `closure-${closure.id}`,
         type: "cierre",
@@ -2104,7 +2108,7 @@ export default function DocumentsExplorer({
         documentNumber: closure.consecutive ?? `CL-${closure.id.toString().padStart(5, "0")}`,
         reference: `Reporte Z - ${closure.pos_name ?? "POS"}`,
         detail,
-        total: toNumber(closure.net_amount ?? closure.total_amount),
+        total: toNumber(displayTotal),
         paymentMethod: "cierre",
         customer: undefined,
         pos: closure.pos_name ?? undefined,
@@ -5149,6 +5153,13 @@ useEffect(() => {
                             },
                           ]
                         : []),
+                      {
+                        label: "Total de HOY",
+                        value: formatMoney(
+                          selectedClosure.separated_summary?.day_collected_total ??
+                            selectedClosure.net_amount
+                        ),
+                      },
                       { label: "Neto del día", value: formatMoney(selectedClosure.net_amount) },
                       { label: "Efectivo esperado", value: formatMoney(selectedClosure.total_cash) },
                       { label: "Efectivo contado", value: formatMoney(selectedClosure.counted_cash) },
@@ -5218,7 +5229,7 @@ useEffect(() => {
                       <div className="grid gap-2 text-sm sm:grid-cols-2">
                         <div className="flex flex-col">
                           <span className="text-[11px] text-slate-500 uppercase">
-                            Tickets activos
+                            Tickets de separados
                           </span>
                           <span className="text-slate-100">
                             {selectedClosure.separated_summary.tickets ?? 0}
@@ -5226,7 +5237,7 @@ useEffect(() => {
                         </div>
                         <div className="flex flex-col">
                           <span className="text-[11px] text-slate-500 uppercase">
-                            Pagos recibidos
+                            Abonos de separados
                           </span>
                           <span className="text-slate-100">
                             {formatMoney(selectedClosure.separated_summary.payments_total ?? 0)}
@@ -5242,7 +5253,7 @@ useEffect(() => {
                         </div>
                         <div className="flex flex-col">
                           <span className="text-[11px] text-slate-500 uppercase">
-                            Pendiente
+                            Saldo pendiente de separados
                           </span>
                           <span className="text-slate-100">
                             {formatMoney(selectedClosure.separated_summary.pending_total ?? 0)}

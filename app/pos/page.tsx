@@ -42,6 +42,7 @@ import {
 import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import type { PaymentMethodRecord } from "@/lib/api/paymentMethods";
 import { renderClosureTicket } from "@/lib/printing/saleTicket";
+import LoadingSpinner from "../components/ui/LoadingSpinner";
 import {
   buildBogotaDateFromKey,
   formatBogotaDate,
@@ -2726,6 +2727,9 @@ const matchesStationLabel = useCallback(
     try {
       setClosureTotalsLoading(true);
       setClosureError(null);
+      if (process.env.NODE_ENV === "development") {
+        await new Promise((resolve) => setTimeout(resolve, 1400));
+      }
       const apiBase = getApiBase();
       const [salesRes, returnsRes, changesRes, separatedOrders] = await Promise.all([
         fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
@@ -3520,7 +3524,13 @@ const matchesStationLabel = useCallback(
         separatedSummary.tickets > 0 ||
           separatedSummary.paymentsTotal > 0 ||
           separatedSummary.pendingTotal > 0
-          ? separatedSummary
+          ? {
+              ...separatedSummary,
+              dayCollectedTotal: Number(
+                Math.max(closureNetAmount - separatedSummary.pendingTotal, 0).toFixed(2)
+              ),
+              dayWithPendingTotal: Number(closureNetAmount.toFixed(2)),
+            }
           : null
       );
 
@@ -4153,10 +4163,15 @@ const matchesStationLabel = useCallback(
               reservedTotal: data.separated_summary.reserved_total ?? 0,
               pendingTotal: data.separated_summary.pending_total ?? 0,
               dayCollectedTotal:
-                data.separated_summary.day_collected_total ?? data.net_amount ?? 0,
+                data.separated_summary.day_collected_total ??
+                Math.max(
+                  (data.net_amount ?? 0) -
+                    (data.separated_summary.pending_total ?? 0),
+                  0
+                ),
               dayWithPendingTotal:
                 data.separated_summary.day_with_pending_total ??
-                ((data.net_amount ?? 0) + (data.separated_summary.pending_total ?? 0)),
+                (data.net_amount ?? 0),
             }
           : null);
       const normalizedCustomMethods =
@@ -4210,10 +4225,11 @@ const matchesStationLabel = useCallback(
               reserved_total: normalizedSeparated.reservedTotal,
               pending_total: normalizedSeparated.pendingTotal,
               day_collected_total:
-                normalizedSeparated.dayCollectedTotal ?? closureNetAmount,
+                normalizedSeparated.dayCollectedTotal ??
+                Math.max(closureNetAmount - normalizedSeparated.pendingTotal, 0),
               day_with_pending_total:
                 normalizedSeparated.dayWithPendingTotal ??
-                (closureNetAmount + normalizedSeparated.pendingTotal),
+                closureNetAmount,
             }
           : data.separated_summary ?? null,
       };
@@ -4335,10 +4351,14 @@ const matchesStationLabel = useCallback(
               pendingTotal: payload.separated_summary.pending_total ?? 0,
               dayCollectedTotal:
                 payload.separated_summary.day_collected_total ??
-                totalsSource.net_amount,
+                Math.max(
+                  totalsSource.net_amount -
+                    (payload.separated_summary.pending_total ?? 0),
+                  0
+                ),
               dayWithPendingTotal:
                 payload.separated_summary.day_with_pending_total ??
-                (totalsSource.net_amount + (payload.separated_summary.pending_total ?? 0)),
+                totalsSource.net_amount,
             }
           : null);
       const stationBreakdown =
@@ -7430,9 +7450,16 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
         <div className="fixed inset-0 bg-black/70 flex items-start justify-center z-30 px-4 py-6 overflow-y-auto sm:items-center sm:py-0">
           <form
             onSubmit={handleSubmitClosure}
-            className="w-full max-w-4xl max-h-[calc(100vh-2rem)] sm:max-h-[90vh] rounded-2xl border border-slate-700 bg-slate-900 text-sm flex flex-col"
+            className="relative w-full max-w-4xl max-h-[calc(100vh-2rem)] sm:max-h-[90vh] rounded-2xl border border-slate-700 bg-slate-900 text-sm flex flex-col overflow-hidden"
           >
-            <div className="flex-1 overflow-y-auto space-y-5 p-6 pr-4">
+            <div
+              className={`flex min-h-0 flex-1 flex-col transition-all duration-200 ease-out ${
+                closureTotalsLoading && !closureResult
+                  ? "pointer-events-none select-none blur-[3px] opacity-50"
+                  : ""
+              }`}
+            >
+              <div className="flex-1 overflow-y-auto space-y-5 p-6 pr-4">
               <header className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs text-amber-300 tracking-wide uppercase">
@@ -7454,12 +7481,6 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                 ×
               </button>
             </header>
-
-            {closureTotalsLoading && !closureResult && (
-              <div className="rounded-md border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs text-slate-400">
-                Cargando ventas del día para prellenar el cierre…
-              </div>
-            )}
 
             {closureResult && (
               <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100 space-y-2">
@@ -7822,12 +7843,20 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
               </button>
               <button
                 type="submit"
-                disabled={closureSaving}
+                disabled={closureSaving || (closureTotalsLoading && !closureResult)}
                 className="px-4 py-2 rounded-lg bg-emerald-500 text-slate-900 font-semibold hover:bg-emerald-400 disabled:opacity-50"
               >
                 {closureResult ? "Cierre registrado" : "Generar reporte Z"}
               </button>
             </footer>
+            </div>
+            {closureTotalsLoading && !closureResult && (
+              <div className="absolute inset-0 z-30 rounded-2xl bg-slate-950/75 backdrop-blur-2xl backdrop-saturate-50 flex items-center justify-center">
+                <div className="rounded-2xl border border-slate-600/80 bg-slate-900/95 px-6 py-5 shadow-2xl shadow-black/40 ring-1 ring-white/5">
+                  <LoadingSpinner size={54} label="Cargando ventas del día..." />
+                </div>
+              </div>
+            )}
           </form>
         </div>
       )}

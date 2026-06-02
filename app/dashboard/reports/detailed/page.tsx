@@ -7,6 +7,7 @@ import { getApiBase } from "@/lib/api/base";
 import {
   exportReportExcel,
   exportReportPdf,
+  fetchProductsSoldReport,
   fetchProductsByTarget,
   fetchReportFavorites,
   ReportFavoritesConflictError,
@@ -120,14 +121,6 @@ type ReportSale = {
   returns?: ReportSaleReturn[];
   surcharge_amount?: number | null;
   surcharge_label?: string | null;
-};
-
-type ReportDocumentAdjustment = {
-  id: number;
-  doc_id: number;
-  payload?: Record<string, unknown> | null;
-  total_delta?: number | null;
-  created_at?: string;
 };
 
 type ReportSummaryItem = {
@@ -346,7 +339,6 @@ const isValidReportResult = (value: unknown): value is ReportResult => {
 };
 
 const REPORT_PAGE_SIZE = 1000;
-const ADJUSTMENTS_CHUNK_SIZE = 200;
 const REPORT_FETCH_TIMEOUT_MS = 45_000;
 const REPORT_FETCH_TIMEOUT_SALES_ALL_MS = 180_000;
 const REPORT_MAX_SALES_ROWS = 4_000;
@@ -555,6 +547,18 @@ const formatMoney = (value: number | undefined | null) => {
   })}`;
 };
 
+const formatUtcNaiveForApi = (value: Date) => value.toISOString().slice(0, 19);
+
+const buildBogotaRangeApiParams = (fromKey: string, toKey: string) => {
+  const start = buildBogotaDateFromKey(fromKey);
+  const end = buildBogotaDateFromKey(toKey);
+  end.setUTCDate(end.getUTCDate() + 1);
+  return {
+    date_from: formatUtcNaiveForApi(start),
+    date_to: formatUtcNaiveForApi(end),
+  };
+};
+
 const normalizeText = (value: string | null | undefined) =>
   value?.toLowerCase().trim() ?? "";
 
@@ -576,88 +580,6 @@ const toNumber = (value: unknown): number => {
     if (Number.isFinite(parsed)) return parsed;
   }
   return 0;
-};
-
-const parseAdjustmentPayments = (
-  payload: Record<string, unknown> | null | undefined
-): Array<{ method: string; amount: number }> => {
-  if (!payload || typeof payload !== "object") return [];
-  const rawPayments = payload.payments;
-  if (!Array.isArray(rawPayments)) return [];
-  return rawPayments
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const row = entry as Record<string, unknown>;
-      const method = typeof row.method === "string" ? row.method.trim() : "";
-      if (!method) return null;
-      const amount = toNumber(row.amount);
-      return { method, amount };
-    })
-    .filter((entry): entry is { method: string; amount: number } => !!entry);
-};
-
-const applyDocumentAdjustmentsToSales = (
-  sales: ReportSale[],
-  adjustments: ReportDocumentAdjustment[]
-): ReportSale[] => {
-  if (!sales.length || !adjustments.length) return sales;
-  const bySaleId = new Map<number, ReportDocumentAdjustment[]>();
-  adjustments.forEach((adjustment) => {
-    const docId = Number(adjustment.doc_id);
-    if (!Number.isFinite(docId)) return;
-    const current = bySaleId.get(docId) ?? [];
-    current.push(adjustment);
-    bySaleId.set(docId, current);
-  });
-
-  return sales.map((sale) => {
-    const saleAdjustments = bySaleId.get(sale.id);
-    if (!saleAdjustments?.length) return sale;
-
-    const sortedByRecent = [...saleAdjustments].sort((a, b) => {
-      const timeA = a.created_at ? Date.parse(a.created_at) : 0;
-      const timeB = b.created_at ? Date.parse(b.created_at) : 0;
-      if (timeA === timeB) return b.id - a.id;
-      return timeB - timeA;
-    });
-
-    let adjustedPayments: Array<{ method?: string | null; amount?: number | null }> | null =
-      null;
-    for (const adjustment of sortedByRecent) {
-      const parsed = parseAdjustmentPayments(adjustment.payload);
-      if (parsed.length) {
-        adjustedPayments = parsed;
-        break;
-      }
-    }
-
-    const totalDelta = saleAdjustments.reduce(
-      (sum, entry) => sum + toNumber(entry.total_delta),
-      0
-    );
-    const baseTotal = toNumber(sale.total ?? sale.paid_amount);
-    const nextTotal = Math.max(0, baseTotal + totalDelta);
-
-    if (!adjustedPayments) {
-      return {
-        ...sale,
-        total: nextTotal,
-      };
-    }
-
-    const adjustedPaidAmount = adjustedPayments.reduce(
-      (sum, entry) => sum + toNumber(entry.amount),
-      0
-    );
-
-    return {
-      ...sale,
-      total: nextTotal,
-      paid_amount: adjustedPaidAmount,
-      payment_method: adjustedPayments[0]?.method ?? sale.payment_method,
-      payments: adjustedPayments,
-    };
-  });
 };
 
 const normalizeComparableText = (value: string | null | undefined) =>
@@ -2702,14 +2624,16 @@ const dateTimeFormatter = (iso: string) =>
           uniqueProducts.add(productName);
           const quantity = item.quantity ?? 0;
           const unitPrice = item.unit_price ?? 0;
+          const lineTotal = unitPrice * quantity;
           units += quantity;
-          subtotal += unitPrice * quantity;
+          subtotal += lineTotal;
           rows.push([
             dateFormatter(sale.created_at),
             productName,
             item.product_sku ?? "—",
             formatMoney(unitPrice),
             quantity.toString(),
+            formatMoney(lineTotal),
             sale.document_number
               ? sale.document_number
               : sale.sale_number
@@ -2731,6 +2655,7 @@ const dateTimeFormatter = (iso: string) =>
             "Código / SKU",
             "Precio unitario",
             "Cantidad",
+            "Total línea",
             "Ticket",
           ],
           rows,
@@ -3276,7 +3201,7 @@ function ReportDocumentViewer({
       isChartPage,
       chartUsesLandscape,
     };
-  }, [result, pageIndex, preset.id]);
+  }, [filterMeta, result, pageIndex, preset.id]);
 
   const handlePrint = useCallback(() => {
     if (!result) return;
@@ -3870,7 +3795,6 @@ export default function ReportsPage() {
   const changesDataRef = useRef<ReportChange[]>([]);
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
-  const [summaryRequested, setSummaryRequested] = useState(false);
   const salesLoadedRef = useRef(false);
   const lastLoadedSalesSignatureRef = useRef("");
   const [favoriteReportIds, setFavoriteReportIds] = useState<string[]>(() => {
@@ -3914,13 +3838,6 @@ export default function ReportsPage() {
       sourceFilter,
     }),
     [fromDate, toDate, posFilter, methodFilter, sellerFilter, sourceFilter]
-  );
-  const methodFilterLabel = useMemo(
-    () =>
-      methodFilter === "todos"
-        ? "Todos"
-        : resolveMethodLabel(methodFilter),
-    [methodFilter, resolveMethodLabel]
   );
   const canLoadRolePermissions = useMemo(() => {
     if (!isDashboardRole(user?.role)) return false;
@@ -3975,11 +3892,6 @@ export default function ReportsPage() {
         ? REPORT_PRESETS.find((p) => p.id === selectedPresetId) ?? null
         : null,
     [selectedPresetId]
-  );
-
-  const filteredSalesForPreview = useMemo(
-    () => filterSalesByMeta(salesData, filterMeta),
-    [salesData, filterMeta]
   );
 
   useEffect(() => {
@@ -4320,18 +4232,6 @@ export default function ReportsPage() {
     tabsInitializedRef.current = true;
   }, [openReports, activeTabId]);
 
-  const globalPreviewResult = useMemo(
-    () =>
-      filteredSalesForPreview.length
-        ? buildReportResult(
-            "daily-sales",
-            filteredSalesForPreview,
-            resolveMethodLabel
-          )
-        : null,
-    [filteredSalesForPreview, resolveMethodLabel]
-  );
-
   const handleQuickRange = (value: QuickRange) => {
     const todayKey = getBogotaDateKey();
     const todayStart = buildBogotaDateFromKey(todayKey);
@@ -4455,8 +4355,7 @@ export default function ReportsPage() {
           {
             source: sourceFilter,
             include_adjustments: "true",
-            date_from: `${fromDate}T00:00:00`,
-            date_to: `${toDate}T23:59:59`,
+            ...buildBogotaRangeApiParams(fromDate, toDate),
           },
           {
             maxRows: REPORT_MAX_SALES_ROWS,
@@ -4468,10 +4367,7 @@ export default function ReportsPage() {
         ),
         fetchAllPages<ReportChange>(
           "/pos/changes",
-          {
-            date_from: `${fromDate}T00:00:00`,
-            date_to: `${toDate}T23:59:59`,
-          },
+          buildBogotaRangeApiParams(fromDate, toDate),
           {
             maxRows: REPORT_MAX_CHANGES_ROWS,
             timeoutMs: REPORT_FETCH_TIMEOUT_MS,
@@ -4755,10 +4651,14 @@ export default function ReportsPage() {
     });
   }, []);
 
-  const handleOpenReport = useCallback(async () => {
+  async function handleOpenReport() {
     if (!currentPreset) return;
     if (currentPreset.id === "products-by-target") {
       openProductTargetModal();
+      return;
+    }
+    if (currentPreset.id === "products-sold") {
+      void createProductsSoldReportTab(currentPreset);
       return;
     }
     if (currentPreset.id === "products-top") {
@@ -4788,29 +4688,9 @@ export default function ReportsPage() {
     const loaded = await ensureSalesLoaded();
     if (!loaded) return;
     createReportTab(currentPreset);
-  }, [
-    currentPreset,
-    ensureSalesLoaded,
-    createReportTab,
-    openProductTargetModal,
-    productOptions.length,
-    groupOptions.length,
-    loadProductLookupData,
-    productOptions,
-    groupOptions,
-    filterMeta,
-    resolveMethodLabel,
-    productGroupById,
-    productGroupBySku,
-    filterMeta.productsTopSort,
-    filterMeta.productsTopLimit,
-    filterMeta.productsTopScope,
-    filterMeta.productsTopCategoryMode,
-    filterMeta.productsTopCategoryKey,
-    filterMeta.categorySalesMode,
-  ]);
+  }
 
-  const confirmOpenCategorySalesReport = useCallback(async () => {
+  async function confirmOpenCategorySalesReport() {
     const preset = REPORT_PRESETS.find((item) => item.id === "category-sales");
     if (!preset) return;
     const loaded = await ensureSalesLoaded();
@@ -4853,20 +4733,9 @@ export default function ReportsPage() {
 
     createReportTab(preset, customMeta, resultSnapshot);
     setCategorySalesModalOpen(false);
-  }, [
-    ensureSalesLoaded,
-    productOptions,
-    groupOptions,
-    loadProductLookupData,
-    categorySalesModeChoice,
-    filterMeta,
-    resolveMethodLabel,
-    productGroupById,
-    productGroupBySku,
-    createReportTab,
-  ]);
+  }
 
-  const confirmOpenProductsTopReport = useCallback(async () => {
+  async function confirmOpenProductsTopReport() {
     const preset = REPORT_PRESETS.find((item) => item.id === "products-top");
     if (!preset) return;
     const loaded = await ensureSalesLoaded();
@@ -4947,36 +4816,70 @@ export default function ReportsPage() {
       resultSnapshot
     );
     setProductsTopSortModalOpen(false);
-  }, [
-    createReportTab,
-    ensureSalesLoaded,
-    productsTopSortChoice,
-    productsTopLimitChoice,
-    productsTopScopeChoice,
-    productsTopCategoryModeChoice,
-    productsTopCategoryKeyChoice,
-    productsTopCategoryOptions,
-    productsTopSubcategoryOptions,
-    productOptions,
-    groupOptions,
-    loadProductLookupData,
-    filterMeta,
-    resolveMethodLabel,
-    productGroupById,
-    productGroupBySku,
-  ]);
+  }
 
-  const handleOpenPreset = useCallback(
-    (preset: ReportPreset) => {
-      if (preset.id === "products-by-target") {
-        setSelectedPresetId(preset.id);
-        openProductTargetModal();
-        return;
-      }
-      createReportTab(preset);
-    },
-    [createReportTab, openProductTargetModal]
-  );
+  async function createProductsSoldReportTab(preset: ReportPreset) {
+    if (!token) return;
+    try {
+      setSalesLoading(true);
+      setSalesError(null);
+      const response = await fetchProductsSoldReport(
+        {
+          date_from: filterMeta.fromDate,
+          date_to: filterMeta.toDate,
+          source: filterMeta.sourceFilter ?? sourceFilter,
+          pos_filter: filterMeta.posFilter,
+          method_filter: filterMeta.methodFilter,
+          seller_filter: filterMeta.sellerFilter,
+        },
+        token
+      );
+      const snapshot: ReportResult = {
+        summary: [
+          { label: "Unidades vendidas", value: String(response.units ?? 0) },
+          { label: "Productos únicos", value: String(response.unique_products ?? 0) },
+          { label: "Valor de productos", value: formatMoney(response.product_value ?? 0) },
+          { label: "Separados pendientes", value: formatMoney(response.separated_pending ?? 0) },
+          { label: "Valor cobrado asociado", value: formatMoney(response.collected_value ?? 0) },
+        ],
+        table: {
+          columns: [
+            "Fecha",
+            "Producto",
+            "Código / SKU",
+            "Precio unitario",
+            "Cantidad",
+            "Total línea",
+            "Ticket",
+          ],
+          rows: response.rows.map((row) => [
+            row.date
+              ? formatBogotaDate(row.date, { dateStyle: "short" }) || "—"
+              : "—",
+            row.product || "Producto sin nombre",
+            row.sku || "—",
+            formatMoney(row.unit_price ?? 0),
+            String(row.quantity ?? 0),
+            formatMoney(row.line_total ?? 0),
+            row.document || "—",
+          ]),
+          emptyMessage: "No se registraron productos vendidos en este periodo.",
+        },
+        note:
+          "Incluye cada artículo vendido con el ticket al que pertenece. Los separados pendientes se muestran aparte para diferenciar valor de productos y valor cobrado asociado.",
+      };
+      createReportTab(preset, undefined, snapshot);
+    } catch (err) {
+      console.error(err);
+      setSalesError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo generar el reporte de productos vendidos."
+      );
+    } finally {
+      setSalesLoading(false);
+    }
+  }
 
   const handleFromDateChange = useCallback(
     (value: string) => {
@@ -5355,7 +5258,6 @@ export default function ReportsPage() {
       favoriteReportIds,
       handleSelectPreset,
       toggleFavorite,
-      handleOpenPreset,
     ]
   );
 

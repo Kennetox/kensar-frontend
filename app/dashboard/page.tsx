@@ -723,11 +723,12 @@ export default function DashboardHomePage() {
     }
     if (!token) return;
     const force = options?.force === true;
+    const cacheKey = "separated-orders:v2";
     try {
       setSeparatedLoading(true);
       setSeparatedError(null);
       if (!force) {
-        const cached = readDashboardCache<SeparatedOrder[]>("separated-orders");
+        const cached = readDashboardCache<SeparatedOrder[]>(cacheKey);
         if (cached) {
           setSeparatedOrders(cached);
           return;
@@ -738,7 +739,7 @@ export default function DashboardHomePage() {
         token
       );
       setSeparatedOrders(records);
-      writeDashboardCache("separated-orders", records);
+      writeDashboardCache(cacheKey, records);
     } catch (err) {
       console.error(err);
       setSeparatedError(
