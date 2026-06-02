@@ -1068,6 +1068,7 @@ export default function DocumentsExplorer({
   const [appliedFilterVendor, setAppliedFilterVendor] = useState("");
   const [showDocumentGuide, setShowDocumentGuide] = useState(false);
   const [filtersReady, setFiltersReady] = useState(false);
+  const [documentsReloadToken, setDocumentsReloadToken] = useState(0);
   const [fastOpenReference, setFastOpenReference] = useState<{
     referenceType: string;
     referenceId: number;
@@ -1173,6 +1174,7 @@ export default function DocumentsExplorer({
     setAppliedFilterCustomer("");
     setAppliedFilterPos("");
     setAppliedFilterVendor("");
+    setDocumentsReloadToken((current) => current + 1);
     setSelectedDoc(null);
     setDocumentDetailOpen(false);
     setDetailExpanded(false);
@@ -1188,6 +1190,7 @@ export default function DocumentsExplorer({
     setAppliedFilterCustomer(filterCustomer);
     setAppliedFilterPos(filterPos);
     setAppliedFilterVendor(filterVendor);
+    setDocumentsReloadToken((current) => current + 1);
     setSelectedDoc(null);
     setDocumentDetailOpen(false);
     setDetailExpanded(false);
@@ -2005,6 +2008,7 @@ export default function DocumentsExplorer({
     appliedFilterType,
     routeFastOpenReference,
     isFromMovementsRoute,
+    documentsReloadToken,
   ]);
 
   useEffect(() => {
