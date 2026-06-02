@@ -1479,9 +1479,11 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
                 options.stationBreakdown?.length === 1
                   ? Number(options.separatedSummary?.pendingTotal ?? 0)
                   : 0;
-              const stationPending = Number(
-                entry.pendingTotal ?? stationPendingFallback ?? 0
-              );
+              const stationPendingRaw = Number(entry.pendingTotal ?? 0);
+              const stationPending =
+                stationPendingFallback > 0 && stationPendingRaw <= 0
+                  ? stationPendingFallback
+                  : stationPendingRaw;
               return `
         <div class="row">
           <span>${escapeHtml(entry.stationLabel)} (${Math.max(0, Number(entry.salesCount || 0))})</span>
