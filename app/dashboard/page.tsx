@@ -2608,7 +2608,7 @@ export default function DashboardHomePage() {
                         <span
                           className={`font-semibold ${
                             separatedOverview.pendingTotal === 0
-                              ? "text-emerald-300"
+                              ? "text-emerald-700"
                               : "text-rose-300"
                           }`}
                         >
@@ -2759,7 +2759,7 @@ export default function DashboardHomePage() {
                             <div className="text-right text-slate-200">
                               {getPaymentLabel(row.method, row.method)}
                             </div>
-                            <div className="text-right font-semibold text-emerald-300">
+                            <div className="text-right font-semibold text-emerald-700">
                               {formatMoney(row.amount)}
                             </div>
                           </div>
