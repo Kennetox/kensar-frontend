@@ -4042,6 +4042,7 @@ function mapHistoryReferenceToDocumentsType(referenceType?: string | null) {
   const normalized = (referenceType || "").trim().toLowerCase();
   if (normalized === "sale") return "venta";
   if (normalized === "receiving_lot") return "recepcion";
+  if (normalized === "recount") return "recuento";
   if (["salida_manual", "venta_manual", "ajuste", "perdida_dano"].includes(normalized)) {
     return "movimiento_manual";
   }

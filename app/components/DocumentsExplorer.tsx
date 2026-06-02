@@ -36,6 +36,7 @@ import {
   fetchComercioWebOrders,
   type ComercioWebOrder,
 } from "@/lib/api/comercioWeb";
+import { getInventoryRecountDetail } from "@/lib/api/inventory";
 import {
   buildBogotaDateFromKey,
   formatBogotaDate,
@@ -813,6 +814,7 @@ export default function DocumentsExplorer({
     const normalized = (referenceType || "").trim().toLowerCase();
     if (normalized === "sale") return "venta";
     if (normalized === "receiving_lot") return "recepcion";
+    if (normalized === "recount") return "recuento";
     if (["salida_manual", "venta_manual", "ajuste", "perdida_dano"].includes(normalized)) {
       return "movimiento_manual";
     }
@@ -923,6 +925,44 @@ export default function DocumentsExplorer({
         } as const;
       }
 
+      if (normalized === "recount") {
+        if (!token) throw new Error("Sin sesión activa");
+        const detail = await getInventoryRecountDetail(token, referenceId);
+        const recount = detail.recount;
+        const statusLabel = recount.status === "applied" ? "Aplicado" : "Cerrado";
+        const scopeLabel =
+          recount.scope_type === "group" && recount.scope_value
+            ? `Categoría: ${recount.scope_value}`
+            : "Inventario completo";
+        const sourceLabel = recount.source === "app" ? "Metrik Stock App" : "Metrik Web";
+        const operationDate = recount.applied_at ?? recount.closed_at ?? recount.created_at;
+        return {
+          doc: {
+            id: `recount-${recount.id}`,
+            type: "recuento",
+            recordId: recount.id,
+            createdAt: operationDate,
+            documentNumber: recount.code || `RCN-${recount.id.toString().padStart(6, "0")}`,
+            reference: `Recuento - ${statusLabel} - ${sourceLabel}`,
+            detail: `${detail.lines.length}/${detail.recount.summary?.total_lines ?? detail.lines.length} líneas · Dif: ${
+              recount.summary?.total_diff_units ?? 0
+            } · ${scopeLabel}`,
+            total: 0,
+            paymentMethod: undefined,
+            customer: undefined,
+            pos: sourceLabel,
+            vendor:
+              recount.applied_by_user_name ??
+              recount.closed_by_user_name ??
+              recount.created_by_user_name ??
+              undefined,
+            status: recount.status,
+            closureId: null,
+            data: recount,
+          },
+        } as const;
+      }
+
       if (isManualMovement) {
         const res = await fetch(
           `${apiBase}/manual-movements/documents/${referenceId}`,
@@ -970,7 +1010,7 @@ export default function DocumentsExplorer({
 
       throw new Error("Tipo de referencia no soportado.");
     },
-    [authHeaders, logout]
+    [authHeaders, logout, token]
   );
   const routeFastOpenReference = useMemo(() => {
     const fromMovements = searchParams.get("fromMovements");
@@ -990,10 +1030,6 @@ export default function DocumentsExplorer({
       referenceId: referenceIdRaw,
     };
   }, [resolveHistoryReferenceDocumentType, searchParams]);
-  const isFromMovementsRoute = useMemo(
-    () => searchParams.get("fromMovements") === "1",
-    [searchParams]
-  );
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -1988,9 +2024,6 @@ export default function DocumentsExplorer({
 
   useEffect(() => {
     if (!authHeaders || !filtersReady) return;
-    if (isFromMovementsRoute && !fastOpenHandledRef.current && !fastOpenInProgressRef.current) {
-      return;
-    }
     if (
       (routeFastOpenReference && !fastOpenHandledRef.current) ||
       suppressBulkLoad ||
@@ -2007,7 +2040,6 @@ export default function DocumentsExplorer({
     appliedFilterTo,
     appliedFilterType,
     routeFastOpenReference,
-    isFromMovementsRoute,
     documentsReloadToken,
   ]);
 
