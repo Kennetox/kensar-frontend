@@ -234,6 +234,8 @@ type ClosureRecord = {
     sales_count?: number | null;
     total_amount?: number | null;
     net_amount?: number | null;
+    pending_total?: number | null;
+    net_amount_without_separated_pending?: number | null;
   }[] | null;
   user_breakdown?: { name: string; total: number }[] | null;
   separated_summary?: {
@@ -715,6 +717,15 @@ function printClosureTicket(closure: ClosureRecord, settings?: PosSettingsPayloa
           salesCount: Math.max(0, Number(row.sales_count ?? 0)),
           totalAmount: Number(row.total_amount ?? 0),
           netAmount: Number(row.net_amount ?? row.total_amount ?? 0),
+          pendingTotal: Number(row.pending_total ?? 0),
+          netAmountWithoutSeparatedPending: Number(
+            row.net_amount_without_separated_pending ??
+              Math.max(
+                Number(row.net_amount ?? row.total_amount ?? 0) -
+                  Number(row.pending_total ?? 0),
+                0
+              )
+          ),
         }))
       : undefined;
   const html = renderClosureTicket({
