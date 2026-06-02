@@ -29,6 +29,7 @@ import {
   type PosStationAccess,
   type PosStationPrinterConfig,
 } from "@/lib/api/posStations";
+import LoadingSpinner from "../../components/ui/LoadingSpinner";
 import { formatBogotaDate } from "@/lib/time/bogota";
 import type { Product } from "../poscontext";
 
@@ -276,6 +277,10 @@ export default function CambiosPage() {
   );
   const apiBase = useMemo(() => getApiBase(), []);
   const SALES_API = useMemo(() => `${apiBase}/pos/sales`, [apiBase]);
+  const SALES_HISTORY_API = useMemo(
+    () => `${apiBase}/pos/sales/history`,
+    [apiBase]
+  );
   const CHANGES_API = useMemo(() => `${apiBase}/pos/changes`, [apiBase]);
 
   const activePaymentMethods = useMemo(
@@ -536,14 +541,21 @@ export default function CambiosPage() {
         throw new Error("Ese codigo no corresponde a una venta.");
       }
       if (!authHeaders) throw new Error("Sesion expirada.");
-      const res = await fetch(`${SALES_API}?skip=0&limit=400`, {
+      const params = new URLSearchParams({
+        skip: "0",
+        limit: "20",
+        source: "all",
+        term: value,
+      });
+      const res = await fetch(`${SALES_HISTORY_API}?${params.toString()}`, {
         headers: authHeaders,
         credentials: "include",
       });
       if (!res.ok) {
         throw new Error("No se pudieron consultar las ventas.");
       }
-      const list: Sale[] = await res.json();
+      const payload = (await res.json()) as { items?: Sale[] };
+      const list: Sale[] = payload.items ?? [];
       const saleFromList =
         list.find((s) => {
           const saleDocNormalized = normalizeDocument(s.document_number ?? "");
@@ -582,7 +594,7 @@ export default function CambiosPage() {
       }
       return null;
     },
-    [SALES_API, authHeaders, fetchSaleById]
+    [SALES_HISTORY_API, authHeaders, fetchSaleById]
   );
 
   const resetFormState = useCallback(() => {
@@ -1133,6 +1145,16 @@ export default function CambiosPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 px-6 py-6">
+      {scanLoading && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/75 backdrop-blur-2xl backdrop-saturate-50 px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-700/70 bg-slate-900/90 px-6 py-5 text-center shadow-2xl">
+            <LoadingSpinner size={58} label="Buscando venta..." />
+            <p className="mt-4 text-sm text-slate-300">
+              Escaneando documento y cargando resultados.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto space-y-6">
         <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
