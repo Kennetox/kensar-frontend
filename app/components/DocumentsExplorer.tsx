@@ -808,6 +808,187 @@ export default function DocumentsExplorer({
     },
     [getPaymentLabel]
   );
+  const resolveHistoryReferenceDocumentType = useCallback((referenceType?: string | null) => {
+    const normalized = (referenceType || "").trim().toLowerCase();
+    if (normalized === "sale") return "venta";
+    if (normalized === "receiving_lot") return "recepcion";
+    if (["salida_manual", "venta_manual", "ajuste", "perdida_dano"].includes(normalized)) {
+      return "movimiento_manual";
+    }
+    return "all";
+  }, []);
+  const fetchDocumentFromHistoryReference = useCallback(
+    async (referenceType: string, referenceId: number) => {
+      if (!authHeaders) throw new Error("Sin sesión activa");
+      const apiBase = getApiBase();
+      const normalized = referenceType.trim().toLowerCase();
+      const isManualMovement = [
+        "salida_manual",
+        "venta_manual",
+        "ajuste",
+        "perdida_dano",
+      ].includes(normalized);
+
+      const handle401 = () => {
+        logout();
+        throw new Error(
+          "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
+        );
+      };
+
+      if (normalized === "sale") {
+        const res = await fetch(`${apiBase}/pos/sales/${referenceId}`, {
+          headers: authHeaders,
+          credentials: "include",
+        });
+        if (res.status === 401) handle401();
+        if (!res.ok) {
+          throw new Error(`No se pudo cargar la venta (${res.status}).`);
+        }
+        const sale = (await res.json()) as SaleRecord;
+        const { netTotal, refundAmount } = computeSaleTotals(sale);
+        const firstItem = sale.items && sale.items.length ? sale.items[0] : undefined;
+        return {
+          doc: {
+            id: `sale-${sale.id}`,
+            type: "venta",
+            recordId: sale.id,
+            saleId: sale.id,
+            createdAt: sale.created_at,
+            documentNumber: sale.document_number ?? `V-${sale.id.toString().padStart(5, "0")}`,
+            reference: `Ticket #${sale.sale_number ?? sale.id}`,
+            detail: firstItem
+              ? `${firstItem.product_name ?? firstItem.name ?? "Producto"} x${firstItem.quantity ?? 1}`
+              : "Venta sin detalle",
+            total: toNumber(netTotal),
+            refundAmount: toNumber(refundAmount),
+            paymentMethod: sale.payment_method ?? sale.payments?.[0]?.method,
+            isSeparated: !!sale.is_separated,
+            initialPaymentMethod:
+              sale.initial_payment_method ??
+              sale.payments?.[0]?.method ??
+              sale.payment_method,
+            initialPaymentAmount: sale.initial_payment_amount ?? sale.payments?.[0]?.amount,
+            customer: sale.customer_name ?? undefined,
+            pos: sale.pos_name ?? undefined,
+            vendor: sale.vendor_name ?? undefined,
+            status: sale.status,
+            closureId: sale.closure_id ?? null,
+            data: sale,
+          },
+        } as const;
+      }
+
+      if (normalized === "receiving_lot") {
+        const res = await fetch(`${apiBase}/receiving/lots/${referenceId}`, {
+          headers: authHeaders,
+          credentials: "include",
+        });
+        if (res.status === 401) handle401();
+        if (!res.ok) {
+          throw new Error(`No se pudo cargar la recepción (${res.status}).`);
+        }
+        const detail = (await res.json()) as ReceivingLotDetailRecord;
+        const lot = detail.lot;
+        const unitsTotal = detail.items.reduce(
+          (sum, item) => sum + toNumber(item.qty_received),
+          0
+        );
+        return {
+          doc: {
+            id: `receiving-${lot.id}`,
+            type: "recepcion",
+            recordId: lot.id,
+            createdAt: lot.closed_at ?? lot.created_at,
+            documentNumber: lot.lot_number,
+            reference: `Recepción - ${lot.origin_name}`,
+            detail: `${detail.items.length} líneas · ${unitsTotal} unidades · ${
+              lot.purchase_type === "cash" ? "Contado" : "Factura"
+            }`,
+            total: 0,
+            paymentMethod: "recepcion",
+            customer: undefined,
+            pos: lot.origin_name,
+            vendor: lot.closed_by_user_name ?? undefined,
+            status: lot.status,
+            closureId: null,
+            data: {
+              ...lot,
+              lines_count: detail.items.length,
+              units_total: unitsTotal,
+            } satisfies ReceivingDocumentRecord,
+          },
+          receivingDetail: detail,
+        } as const;
+      }
+
+      if (isManualMovement) {
+        const res = await fetch(
+          `${apiBase}/manual-movements/documents/${referenceId}`,
+          {
+            headers: authHeaders,
+            credentials: "include",
+          }
+        );
+        if (res.status === 401) handle401();
+        if (!res.ok) {
+          throw new Error(`No se pudo cargar el movimiento manual (${res.status}).`);
+        }
+        const doc = (await res.json()) as ManualMovementDocumentRecord;
+        const manualMovementKindLabel: Record<
+          ManualMovementDocumentRecord["kind"],
+          string
+        > = {
+          salida_manual: "Salida manual",
+          venta_manual: "Venta manual",
+          ajuste: "Ajuste",
+          perdida_dano: "Pérdida / daño",
+        };
+        return {
+          doc: {
+            id: `manual-movement-${doc.id}`,
+            type: "movimiento_manual",
+            recordId: doc.id,
+            createdAt: doc.closed_at ?? doc.updated_at ?? doc.created_at,
+            documentNumber: doc.document_number,
+            reference: `${manualMovementKindLabel[doc.kind]} - ${doc.origin_name || "Metrik web"}`,
+            detail: `${doc.lines_count} líneas · ${doc.units_total} unidades${
+              doc.notes ? ` · Obs: ${doc.notes}` : ""
+            }`,
+            total: 0,
+            paymentMethod: "movimiento_manual",
+            customer: undefined,
+            pos: doc.origin_name || undefined,
+            vendor: doc.closed_by_user_name ?? doc.created_by_user_name ?? undefined,
+            status: doc.status,
+            closureId: null,
+            data: doc,
+          },
+        } as const;
+      }
+
+      throw new Error("Tipo de referencia no soportado.");
+    },
+    [authHeaders, logout]
+  );
+  const routeFastOpenReference = useMemo(() => {
+    const fromMovements = searchParams.get("fromMovements");
+    if (fromMovements !== "1") return null;
+    const referenceType = (searchParams.get("reference_type") || "").trim().toLowerCase();
+    const referenceIdRaw = Number(searchParams.get("reference_id"));
+    if (
+      !referenceType ||
+      !Number.isFinite(referenceIdRaw) ||
+      referenceIdRaw <= 0 ||
+      resolveHistoryReferenceDocumentType(referenceType) === "all"
+    ) {
+      return null;
+    }
+    return {
+      referenceType,
+      referenceId: referenceIdRaw,
+    };
+  }, [resolveHistoryReferenceDocumentType, searchParams]);
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -882,6 +1063,11 @@ export default function DocumentsExplorer({
   const [appliedFilterVendor, setAppliedFilterVendor] = useState("");
   const [showDocumentGuide, setShowDocumentGuide] = useState(false);
   const [filtersReady, setFiltersReady] = useState(false);
+  const [fastOpenReference, setFastOpenReference] = useState<{
+    referenceType: string;
+    referenceId: number;
+  } | null>(null);
+  const [suppressBulkLoad, setSuppressBulkLoad] = useState(false);
   const [persistedSelectedId, setPersistedSelectedId] = useState<string | null>(
     null
   );
@@ -913,6 +1099,8 @@ export default function DocumentsExplorer({
   const lastDiscountTargetRef = useRef<number | null>(null);
   const documentsTableScrollRef = useRef<HTMLDivElement | null>(null);
   const documentRowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
+  const fastOpenInProgressRef = useRef(false);
+  const fastOpenHandledRef = useRef(false);
 
   const formatDateInput = (date: Date) => getBogotaDateKey(date);
 
@@ -1035,9 +1223,12 @@ export default function DocumentsExplorer({
 
   const hasActiveFilters = activeFiltersCount > 0;
 
-  async function loadDocuments(options?: { force?: boolean }) {
+  async function loadDocuments(options?: { force?: boolean; background?: boolean }) {
     try {
-      setLoading(true);
+      const isBackgroundLoad = options?.background === true;
+      if (!isBackgroundLoad) {
+        setLoading(true);
+      }
       setError(null);
       if (!authHeaders || !token) throw new Error("Sin sesión activa");
       const apiBase = getApiBase();
@@ -1444,11 +1635,17 @@ export default function DocumentsExplorer({
       }
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Error al cargar documentos");
+      if (!options?.background) {
+        setError(err instanceof Error ? err.message : "Error al cargar documentos");
+      }
     } finally {
-      setLoading(false);
+      if (!options?.background) {
+        setLoading(false);
+      }
     }
   }
+  const loadDocumentsRef = useRef(loadDocuments);
+  loadDocumentsRef.current = loadDocuments;
 
   const loadAdjustments = useCallback(
     async (saleId: number) => {
@@ -1783,9 +1980,23 @@ export default function DocumentsExplorer({
 
   useEffect(() => {
     if (!authHeaders || !filtersReady) return;
-    void loadDocuments();
+    if (
+      (routeFastOpenReference && !fastOpenHandledRef.current) ||
+      suppressBulkLoad ||
+      fastOpenInProgressRef.current
+    ) {
+      return;
+    }
+    void loadDocumentsRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authHeaders, filtersReady, appliedFilterFrom, appliedFilterTo, appliedFilterType]);
+  }, [
+    authHeaders,
+    filtersReady,
+    appliedFilterFrom,
+    appliedFilterTo,
+    appliedFilterType,
+    routeFastOpenReference,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -1858,10 +2069,22 @@ export default function DocumentsExplorer({
 
   useEffect(() => {
     const fromMovements = searchParams.get("fromMovements");
-    if (fromMovements !== "1") return;
+    if (fromMovements !== "1") {
+      setFastOpenReference(null);
+      setSuppressBulkLoad(false);
+      fastOpenHandledRef.current = false;
+      return;
+    }
 
     const term = (searchParams.get("term") || "").trim();
     const type = (searchParams.get("type") || "all").trim().toLowerCase();
+    const referenceType = (searchParams.get("reference_type") || "").trim().toLowerCase();
+    const referenceIdRaw = Number(searchParams.get("reference_id"));
+    const hasFastReference =
+      referenceType.length > 0 &&
+      Number.isFinite(referenceIdRaw) &&
+      referenceIdRaw > 0 &&
+      resolveHistoryReferenceDocumentType(referenceType) !== "all";
     const allowed = new Set([
       "all",
       "venta",
@@ -1879,16 +2102,33 @@ export default function DocumentsExplorer({
       "anulacion",
     ]);
 
-    setFilterType(allowed.has(type) ? type : "all");
-    setFilterTerm(term);
+    if (hasFastReference) {
+      setSuppressBulkLoad(true);
+      fastOpenHandledRef.current = false;
+      setFastOpenReference({
+        referenceType,
+        referenceId: referenceIdRaw,
+      });
+      const mappedType = resolveHistoryReferenceDocumentType(referenceType);
+      setFilterType(mappedType);
+      setAppliedFilterType(mappedType);
+      setFilterTerm("");
+      setAppliedFilterTerm("");
+    } else {
+      setSuppressBulkLoad(false);
+      fastOpenHandledRef.current = false;
+      setFastOpenReference(null);
+      setFilterType(allowed.has(type) ? type : "all");
+      setFilterTerm(term);
+      setAppliedFilterType(allowed.has(type) ? type : "all");
+      setAppliedFilterTerm(term);
+    }
     setFilterFrom("");
     setFilterTo("");
     setFilterPayment("");
     setFilterCustomer("");
     setFilterPos("");
     setFilterVendor("");
-    setAppliedFilterType(allowed.has(type) ? type : "all");
-    setAppliedFilterTerm(term);
     setAppliedFilterFrom("");
     setAppliedFilterTo("");
     setAppliedFilterPayment("");
@@ -1897,7 +2137,68 @@ export default function DocumentsExplorer({
     setAppliedFilterVendor("");
     setSelectedDoc(null);
     setPersistedSelectedId(null);
-  }, [searchParams]);
+  }, [resolveHistoryReferenceDocumentType, searchParams]);
+
+  useEffect(() => {
+    if (!authHeaders || !filtersReady) return;
+    if (!fastOpenReference) return;
+    if (fastOpenInProgressRef.current) return;
+
+    let cancelled = false;
+    fastOpenHandledRef.current = true;
+    fastOpenInProgressRef.current = true;
+
+    const run = async () => {
+      try {
+        const result = await fetchDocumentFromHistoryReference(
+          fastOpenReference.referenceType,
+          fastOpenReference.referenceId
+        );
+        if (cancelled) return;
+
+        setSelectedDoc(result.doc);
+        setDocumentDetailOpen(true);
+        setDetailExpanded(true);
+        setPersistedSelectedId(result.doc.id);
+        setReceivingDetailError(null);
+        setLoadingReceivingDetail(false);
+        if ("receivingDetail" in result && result.receivingDetail) {
+          setSelectedReceivingDetail(result.receivingDetail);
+        } else if (result.doc.type !== "recepcion") {
+          setSelectedReceivingDetail(null);
+        }
+        setError(null);
+
+        setSuppressBulkLoad(false);
+        await loadDocumentsRef.current({ force: true, background: true });
+      } catch (err) {
+        if (cancelled) return;
+        console.error(err);
+        setError(err instanceof Error ? err.message : "No se pudo abrir el documento.");
+        setSuppressBulkLoad(false);
+        setFastOpenReference(null);
+        fastOpenInProgressRef.current = false;
+        void loadDocumentsRef.current({ force: true });
+        return;
+      } finally {
+        if (!cancelled) {
+          fastOpenInProgressRef.current = false;
+          setFastOpenReference(null);
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    authHeaders,
+    fastOpenReference,
+    filtersReady,
+    fetchDocumentFromHistoryReference,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !filtersReady) return;
@@ -2517,6 +2818,9 @@ export default function DocumentsExplorer({
 
 useEffect(() => {
   if (filteredDocuments.length === 0) {
+    if (selectedDoc && fastOpenInProgressRef.current) {
+      return;
+    }
     if (selectedDoc) {
       setSelectedDoc(null);
     }
@@ -2565,16 +2869,22 @@ useEffect(() => {
   setDetailExpanded(false);
 }, [selectedDoc?.id]);
 
-useEffect(() => {
-  const isReceivingDoc = selectedDoc?.type === "recepcion";
-  const receivingLotId = isReceivingDoc ? selectedDoc.recordId : null;
+  useEffect(() => {
+    const isReceivingDoc = selectedDoc?.type === "recepcion";
+    const receivingLotId = isReceivingDoc ? selectedDoc.recordId : null;
 
-  if (!isReceivingDoc || !receivingLotId || !authHeaders) {
-    setSelectedReceivingDetail(null);
-    setReceivingDetailError(null);
-    setLoadingReceivingDetail(false);
-    return;
-  }
+    if (!isReceivingDoc || !receivingLotId || !authHeaders) {
+      setSelectedReceivingDetail(null);
+      setReceivingDetailError(null);
+      setLoadingReceivingDetail(false);
+      return;
+    }
+
+    if (selectedReceivingDetail?.lot?.id === receivingLotId) {
+      setReceivingDetailError(null);
+      setLoadingReceivingDetail(false);
+      return;
+    }
 
   let cancelled = false;
   const apiBase = getApiBase();
@@ -2624,7 +2934,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [selectedDoc, authHeaders, logout]);
+}, [selectedDoc, authHeaders, logout, selectedReceivingDetail?.lot?.id]);
 
 const selectedDetails = selectedDoc?.data;
   const selectedWebOrder =

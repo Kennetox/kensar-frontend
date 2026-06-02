@@ -3609,13 +3609,21 @@ export default function MovementsPage() {
                             {reasonLabel[move.reason as InventoryMovementReason] ?? move.reason}
                           </p>
                           {move.reference_label ? (
-                            <button
+                          <button
                               type="button"
                               onClick={() => {
                                 const params = new URLSearchParams();
                                 params.set("fromMovements", "1");
-                                params.set("term", move.reference_label || "");
                                 params.set("type", mapHistoryReferenceToDocumentsType(move.reference_type));
+                                if (move.reference_type) {
+                                  params.set("reference_type", move.reference_type);
+                                }
+                                if (typeof move.reference_id === "number") {
+                                  params.set("reference_id", String(move.reference_id));
+                                }
+                                if (!move.reference_id) {
+                                  params.set("term", move.reference_label || "");
+                                }
                                 router.push(`/dashboard/documents?${params.toString()}`);
                               }}
                               className="text-xs font-medium text-sky-700 underline-offset-2 hover:underline"
