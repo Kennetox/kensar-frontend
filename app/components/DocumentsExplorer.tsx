@@ -49,7 +49,7 @@ import {
 import LoadingSpinner from "./ui/LoadingSpinner";
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
-const DOCUMENTS_CACHE_PREFIX = "kensar_documents_cache:";
+const DOCUMENTS_CACHE_PREFIX = "kensar_documents_cache:v3:";
 const DOCUMENTS_CACHE_TTL_MS = 2 * 60 * 1000;
 const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
 
@@ -1301,15 +1301,15 @@ export default function DocumentsExplorer({
       const buildRangeParams = () => {
         const params = new URLSearchParams();
         if (fromKey) {
-          params.set(
-            "date_from",
-            buildBogotaDateFromKey(fromKey).toISOString()
-          );
+          const start = buildBogotaDateFromKey(fromKey);
+          params.set("date_from", start.toISOString());
+          params.set("paid_from", start.toISOString());
         }
         if (toKey) {
           const endExclusive = buildBogotaDateFromKey(toKey);
           endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
           params.set("date_to", endExclusive.toISOString());
+          params.set("paid_to", endExclusive.toISOString());
         }
         return params;
       };
@@ -1439,8 +1439,10 @@ export default function DocumentsExplorer({
         for (;;) {
           const dateFrom = rangeParams?.get("date_from") ?? undefined;
           const dateTo = rangeParams?.get("date_to") ?? undefined;
+          const paidFrom = rangeParams?.get("paid_from") ?? undefined;
+          const paidTo = rangeParams?.get("paid_to") ?? undefined;
           const page = await fetchSeparatedOrders(
-            { skip, limit: PAGE_SIZE, dateFrom, dateTo },
+            { skip, limit: PAGE_SIZE, dateFrom, dateTo, paidFrom, paidTo },
             token
           );
           rows.push(...page);
@@ -2499,10 +2501,20 @@ export default function DocumentsExplorer({
     });
 
     const abonoDocs: DocumentRow[] = [];
+    const appliedRangeFrom = appliedFilterFrom || "";
+    const appliedRangeTo = appliedFilterTo || "";
     separatedOrdersList.forEach((order) => {
       const sale = salesById.get(order.sale_id);
       order.payments?.forEach((payment: SeparatedOrderPayment) => {
         if (payment?.status === "voided") return;
+        const paymentDateKey = getBogotaDateKey(payment.paid_at);
+        if (
+          paymentDateKey &&
+          ((appliedRangeFrom && paymentDateKey < appliedRangeFrom) ||
+            (appliedRangeTo && paymentDateKey > appliedRangeTo))
+        ) {
+          return;
+        }
         const amount = toNumber(payment.amount ?? 0);
         const record: AbonoRecord = {
           id: payment.id,

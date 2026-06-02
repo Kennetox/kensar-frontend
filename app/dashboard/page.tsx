@@ -999,6 +999,59 @@ export default function DashboardHomePage() {
     (baseTotal: number) => Math.max(0, baseTotal),
     []
   );
+  const separatedPaymentTotals = useMemo(() => {
+    const dayMap = new Map<string, number>();
+    const monthMap = new Map<string, number>();
+    const todayMonthKey = todayDateKey.slice(0, 7);
+    const currentWeekStartKey = getBogotaDateKey(currentWeekStart);
+    const currentWeekEnd = new Date(currentWeekStart);
+    currentWeekEnd.setUTCDate(currentWeekStart.getUTCDate() + 7);
+    const currentWeekEndKey = getBogotaDateKey(currentWeekEnd);
+
+    let todayTotal = 0;
+    let monthTotal = 0;
+    let weekTotal = 0;
+
+    separatedOrders.forEach((order) => {
+      order.payments?.forEach((payment) => {
+        if (payment.status === "voided") return;
+        const amount = Math.max(Number(payment.amount ?? 0), 0);
+        if (amount <= 0) return;
+        const paidKey = getBogotaDateKey(payment.paid_at);
+        if (!paidKey) return;
+        dayMap.set(paidKey, (dayMap.get(paidKey) ?? 0) + amount);
+        const monthKey = paidKey.slice(0, 7);
+        monthMap.set(monthKey, (monthMap.get(monthKey) ?? 0) + amount);
+        if (paidKey === todayDateKey) {
+          todayTotal += amount;
+        }
+        if (monthKey === todayMonthKey) {
+          monthTotal += amount;
+        }
+        if (
+          currentWeekStartKey &&
+          currentWeekEndKey &&
+          paidKey >= currentWeekStartKey &&
+          paidKey < currentWeekEndKey
+        ) {
+          weekTotal += amount;
+        }
+      });
+    });
+
+    return {
+      todayTotal,
+      monthTotal,
+      weekTotal,
+      dayMap,
+      monthMap,
+    };
+  }, [
+    currentWeekStart,
+    separatedOrders,
+    todayDateKey,
+    todayStart,
+  ]);
   const trendDayMap = useMemo(() => {
     const map = new Map<string, { total: number; tickets: number }>();
     if (!data) return map;
@@ -1027,7 +1080,9 @@ export default function DashboardHomePage() {
       const key = getBogotaDateKey(d);
       const fromMap = trendDayMap.get(key);
       const baseTotal = fromMap?.total ?? 0;
-      const adjustedTotal = adjustTotalForDate(baseTotal);
+      const adjustedTotal = adjustTotalForDate(
+        baseTotal + (separatedPaymentTotals.dayMap.get(key) ?? 0)
+      );
       result.push({
         date: d.toISOString(),
         total: adjustedTotal,
@@ -1036,7 +1091,7 @@ export default function DashboardHomePage() {
     }
 
     return result;
-  }, [adjustTotalForDate, trendDayMap, weekStart]);
+  }, [adjustTotalForDate, separatedPaymentTotals.dayMap, trendDayMap, weekStart]);
   const currentWeekPoints = useMemo(() => {
     if (!trendDayMap.size) return [];
     const result: SalesTrendPoint[] = [];
@@ -1046,7 +1101,9 @@ export default function DashboardHomePage() {
       const key = getBogotaDateKey(d);
       const fromMap = trendDayMap.get(key);
       const baseTotal = fromMap?.total ?? 0;
-      const adjustedTotal = adjustTotalForDate(baseTotal);
+      const adjustedTotal = adjustTotalForDate(
+        baseTotal + (separatedPaymentTotals.dayMap.get(key) ?? 0)
+      );
       result.push({
         date: d.toISOString(),
         total: adjustedTotal,
@@ -1054,7 +1111,12 @@ export default function DashboardHomePage() {
       });
     }
     return result;
-  }, [adjustTotalForDate, currentWeekStart, trendDayMap]);
+  }, [
+    adjustTotalForDate,
+    currentWeekStart,
+    separatedPaymentTotals.dayMap,
+    trendDayMap,
+  ]);
 
   const adjustedYearTrend = useMemo(
     () =>
@@ -1063,22 +1125,28 @@ export default function DashboardHomePage() {
         if (!key) {
           return point;
         }
+        const monthKey = key.slice(0, 7);
+        const collected = separatedPaymentTotals.monthMap.get(monthKey) ?? 0;
       return {
         ...point,
-        total: adjustTotalForMonth(point.total ?? 0),
+        total: adjustTotalForMonth((point.total ?? 0) + collected),
       };
       }),
-    [yearTrend, adjustTotalForMonth]
+    [adjustTotalForMonth, separatedPaymentTotals.monthMap, yearTrend]
   );
 
   const adjustedTodaySales = useMemo(() => {
     if (!data) return 0;
-    return adjustTotalForDate(data.today_sales_total ?? 0);
-  }, [data, adjustTotalForDate]);
+    return adjustTotalForDate(
+      (data.today_sales_total ?? 0) + separatedPaymentTotals.todayTotal
+    );
+  }, [adjustTotalForDate, data, separatedPaymentTotals.todayTotal]);
   const adjustedMonthSales = useMemo(() => {
     if (!data) return 0;
-    return adjustTotalForMonth(data.month_sales_total ?? 0);
-  }, [data, adjustTotalForMonth]);
+    return adjustTotalForMonth(
+      (data.month_sales_total ?? 0) + separatedPaymentTotals.monthTotal
+    );
+  }, [adjustTotalForMonth, data, separatedPaymentTotals.monthTotal]);
   const adjustedTodayAvgTicket = useMemo(() => {
     if (!data) return 0;
     const tickets = data.today_tickets ?? 0;
