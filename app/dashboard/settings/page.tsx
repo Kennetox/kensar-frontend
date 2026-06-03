@@ -925,20 +925,26 @@ export default function SettingsPage() {
         fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
+          cache: "no-store",
         }),
         fetch(`${apiBase}/pos/returns?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
+          cache: "no-store",
         }),
         fetch(`${apiBase}/pos/changes?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
+          cache: "no-store",
         }),
         fetch(`${apiBase}/pos/closures?skip=0&limit=200`, {
           headers: authHeaders,
           credentials: "include",
+          cache: "no-store",
         }),
-        fetchSeparatedOrders({ limit: 200 }, token),
+        fetchSeparatedOrders({ limit: 200 }, token, {
+          cache: "no-store",
+        }),
       ]);
       if (!salesRes.ok) {
         throw new Error("No se pudieron cargar las ventas recientes.");
@@ -1115,16 +1121,21 @@ export default function SettingsPage() {
         fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
+          cache: "no-store",
         }),
         fetch(`${apiBase}/pos/returns?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
+          cache: "no-store",
         }),
         fetch(`${apiBase}/pos/changes?skip=0&limit=300`, {
           headers: authHeaders,
           credentials: "include",
+          cache: "no-store",
         }),
-        fetchSeparatedOrders({ limit: 500 }, token),
+        fetchSeparatedOrders({ limit: 500 }, token, {
+          cache: "no-store",
+        }),
       ]);
       if (!salesRes.ok) {
         throw new Error("No se pudieron cargar las ventas recientes.");
