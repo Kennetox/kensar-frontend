@@ -123,6 +123,12 @@ type ReportSale = {
   surcharge_label?: string | null;
 };
 
+type DashboardDailySalesPoint = {
+  date: string;
+  total: number;
+  tickets: number;
+};
+
 type ReportSummaryItem = {
   label: string;
   value: string;
@@ -1763,7 +1769,8 @@ function buildReportResult(
   changesData: ReportChange[] = [],
   filterMeta?: FilterMeta,
   productGroupById?: Map<number, string>,
-  productGroupBySku?: Map<string, string>
+  productGroupBySku?: Map<string, string>,
+  consolidatedDailySeries?: DashboardDailySalesPoint[]
 ): ReportResult | null {
   const resolvePaymentLabel =
     labelResolver ?? ((method: string) => method.toUpperCase());
@@ -1790,6 +1797,20 @@ function buildReportResult(
   );
   const ticketCount = sales.length;
   const avgTicket = ticketCount ? totalNet / ticketCount : 0;
+  const consolidatedDailyMap = new Map<string, { total: number; tickets: number }>();
+  let consolidatedRangeTotal = 0;
+  let consolidatedRangeTickets = 0;
+  (consolidatedDailySeries ?? []).forEach((point) => {
+    const key = point.date.slice(0, 10);
+    if (!key) return;
+    const entry = consolidatedDailyMap.get(key) ?? { total: 0, tickets: 0 };
+    entry.total += Number(point.total ?? 0);
+    entry.tickets += Math.max(0, Math.trunc(Number(point.tickets ?? 0)));
+    consolidatedDailyMap.set(key, entry);
+    consolidatedRangeTotal += Number(point.total ?? 0);
+    consolidatedRangeTickets += Math.max(0, Math.trunc(Number(point.tickets ?? 0)));
+  });
+  const hasConsolidatedDailySeries = consolidatedDailyMap.size > 0;
 
   const groupBy = (
     keyFn: (sale: ReportSale) => string,
@@ -1880,9 +1901,26 @@ const dateTimeFormatter = (iso: string) =>
         ]);
       return {
         summary: [
-          { label: "Ventas netas", value: formatMoney(totalNet) },
-          { label: "Tickets", value: ticketCount.toString() },
-          { label: "Ticket promedio", value: formatMoney(avgTicket) },
+          {
+            label: "Ventas netas",
+            value: formatMoney(
+              hasConsolidatedDailySeries ? consolidatedRangeTotal : totalNet
+            ),
+          },
+          {
+            label: "Tickets",
+            value: String(
+              hasConsolidatedDailySeries ? consolidatedRangeTickets : ticketCount
+            ),
+          },
+          {
+            label: "Ticket promedio",
+            value: formatMoney(
+              hasConsolidatedDailySeries && consolidatedRangeTickets > 0
+                ? consolidatedRangeTotal / consolidatedRangeTickets
+                : avgTicket
+            ),
+          },
         ],
         table: {
           columns: ["POS", "Ventas", "Tickets", "Ticket promedio"],
@@ -1892,29 +1930,57 @@ const dateTimeFormatter = (iso: string) =>
       };
     }
     case "month-daily": {
-      const dayMap = new Map<string, { total: number; count: number }>();
-      sales.forEach((sale) => {
-        const key = sale.created_at.slice(0, 10);
-        if (!dayMap.has(key)) {
-          dayMap.set(key, { total: 0, count: 0 });
-        }
-        const entry = dayMap.get(key)!;
-        entry.total += sale.total ?? 0;
-        entry.count += 1;
-      });
-      const rows = Array.from(dayMap.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([date, entry]) => [
-          dayFormatter(date),
+      const dayEntries = hasConsolidatedDailySeries
+        ? Array.from(consolidatedDailyMap.entries()).map(([date, entry]) => ({
+            date,
+            total: entry.total,
+            tickets: entry.tickets,
+          }))
+        : (() => {
+            const fallbackMap = new Map<string, { total: number; tickets: number }>();
+            sales.forEach((sale) => {
+              const key = sale.created_at.slice(0, 10);
+              if (!fallbackMap.has(key)) {
+                fallbackMap.set(key, { total: 0, tickets: 0 });
+              }
+              const entry = fallbackMap.get(key)!;
+              entry.total += sale.total ?? 0;
+              entry.tickets += 1;
+            });
+            return Array.from(fallbackMap.entries()).map(([date, entry]) => ({
+              date,
+              total: entry.total,
+              tickets: entry.tickets,
+            }));
+          })();
+      const rows = dayEntries
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((entry) => [
+          dayFormatter(entry.date),
           formatMoney(entry.total),
-          entry.count.toString(),
-          formatMoney(entry.count ? entry.total / entry.count : 0),
+          String(entry.tickets),
+          formatMoney(entry.tickets ? entry.total / entry.tickets : 0),
         ]);
+      const monthTotal = dayEntries.reduce((sum, entry) => sum + entry.total, 0);
+      const monthTickets = dayEntries.reduce((sum, entry) => sum + entry.tickets, 0);
       return {
         summary: [
-          { label: "Ventas del periodo", value: formatMoney(totalNet) },
-          { label: "Tickets", value: ticketCount.toString() },
-          { label: "Ticket promedio", value: formatMoney(avgTicket) },
+          {
+            label: "Ventas del periodo",
+            value: formatMoney(hasConsolidatedDailySeries ? monthTotal : totalNet),
+          },
+          {
+            label: "Tickets",
+            value: String(hasConsolidatedDailySeries ? monthTickets : ticketCount),
+          },
+          {
+            label: "Ticket promedio",
+            value: formatMoney(
+              hasConsolidatedDailySeries && monthTickets > 0
+                ? monthTotal / monthTickets
+                : avgTicket
+            ),
+          },
         ],
         table: {
           columns: ["Día", "Ventas", "Tickets", "Ticket promedio"],
@@ -2959,6 +3025,7 @@ type ReportDocumentViewerProps = {
   filterMeta: FilterMeta;
   salesData: ReportSale[];
   changesData: ReportChange[];
+  consolidatedDailySeries: DashboardDailySalesPoint[];
   resultOverride?: ReportResult | null;
   companyInfo: CompanyInfo;
   token?: string | null;
@@ -3123,6 +3190,7 @@ function ReportDocumentViewer({
   filterMeta,
   salesData,
   changesData,
+  consolidatedDailySeries,
   resultOverride,
   companyInfo,
   token,
@@ -3151,7 +3219,8 @@ function ReportDocumentViewer({
         changesData,
         filterMeta,
         productGroupById,
-        productGroupBySku
+        productGroupBySku,
+        consolidatedDailySeries
       ),
     [
       resultOverride,
@@ -3162,6 +3231,7 @@ function ReportDocumentViewer({
       filterMeta,
       productGroupById,
       productGroupBySku,
+      consolidatedDailySeries,
     ]
   );
   const documentData = useMemo(() => {
@@ -3791,8 +3861,12 @@ export default function ReportsPage() {
 
   const [salesData, setSalesData] = useState<ReportSale[]>([]);
   const [changesData, setChangesData] = useState<ReportChange[]>([]);
+  const [consolidatedDailySeries, setConsolidatedDailySeries] = useState<
+    DashboardDailySalesPoint[]
+  >([]);
   const salesDataRef = useRef<ReportSale[]>([]);
   const changesDataRef = useRef<ReportChange[]>([]);
+  const consolidatedDailySeriesRef = useRef<DashboardDailySalesPoint[]>([]);
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
   const salesLoadedRef = useRef(false);
@@ -3901,6 +3975,10 @@ export default function ReportsPage() {
   useEffect(() => {
     changesDataRef.current = changesData;
   }, [changesData]);
+
+  useEffect(() => {
+    consolidatedDailySeriesRef.current = consolidatedDailySeries;
+  }, [consolidatedDailySeries]);
 
   useEffect(() => {
     if (!token) return;
@@ -4349,7 +4427,8 @@ export default function ReportsPage() {
         return rows;
       };
 
-      const [salesResult, changesResult] = await Promise.allSettled([
+      const [salesResult, changesResult, consolidatedDailyResult] =
+        await Promise.allSettled([
         fetchAllPages<ReportSale>(
           "/pos/sales",
           {
@@ -4373,6 +4452,31 @@ export default function ReportsPage() {
             timeoutMs: REPORT_FETCH_TIMEOUT_MS,
           }
         ),
+        (async (): Promise<DashboardDailySalesPoint[]> => {
+          const params = new URLSearchParams({
+            ...buildBogotaRangeApiParams(fromDate, toDate),
+            source: sourceFilter,
+          });
+          const controller = new AbortController();
+          const timeoutId = window.setTimeout(
+            () => controller.abort(),
+            REPORT_FETCH_TIMEOUT_MS
+          );
+          const res = await fetch(
+            `${apiBase}/dashboard/daily-sales?${params.toString()}`,
+            {
+              headers: authHeaders,
+              credentials: "include",
+              signal: controller.signal,
+            }
+          ).finally(() => {
+            window.clearTimeout(timeoutId);
+          });
+          if (!res.ok) {
+            throw new Error(`Error ${res.status}`);
+          }
+          return (await res.json()) as DashboardDailySalesPoint[];
+        })(),
       ]);
 
       if (salesResult.status !== "fulfilled") {
@@ -4397,6 +4501,13 @@ export default function ReportsPage() {
         setChangesData([]);
         changesDataRef.current = [];
       }
+      if (consolidatedDailyResult.status === "fulfilled") {
+        setConsolidatedDailySeries(consolidatedDailyResult.value);
+        consolidatedDailySeriesRef.current = consolidatedDailyResult.value;
+      } else {
+        setConsolidatedDailySeries([]);
+        consolidatedDailySeriesRef.current = [];
+      }
     } catch (err) {
       console.error(err);
       salesLoadedRef.current = false;
@@ -4412,6 +4523,8 @@ export default function ReportsPage() {
           ? err.message
           : "No pudimos cargar la información de ventas."
       );
+      setConsolidatedDailySeries([]);
+      consolidatedDailySeriesRef.current = [];
     } finally {
       setSalesLoading(false);
     }
@@ -4610,7 +4723,8 @@ export default function ReportsPage() {
           changesDataRef.current,
           tabFilterMeta,
           productGroupById,
-          productGroupBySku
+          productGroupBySku,
+          consolidatedDailySeriesRef.current
         );
       const newTab: OpenReportTab = {
         id: instanceId,
@@ -4728,7 +4842,8 @@ export default function ReportsPage() {
       changesDataRef.current,
       tabFilterMeta,
       resolvedGroupById.size > 0 ? resolvedGroupById : productGroupById,
-      resolvedGroupBySku.size > 0 ? resolvedGroupBySku : productGroupBySku
+      resolvedGroupBySku.size > 0 ? resolvedGroupBySku : productGroupBySku,
+      consolidatedDailySeriesRef.current
     );
 
     createReportTab(preset, customMeta, resultSnapshot);
@@ -4788,7 +4903,8 @@ export default function ReportsPage() {
       changesDataRef.current,
       tabFilterMeta,
       resolvedGroupById.size > 0 ? resolvedGroupById : productGroupById,
-      resolvedGroupBySku.size > 0 ? resolvedGroupBySku : productGroupBySku
+      resolvedGroupBySku.size > 0 ? resolvedGroupBySku : productGroupBySku,
+      consolidatedDailySeriesRef.current
     );
 
     createReportTab(
@@ -5359,6 +5475,7 @@ export default function ReportsPage() {
             filterMeta={activeReportTab.filterMeta}
             salesData={salesData}
             changesData={changesData}
+            consolidatedDailySeries={consolidatedDailySeries}
             resultOverride={activeReportSnapshot}
             companyInfo={companyInfo}
             token={token}
