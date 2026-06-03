@@ -3137,6 +3137,7 @@ const matchesStationLabel = useCallback(
         pendingTotal: 0,
         paymentsTotal: 0,
       };
+      let separatedCollectedLaterTotal = 0;
 
       const findCatalogMethod = (methodRaw?: string | null) => {
         if (!methodRaw) return null;
@@ -3370,6 +3371,7 @@ const matchesStationLabel = useCallback(
             payment.method,
             payment.amount
           );
+          separatedCollectedLaterTotal += payment.amount;
           totalGrossCollected += payment.amount;
           addStationGross(stationContributionId, payment.amount);
           separatedSummary.paymentsTotal += payment.amount;
@@ -3588,9 +3590,16 @@ const matchesStationLabel = useCallback(
           ? {
               ...separatedSummary,
               dayCollectedTotal: Number(
-                Math.max(closureNetAmount - separatedSummary.pendingTotal, 0).toFixed(2)
+                Math.max(
+                  closureNetAmount -
+                    separatedSummary.pendingTotal +
+                    separatedCollectedLaterTotal,
+                  0
+                ).toFixed(2)
               ),
-              dayWithPendingTotal: Number(closureNetAmount.toFixed(2)),
+              dayWithPendingTotal: Number(
+                (closureNetAmount + separatedCollectedLaterTotal).toFixed(2)
+              ),
             }
           : null
       );
@@ -3985,6 +3994,11 @@ const matchesStationLabel = useCallback(
     ]
   );
 
+  const closureDisplayTotal = useMemo(
+    () => closureSeparatedInfo?.dayCollectedTotal ?? closureNetAmount,
+    [closureSeparatedInfo?.dayCollectedTotal, closureNetAmount]
+  );
+
   const closureDifference = useMemo(
     () => closureForm.countedCash - closureForm.totalCash,
     [closureForm.countedCash, closureForm.totalCash]
@@ -4137,7 +4151,7 @@ const matchesStationLabel = useCallback(
                 : []),
             ]
           : []),
-        { label: "Neto del período", value: closureNetAmount },
+        { label: "Neto del período", value: closureDisplayTotal },
       ],
     [
       closureSummary.total_amount,
@@ -4145,7 +4159,7 @@ const matchesStationLabel = useCallback(
       closureSummary.change_extra_total,
       closureSummary.change_refund_total,
       closureSummary.change_count,
-      closureNetAmount,
+      closureDisplayTotal,
     ]
   );
 
@@ -4343,14 +4357,35 @@ const matchesStationLabel = useCallback(
         counted_cash: payload.counted_cash,
         difference: payload.difference,
       };
+      const backendMethodDetails: ClosureMethodDetail[] =
+        Array.isArray(payload.methods_breakdown) &&
+        payload.methods_breakdown.length > 0
+          ? payload.methods_breakdown
+              .map((method) => ({
+                label: method.label || "Otro método",
+                gross: Number(method.gross ?? method.net ?? 0),
+                refunds: Number(method.refunds ?? 0),
+                net: Number(
+                  method.net ??
+                    method.gross ??
+                    0
+                ),
+              }))
+              .filter(
+                (method) =>
+                  method.gross !== 0 || method.refunds !== 0 || method.net !== 0
+              )
+          : [];
       const dynamicMethods =
         (payload.custom_methods && payload.custom_methods.length > 0
           ? payload.custom_methods
           : closureCustomMethods) ?? [];
       const methodDetailsForPrint: ClosureMethodDetail[] =
-        closureMethodDetails.length > 0
-          ? closureMethodDetails
-          : [
+        backendMethodDetails.length > 0
+          ? backendMethodDetails
+          : closureMethodDetails.length > 0
+            ? closureMethodDetails
+            : [
               {
                 label: "Efectivo",
                 gross: totalsSource.total_cash,
@@ -7685,7 +7720,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                     <p>
                       <span className="text-slate-400">Neto del día:</span>{" "}
                       <span className="font-semibold text-slate-100">
-                        {formatMoney(closureNetAmount)}
+                        {formatMoney(closureDisplayTotal)}
                       </span>
                     </p>
                     <p>
@@ -7721,7 +7756,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                 },
                 {
                   title: "Neto del período",
-                  value: formatMoney(closureNetAmount),
+                  value: formatMoney(closureDisplayTotal),
                   note: "Ventas menos reembolsos",
                 },
               ].map((card) => (

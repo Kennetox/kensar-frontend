@@ -4069,6 +4069,12 @@ useEffect(() => {
       printClosureTicket(selectedClosure, posSettings);
     }
   };
+  const selectedClosureDisplayTotal = selectedClosure
+    ? selectedClosure.separated_summary?.day_collected_total ??
+      selectedClosure.net_amount ??
+      selectedClosure.total_amount ??
+      0
+    : 0;
 
   useEffect(() => {
     const timers = toastTimerRef.current;
@@ -4084,14 +4090,20 @@ useEffect(() => {
   const closureMethodSummaries = useMemo(
     () =>
       selectedClosure
-        ? [
-            { label: "Efectivo", value: selectedClosure.total_cash },
-            { label: "Tarjeta Datáfono", value: selectedClosure.total_card },
-            { label: "Transferencias / QR", value: selectedClosure.total_qr },
-            { label: "Nequi", value: selectedClosure.total_nequi },
-            { label: "Daviplata", value: selectedClosure.total_daviplata },
-            { label: "Crédito / separado", value: selectedClosure.total_credit },
-          ]
+        ? (selectedClosure.methods_breakdown &&
+            selectedClosure.methods_breakdown.length > 0
+              ? selectedClosure.methods_breakdown.map((row) => ({
+                  label: row.label,
+                  value: Number(row.net ?? row.gross ?? 0),
+                }))
+              : [
+                  { label: "Efectivo", value: selectedClosure.total_cash },
+                  { label: "Tarjeta Datáfono", value: selectedClosure.total_card },
+                  { label: "Transferencias / QR", value: selectedClosure.total_qr },
+                  { label: "Nequi", value: selectedClosure.total_nequi },
+                  { label: "Daviplata", value: selectedClosure.total_daviplata },
+                  { label: "Crédito / separado", value: selectedClosure.total_credit },
+                ])
         : [],
     [selectedClosure]
   );
@@ -4934,7 +4946,7 @@ useEffect(() => {
                     <div className="flex justify-between gap-3">
                       <span className="text-slate-400">Total registrado</span>
                       <span className="text-right text-slate-100">
-                        {formatMoney(selectedClosure.total_amount)}
+                        {formatMoney(selectedClosureDisplayTotal)}
                       </span>
                     </div>
                     <div className="flex justify-between gap-3">
@@ -4962,7 +4974,7 @@ useEffect(() => {
                     <div className="flex justify-between gap-3">
                       <span className="text-slate-400">Neto del día</span>
                       <span className="text-right text-slate-100">
-                        {formatMoney(selectedClosure.net_amount)}
+                        {formatMoney(selectedClosureDisplayTotal)}
                       </span>
                     </div>
                     <div className="flex justify-between gap-3">
@@ -5718,7 +5730,7 @@ useEffect(() => {
                 <div className="space-y-4">
                   <div className="grid gap-2 sm:grid-cols-2">
                     {[
-                      { label: "Total registrado", value: formatMoney(selectedClosure.total_amount) },
+                      { label: "Total registrado", value: formatMoney(selectedClosureDisplayTotal) },
                       { label: "Devoluciones", value: `-${formatMoney(selectedClosure.total_refunds)}`, tone: "danger" as const },
                       ...(selectedClosure.change_extra_total || selectedClosure.change_refund_total
                         ? [
@@ -5736,12 +5748,9 @@ useEffect(() => {
                         : []),
                       {
                         label: "Total de HOY",
-                        value: formatMoney(
-                          selectedClosure.separated_summary?.day_collected_total ??
-                            selectedClosure.net_amount
-                        ),
+                        value: formatMoney(selectedClosureDisplayTotal),
                       },
-                      { label: "Neto del día", value: formatMoney(selectedClosure.net_amount) },
+                      { label: "Neto del día", value: formatMoney(selectedClosureDisplayTotal) },
                       { label: "Efectivo esperado", value: formatMoney(selectedClosure.total_cash) },
                       { label: "Efectivo contado", value: formatMoney(selectedClosure.counted_cash) },
                       {
