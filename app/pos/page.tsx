@@ -3994,11 +3994,6 @@ const matchesStationLabel = useCallback(
     ]
   );
 
-  const closureDisplayTotal = useMemo(
-    () => closureSeparatedInfo?.dayCollectedTotal ?? closureNetAmount,
-    [closureSeparatedInfo?.dayCollectedTotal, closureNetAmount]
-  );
-
   const closureDifference = useMemo(
     () => closureForm.countedCash - closureForm.totalCash,
     [closureForm.countedCash, closureForm.totalCash]
@@ -4066,7 +4061,32 @@ const matchesStationLabel = useCallback(
     resolvedPosName,
   ]);
 
+  const closureSeparatedDisplay = useMemo(
+    () =>
+      normalizeClosureSeparatedSummary(closureSummary.separated_summary) ??
+      closureSeparatedInfo,
+    [closureSummary.separated_summary, closureSeparatedInfo]
+  );
+
+  const closureDisplayTotal = useMemo(
+    () => closureSeparatedDisplay?.dayCollectedTotal ?? closureNetAmount,
+    [closureSeparatedDisplay?.dayCollectedTotal, closureNetAmount]
+  );
+
   const closureMethods = useMemo(() => {
+    if (Array.isArray(closureSummary.methods_breakdown) && closureSummary.methods_breakdown.length > 0) {
+      return closureSummary.methods_breakdown
+        .map((method) => ({
+          label: method.label || "Otro método",
+          gross: Number(method.gross ?? method.net ?? 0),
+          refunds: Number(method.refunds ?? 0),
+          net: Number(method.net ?? method.gross ?? 0),
+        }))
+        .filter(
+          (method) =>
+            method.gross !== 0 || method.refunds !== 0 || method.net !== 0
+        );
+    }
     if (closureMethodDetails.length > 0) {
       return closureMethodDetails;
     }
@@ -7811,34 +7831,34 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
               </div>
             </div>
 
-            {closureSeparatedInfo && (
+            {closureSeparatedDisplay && (
               <div className="rounded-2xl border border-dashed border-slate-700 px-4 py-3 bg-slate-950/30 space-y-1">
                 <div className="flex justify-between text-[11px] text-slate-100 font-semibold uppercase tracking-wide">
                   <span>Ventas por separado</span>
-                  <span>{closureSeparatedInfo.tickets} tickets</span>
+                  <span>{closureSeparatedDisplay.tickets} tickets</span>
                 </div>
                 <div className="flex justify-between text-[11px] text-slate-400">
                   <span>Abonos cobrados hoy</span>
                   <span className="text-slate-100">
-                    {formatMoney(closureSeparatedInfo.paymentsTotal)}
+                    {formatMoney(closureSeparatedDisplay.paymentsTotal)}
                   </span>
                 </div>
                 <div className="flex justify-between text-[11px] text-slate-400">
                   <span>Total reservado</span>
                   <span className="text-slate-100">
-                    {formatMoney(closureSeparatedInfo.reservedTotal)}
+                    {formatMoney(closureSeparatedDisplay.reservedTotal)}
                   </span>
                 </div>
                 <div className="flex justify-between text-[11px] text-slate-400">
                   <span>Saldo pendiente</span>
                   <span
                     className={`font-semibold ${
-                      closureSeparatedInfo.pendingTotal === 0
+                      closureSeparatedDisplay.pendingTotal === 0
                         ? "text-emerald-300"
                         : "text-rose-300"
                     }`}
                   >
-                    {formatMoney(closureSeparatedInfo.pendingTotal)}
+                    {formatMoney(closureSeparatedDisplay.pendingTotal)}
                   </span>
                 </div>
               </div>
@@ -7912,7 +7932,7 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                                   stationRow.net -
                                     (stationRow.pending ||
                                       (closureStationBreakdown.length === 1
-                                        ? closureSeparatedInfo?.pendingTotal ?? 0
+                                        ? closureSeparatedDisplay?.pendingTotal ?? 0
                                         : 0)),
                                   0
                                 )
