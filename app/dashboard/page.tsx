@@ -2170,7 +2170,7 @@ export default function DashboardHomePage() {
                                     className="flex items-start justify-between gap-3"
                                   >
                                     <span className="min-w-0 flex-1">
-                                      {payment.method}
+                                      {getPaymentLabel(payment.method, payment.method)}
                                     </span>
                                     <span className="font-semibold text-slate-200">
                                       -{formatMoney(payment.amount)}
