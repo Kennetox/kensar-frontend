@@ -76,7 +76,8 @@ type FetchSeparatedParams = {
 
 export async function fetchSeparatedOrders(
   params: FetchSeparatedParams,
-  token?: string | null
+  token?: string | null,
+  init?: RequestInit
 ): Promise<SeparatedOrder[]> {
   const searchParams = new URLSearchParams();
   if (params.barcode) searchParams.set("barcode", params.barcode);
@@ -98,6 +99,7 @@ export async function fetchSeparatedOrders(
     {
       headers: buildHeaders(token),
       credentials: "include",
+      ...init,
     }
   );
   if (!res.ok) {

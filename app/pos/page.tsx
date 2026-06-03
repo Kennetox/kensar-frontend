@@ -2624,8 +2624,11 @@ const matchesStationLabel = useCallback(
               Authorization: `Bearer ${token}`,
             },
             credentials: "include",
+            cache: "no-store",
           }),
-          fetchSeparatedOrders({ limit: 300 }, token),
+          fetchSeparatedOrders({ limit: 300 }, token, {
+            cache: "no-store",
+          }),
         ]);
         if (!salesRes.ok) return;
         const sales = (await salesRes.json()) as ClosureSale[];
@@ -2743,20 +2746,25 @@ const matchesStationLabel = useCallback(
             Authorization: `Bearer ${token}`,
           },
           credentials: "include",
+          cache: "no-store",
         }),
         fetch(`${apiBase}/pos/returns?skip=0&limit=300`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
           credentials: "include",
+          cache: "no-store",
         }),
         fetch(`${apiBase}/pos/changes?skip=0&limit=300`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
           credentials: "include",
+          cache: "no-store",
         }),
-        fetchSeparatedOrders({ limit: 300 }, token),
+        fetchSeparatedOrders({ limit: 300 }, token, {
+          cache: "no-store",
+        }),
       ]);
       if (!salesRes.ok) {
         throw new Error(`Error ${salesRes.status} al obtener las ventas.`);
