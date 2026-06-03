@@ -922,7 +922,7 @@ export default function SettingsPage() {
       setControlError(null);
       const apiBase = getApiBase();
       const [salesRes, returnsRes, changesRes, closuresRes, separatedOrders] = await Promise.all([
-        fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
+        fetch(`${apiBase}/pos/sales?skip=0&limit=300&source=metrik`, {
           headers: authHeaders,
           credentials: "include",
           cache: "no-store",
@@ -1118,7 +1118,7 @@ export default function SettingsPage() {
       }
       const apiBase = getApiBase();
       const [salesRes, returnsRes, changesRes, separatedOrders] = await Promise.all([
-        fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
+        fetch(`${apiBase}/pos/sales?skip=0&limit=300&source=metrik`, {
           headers: authHeaders,
           credentials: "include",
           cache: "no-store",

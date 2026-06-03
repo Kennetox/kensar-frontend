@@ -2647,7 +2647,7 @@ const matchesStationLabel = useCallback(
       try {
         const apiBase = getApiBase();
         const [salesRes, separatedOrders] = await Promise.all([
-          fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
+          fetch(`${apiBase}/pos/sales?skip=0&limit=300&source=metrik`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -2778,7 +2778,7 @@ const matchesStationLabel = useCallback(
       }
       const apiBase = getApiBase();
       const [salesRes, returnsRes, changesRes, separatedOrders] = await Promise.all([
-        fetch(`${apiBase}/pos/sales?skip=0&limit=300`, {
+        fetch(`${apiBase}/pos/sales?skip=0&limit=300&source=metrik`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
