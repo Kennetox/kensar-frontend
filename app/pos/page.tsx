@@ -342,6 +342,32 @@ type ClosureSeparatedOverview = {
   dayWithPendingTotal?: number;
 };
 
+const normalizeClosureSeparatedSummary = (
+  summary?:
+    | PosClosureResult["separated_summary"]
+    | ClosureSeparatedOverview
+    | null
+): ClosureSeparatedOverview | null => {
+  if (!summary) return null;
+  const raw = summary as Partial<ClosureSeparatedOverview> & {
+    payments_total?: number;
+    reserved_total?: number;
+    pending_total?: number;
+    day_collected_total?: number;
+    day_with_pending_total?: number;
+  };
+  return {
+    tickets: raw.tickets ?? 0,
+    paymentsTotal: raw.paymentsTotal ?? raw.payments_total ?? 0,
+    reservedTotal: raw.reservedTotal ?? raw.reserved_total ?? 0,
+    pendingTotal: raw.pendingTotal ?? raw.pending_total ?? 0,
+    dayCollectedTotal:
+      raw.dayCollectedTotal ?? raw.day_collected_total ?? undefined,
+    dayWithPendingTotal:
+      raw.dayWithPendingTotal ?? raw.day_with_pending_total ?? undefined,
+  };
+};
+
 type ClosureCustomMethod = {
   label: string;
   amount: number;
@@ -2746,6 +2772,7 @@ const matchesStationLabel = useCallback(
     try {
       setClosureTotalsLoading(true);
       setClosureError(null);
+      setClosureSeparatedInfo(null);
       if (process.env.NODE_ENV === "development") {
         await new Promise((resolve) => setTimeout(resolve, 1400));
       }
@@ -3557,7 +3584,6 @@ const matchesStationLabel = useCallback(
 
       setClosureSeparatedInfo(
         separatedSummary.tickets > 0 ||
-          separatedSummary.paymentsTotal > 0 ||
           separatedSummary.pendingTotal > 0
           ? {
               ...separatedSummary,
@@ -4200,23 +4226,23 @@ const matchesStationLabel = useCallback(
         );
       }
       const data = (await res.json()) as PosClosureResult;
+      const backendSeparatedSummary = normalizeClosureSeparatedSummary(
+        data.separated_summary
+      );
       const normalizedSeparated =
-        closureSeparatedInfo ??
-        (data.separated_summary
+        backendSeparatedSummary ??
+        (closureSeparatedInfo
           ? {
-              tickets: data.separated_summary.tickets ?? 0,
-              paymentsTotal: data.separated_summary.payments_total ?? 0,
-              reservedTotal: data.separated_summary.reserved_total ?? 0,
-              pendingTotal: data.separated_summary.pending_total ?? 0,
+              ...closureSeparatedInfo,
               dayCollectedTotal:
-                data.separated_summary.day_collected_total ??
+                closureSeparatedInfo.dayCollectedTotal ??
                 Math.max(
                   (data.net_amount ?? 0) -
-                    (data.separated_summary.pending_total ?? 0),
+                    (closureSeparatedInfo.pendingTotal ?? 0),
                   0
                 ),
               dayWithPendingTotal:
-                data.separated_summary.day_with_pending_total ??
+                closureSeparatedInfo.dayWithPendingTotal ??
                 (data.net_amount ?? 0),
             }
           : null);
@@ -4388,22 +4414,19 @@ const matchesStationLabel = useCallback(
                 .map((user) => ({ name: user.name, total: user.total }))
           : undefined;
       const separatedSummary =
-        closureSeparatedInfo ??
-        (payload.separated_summary
+        normalizeClosureSeparatedSummary(payload.separated_summary) ??
+        (closureSeparatedInfo
           ? {
-              tickets: payload.separated_summary.tickets ?? 0,
-              paymentsTotal: payload.separated_summary.payments_total ?? 0,
-              reservedTotal: payload.separated_summary.reserved_total ?? 0,
-              pendingTotal: payload.separated_summary.pending_total ?? 0,
+              ...closureSeparatedInfo,
               dayCollectedTotal:
-                payload.separated_summary.day_collected_total ??
+                closureSeparatedInfo.dayCollectedTotal ??
                 Math.max(
                   totalsSource.net_amount -
-                    (payload.separated_summary.pending_total ?? 0),
+                    (closureSeparatedInfo.pendingTotal ?? 0),
                   0
                 ),
               dayWithPendingTotal:
-                payload.separated_summary.day_with_pending_total ??
+                closureSeparatedInfo.dayWithPendingTotal ??
                 totalsSource.net_amount,
             }
           : null);
