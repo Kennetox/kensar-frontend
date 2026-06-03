@@ -2285,6 +2285,7 @@ const matchesStationLabel = useCallback(
     useState<PendingClosureInfo | null>(null);
   const [pendingClosureAcknowledged, setPendingClosureAcknowledged] =
     useState(false);
+  const pendingClosureCheckSeqRef = useRef(0);
   const pendingAlertAckKey = useMemo(() => {
     if (!pendingClosureAlert) return null;
     if (!activeStationId) return null;
@@ -2615,6 +2616,7 @@ const matchesStationLabel = useCallback(
   useEffect(() => {
     if (!token) return;
     let active = true;
+    const requestId = ++pendingClosureCheckSeqRef.current;
     async function checkPendingClosures() {
       try {
         const apiBase = getApiBase();
@@ -2630,7 +2632,12 @@ const matchesStationLabel = useCallback(
             cache: "no-store",
           }),
         ]);
-        if (!salesRes.ok) return;
+        if (!salesRes.ok) {
+          if (requestId === pendingClosureCheckSeqRef.current && active) {
+            setPendingClosureAlert(null);
+          }
+          return;
+        }
         const sales = (await salesRes.json()) as ClosureSale[];
         const allSalesMap = new Map<number, ClosureSale>();
         sales.forEach((sale) => allSalesMap.set(sale.id, sale));
@@ -2688,7 +2695,7 @@ const matchesStationLabel = useCallback(
             registerPendingDate(paymentDateKey);
           });
         });
-        if (!active) return;
+        if (!active || requestId !== pendingClosureCheckSeqRef.current) return;
         if (count > 0 && oldestDateKey) {
           const label = formatDateLabelFromKey(oldestDateKey);
           setPendingClosureAlert({
@@ -2701,6 +2708,9 @@ const matchesStationLabel = useCallback(
         }
       } catch (err) {
         console.warn("No se pudo verificar cierres pendientes", err);
+        if (requestId === pendingClosureCheckSeqRef.current && active) {
+          setPendingClosureAlert(null);
+        }
       }
     }
     void checkPendingClosures();
