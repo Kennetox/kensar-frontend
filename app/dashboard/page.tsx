@@ -109,6 +109,11 @@ type RecentSale = {
   adjustment_reference?: string | null;
   total: number;
   payment_method: string;
+  pos_name?: string | null;
+  vendor_name?: string | null;
+  customer_name?: string | null;
+  surcharge_amount?: number | null;
+  surcharge_label?: string | null;
   items?: RecentSaleItem[];
   refund_count?: number;
   refunded_total?: number | null;
@@ -131,8 +136,12 @@ type DocumentAdjustmentRecord = {
   id: number;
   doc_id: number;
   adjustment_type: "payment" | "discount" | "total" | "note";
+  reason?: string | null;
   payload?: Record<string, unknown> | null;
   total_delta: number;
+  payment_delta?: number;
+  created_at?: string;
+  created_by_user_name?: string | null;
 };
 
 type RecentChangeReturnItem = {
@@ -249,6 +258,29 @@ type SeparatedPaymentRow = {
   amount: number;
   customerName?: string | null;
 };
+
+type RecentIncrementRow = {
+  sale: RecentSale;
+  saleNumber: number;
+  saleDocumentNumber: string;
+  createdAt: string;
+  dateKey: string;
+  dateObj: Date;
+  incrementAmount: number;
+  baseTotal: number;
+  finalTotal: number;
+  methodLabel: string;
+  incrementLabel: string;
+  posName: string;
+  vendorName: string;
+  customerName: string;
+  itemDetail: string;
+  itemCount: number;
+  paymentBreakdown: { method: string; amount: number }[] | null;
+  adjustmentSummary: string | null;
+};
+
+type RecentMode = "recent" | "top" | "increments";
 
 /* =============== HELPERS =============== */
 
@@ -497,7 +529,10 @@ export default function DashboardHomePage() {
   const [detailPopoverMode, setDetailPopoverMode] = useState<
     "changes" | "returns"
   >("changes");
-  const [recentMode, setRecentMode] = useState<"recent" | "top">("recent");
+  const [detailCardMode, setDetailCardMode] = useState<
+    "changes" | "returns"
+  >("changes");
+  const [recentMode, setRecentMode] = useState<RecentMode>("recent");
   const [paymentRange, setPaymentRange] = useState<"day" | "week" | "month">(
     "day"
   );
@@ -1212,19 +1247,15 @@ export default function DashboardHomePage() {
       d.setUTCDate(weekStart.getUTCDate() + i);
       const key = getBogotaDateKey(d);
       const fromMap = trendDayMap.get(key);
-      const baseTotal = fromMap?.total ?? 0;
-      const adjustedTotal = adjustTotalForDate(
-        baseTotal + (separatedPaymentTotals.dayMap.get(key) ?? 0)
-      );
       result.push({
         date: d.toISOString(),
-        total: adjustedTotal,
+        total: adjustTotalForDate(fromMap?.total ?? 0),
         tickets: fromMap?.tickets ?? 0,
       });
     }
 
     return result;
-  }, [adjustTotalForDate, separatedPaymentTotals.dayMap, trendDayMap, weekStart]);
+  }, [adjustTotalForDate, trendDayMap, weekStart]);
   const currentWeekPoints = useMemo(() => {
     if (!trendDayMap.size) return [];
     const result: SalesTrendPoint[] = [];
@@ -1233,13 +1264,9 @@ export default function DashboardHomePage() {
       d.setUTCDate(currentWeekStart.getUTCDate() + i);
       const key = getBogotaDateKey(d);
       const fromMap = trendDayMap.get(key);
-      const baseTotal = fromMap?.total ?? 0;
-      const adjustedTotal = adjustTotalForDate(
-        baseTotal + (separatedPaymentTotals.dayMap.get(key) ?? 0)
-      );
       result.push({
         date: d.toISOString(),
-        total: adjustedTotal,
+        total: adjustTotalForDate(fromMap?.total ?? 0),
         tickets: fromMap?.tickets ?? 0,
       });
     }
@@ -1247,7 +1274,6 @@ export default function DashboardHomePage() {
   }, [
     adjustTotalForDate,
     currentWeekStart,
-    separatedPaymentTotals.dayMap,
     trendDayMap,
   ]);
 
@@ -1258,28 +1284,22 @@ export default function DashboardHomePage() {
         if (!key) {
           return point;
         }
-        const monthKey = key.slice(0, 7);
-        const collected = separatedPaymentTotals.monthMap.get(monthKey) ?? 0;
-      return {
-        ...point,
-        total: adjustTotalForMonth((point.total ?? 0) + collected),
-      };
+        return {
+          ...point,
+          total: adjustTotalForMonth(point.total ?? 0),
+        };
       }),
-    [adjustTotalForMonth, separatedPaymentTotals.monthMap, yearTrend]
+    [adjustTotalForMonth, yearTrend]
   );
 
   const adjustedTodaySales = useMemo(() => {
     if (!data) return 0;
-    return adjustTotalForDate(
-      (data.today_sales_total ?? 0) + separatedPaymentTotals.todayTotal
-    );
-  }, [adjustTotalForDate, data, separatedPaymentTotals.todayTotal]);
+    return adjustTotalForDate(data.today_sales_total ?? 0);
+  }, [adjustTotalForDate, data]);
   const adjustedMonthSales = useMemo(() => {
     if (!data) return 0;
-    return adjustTotalForMonth(
-      (data.month_sales_total ?? 0) + separatedPaymentTotals.monthTotal
-    );
-  }, [adjustTotalForMonth, data, separatedPaymentTotals.monthTotal]);
+    return adjustTotalForMonth(data.month_sales_total ?? 0);
+  }, [adjustTotalForMonth, data]);
   const adjustedTodayAvgTicket = useMemo(() => {
     if (!data) return 0;
     const tickets = data.today_tickets ?? 0;
@@ -1449,6 +1469,117 @@ export default function DashboardHomePage() {
     getPaymentLabel,
   ]);
 
+  const incrementRows = useMemo<RecentIncrementRow[]>(() => {
+    if (!recentSales.length) return [];
+
+    const todayKey = todayDateKey;
+
+    const normalized = recentSales
+      .map((sale) => {
+        const dateObj = parseDateInput(sale.created_at) ?? new Date();
+        const dateKey = getBogotaDateKey(dateObj);
+        const adjustments = recentAdjustments[sale.id] ?? [];
+        const paymentBreakdown = getAdjustedPaymentsFromAdjustments(adjustments);
+        const surchargeAmount = Math.max(0, sale.surcharge_amount ?? 0);
+        const adjustmentIncrement = adjustments.reduce((sum, entry) => {
+          const rawDelta =
+            entry.adjustment_type === "payment"
+              ? entry.payment_delta ?? entry.total_delta ?? 0
+              : entry.adjustment_type === "total"
+                ? entry.total_delta ?? 0
+                : 0;
+          return sum + Math.max(0, Number(rawDelta) || 0);
+        }, 0);
+        const incrementAmount =
+          surchargeAmount > 0 ? surchargeAmount : adjustmentIncrement;
+        if (incrementAmount <= 0) return null;
+
+        const saleNumber = sale.sale_number ?? sale.number ?? sale.id;
+        const saleDocumentNumber =
+          sale.document_number?.trim() ||
+          `V-${saleNumber.toString().padStart(6, "0")}`;
+        const firstItem = sale.items?.[0];
+        const itemDetail = firstItem
+          ? `${firstItem.product_name ?? firstItem.name ?? "Producto"} x${
+              firstItem.quantity ?? 1
+            }${(sale.items?.length ?? 0) > 1 ? ` +${(sale.items?.length ?? 0) - 1}` : ""}`
+          : "Sin detalle de productos";
+        const noteAdjustment = adjustments.find(
+          (entry) => entry.adjustment_type === "note"
+        );
+        const notePayload =
+          noteAdjustment?.payload &&
+          typeof noteAdjustment.payload === "object"
+            ? (noteAdjustment.payload as Record<string, unknown>)
+            : null;
+        const adjustmentSummary =
+          [
+            sale.surcharge_label?.trim() ||
+              (surchargeAmount > 0 ? "Recargo aplicado" : null),
+            noteAdjustment?.reason?.trim() ||
+              (typeof notePayload?.note === "string"
+                ? notePayload.note.trim()
+                : null),
+            paymentBreakdown?.length
+              ? `${paymentBreakdown.length} medios ajustados`
+              : null,
+          ]
+            .filter((value): value is string => !!value)
+            .join(" · ") || null;
+
+        return {
+          sale,
+          saleNumber,
+          saleDocumentNumber,
+          createdAt: sale.created_at,
+          dateObj,
+          incrementAmount,
+          baseTotal: Math.max(0, (sale.total ?? 0) - incrementAmount),
+          finalTotal: Math.max(0, sale.total ?? 0),
+          methodLabel: getPaymentLabel(sale.payment_method),
+          incrementLabel:
+            sale.surcharge_label?.trim() ||
+            (surchargeAmount > 0 ? "Incremento" : "Incremento ajustado"),
+          posName: sale.pos_name?.trim() || "Sin POS",
+          vendorName: sale.vendor_name?.trim() || "Sin vendedor",
+          customerName: sale.customer_name?.trim() || "Sin cliente",
+          itemDetail,
+          itemCount: sale.items?.length ?? 0,
+          paymentBreakdown,
+          adjustmentSummary,
+          dateKey,
+        };
+      })
+      .filter((row): row is RecentIncrementRow => !!row)
+      .filter((row) => row.dateKey === todayKey)
+      .sort((a, b) => {
+        if (b.dateObj.getTime() !== a.dateObj.getTime()) {
+          return b.dateObj.getTime() - a.dateObj.getTime();
+        }
+        return b.incrementAmount - a.incrementAmount;
+      });
+
+    return normalized.slice(0, 12);
+  }, [recentSales, recentAdjustments, todayDateKey, getPaymentLabel]);
+
+  const incrementSummary = useMemo(() => {
+    const total = incrementRows.reduce(
+      (sum, row) => sum + row.incrementAmount,
+      0
+    );
+    const count = incrementRows.length;
+    const byLabel = new Map<string, number>();
+    incrementRows.forEach((row) => {
+      const label = row.incrementLabel || row.methodLabel || "Incremento";
+      byLabel.set(label, (byLabel.get(label) ?? 0) + row.incrementAmount);
+    });
+    return {
+      total,
+      count,
+      byLabel: Array.from(byLabel.entries()).sort((a, b) => b[1] - a[1]),
+    };
+  }, [incrementRows]);
+
   const recentChangePopoverItems = useMemo<RecentChangePopoverItem[]>(() => {
     const items: RecentChangePopoverItem[] = [];
     const todayKey = todayDateKey;
@@ -1560,6 +1691,17 @@ export default function DashboardHomePage() {
       return b.returnId - a.returnId;
     });
   }, [recentSales, recentReturnFeed, todayDateKey, dashboardNow]);
+
+  const recentReturnSummary = useMemo(() => {
+    const totalRefund = recentReturnPopoverItems.reduce(
+      (sum, item) => sum + item.totalRefund,
+      0
+    );
+    return {
+      count: recentReturnPopoverItems.length,
+      totalRefund,
+    };
+  }, [recentReturnPopoverItems]);
 
   const navigateToSaleHistory = useCallback(
     (sale: RecentSale) => {
@@ -1822,34 +1964,53 @@ export default function DashboardHomePage() {
             ref={detailPopoverRef}
             role="button"
             tabIndex={0}
-            aria-label="Ver cambios o devoluciones de hoy"
+            aria-label="Alternar entre cambios y devoluciones de hoy"
             onClick={() => {
-              setDetailPopoverMode("returns");
-              setDetailPopoverOpen(true);
+              setDetailCardMode((prev) =>
+                prev === "changes" ? "returns" : "changes"
+              );
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                setDetailPopoverMode("returns");
-                setDetailPopoverOpen(true);
+                setDetailCardMode((prev) =>
+                  prev === "changes" ? "returns" : "changes"
+                );
               }
             }}
-            className="rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-visible cursor-pointer"
+            title="Haz click para alternar entre cambios y devoluciones. Usa el icono para abrir el detalle."
+            className={`rounded-xl ui-surface dashboard-kpi-card px-3 py-3 relative overflow-visible cursor-pointer select-none ${
+              detailCardMode === "returns" ? "ring-1 ring-rose-400/30" : ""
+            }`}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="text-xs font-medium text-slate-400">
-                Cambios hoy
+                {detailCardMode === "returns"
+                  ? "Devoluciones hoy"
+                  : "Cambios hoy"}
               </div>
               <button
                 type="button"
-                aria-label="Ver cambios de hoy"
-                title="Ver cambios de hoy"
+                aria-label={
+                  detailCardMode === "returns"
+                    ? "Ver devoluciones de hoy"
+                    : "Ver cambios de hoy"
+                }
+                title={
+                  detailCardMode === "returns"
+                    ? "Ver devoluciones de hoy"
+                    : "Ver cambios de hoy"
+                }
                 onClick={(event) => {
                   event.stopPropagation();
-                  setDetailPopoverMode("changes");
-                  setDetailPopoverOpen((prev) => !prev);
+                  setDetailPopoverMode(detailCardMode);
+                  setDetailPopoverOpen(true);
                 }}
-                className="mt-[-2px] inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-600 text-slate-300 hover:text-slate-100 hover:border-slate-400 transition"
+                className={`mt-[-2px] inline-flex h-7 w-7 items-center justify-center rounded-full border transition ${
+                  detailCardMode === "returns"
+                    ? "border-rose-400/50 text-rose-200 hover:text-rose-50 hover:border-rose-300"
+                    : "border-slate-600 text-slate-300 hover:text-slate-100 hover:border-slate-400"
+                }`}
               >
                 <svg
                   viewBox="0 0 20 20"
@@ -1867,26 +2028,49 @@ export default function DashboardHomePage() {
             {showSummarySkeleton ? (
               <div className="mt-2 h-7 w-20 rounded bg-slate-800/70 animate-pulse" />
             ) : (
-              <div className="mt-1.5 pb-px px-px text-xl leading-[1.1] font-semibold text-sky-400 [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor]">
-                {data?.today_change_count ?? 0}
+              <div
+                className={`mt-1.5 pb-px px-px text-xl leading-[1.1] font-semibold [text-rendering:optimizeLegibility] [text-shadow:0_0_0.01px_currentColor] ${
+                  detailCardMode === "returns"
+                    ? "text-rose-300"
+                    : "text-sky-400"
+                }`}
+              >
+                {detailCardMode === "returns"
+                  ? recentReturnSummary.count
+                  : data?.today_change_count ?? 0}
               </div>
             )}
             <div className="mt-1 text-[11px] text-slate-400">
-              Excedente:{" "}
-              {showSummarySkeleton ? (
-                <span className="ml-1 inline-flex h-4 w-16 rounded bg-slate-800/70 animate-pulse" />
+              {detailCardMode === "returns" ? (
+                <>
+                  Reembolsos:{" "}
+                  {showSummarySkeleton ? (
+                    <span className="ml-1 inline-flex h-4 w-16 rounded bg-slate-800/70 animate-pulse" />
+                  ) : (
+                    <span className="font-semibold text-slate-200">
+                      -{formatMoney(recentReturnSummary.totalRefund)}
+                    </span>
+                  )}
+                </>
               ) : (
-                <span className="font-semibold text-slate-200">
-                  +{formatMoney(data?.today_change_extra_total ?? 0)}
-                </span>
-              )}
-              {" "}· Reembolsos:{" "}
-              {showSummarySkeleton ? (
-                <span className="ml-1 inline-flex h-4 w-16 rounded bg-slate-800/70 animate-pulse" />
-              ) : (
-                <span className="font-semibold text-slate-200">
-                  -{formatMoney(data?.today_change_refund_total ?? 0)}
-                </span>
+                <>
+                  Excedente:{" "}
+                  {showSummarySkeleton ? (
+                    <span className="ml-1 inline-flex h-4 w-16 rounded bg-slate-800/70 animate-pulse" />
+                  ) : (
+                    <span className="font-semibold text-slate-200">
+                      +{formatMoney(data?.today_change_extra_total ?? 0)}
+                    </span>
+                  )}
+                  {" "}· Reembolsos:{" "}
+                  {showSummarySkeleton ? (
+                    <span className="ml-1 inline-flex h-4 w-16 rounded bg-slate-800/70 animate-pulse" />
+                  ) : (
+                    <span className="font-semibold text-slate-200">
+                      -{formatMoney(data?.today_change_refund_total ?? 0)}
+                    </span>
+                  )}
+                </>
               )}
             </div>
             {!canViewTodayMetrics && (
@@ -1918,30 +2102,6 @@ export default function DashboardHomePage() {
                         : recentChangePopoverItems.length) === 1
                         ? ""
                         : "s"}
-                    </div>
-                    <div className="flex overflow-hidden rounded-full border border-slate-700 text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() => setDetailPopoverMode("changes")}
-                        className={`px-2.5 py-1 transition ${
-                          detailPopoverMode === "changes"
-                            ? "bg-slate-100 text-slate-900"
-                            : "bg-transparent text-slate-300 hover:text-slate-100"
-                        }`}
-                      >
-                        Cambios
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDetailPopoverMode("returns")}
-                        className={`px-2.5 py-1 transition ${
-                          detailPopoverMode === "returns"
-                            ? "bg-slate-100 text-slate-900"
-                            : "bg-transparent text-slate-300 hover:text-slate-100"
-                        }`}
-                      >
-                        Devoluciones
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -2640,13 +2800,12 @@ export default function DashboardHomePage() {
                   {[
                     { id: "recent", label: "Recientes" },
                     { id: "top", label: "Top día" },
+                    { id: "increments", label: "Incrementos" },
                   ].map((mode) => (
                     <button
                       key={mode.id}
                       type="button"
-                      onClick={() =>
-                        setRecentMode(mode.id as "recent" | "top")
-                      }
+                      onClick={() => setRecentMode(mode.id as RecentMode)}
                       className={`px-2 py-0.5 ${
                         recentMode === mode.id
                           ? "bg-emerald-500 text-slate-900"
@@ -2659,7 +2818,9 @@ export default function DashboardHomePage() {
                 </div>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Últimos tickets registrados en el POS.
+                {recentMode === "increments"
+                  ? "Incrementos aplicados hoy en ventas del POS."
+                  : "Últimos tickets registrados en el POS."}
               </p>
               {!canViewOperationalSales ? (
                 <p className="text-[11px] text-slate-500 mt-1">
@@ -2770,7 +2931,148 @@ export default function DashboardHomePage() {
                 </div>
               )}
 
-              {recentRows.length === 0 ? (
+              {recentMode === "increments" ? (
+                incrementRows.length === 0 ? (
+                  <p className="text-xs text-slate-500 mt-2">
+                    Aún no hay incrementos registrados hoy.
+                  </p>
+                ) : (
+                  <>
+                    <div className="rounded-xl border border-slate-800/60 bg-slate-950/25 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-200">
+                            Incrementos de hoy
+                          </h3>
+                          <p className="text-[11px] text-slate-400">
+                            Ventas con recargo aplicado. Doble click abre la venta
+                            origen en historial.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                          <span className="rounded-full border border-emerald-300/60 bg-emerald-400 px-2.5 py-1 text-emerald-950 shadow-[0_0_0_1px_rgba(16,185,129,0.15)]">
+                            Total: {formatMoney(incrementSummary.total)}
+                          </span>
+                          <span className="rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1 text-slate-200">
+                            Tickets: {incrementSummary.count}
+                          </span>
+                        </div>
+                      </div>
+                      {incrementSummary.byLabel.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                          {incrementSummary.byLabel.slice(0, 4).map(([label, total]) => (
+                            <span
+                              key={label}
+                              className="rounded-full border border-emerald-300/70 bg-emerald-300 px-2.5 py-1 font-semibold text-emerald-950 shadow-[0_0_0_1px_rgba(16,185,129,0.12)]"
+                            >
+                              {label}: {formatMoney(total)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid min-w-[980px] grid-cols-[74px_138px_minmax(220px,1.25fr)_110px_98px_100px_92px_92px] text-[11px] text-slate-400 mb-1 px-3 gap-2">
+                      <span>Nº venta</span>
+                      <span>Fecha / hora</span>
+                      <span>Detalle / origen</span>
+                      <span className="text-right">POS / Vendedor</span>
+                      <span className="text-right">Método</span>
+                      <span className="text-right">Incremento</span>
+                      <span className="text-right">Base</span>
+                      <span className="text-right">Total</span>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800/60 overflow-hidden">
+                      <div className="max-h-64 overflow-auto">
+                        {incrementRows.map((row, rowIndex) => {
+                          const zebra =
+                            rowIndex % 2 === 0
+                              ? "dashboard-row-zebra"
+                              : "dashboard-row-zebra-alt";
+                          const baseRow =
+                            "grid min-w-[980px] grid-cols-[74px_138px_minmax(220px,1.25fr)_110px_98px_100px_92px_92px] text-xs px-3 py-2 transition-colors gap-2";
+                          const paymentBreakdownLabel = row.paymentBreakdown
+                            ? row.paymentBreakdown
+                                .map(
+                                  (entry) =>
+                                    `${getPaymentLabel(entry.method, entry.method)} ${formatMoney(entry.amount)}`
+                                )
+                                .join(" · ")
+                            : null;
+
+                          return (
+                            <div
+                              key={row.sale.id}
+                              className={`${baseRow} ${zebra} cursor-pointer`}
+                              onDoubleClick={() => navigateToSaleHistory(row.sale)}
+                              title="Doble click para abrir esta venta en el historial"
+                            >
+                              <div className="font-mono text-slate-200">
+                                #{row.saleNumber}
+                              </div>
+                              <div className="text-slate-300">
+                                {formatBogotaDate(row.createdAt, {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                  year: "2-digit",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                })}
+                              </div>
+                              <div className="flex min-w-0 flex-col gap-1">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="truncate text-slate-100 font-medium">
+                                    {row.saleDocumentNumber}
+                                  </span>
+                                  <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-emerald-300/60 text-emerald-950 bg-emerald-400 shadow-[0_0_0_1px_rgba(16,185,129,0.15)]">
+                                    {row.incrementLabel}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-400 leading-4 break-words">
+                                  {row.itemDetail}
+                                </div>
+                                <div className="text-[11px] text-slate-500 leading-4">
+                                  {row.customerName} · {row.itemCount} productos
+                                </div>
+                                {row.adjustmentSummary && (
+                                  <div className="text-[11px] text-slate-500 leading-4">
+                                    {row.adjustmentSummary}
+                                  </div>
+                                )}
+                                {paymentBreakdownLabel && (
+                                  <div className="text-[11px] text-sky-300 leading-4">
+                                    Pagos: {paymentBreakdownLabel}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-right text-slate-300">
+                                <div className="truncate">{row.posName}</div>
+                                <div className="text-[11px] text-slate-500 truncate">
+                                  {row.vendorName}
+                                </div>
+                              </div>
+                              <div className="text-right text-slate-200">
+                                {row.methodLabel}
+                              </div>
+                              <div className="text-right font-semibold text-emerald-700">
+                                {formatMoney(row.incrementAmount)}
+                              </div>
+                              <div className="text-right text-slate-100">
+                                {formatMoney(row.baseTotal)}
+                              </div>
+                              <div className="text-right text-slate-100">
+                                {formatMoney(row.finalTotal)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )
+              ) : recentRows.length === 0 ? (
                 <p className="text-xs text-slate-500 mt-2">
                   Aún no hay ventas registradas.
                 </p>
@@ -2790,121 +3092,130 @@ export default function DashboardHomePage() {
                   <div className="rounded-xl border border-slate-800/60 overflow-hidden">
                     <div className="max-h-64 overflow-auto">
                       {recentRows.map(
-                    (
-                      {
-                        sale,
-                        detail,
-                        productCode,
-                        refundAmount,
-                        netTotal,
-                        methodLabel,
-                        adjustedPaymentsTotal,
-                        hasChange,
-                        hasAdjustment,
-                      },
-                      rowIndex
-                    ) => {
-                    const zebra =
-                      rowIndex % 2 === 0
-                        ? "dashboard-row-zebra"
-                        : "dashboard-row-zebra-alt";
+                        (
+                          {
+                            sale,
+                            detail,
+                            productCode,
+                            refundAmount,
+                            netTotal,
+                            methodLabel,
+                            adjustedPaymentsTotal,
+                            hasChange,
+                            hasAdjustment,
+                          },
+                          rowIndex
+                        ) => {
+                          const zebra =
+                            rowIndex % 2 === 0
+                              ? "dashboard-row-zebra"
+                              : "dashboard-row-zebra-alt";
 
-                    const baseRow =
-                      "grid min-w-[920px] grid-cols-[80px_160px_minmax(260px,1fr)_140px_120px_120px] text-xs px-3 py-2 transition-colors gap-2";
+                          const baseRow =
+                            "grid min-w-[920px] grid-cols-[80px_160px_minmax(260px,1fr)_140px_120px_120px] text-xs px-3 py-2 transition-colors gap-2";
 
-                    const saleNumber =
-                      sale.sale_number ?? sale.number ?? sale.id;
-                    const isVoided = sale.status === "voided";
-                    const hasRefund = refundAmount > 0 && !isVoided;
-                    const paidRaw =
-                      adjustedPaymentsTotal ?? sale.paid_amount ?? sale.total;
-                    const paidBase = sale.is_separated
-                      ? paidRaw
-                      : Math.min(paidRaw, sale.total);
-                    const netPaid = isVoided
-                      ? 0
-                      : Math.max(0, paidBase - refundAmount);
+                          const saleNumber =
+                            sale.sale_number ?? sale.number ?? sale.id;
+                          const isVoided = sale.status === "voided";
+                          const hasRefund = refundAmount > 0 && !isVoided;
+                          const paidRaw =
+                            adjustedPaymentsTotal ??
+                            sale.paid_amount ??
+                            sale.total;
+                          const paidBase = sale.is_separated
+                            ? paidRaw
+                            : Math.min(paidRaw, sale.total);
+                          const netPaid = isVoided
+                            ? 0
+                            : Math.max(0, paidBase - refundAmount);
 
-                    return (
-                      <div
-                        key={`${sale.id}-${rowIndex}`}
-                        className={`${baseRow} ${zebra} cursor-pointer`}
-                        onDoubleClick={() => navigateToSaleHistory(sale)}
-                        title="Doble click para abrir esta venta en el historial"
-                      >
-                        {/* Nº venta */}
-                        <div className="font-mono text-slate-200">
-                          #{saleNumber}
-                        </div>
+                          return (
+                            <div
+                              key={`${sale.id}-${rowIndex}`}
+                              className={`${baseRow} ${zebra} cursor-pointer`}
+                              onDoubleClick={() => navigateToSaleHistory(sale)}
+                              title="Doble click para abrir esta venta en el historial"
+                            >
+                              {/* Nº venta */}
+                              <div className="font-mono text-slate-200">
+                                #{saleNumber}
+                              </div>
 
-                        {/* Fecha / hora */}
-                        <div className="text-slate-300">
-                          {formatBogotaDate(sale.created_at, {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "2-digit",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: true,
-                          })}
-                        </div>
+                              {/* Fecha / hora */}
+                              <div className="text-slate-300">
+                                {formatBogotaDate(sale.created_at, {
+                                  day: "2-digit",
+                                  month: "2-digit",
+                                  year: "2-digit",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  hour12: true,
+                                })}
+                              </div>
 
-                        {/* Detalle del producto */}
-                        <div className="flex min-w-0 flex-col">
-                          <span className="truncate text-slate-100 flex items-center gap-2">
-                            {detail}
-                            {hasAdjustment && (
-                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-700 text-white bg-sky-600 shadow-[0_0_0_1px_rgba(3,105,161,0.28)] font-semibold">
-                                Ajustado
-                              </span>
-                            )}
-                            {hasChange && (
-                              <span className="text-[10px] uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-sky-400 text-sky-50 bg-sky-500/40 shadow-[0_0_0_1px_rgba(56,189,248,0.2)]">
-                                Cambio
-                              </span>
-                            )}
-                            {isVoided && (
-                              <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-rose-500/50 text-rose-300 bg-rose-500/10">
-                                Anulada
-                              </span>
-                            )}
-                            {hasRefund && (
-                              <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${netTotal <= 0 ? "border-rose-500/50 text-rose-300 bg-rose-500/10" : "border-amber-400/50 text-amber-200 bg-amber-500/10"}`}>
-                                {netTotal <= 0 ? "Devuelta" : "Dev. parcial"}
-                              </span>
-                            )}
-                          </span>
-                        </div>
+                              {/* Detalle del producto */}
+                              <div className="flex min-w-0 flex-col">
+                                <span className="truncate text-slate-100 flex items-center gap-2">
+                                  {detail}
+                                  {hasAdjustment && (
+                                    <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-sky-700 text-white bg-sky-600 shadow-[0_0_0_1px_rgba(3,105,161,0.28)] font-semibold">
+                                      Ajustado
+                                    </span>
+                                  )}
+                                  {hasChange && (
+                                    <span className="text-[10px] uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-sky-400 text-sky-50 bg-sky-500/40 shadow-[0_0_0_1px_rgba(56,189,248,0.2)]">
+                                      Cambio
+                                    </span>
+                                  )}
+                                  {isVoided && (
+                                    <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border border-rose-500/50 text-rose-300 bg-rose-500/10">
+                                      Anulada
+                                    </span>
+                                  )}
+                                  {hasRefund && (
+                                    <span
+                                      className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full border ${
+                                        netTotal <= 0
+                                          ? "border-rose-500/50 text-rose-300 bg-rose-500/10"
+                                          : "border-amber-400/50 text-amber-200 bg-amber-500/10"
+                                      }`}
+                                    >
+                                      {netTotal <= 0 ? "Devuelta" : "Dev. parcial"}
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
 
-                        {/* Código producto (primer ítem) */}
-                        <div className="truncate text-right text-slate-300 font-mono">
-                          {productCode}
-                        </div>
+                              {/* Código producto (primer ítem) */}
+                              <div className="truncate text-right text-slate-300 font-mono">
+                                {productCode}
+                              </div>
 
-                        {/* Total: SIEMPRE visible */}
-                        <div className="text-right font-semibold text-slate-100">
-                          {formatMoney(netTotal)}
-                          {hasRefund && (
-                            <span className="block text-[10px] text-rose-300">
-                              -{formatMoney(refundAmount)}
-                            </span>
-                          )}
-                        </div>
+                              {/* Total: SIEMPRE visible */}
+                              <div className="text-right font-semibold text-slate-100">
+                                {formatMoney(netTotal)}
+                                {hasRefund && (
+                                  <span className="block text-[10px] text-rose-300">
+                                    -{formatMoney(refundAmount)}
+                                  </span>
+                                )}
+                              </div>
 
-                        {/* Método: SIEMPRE visible */}
-                        <div className="text-right text-slate-200">
-                          <div>
-                            {sale.is_separated ? "Separado" : methodLabel}
-                          </div>
-                          {hasRefund && (
-                            <div className="text-[10px] text-rose-300">
-                              Pagado neto: {formatMoney(netPaid)}
+                              {/* Método: SIEMPRE visible */}
+                              <div className="text-right text-slate-200">
+                                <div>
+                                  {sale.is_separated ? "Separado" : methodLabel}
+                                </div>
+                                {hasRefund && (
+                                  <div className="text-[10px] text-rose-300">
+                                    Pagado neto: {formatMoney(netPaid)}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          )}
-                        </div>
-                        </div>
-                      );
-                      })}
+                          );
+                        }
+                      )}
                     </div>
                   </div>
                 </>
