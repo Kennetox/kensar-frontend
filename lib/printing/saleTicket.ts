@@ -1495,9 +1495,7 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
           )
           .join("")
       : "";
-  const showSeparatedClarification = Boolean(
-    options.separatedSummary && (options.separatedSummary.tickets ?? 0) > 0
-  );
+  const showSeparatedClarification = Boolean(options.separatedSummary);
   const dayBaseWithoutSeparated = showSeparatedClarification
     ? Number(
         options.separatedSummary?.dayCollectedTotal ??
