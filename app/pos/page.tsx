@@ -318,12 +318,6 @@ type ClosureChangeRecord = {
   payments?: ClosureChangePayment[];
 };
 
-type ClosureEmailHtmlAttachment = {
-  filename: string;
-  title: string;
-  document_html: string;
-};
-
 type TotalsByMethod = {
   cash: number;
   card: number;
@@ -428,6 +422,25 @@ const getLocalDateKey = (value?: string | number | Date) =>
   getBogotaDateKey(value);
 
 const buildDateFromKey = (key: string) => buildBogotaDateFromKey(key);
+
+const buildEndOfDayFromKey = (key: string) => {
+  const [yearRaw, monthRaw, dayRaw] = key.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  if (
+    Number.isNaN(year) ||
+    Number.isNaN(month) ||
+    Number.isNaN(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return new Date();
+  }
+  return new Date(Date.UTC(year, month - 1, day + 1, 4, 59, 59, 999));
+};
 
 const formatDateLabelFromKey = (key: string) =>
   formatBogotaDate(buildDateFromKey(key), {
@@ -2166,6 +2179,9 @@ const matchesStationLabel = useCallback(
   const [closureResult, setClosureResult] = useState<PosClosureResult | null>(
     null
   );
+  const [closureTargetDateKey, setClosureTargetDateKey] = useState<string | null>(
+    null
+  );
   const [closureCustomMethods, setClosureCustomMethods] = useState<
     ClosureCustomMethod[]
   >([]);
@@ -2255,6 +2271,7 @@ const matchesStationLabel = useCallback(
     setClosureForm(initialClosureForm);
     setClosureError(null);
     setClosureResult(null);
+    setClosureTargetDateKey(null);
     setClosureSeparatedInfo(null);
     setClosureStationBreakdown([]);
     setClosureHasAuxiliaryScope(false);
@@ -2767,7 +2784,7 @@ const matchesStationLabel = useCallback(
     return () => cancelAnimationFrame(id);
   }, [priceChangeProduct]);
 
-  const fetchPendingClosureTotals = useCallback(async () => {
+  const fetchPendingClosureTotals = useCallback(async (targetDateKey?: string | null) => {
     if (!token) return;
     try {
       setClosureTotalsLoading(true);
@@ -2777,6 +2794,11 @@ const matchesStationLabel = useCallback(
         await new Promise((resolve) => setTimeout(resolve, 1400));
       }
       const apiBase = getApiBase();
+      const effectiveTargetDateKey =
+        targetDateKey ?? closureTargetDateKey ?? pendingClosureAlert?.dateKey ?? null;
+      const closedAt = effectiveTargetDateKey
+        ? buildEndOfDayFromKey(effectiveTargetDateKey)
+        : null;
       const [salesRes, returnsRes, changesRes, separatedOrders] = await Promise.all([
         fetch(`${apiBase}/pos/sales?skip=0&limit=300&source=metrik`, {
           headers: {
@@ -3137,7 +3159,6 @@ const matchesStationLabel = useCallback(
         pendingTotal: 0,
         paymentsTotal: 0,
       };
-      let separatedCollectedLaterTotal = 0;
 
       const findCatalogMethod = (methodRaw?: string | null) => {
         if (!methodRaw) return null;
@@ -3371,7 +3392,6 @@ const matchesStationLabel = useCallback(
             payment.method,
             payment.amount
           );
-          separatedCollectedLaterTotal += payment.amount;
           totalGrossCollected += payment.amount;
           addStationGross(stationContributionId, payment.amount);
           separatedSummary.paymentsTotal += payment.amount;
@@ -3584,26 +3604,6 @@ const matchesStationLabel = useCallback(
           })
       );
 
-      setClosureSeparatedInfo(
-        separatedSummary.tickets > 0 ||
-          separatedSummary.pendingTotal > 0
-          ? {
-              ...separatedSummary,
-              dayCollectedTotal: Number(
-                Math.max(
-                  closureNetAmount -
-                    separatedSummary.pendingTotal +
-                    separatedCollectedLaterTotal,
-                  0
-                ).toFixed(2)
-              ),
-              dayWithPendingTotal: Number(
-                (closureNetAmount + separatedCollectedLaterTotal).toFixed(2)
-              ),
-            }
-          : null
-      );
-
       const roundedTotals = {
         totalAmount: Number(totalGrossCollected.toFixed(2)),
         totalRefunds: Number(resolvedRefundsTotal.toFixed(2)),
@@ -3617,6 +3617,26 @@ const matchesStationLabel = useCallback(
         changeRefundTotal: Number(changeRefundTotal.toFixed(2)),
         changeCount,
       };
+      const netAmountForSeparatedInfo =
+        roundedTotals.totalAmount -
+        roundedTotals.totalRefunds +
+        roundedTotals.changeExtraTotal -
+        roundedTotals.changeRefundTotal;
+
+      setClosureSeparatedInfo(
+        separatedSummary.tickets > 0 ||
+          separatedSummary.pendingTotal > 0
+          ? {
+              ...separatedSummary,
+              dayCollectedTotal: Number(netAmountForSeparatedInfo.toFixed(2)),
+              dayWithPendingTotal: Number(
+                (
+                  netAmountForSeparatedInfo + separatedSummary.pendingTotal
+                ).toFixed(2)
+              ),
+            }
+          : null
+      );
       let finalRoundedTotals = roundedTotals;
 
       const extraMethodDetailsMap = new Map<
@@ -3712,6 +3732,7 @@ const matchesStationLabel = useCallback(
         const previewPayload = {
           pos_name: resolvedPosName,
           station_id: activeStationId ?? undefined,
+          closed_at: closedAt ?? undefined,
           counted_cash: roundedTotals.totalCash,
           notes: closureForm.notes.trim() || undefined,
         };
@@ -3739,6 +3760,26 @@ const matchesStationLabel = useCallback(
             changeRefundTotal: Number((previewData.change_refund_total ?? 0).toFixed(2)),
             changeCount: Number(previewData.change_count ?? 0),
           };
+          if (previewData.opened_at || previewData.closed_at) {
+            setClosureRange({
+              startKey: previewData.opened_at
+                ? getLocalDateKey(previewData.opened_at)
+                : effectiveTargetDateKey ?? getLocalDateKey(),
+              endKey: previewData.closed_at
+                ? getLocalDateKey(previewData.closed_at)
+                : effectiveTargetDateKey ?? getLocalDateKey(),
+              startLabel: previewData.opened_at
+                ? formatDateLabelFromIso(previewData.opened_at) ?? "hoy"
+                : effectiveTargetDateKey
+                  ? formatDateLabelFromKey(effectiveTargetDateKey)
+                  : "hoy",
+              endLabel: previewData.closed_at
+                ? formatDateLabelFromIso(previewData.closed_at) ?? "hoy"
+                : effectiveTargetDateKey
+                  ? formatDateLabelFromKey(effectiveTargetDateKey)
+                  : "hoy",
+            });
+          }
           if (Array.isArray(previewData.station_breakdown)) {
             setClosureStationBreakdown(
               previewData.station_breakdown
@@ -3793,7 +3834,7 @@ const matchesStationLabel = useCallback(
         countedCash: finalRoundedTotals.totalCash,
       }));
 
-      if (rangeStartKey && rangeEndKey) {
+      if (rangeStartKey && rangeEndKey && !effectiveTargetDateKey) {
         const todayKey = getLocalDateKey();
         const startLabel =
           rangeStartKey === todayKey ? "hoy" : formatDateLabelFromKey(rangeStartKey);
@@ -3822,7 +3863,7 @@ const matchesStationLabel = useCallback(
     } finally {
       setClosureTotalsLoading(false);
     }
-  }, [token, paymentMethodIndex, activeStationId, isWebMode, isPosWebName, matchesStationLabel, resolvedPosName, closureForm.notes]);
+  }, [token, paymentMethodIndex, activeStationId, isWebMode, isPosWebName, matchesStationLabel, resolvedPosName, closureForm.notes, closureTargetDateKey, pendingClosureAlert?.dateKey]);
 
   const processPendingSale = useCallback(
     async (
@@ -3939,10 +3980,13 @@ const matchesStationLabel = useCallback(
     [pendingAlertAckKey, user?.name]
   );
 
-  const handleOpenClosureModal = () => {
+  const handleOpenClosureModal = (targetDateKey?: string | null) => {
+    const effectiveTargetDateKey =
+      targetDateKey ?? pendingClosureAlert?.dateKey ?? null;
     resetClosureState();
+    setClosureTargetDateKey(effectiveTargetDateKey);
     setCloseModalOpen(true);
-    void fetchPendingClosureTotals();
+    void fetchPendingClosureTotals(effectiveTargetDateKey);
   };
 
   const handleCloseClosureModal = () => {
@@ -3999,7 +4043,7 @@ const matchesStationLabel = useCallback(
     [closureForm.countedCash, closureForm.totalCash]
   );
 
-  const closureSummary = useMemo(() => {
+  const closureSummary = useMemo<PosClosureResult>(() => {
     if (closureResult) {
       const merged: PosClosureResult = {
         ...closureResult,
@@ -4061,6 +4105,12 @@ const matchesStationLabel = useCallback(
     resolvedPosName,
   ]);
 
+  const closureHasChangeSummary =
+    (closureSummary.change_extra_total ?? 0) +
+      (closureSummary.change_refund_total ?? 0) +
+      (closureSummary.change_count ?? 0) >
+    0;
+
   const closureSeparatedDisplay = useMemo(
     () =>
       normalizeClosureSeparatedSummary(closureSummary.separated_summary) ??
@@ -4069,8 +4119,8 @@ const matchesStationLabel = useCallback(
   );
 
   const closureDisplayTotal = useMemo(
-    () => closureSeparatedDisplay?.dayCollectedTotal ?? closureNetAmount,
-    [closureSeparatedDisplay?.dayCollectedTotal, closureNetAmount]
+    () => Number(closureSummary.total_amount ?? closureNetAmount ?? 0),
+    [closureSummary.total_amount, closureNetAmount]
   );
 
   const closureMethods = useMemo(() => {
@@ -4147,7 +4197,7 @@ const matchesStationLabel = useCallback(
   const closureRegisteredTotals = useMemo(
     () =>
       [
-        { label: "Ventas brutas del período", value: closureSummary.total_amount },
+        { label: "Total registrado del día", value: closureSummary.total_amount },
         { label: "Reembolsos del período", value: -closureSummary.total_refunds },
         ...(closureSummary.change_extra_total ||
         closureSummary.change_refund_total ||
@@ -4171,7 +4221,7 @@ const matchesStationLabel = useCallback(
                 : []),
             ]
           : []),
-        { label: "Neto del período", value: closureDisplayTotal },
+        { label: "Neto del día", value: closureDisplayTotal },
       ],
     [
       closureSummary.total_amount,
@@ -4226,6 +4276,9 @@ const matchesStationLabel = useCallback(
       setClosureError(null);
       const payload = {
         pos_name: resolvedPosName,
+        closed_at: closureTargetDateKey
+          ? buildEndOfDayFromKey(closureTargetDateKey)
+          : undefined,
         total_amount: closureForm.totalAmount,
         total_cash: closureForm.totalCash,
         total_card: closureForm.totalCard,
@@ -4270,11 +4323,7 @@ const matchesStationLabel = useCallback(
               ...closureSeparatedInfo,
               dayCollectedTotal:
                 closureSeparatedInfo.dayCollectedTotal ??
-                Math.max(
-                  (data.net_amount ?? 0) -
-                    (closureSeparatedInfo.pendingTotal ?? 0),
-                  0
-                ),
+                Number((data.net_amount ?? 0).toFixed(2)),
               dayWithPendingTotal:
                 closureSeparatedInfo.dayWithPendingTotal ??
                 (data.net_amount ?? 0),
@@ -4332,7 +4381,7 @@ const matchesStationLabel = useCallback(
               pending_total: normalizedSeparated.pendingTotal,
               day_collected_total:
                 normalizedSeparated.dayCollectedTotal ??
-                Math.max(closureNetAmount - normalizedSeparated.pendingTotal, 0),
+                Number(closureNetAmount.toFixed(2)),
               day_with_pending_total:
                 normalizedSeparated.dayWithPendingTotal ??
                 closureNetAmount,
@@ -4475,11 +4524,7 @@ const matchesStationLabel = useCallback(
               ...closureSeparatedInfo,
               dayCollectedTotal:
                 closureSeparatedInfo.dayCollectedTotal ??
-                Math.max(
-                  totalsSource.net_amount -
-                    (closureSeparatedInfo.pendingTotal ?? 0),
-                  0
-                ),
+                Number(totalsSource.net_amount.toFixed(2)),
               dayWithPendingTotal:
                 closureSeparatedInfo.dayWithPendingTotal ??
                 totalsSource.net_amount,
@@ -4682,7 +4727,7 @@ const matchesStationLabel = useCallback(
         );
       }
     },
-    [posSettings, token]
+    [token]
   );
 
   const handleOpenClosureEmailModal = useCallback(() => {
@@ -6795,7 +6840,7 @@ const matchesStationLabel = useCallback(
             <button
               type="button"
               onClick={() => {
-                handleOpenClosureModal();
+                handleOpenClosureModal(pendingClosureAlert?.dateKey ?? null);
               }}
               className="px-3 py-1.5 rounded-md bg-amber-400 text-slate-900 text-xs font-semibold"
             >
@@ -7479,10 +7524,10 @@ const matchesStationLabel = useCallback(
               <button
                 type="button"
                 className="rounded-xl border border-amber-400/70 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200 hover:bg-amber-400/20"
-                onClick={() => {
-                  setClosureReminderOpen(false);
-                  handleOpenClosureModal();
-                }}
+              onClick={() => {
+                setClosureReminderOpen(false);
+                handleOpenClosureModal(pendingClosureAlert?.dateKey ?? null);
+              }}
               >
                 Cerrar día pendiente
               </button>
@@ -7765,9 +7810,9 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
             <div className="grid md:grid-cols-3 gap-4">
               {[
                 {
-                  title: "Ventas brutas",
+                  title: "Total registrado",
                   value: formatMoney(closureSummary.total_amount),
-                  note: "Antes de reembolsos",
+                  note: "Cobros netos del día",
                 },
                 {
                   title: "Reembolsos",
@@ -7775,9 +7820,9 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                   note: "Devoluciones del período",
                 },
                 {
-                  title: "Neto del período",
+                  title: "Neto del día",
                   value: formatMoney(closureDisplayTotal),
-                  note: "Ventas menos reembolsos",
+                  note: "Ventas menos reembolsos y ajustes",
                 },
               ].map((card) => (
                 <div
@@ -7830,6 +7875,40 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                 ))}
               </div>
             </div>
+
+            {closureHasChangeSummary && (
+              <div className="rounded-2xl border border-slate-800 overflow-hidden">
+                <div className="px-4 py-2 bg-slate-950 text-xs text-slate-400 uppercase tracking-wide">
+                  Cambios hoy
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Excedente
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-emerald-300 font-mono">
+                      {formatMoney(closureSummary.change_extra_total ?? 0)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Reembolsos
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-rose-300 font-mono">
+                      {formatMoney(-(closureSummary.change_refund_total ?? 0))}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                      Cambios registrados
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-slate-100 font-mono">
+                      {closureSummary.change_count ?? 0}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {closureSeparatedDisplay && (
               <div className="rounded-2xl border border-dashed border-slate-700 px-4 py-3 bg-slate-950/30 space-y-1">
@@ -7983,11 +8062,12 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                 Cancelar
               </button>
               <button
-                type="submit"
+                type={closureResult ? "button" : "submit"}
+                onClick={closureResult ? () => void handlePrintClosureTicket() : undefined}
                 disabled={closureSaving || (closureTotalsLoading && !closureResult)}
                 className="px-4 py-2 rounded-lg bg-emerald-500 text-slate-900 font-semibold hover:bg-emerald-400 disabled:opacity-50"
               >
-                {closureResult ? "Cierre registrado" : "Generar reporte Z"}
+                {closureResult ? "Ver / imprimir reporte Z" : "Generar reporte Z"}
               </button>
             </footer>
             </div>

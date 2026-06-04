@@ -21,6 +21,7 @@ export default function SalesHistoryPage() {
   return (
     <div className="dashboard-sales-scale">
       <SalesHistoryContent
+        key={`${saleIdParam ?? "none"}:${saleDateParam ?? "none"}:${termParam ?? "none"}:${posPreview ? "1" : "0"}`}
         backPath={backPath}
         backLabel="Volver"
         returnPath="/pos/devoluciones"

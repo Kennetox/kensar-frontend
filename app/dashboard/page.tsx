@@ -47,11 +47,6 @@ type PaymentMethodSummary = {
   tickets: number;
 };
 
-type PaymentMethodAggregate = {
-  total: number;
-  tickets: number;
-};
-
 type SeparatedOverview = {
   tickets: number;
   reservedTotal: number;
@@ -248,15 +243,20 @@ type RecentReturnPopoverItem = {
 };
 
 type SeparatedPaymentRow = {
+  rowId: string;
   paymentId: number;
   saleId: number;
+  saleCreatedAt: string;
   saleDocumentNumber: string;
+  detail: string;
   paymentDocumentNumber: string;
   createdAt: string;
   paidAt: string;
   method: string;
   amount: number;
+  balance: number;
   customerName?: string | null;
+  isInitialPayment?: boolean;
 };
 
 type RecentIncrementRow = {
@@ -1033,7 +1033,7 @@ export default function DashboardHomePage() {
     return monday;
   }, [todayStart]);
   useEffect(() => {
-    const monthStart = new Date(todayStart);
+    const monthStart = buildBogotaDateFromKey(todayDateKey);
     monthStart.setUTCDate(1);
     const monthStartKey = getBogotaDateKey(monthStart);
     const startKey =
@@ -1047,7 +1047,6 @@ export default function DashboardHomePage() {
     loadPaymentMethods,
     paymentRange,
     todayDateKey,
-    todayStart,
     currentWeekStart,
   ]);
   const adjustTotalForDate = useCallback(
@@ -1058,59 +1057,6 @@ export default function DashboardHomePage() {
     (baseTotal: number) => Math.max(0, baseTotal),
     []
   );
-  const separatedPaymentTotals = useMemo(() => {
-    const dayMap = new Map<string, number>();
-    const monthMap = new Map<string, number>();
-    const todayMonthKey = todayDateKey.slice(0, 7);
-    const currentWeekStartKey = getBogotaDateKey(currentWeekStart);
-    const currentWeekEnd = new Date(currentWeekStart);
-    currentWeekEnd.setUTCDate(currentWeekStart.getUTCDate() + 7);
-    const currentWeekEndKey = getBogotaDateKey(currentWeekEnd);
-
-    let todayTotal = 0;
-    let monthTotal = 0;
-    let weekTotal = 0;
-
-    separatedOrders.forEach((order) => {
-      order.payments?.forEach((payment) => {
-        if (payment.status === "voided") return;
-        const amount = Math.max(Number(payment.amount ?? 0), 0);
-        if (amount <= 0) return;
-        const paidKey = getBogotaDateKey(payment.paid_at);
-        if (!paidKey) return;
-        dayMap.set(paidKey, (dayMap.get(paidKey) ?? 0) + amount);
-        const monthKey = paidKey.slice(0, 7);
-        monthMap.set(monthKey, (monthMap.get(monthKey) ?? 0) + amount);
-        if (paidKey === todayDateKey) {
-          todayTotal += amount;
-        }
-        if (monthKey === todayMonthKey) {
-          monthTotal += amount;
-        }
-        if (
-          currentWeekStartKey &&
-          currentWeekEndKey &&
-          paidKey >= currentWeekStartKey &&
-          paidKey < currentWeekEndKey
-        ) {
-          weekTotal += amount;
-        }
-      });
-    });
-
-    return {
-      todayTotal,
-      monthTotal,
-      weekTotal,
-      dayMap,
-      monthMap,
-    };
-  }, [
-    currentWeekStart,
-    separatedOrders,
-    todayDateKey,
-    todayStart,
-  ]);
 
   const paymentMethodKeyAliasMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1131,66 +1077,37 @@ export default function DashboardHomePage() {
     return map;
   }, [catalog]);
 
-  const separatedPaymentMethodTotals = useMemo(() => {
-    const map = new Map<string, PaymentMethodAggregate>();
-    const todayMonthKey = todayDateKey.slice(0, 7);
-    const currentWeekStartKey = getBogotaDateKey(currentWeekStart);
-    const currentWeekEnd = new Date(currentWeekStart);
-    currentWeekEnd.setUTCDate(currentWeekStart.getUTCDate() + 7);
-    const currentWeekEndKey = getBogotaDateKey(currentWeekEnd);
-
-    const isWithinRange = (paidKey: string) => {
-      if (paymentRange === "day") return paidKey === todayDateKey;
-      if (paymentRange === "week") {
-        return (
-          !!currentWeekStartKey &&
-          !!currentWeekEndKey &&
-          paidKey >= currentWeekStartKey &&
-          paidKey < currentWeekEndKey
-        );
-      }
-      return paidKey.slice(0, 7) === todayMonthKey;
-    };
-
-    const normalizeKey = (value?: string | null) => {
-      const token = normalizePaymentMethodKey(value);
-      if (!token) return "desconocido";
-      return paymentMethodKeyAliasMap.get(token) ?? token;
-    };
-
-    separatedOrders.forEach((order) => {
-      const isCancelledOrder =
-        order.status?.toLowerCase() === "cancelado" || Boolean(order.cancelled_at);
-      if (isCancelledOrder) return;
-      order.payments?.forEach((payment) => {
-        if (payment.status === "voided") return;
-        const amount = Math.max(Number(payment.amount ?? 0), 0);
-        if (amount <= 0) return;
-        const paidKey = getBogotaDateKey(payment.paid_at);
-        if (!paidKey || !isWithinRange(paidKey)) return;
-        const key = normalizeKey(payment.method);
-        const current = map.get(key) ?? { total: 0, tickets: 0 };
-        current.total += amount;
-        current.tickets += 1;
-        map.set(key, current);
-      });
-    });
-
-    return map;
-  }, [
-    currentWeekStart,
-    paymentMethodKeyAliasMap,
-    paymentRange,
-    separatedOrders,
-    todayDateKey,
-  ]);
-
   const separatedPaymentRows = useMemo<SeparatedPaymentRow[]>(() => {
     const rows: SeparatedPaymentRow[] = [];
+    const recentSeparatedSales = new Map<number, RecentSale>();
+    const shortenText = (value: string, maxLength = 28) =>
+      value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+    const buildDetail = (sale: RecentSale) => {
+      const items = sale.items ?? [];
+      if (!items.length) return "Sin detalle";
+      const parts = items.slice(0, 2).map((item) => {
+        const name = item.product_name ?? item.name ?? "Producto";
+        const qty = Number(item.quantity ?? 0) || 1;
+        return `${shortenText(name, 22)} x${qty}`;
+      });
+      const remaining = items.length - parts.length;
+      return remaining > 0 ? `${parts.join(" · ")} +${remaining}` : parts.join(" · ");
+    };
+
+    recentSales.forEach((sale) => {
+      if (!sale.is_separated) return;
+      recentSeparatedSales.set(sale.id, sale);
+    });
+
     separatedOrders.forEach((order) => {
       const isCancelledOrder =
         order.status?.toLowerCase() === "cancelado" || Boolean(order.cancelled_at);
       if (isCancelledOrder) return;
+      const saleDetail = recentSeparatedSales.get(order.sale_id);
+      const orderDetail = saleDetail ? buildDetail(saleDetail) : "Sin detalle";
+      const saleCreatedAt =
+        saleDetail?.created_at ?? order.created_at ?? order.payments?.[0]?.paid_at ?? "";
+      const orderBalance = Math.max(Number(order.balance ?? 0), 0);
       order.payments?.forEach((payment) => {
         if (payment.status === "voided") return;
         const amount = Math.max(Number(payment.amount ?? 0), 0);
@@ -1198,6 +1115,7 @@ export default function DashboardHomePage() {
         const paidKey = getBogotaDateKey(payment.paid_at);
         if (paidKey !== todayDateKey) return;
         rows.push({
+          rowId: `payment-${payment.id}`,
           paymentId: payment.id,
           saleId: order.sale_id,
           saleDocumentNumber:
@@ -1208,8 +1126,38 @@ export default function DashboardHomePage() {
           paidAt: payment.paid_at,
           method: payment.method,
           amount,
+          balance: orderBalance,
+          saleCreatedAt,
+          detail: orderDetail,
           customerName: order.customer_name ?? null,
         });
+      });
+    });
+
+    recentSeparatedSales.forEach((sale) => {
+      const initialAmount = Math.max(Number(sale.initial_payment_amount ?? 0), 0);
+      if (initialAmount <= 0) return;
+      const saleDateKey = getBogotaDateKey(sale.created_at);
+      if (saleDateKey !== todayDateKey) return;
+      const saleBalance = Math.max(Number(sale.balance ?? 0), 0);
+
+      rows.push({
+        rowId: `initial-${sale.id}`,
+        paymentId: -sale.id,
+        saleId: sale.id,
+        saleDocumentNumber:
+          sale.document_number?.trim() ||
+          `V-${(sale.sale_number ?? sale.id).toString().padStart(6, "0")}`,
+        paymentDocumentNumber: `AB-INI-${sale.id.toString().padStart(6, "0")}`,
+        createdAt: sale.created_at,
+        paidAt: sale.created_at,
+        method: sale.initial_payment_method ?? sale.payment_method ?? "separado",
+        amount: initialAmount,
+        balance: saleBalance,
+        saleCreatedAt: sale.created_at,
+        detail: buildDetail(sale),
+        customerName: sale.customer_name ?? null,
+        isInitialPayment: true,
       });
     });
 
@@ -1219,7 +1167,7 @@ export default function DashboardHomePage() {
       if (timeDiff !== 0) return timeDiff;
       return b.paymentId - a.paymentId;
     });
-  }, [separatedOrders, todayDateKey]);
+  }, [recentSales, separatedOrders, todayDateKey]);
   const trendDayMap = useMemo(() => {
     const map = new Map<string, { total: number; tickets: number }>();
     if (!data) return map;
@@ -1788,21 +1736,6 @@ export default function DashboardHomePage() {
         tickets: entry.tickets,
       });
     });
-    separatedPaymentMethodTotals.forEach((value, methodKey) => {
-      const existing = mergedEntriesMap.get(methodKey);
-      if (existing) {
-        existing.total += value.total;
-        existing.tickets += value.tickets;
-        mergedEntriesMap.set(methodKey, existing);
-      } else {
-        mergedEntriesMap.set(methodKey, {
-          method: methodKey,
-          total: value.total,
-          tickets: value.tickets,
-        });
-      }
-    });
-
     return {
       entries: Array.from(mergedEntriesMap.values()).sort(
         (a, b) => b.total - a.total
@@ -1820,7 +1753,6 @@ export default function DashboardHomePage() {
     paymentRange,
     recentSales,
     separatedOrders,
-    separatedPaymentMethodTotals,
     todayDateKey,
     weekStart,
   ]);
@@ -2870,13 +2802,15 @@ export default function DashboardHomePage() {
                       {separatedPaymentRows.length} registros
                     </span>
                   </div>
-                  <div className="grid min-w-[920px] grid-cols-[120px_160px_150px_minmax(220px,1fr)_120px_120px] text-[11px] text-slate-400 mb-1 px-3 gap-2">
+                  <div className="grid w-full grid-cols-[100px_140px_minmax(0,1.3fr)_120px_minmax(0,0.85fr)_90px_82px_90px] text-[11px] text-slate-400 mb-1 px-2.5 gap-1.5">
                     <span>Documento</span>
                     <span>Fecha / hora</span>
+                    <span>Detalle</span>
                     <span>Venta origen</span>
                     <span>Cliente</span>
                     <span className="text-right">Método</span>
                     <span className="text-right">Monto</span>
+                    <span className="text-right">Saldo</span>
                   </div>
                   <div className="rounded-xl border border-slate-800/60 overflow-hidden">
                     <div className="max-h-52 overflow-auto">
@@ -2887,21 +2821,21 @@ export default function DashboardHomePage() {
                             : "dashboard-row-zebra-alt";
                         return (
                           <div
-                            key={row.paymentId}
-                            className={`grid min-w-[920px] grid-cols-[120px_160px_150px_minmax(220px,1fr)_120px_120px] text-xs px-3 py-2 gap-2 ${zebra}`}
+                            key={row.rowId}
+                            className={`grid w-full grid-cols-[100px_140px_minmax(0,1.3fr)_120px_minmax(0,0.85fr)_90px_82px_90px] text-xs px-2.5 py-1.5 gap-1.5 items-center ${zebra}`}
                             onDoubleClick={() =>
                               router.push(
                                 `/dashboard/sales?saleId=${row.saleId}&saleDate=${getBogotaDateKey(
-                                  row.createdAt
+                                  row.saleCreatedAt
                                 ) ?? todayDateKey}${posPreview ? "&posPreview=1" : ""}`
                               )
                             }
                             title="Doble click para abrir la venta origen en historial"
                           >
-                            <div className="font-mono text-slate-200">
+                            <div className="font-mono text-slate-200 truncate whitespace-nowrap">
                               {row.paymentDocumentNumber}
                             </div>
-                            <div className="text-slate-300">
+                            <div className="flex flex-wrap items-center gap-2 leading-tight text-slate-300">
                               {formatBogotaDate(row.paidAt, {
                                 day: "2-digit",
                                 month: "2-digit",
@@ -2910,18 +2844,31 @@ export default function DashboardHomePage() {
                                 minute: "2-digit",
                                 hour12: true,
                               })}
+                              {row.isInitialPayment && (
+                                <div className="text-[10px] uppercase tracking-[0.08em] text-emerald-700 whitespace-nowrap">
+                                  Abono inicial
+                                </div>
+                              )}
                             </div>
-                            <div className="text-slate-100 font-medium">
+                            <div className="truncate whitespace-nowrap text-slate-300" title={row.detail}>
+                              {row.detail}
+                            </div>
+                            <div className="text-slate-100 font-medium truncate whitespace-nowrap">
                               {row.saleDocumentNumber}
                             </div>
-                            <div className="text-slate-300 truncate">
+                            <div className="truncate whitespace-nowrap text-slate-300">
                               {row.customerName ?? "Sin cliente"}
                             </div>
-                            <div className="text-right text-slate-200">
+                            <div className="text-right text-slate-200 truncate whitespace-nowrap">
                               {getPaymentLabel(row.method, row.method)}
                             </div>
-                            <div className="text-right font-semibold text-emerald-700">
+                            <div className="text-right font-semibold text-emerald-700 whitespace-nowrap">
                               {formatMoney(row.amount)}
+                            </div>
+                            <div className={`text-right font-semibold whitespace-nowrap ${
+                              row.balance > 0 ? "text-rose-400" : "text-emerald-700"
+                            }`}>
+                              {formatMoney(row.balance)}
                             </div>
                           </div>
                         );

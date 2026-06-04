@@ -19,6 +19,7 @@ import {
 import { getApiBase } from "@/lib/api/base";
 import {
   fetchPosStationPrinterConfig,
+  formatPosDisplayName,
   getPosStationAccess,
   getWebPosStation,
   getStoredPosMode,
@@ -283,6 +284,15 @@ export default function CambiosPage() {
     [apiBase]
   );
   const CHANGES_API = useMemo(() => `${apiBase}/pos/changes`, [apiBase]);
+  const resolvedStationAccess = useMemo(
+    () => (posMode === "web" ? getWebPosStation() : stationInfo),
+    [posMode, stationInfo]
+  );
+  const resolvedPosName = useMemo(
+    () => formatPosDisplayName(resolvedStationAccess, "POS"),
+    [resolvedStationAccess]
+  );
+  const activeStationId = posMode === "station" ? stationInfo?.id ?? null : null;
 
   const activePaymentMethods = useMemo(
     () =>
@@ -878,6 +888,8 @@ export default function CambiosPage() {
         credentials: "include",
         body: JSON.stringify({
           sale_id: sale.id,
+          pos_name: resolvedPosName,
+          station_id: activeStationId ?? undefined,
           notes: notes.trim() || undefined,
           return_items: itemsPayload,
           new_items: newItemsPayload,
@@ -913,6 +925,8 @@ export default function CambiosPage() {
     payments,
     quantities,
     sale,
+    activeStationId,
+    resolvedPosName,
     token,
     totalCredit,
     totalNew,
