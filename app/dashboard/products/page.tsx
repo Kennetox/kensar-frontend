@@ -203,6 +203,8 @@ type SortOption =
   | "price_asc"
   | "price_desc";
 
+type ActiveFilter = "all" | "active" | "inactive";
+
 function formatAuditDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -550,7 +552,7 @@ export default function ProductsPage() {
   // filtros / orden
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [showOnlyActive, setShowOnlyActive] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>("all");
   const [showIdColumn, setShowIdColumn] = useState(false);
   const [selectedGroupFilter, setSelectedGroupFilter] = useState("");
   const [selectedBrand, setSelectedBrand] = useState("");
@@ -758,6 +760,7 @@ export default function ProductsPage() {
         const parsed = JSON.parse(raw) as {
           searchInput?: string;
           search?: string;
+          activeFilter?: ActiveFilter;
           showOnlyActive?: boolean;
           showIdColumn?: boolean;
           selectedGroupFilter?: string;
@@ -770,7 +773,13 @@ export default function ProductsPage() {
         };
         setSearchInput(parsed.searchInput ?? "");
         setSearch(parsed.search ?? parsed.searchInput ?? "");
-        setShowOnlyActive(Boolean(parsed.showOnlyActive));
+        setActiveFilter(
+          parsed.activeFilter === "active" || parsed.activeFilter === "inactive"
+            ? parsed.activeFilter
+            : parsed.showOnlyActive
+              ? "active"
+              : "all",
+        );
         setShowIdColumn(Boolean(parsed.showIdColumn));
         setSelectedGroupFilter(parsed.selectedGroupFilter ?? "");
         setSelectedBrand(parsed.selectedBrand ?? "");
@@ -798,7 +807,7 @@ export default function ProductsPage() {
     const payload = {
       searchInput,
       search,
-      showOnlyActive,
+      activeFilter,
       showIdColumn,
       selectedGroupFilter,
       selectedBrand,
@@ -815,7 +824,7 @@ export default function ProductsPage() {
   }, [
     searchInput,
     search,
-    showOnlyActive,
+    activeFilter,
     selectedGroupFilter,
     selectedBrand,
     showIdColumn,
@@ -832,7 +841,7 @@ export default function ProductsPage() {
     setPage(1);
   }, [
     search,
-    showOnlyActive,
+    activeFilter,
     sortOption,
     selectedGroupFilter,
     selectedBrand,
@@ -2305,7 +2314,9 @@ export default function ProductsPage() {
         scope: exportScope,
         search: exportScope === "filtered" ? search : "",
         show_only_active:
-          exportScope === "filtered" ? showOnlyActive : false,
+          exportScope === "filtered" ? activeFilter === "active" : false,
+        show_only_inactive:
+          exportScope === "filtered" ? activeFilter === "inactive" : false,
         group: exportScope === "filtered" ? selectedGroupFilter : "",
         brand: exportScope === "filtered" ? selectedBrand : "",
         supplier: exportScope === "filtered" ? selectedSupplier : "",
@@ -2405,7 +2416,10 @@ export default function ProductsPage() {
         (p.brand && p.brand.toLowerCase().includes(term)) ||
         (p.supplier && p.supplier.toLowerCase().includes(term));
 
-      const matchesActive = !showOnlyActive || p.active;
+      const matchesActive =
+        activeFilter === "all" ||
+        (activeFilter === "active" && p.active) ||
+        (activeFilter === "inactive" && !p.active);
       const matchesGroup =
         !selectedGroupFilter || (p.group_name ?? "") === selectedGroupFilter;
       const matchesBrand =
@@ -2428,7 +2442,7 @@ export default function ProductsPage() {
   }, [
     products,
     search,
-    showOnlyActive,
+    activeFilter,
     selectedGroupFilter,
     selectedBrand,
     selectedSupplier,
@@ -2506,7 +2520,7 @@ export default function ProductsPage() {
   const filteredCount = filteredProducts.length;
   const hasActiveFilters =
     searchInput.trim() !== "" ||
-    showOnlyActive ||
+    activeFilter !== "all" ||
     selectedGroupFilter !== "" ||
     selectedBrand !== "" ||
     selectedSupplier !== "" ||
@@ -2517,7 +2531,8 @@ export default function ProductsPage() {
     const parts: string[] = ["productos"];
     if (exportScope === "filtered" && hasActiveFilters) {
       if (search) parts.push(`q-${search}`);
-      if (showOnlyActive) parts.push("activos");
+      if (activeFilter === "active") parts.push("activos");
+      if (activeFilter === "inactive") parts.push("desactivados");
       if (selectedGroupFilter) parts.push(`grupo-${selectedGroupFilter}`);
       if (selectedBrand) parts.push(`marca-${selectedBrand}`);
       if (selectedSupplier) parts.push(`prov-${selectedSupplier}`);
@@ -2537,7 +2552,7 @@ export default function ProductsPage() {
     exportScope,
     hasActiveFilters,
     search,
-    showOnlyActive,
+    activeFilter,
     selectedGroupFilter,
     selectedBrand,
     selectedSupplier,
@@ -2554,7 +2569,7 @@ export default function ProductsPage() {
   const clearFilters = () => {
     setSearchInput("");
     setSearch("");
-    setShowOnlyActive(false);
+    setActiveFilter("all");
     setSelectedGroupFilter("");
     setSelectedBrand("");
     setSelectedSupplier("");
@@ -2696,15 +2711,15 @@ export default function ProductsPage() {
               onChange={(e) => setSearchInput(e.target.value)}
               className="w-full md:w-64 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm outline-none focus:border-emerald-400"
             />
-            <label className="inline-flex items-center gap-2 text-xs md:text-sm text-slate-300">
-              <input
-                type="checkbox"
-                checked={showOnlyActive}
-                onChange={(e) => setShowOnlyActive(e.target.checked)}
-                className="rounded border-slate-600 bg-slate-900"
-              />
-              Mostrar solo activos
-            </label>
+            <select
+              value={activeFilter}
+              onChange={(e) => setActiveFilter(e.target.value as ActiveFilter)}
+              className="w-full md:w-44 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-400"
+            >
+              <option value="all">Todos</option>
+              <option value="active">Solo activos</option>
+              <option value="inactive">Solo desactivados</option>
+            </select>
             {isAdmin ? (
               <label className="inline-flex items-center gap-2 text-xs md:text-sm text-slate-300">
                 <input
@@ -4468,7 +4483,7 @@ export default function ProductsPage() {
                 </label>
                 {!hasActiveFilters && (
                   <p className="text-xs text-slate-500">
-                    No hay filtros activos. Exportar filtrados equivale a todo el catálogo.
+                    No hay filtros aplicados. Exportar filtrados equivale a todo el catálogo.
                   </p>
                 )}
               </div>

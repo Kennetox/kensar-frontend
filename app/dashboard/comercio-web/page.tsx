@@ -4326,7 +4326,6 @@ export default function ComercioWebPage() {
     if (!token || !canManage) return;
     setCatalogError(null);
     await updateComercioWebCatalogProduct(token, product.id, {
-      active: false,
       web_published: false,
       web_featured: false,
     });
@@ -4377,7 +4376,7 @@ export default function ComercioWebPage() {
     return {
       title: "Eliminar publicación",
       description:
-        "Esta acción quitará el producto de esta tabla y lo desactivará para la operación web.",
+        "Esta acción quitará el producto de esta tabla y solo lo despublicará de la operación web.",
       confirmLabel: "Eliminar",
     };
   }
