@@ -2,6 +2,7 @@
 
 import React, {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -135,8 +136,28 @@ type ChangePayment = {
   amount: string;
 };
 
+type ProductSearchEntry = {
+  product: Product;
+  skuKey: string;
+  barcodeKey: string;
+  nameKey: string;
+};
+
 function normalizeDocument(value: string): string {
   return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeSearchKey(value: string): string {
+  return normalizeSearchText(value).replace(/[^a-z0-9]+/g, "");
 }
 
 function extractDigits(value: string): string {
@@ -217,6 +238,9 @@ export default function CambiosPage() {
   const [productCatalog, setProductCatalog] = useState<Product[]>([]);
   const [productScan, setProductScan] = useState("");
   const [newItems, setNewItems] = useState<ChangeNewItem[]>([]);
+  const [productSearchOpen, setProductSearchOpen] = useState(false);
+  const [productSearchQuery, setProductSearchQuery] = useState("");
+  const productSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [paymentCatalog, setPaymentCatalog] = useState<PaymentMethodRecord[]>(
     DEFAULT_PAYMENT_METHODS
@@ -309,10 +333,76 @@ export default function CambiosPage() {
     [paymentCatalog]
   );
 
+  const productSearchEntries = useMemo<ProductSearchEntry[]>(
+    () =>
+      productCatalog.map((product) => ({
+        product,
+        skuKey: normalizeSearchKey(product.sku ?? ""),
+        barcodeKey: normalizeSearchKey(product.barcode ?? ""),
+        nameKey: normalizeSearchText(product.name ?? ""),
+      })),
+    [productCatalog]
+  );
+
+  const deferredProductSearchQuery = useDeferredValue(productSearchQuery);
+
+  const productSearchResults = useMemo(() => {
+    const queryText = normalizeSearchText(deferredProductSearchQuery);
+    const queryKey = normalizeSearchKey(deferredProductSearchQuery);
+
+    if (!queryText && !queryKey) return [];
+
+    const scored = productSearchEntries
+      .map((entry) => {
+        let score = Number.POSITIVE_INFINITY;
+
+        if (queryKey && entry.skuKey === queryKey) score = 0;
+        else if (queryKey && entry.skuKey.startsWith(queryKey)) score = 1;
+        else if (queryKey && entry.skuKey.includes(queryKey)) score = 2;
+        else if (queryKey && entry.barcodeKey === queryKey) score = 3;
+        else if (queryKey && entry.barcodeKey.startsWith(queryKey)) score = 4;
+        else if (queryText && entry.nameKey === queryText) score = 5;
+        else if (queryText && entry.nameKey.startsWith(queryText)) score = 6;
+        else if (queryText && entry.nameKey.includes(queryText)) score = 7;
+        else if (queryKey && entry.barcodeKey.includes(queryKey)) score = 8;
+        else return null;
+
+        return { ...entry, score };
+      })
+      .filter(
+        (
+          entry
+        ): entry is ProductSearchEntry & {
+          score: number;
+        } => entry !== null
+      )
+      .sort(
+        (a, b) =>
+          a.score - b.score ||
+          a.product.name.localeCompare(b.product.name, "es", {
+            sensitivity: "base",
+          })
+      );
+
+    return scored.slice(0, 60);
+  }, [deferredProductSearchQuery, productSearchEntries]);
+
   const resolvePaymentLabel = useCallback(
     (method: string) => paymentLabels.get(method) ?? method,
     [paymentLabels]
   );
+
+  const openProductSearchModal = useCallback(
+    (initialValue?: string) => {
+      setProductSearchQuery(initialValue ?? productScan);
+      setProductSearchOpen(true);
+    },
+    [productScan]
+  );
+
+  const closeProductSearchModal = useCallback(() => {
+    setProductSearchOpen(false);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -741,12 +831,8 @@ export default function CambiosPage() {
     const product =
       productCatalog.find(
         (item) =>
-          item.barcode?.toLowerCase() === value ||
-          item.sku?.toLowerCase() === value
-      ) ??
-      productCatalog.find((item) =>
-        item.name.toLowerCase().includes(value)
-      );
+          normalizeSearchKey(item.barcode ?? "") === normalizeSearchKey(value)
+      ) ?? null;
     if (!product) {
       setProductScan("");
       return;
@@ -754,6 +840,36 @@ export default function CambiosPage() {
     handleAddProduct(product);
     setProductScan("");
   };
+
+  useEffect(() => {
+    if (!productSearchOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    window.requestAnimationFrame(() => {
+      productSearchInputRef.current?.focus();
+      productSearchInputRef.current?.select();
+    });
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setProductSearchOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [productSearchOpen]);
+
+  useEffect(() => {
+    if (productSearchOpen) return;
+    window.requestAnimationFrame(() => {
+      productScanInputRef.current?.focus();
+    });
+  }, [productSearchOpen]);
 
   const handleNewItemQuantityChange = (
     productId: number,
@@ -1489,22 +1605,39 @@ export default function CambiosPage() {
                 </div>
               </div>
 
-              <form onSubmit={handleProductScan} className="flex gap-2">
-                <input
-                  type="text"
-                  value={productScan}
-                  onChange={(e) => setProductScan(e.target.value)}
-                  placeholder="Escanea codigo o escribe nombre"
-                  className="flex-1 h-12 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  ref={productScanInputRef}
-                />
+              <form
+                onSubmit={handleProductScan}
+                className="flex flex-col gap-2 lg:flex-row"
+              >
+                <div className="flex flex-1 gap-2">
+                  <input
+                    type="text"
+                    value={productScan}
+                    onChange={(e) => setProductScan(e.target.value)}
+                    placeholder="Escanea código de barras"
+                    autoComplete="off"
+                    inputMode="none"
+                    className="flex-1 h-12 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    ref={productScanInputRef}
+                  />
+                  <button
+                    type="submit"
+                    className="h-12 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
+                  >
+                    Agregar
+                  </button>
+                </div>
                 <button
-                  type="submit"
-                  className="h-12 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
+                  type="button"
+                  onClick={() => openProductSearchModal(productScan.trim())}
+                  className="h-12 px-4 rounded-lg border border-emerald-400/50 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 text-sm font-semibold"
                 >
-                  Agregar
+                  Buscar producto
                 </button>
               </form>
+              <p className="text-xs text-slate-400">
+                Este campo solo agrega por código de barras. Para buscar por SKU o nombre, usa el buscador manual.
+              </p>
 
               {newItems.length > 0 && (
                 <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-4 space-y-3">
@@ -1706,6 +1839,110 @@ export default function CambiosPage() {
           </section>
         </div>
       </div>
+
+      {productSearchOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 px-4 py-6 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Buscador manual de productos"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeProductSearchModal();
+            }
+          }}
+        >
+          <div className="w-full max-w-3xl max-h-[82vh] overflow-hidden rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">
+                  Búsqueda manual
+                </p>
+                <h3 className="text-lg font-semibold text-white">
+                  Encuentra productos por SKU o nombre
+                </h3>
+                <p className="text-sm text-slate-400">
+                  Las coincidencias priorizan SKU y luego nombre. El campo rápido queda reservado para código de barras.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeProductSearchModal}
+                className="h-10 rounded-full border border-slate-700 px-4 text-sm font-semibold text-slate-100 hover:bg-slate-800"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <input
+                  ref={productSearchInputRef}
+                  type="text"
+                  value={productSearchQuery}
+                  onChange={(e) => setProductSearchQuery(e.target.value)}
+                  placeholder="Busca por SKU o nombre"
+                  autoComplete="off"
+                  className="h-12 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-2">
+                    {productSearchResults.length} resultados
+                  </span>
+                </div>
+              </div>
+
+              <div className="max-h-[52vh] space-y-2 overflow-y-auto pr-1">
+                {productSearchQuery.trim() ? (
+                  productSearchResults.length > 0 ? (
+                    productSearchResults.map((entry) => (
+                      <button
+                        key={entry.product.id}
+                        type="button"
+                        onClick={() => {
+                          handleAddProduct(entry.product);
+                          setProductSearchOpen(false);
+                          setProductSearchQuery("");
+                          setProductScan("");
+                        }}
+                        className="flex w-full items-center justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-left transition hover:border-emerald-400/50 hover:bg-slate-950"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-100">
+                            {entry.product.name}
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
+                            <span className="rounded-full border border-slate-800 px-2 py-1">
+                              SKU: {entry.product.sku ?? "—"}
+                            </span>
+                            <span className="rounded-full border border-slate-800 px-2 py-1">
+                              Código: {entry.product.barcode ?? "—"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-sm font-semibold text-emerald-300">
+                            {formatMoney(entry.product.price)}
+                          </div>
+                          <div className="text-xs text-slate-500">Agregar</div>
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-8 text-center text-sm text-slate-400">
+                      No hubo coincidencias. Prueba con otro SKU o una parte del nombre.
+                    </div>
+                  )
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-8 text-center text-sm text-slate-400">
+                    Escribe para buscar. El ranking prioriza SKU y luego nombre.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {changeSuccess && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-30 px-4">
