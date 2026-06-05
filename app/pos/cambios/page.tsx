@@ -788,12 +788,20 @@ export default function CambiosPage() {
   );
 
   useEffect(() => {
-    if (scanLoading) return;
+    if (scanLoading || sale) return;
     if (scanInputRef.current) {
       scanInputRef.current.focus();
       scanInputRef.current.select();
     }
-  }, [scanLoading]);
+  }, [sale, scanLoading]);
+
+  useEffect(() => {
+    if (!sale || productSearchOpen) return;
+    window.requestAnimationFrame(() => {
+      productScanInputRef.current?.focus();
+      productScanInputRef.current?.select();
+    });
+  }, [productSearchOpen, sale]);
 
   useEffect(() => {
     const timers = toastTimerRef.current;
@@ -862,13 +870,6 @@ export default function CambiosPage() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [productSearchOpen]);
-
-  useEffect(() => {
-    if (productSearchOpen) return;
-    window.requestAnimationFrame(() => {
-      productScanInputRef.current?.focus();
-    });
   }, [productSearchOpen]);
 
   const handleNewItemQuantityChange = (
@@ -1487,7 +1488,11 @@ export default function CambiosPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-6">
+          <section
+            className={`rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-6 transition ${
+              sale ? "opacity-100" : "opacity-50"
+            }`}
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-widest text-slate-400">
@@ -1617,20 +1622,23 @@ export default function CambiosPage() {
                     placeholder="Escanea código de barras"
                     autoComplete="off"
                     inputMode="none"
-                    className="flex-1 h-12 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    disabled={!sale}
+                    className="flex-1 h-12 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                     ref={productScanInputRef}
                   />
                   <button
                     type="submit"
-                    className="h-12 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
+                    disabled={!sale}
+                    className="h-12 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Agregar
                   </button>
                 </div>
                 <button
                   type="button"
+                  disabled={!sale}
                   onClick={() => openProductSearchModal(productScan.trim())}
-                  className="h-12 px-4 rounded-lg border border-emerald-400/50 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 text-sm font-semibold"
+                  className="h-12 px-4 rounded-lg border border-emerald-400/50 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Buscar producto
                 </button>
