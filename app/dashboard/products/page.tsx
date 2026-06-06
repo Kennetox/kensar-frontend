@@ -113,6 +113,8 @@ type ProductAuditEntry = {
 };
 
 type ProductCostSuggestion = {
+  mode: "balanced" | "conservative" | "aggressive";
+  mode_label?: string | null;
   suggested_cost: number;
   range_min_cost: number;
   range_max_cost: number;
@@ -125,11 +127,16 @@ type ProductCostSuggestion = {
   markup_p25: number;
   markup_p50: number;
   markup_p75: number;
+  selected_markup_percent: number;
   recency_half_life_days: number;
   notes?: string | null;
 };
 
+type ProductCostSuggestionMode = "balanced" | "conservative" | "aggressive";
+
 type ProductCostSuggestionMeta = {
+  suggestion_mode: "balanced" | "conservative" | "aggressive";
+  suggestion_mode_label: string | null;
   suggested_cost: number;
   range_min_cost: number;
   range_max_cost: number;
@@ -142,6 +149,7 @@ type ProductCostSuggestionMeta = {
   markup_p25: number;
   markup_p50: number;
   markup_p75: number;
+  selected_markup_percent: number;
   recency_half_life_days: number;
   suggested_at: string;
   applied_cost: number;
@@ -155,6 +163,7 @@ type ProductDuplicateCandidate = {
   name: string;
   sku: string | null;
   barcode: string | null;
+  price: number;
   group_name: string | null;
   brand: string | null;
   supplier: string | null;
@@ -183,6 +192,23 @@ const DEFAULT_LABEL_FORMAT = "Kensar1";
 const CABLES_LABEL_FORMAT = "Cables_1";
 const LABEL_FORMAT_OPTIONS = [DEFAULT_LABEL_FORMAT, CABLES_LABEL_FORMAT] as const;
 const COST_SUGGESTION_HIGH_MARKUP_ALERT_PCT = 180;
+const COST_SUGGESTION_MODE_LABELS: Record<
+  ProductCostSuggestionMode,
+  { label: string; description: string }
+> = {
+  balanced: {
+    label: "Balanceado",
+    description: "Usa la mediana del margen histórico.",
+  },
+  conservative: {
+    label: "Conservador",
+    description: "Prioriza un costo más alto y protege margen.",
+  },
+  aggressive: {
+    label: "Agresivo",
+    description: "Baja más el costo para empujar competitividad.",
+  },
+};
 
 function resolveImageUrl(url: string | null): string | null {
   if (!url) return null;
@@ -492,6 +518,8 @@ export default function ProductsPage() {
   const [createSkuLocked, setCreateSkuLocked] = useState(true);
   const [createBarcodeLocked, setCreateBarcodeLocked] = useState(true);
   const [createLabelFormatLocked, setCreateLabelFormatLocked] = useState(true);
+  const [createCostSuggestionMode, setCreateCostSuggestionMode] =
+    useState<ProductCostSuggestionMode>("balanced");
   const [createCostSuggestion, setCreateCostSuggestion] = useState<ProductCostSuggestion | null>(null);
   const [createCostSuggesting, setCreateCostSuggesting] = useState(false);
   const [createDuplicateCandidates, setCreateDuplicateCandidates] = useState<
@@ -500,6 +528,10 @@ export default function ProductsPage() {
   const [createDuplicateChecking, setCreateDuplicateChecking] = useState(false);
   const [createDuplicateError, setCreateDuplicateError] = useState<string | null>(null);
   const [createHasHighDuplicateRisk, setCreateHasHighDuplicateRisk] = useState(false);
+  const createVisibleDuplicateCandidates = useMemo(
+    () => createDuplicateCandidates.slice(0, 3),
+    [createDuplicateCandidates],
+  );
   const createNameSpellingSuggestion = useMemo(
     () => suggestProductNameSpelling(createForm.name),
     [createForm.name],
@@ -517,6 +549,8 @@ export default function ProductsPage() {
   const [editSkuLocked, setEditSkuLocked] = useState(true);
   const [editBarcodeLocked, setEditBarcodeLocked] = useState(true);
   const [editLabelFormatLocked, setEditLabelFormatLocked] = useState(true);
+  const [editCostSuggestionMode, setEditCostSuggestionMode] =
+    useState<ProductCostSuggestionMode>("balanced");
   const [editCostSuggestion, setEditCostSuggestion] = useState<ProductCostSuggestion | null>(null);
   const [editCostSuggesting, setEditCostSuggesting] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -700,7 +734,7 @@ export default function ProductsPage() {
           group_name: form.group_name.trim() || null,
           brand: form.brand.trim() || null,
           supplier: form.supplier.trim() || null,
-          limit: 6,
+          limit: 4,
         }),
       });
       if (!res.ok) {
@@ -918,9 +952,17 @@ export default function ProductsPage() {
     }));
   }
 
+  function canRequestCostSuggestion(form: ProductForm): boolean {
+    return (
+      form.name.trim().length > 0 &&
+      form.group_name.trim().length > 0 &&
+      parseMoneyValue(form.price) > 0
+    );
+  }
+
   async function requestCostSuggestion(
     form: ProductForm,
-    options?: { excludeProductId?: number | null },
+    options?: { excludeProductId?: number | null; mode?: ProductCostSuggestionMode },
   ): Promise<ProductCostSuggestion> {
     if (!authHeaders) throw new Error("Sesión expirada.");
     const priceValue = parseMoneyValue(form.price);
@@ -935,6 +977,7 @@ export default function ProductsPage() {
       },
       credentials: "include",
       body: JSON.stringify({
+        mode: options?.mode ?? "balanced",
         price: priceValue,
         group_name: form.group_name || null,
         brand: form.brand || null,
@@ -958,10 +1001,24 @@ export default function ProductsPage() {
     return "Riesgo bajo";
   }
 
+  function formatCostSuggestionModeLabel(mode: ProductCostSuggestionMode): string {
+    return COST_SUGGESTION_MODE_LABELS[mode].label;
+  }
+
+  function formatCostSuggestionModeDescription(mode: ProductCostSuggestionMode): string {
+    return COST_SUGGESTION_MODE_LABELS[mode].description;
+  }
+
   async function handleSuggestCreateCost() {
     try {
+      if (!canRequestCostSuggestion(createForm)) {
+        setErrorToastMessage("Completa nombre, precio y grupo antes de sugerir costo.");
+        return;
+      }
       setCreateCostSuggesting(true);
-      const suggestion = await requestCostSuggestion(createForm);
+      const suggestion = await requestCostSuggestion(createForm, {
+        mode: createCostSuggestionMode,
+      });
       const priceValue = parseMoneyValue(createForm.price);
       const suggestedCost = suggestion.suggested_cost;
       const impliedMarkupPct =
@@ -995,8 +1052,15 @@ export default function ProductsPage() {
   async function handleSuggestEditCost() {
     if (editId == null) return;
     try {
+      if (!canRequestCostSuggestion(editForm)) {
+        setErrorToastMessage("Completa nombre, precio y grupo antes de sugerir costo.");
+        return;
+      }
       setEditCostSuggesting(true);
-      const suggestion = await requestCostSuggestion(editForm, { excludeProductId: editId });
+      const suggestion = await requestCostSuggestion(editForm, {
+        excludeProductId: editId,
+        mode: editCostSuggestionMode,
+      });
       const priceValue = parseMoneyValue(editForm.price);
       const suggestedCost = suggestion.suggested_cost;
       const impliedMarkupPct =
@@ -1027,6 +1091,85 @@ export default function ProductsPage() {
     }
   }
 
+  function renderCostSuggestionSummary(
+    suggestion: ProductCostSuggestion | null,
+    mode: ProductCostSuggestionMode,
+  ) {
+    if (!suggestion) return null;
+    const effectiveMode = suggestion.mode ?? mode;
+
+    const confidenceClass =
+      suggestion.confidence_label === "alta"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+        : suggestion.confidence_label === "media"
+          ? "border-amber-200 bg-amber-50 text-amber-900"
+          : "border-rose-200 bg-rose-50 text-rose-900";
+
+    return (
+      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Sugerencia calculada
+            </div>
+            <div className="mt-1 text-lg font-semibold text-slate-900">
+              ${suggestion.suggested_cost.toLocaleString("es-CO", {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2,
+              })}
+            </div>
+          </div>
+          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${confidenceClass}`}>
+            Confianza {suggestion.confidence_label}
+          </span>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500">Modo</div>
+            <div className="font-semibold text-slate-900">
+              {formatCostSuggestionModeLabel(effectiveMode)}
+            </div>
+            <div className="text-xs text-slate-500">{formatCostSuggestionModeDescription(effectiveMode)}</div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500">Método</div>
+            <div className="font-semibold text-slate-900">
+              {suggestion.method_label ?? suggestion.method}
+            </div>
+            <div className="text-xs text-slate-500">
+              {suggestion.sample_size} muestra{suggestion.sample_size === 1 ? "" : "s"}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500">Rango</div>
+            <div className="font-semibold text-slate-900">
+              ${suggestion.range_min_cost.toLocaleString("es-CO", { maximumFractionDigits: 2 })} - ${suggestion.range_max_cost.toLocaleString("es-CO", { maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-xs text-slate-500">
+              Margen seleccionado: {suggestion.selected_markup_percent.toFixed(2)}%
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[11px] uppercase tracking-wide text-slate-500">Confianza numérica</div>
+            <div className="font-semibold text-slate-900">
+              {(suggestion.confidence_score * 100).toFixed(0)}%
+            </div>
+            <div className="text-xs text-slate-500">
+              Semivida de recencia: {suggestion.recency_half_life_days} días
+            </div>
+          </div>
+        </div>
+
+        {suggestion.notes ? (
+          <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+            {suggestion.notes}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   function buildCostSuggestionMeta(
     suggestion: ProductCostSuggestion | null,
     appliedCostRaw: string,
@@ -1037,6 +1180,8 @@ export default function ProductsPage() {
     const delta = appliedCost - suggestion.suggested_cost;
     const accepted = Math.abs(delta) < 0.01;
     return {
+      suggestion_mode: suggestion.mode,
+      suggestion_mode_label: suggestion.mode_label ?? formatCostSuggestionModeLabel(suggestion.mode),
       suggested_cost: suggestion.suggested_cost,
       range_min_cost: suggestion.range_min_cost,
       range_max_cost: suggestion.range_max_cost,
@@ -1049,6 +1194,7 @@ export default function ProductsPage() {
       markup_p25: suggestion.markup_p25,
       markup_p50: suggestion.markup_p50,
       markup_p75: suggestion.markup_p75,
+      selected_markup_percent: suggestion.selected_markup_percent,
       recency_half_life_days: suggestion.recency_half_life_days,
       suggested_at: new Date().toISOString(),
       applied_cost: appliedCost,
@@ -1100,6 +1246,7 @@ export default function ProductsPage() {
     setCreateSkuLocked(true);
     setCreateBarcodeLocked(true);
     setCreateLabelFormatLocked(true);
+    setCreateCostSuggestionMode("balanced");
     setCreateCostSuggestion(null);
     setCreateDuplicateCandidates([]);
     setCreateDuplicateChecking(false);
@@ -1159,6 +1306,7 @@ export default function ProductsPage() {
     setCreateSkuLocked(true);
     setCreateBarcodeLocked(true);
     setCreateLabelFormatLocked(true);
+    setCreateCostSuggestionMode("balanced");
     setCreateCostSuggestion(null);
     setCreateCostSuggesting(false);
     setCreateDuplicateCandidates([]);
@@ -1183,6 +1331,7 @@ export default function ProductsPage() {
     setEditSkuLocked(true);
     setEditBarcodeLocked(true);
     setEditLabelFormatLocked(true);
+    setEditCostSuggestionMode("balanced");
     setEditCostSuggestion(null);
     setEditCostSuggesting(false);
     if (productImageInputRef.current) {
@@ -2008,6 +2157,7 @@ export default function ProductsPage() {
     setEditSkuLocked(true);
     setEditBarcodeLocked(true);
     setEditLabelFormatLocked(true);
+    setEditCostSuggestionMode("balanced");
     setEditCostSuggestion(null);
     setEditOpen(true);
   }
@@ -3308,13 +3458,13 @@ export default function ProductsPage() {
                     <div className="mt-2 text-[11px] text-slate-700">
                       {createDuplicateChecking
                         ? "Buscando coincidencias relevantes..."
-                        : "Sin coincidencias relevantes por ahora."}
+                        : "Sin coincidencias fuertes por ahora."}
                     </div>
                   ) : null}
 
-                  {createDuplicateCandidates.length > 0 ? (
+                  {createVisibleDuplicateCandidates.length > 0 ? (
                     <div className="mt-2 space-y-2">
-                      {createDuplicateCandidates.map((candidate) => (
+                      {createVisibleDuplicateCandidates.map((candidate) => (
                         <div
                           key={candidate.product_id}
                           className="rounded-md border border-amber-200 bg-white p-2"
@@ -3332,6 +3482,17 @@ export default function ProductsPage() {
                           <div className="mt-1 text-[11px] text-slate-600">
                             {(candidate.brand || "Sin marca")} ·{" "}
                             {(candidate.group_name || "Sin grupo")}
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-700">
+                            Precio:{" "}
+                            <span className="font-semibold text-slate-900">
+                              {Number.isFinite(candidate.price)
+                                ? candidate.price.toLocaleString("es-CO", {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : "—"}
+                            </span>
                           </div>
                           {candidate.match_reasons.length > 0 ? (
                             <div className="mt-1 text-[11px] text-amber-800">
@@ -3451,13 +3612,42 @@ export default function ProductsPage() {
                     <button
                       type="button"
                       onClick={() => void handleSuggestCreateCost()}
-                      disabled={createCostSuggesting}
+                      disabled={createCostSuggesting || !canRequestCostSuggestion(createForm)}
                       className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
+                      title={
+                        canRequestCostSuggestion(createForm)
+                          ? "Sugerir costo"
+                          : "Completa nombre, precio y grupo para sugerir costo"
+                      }
                     >
                       {createCostSuggesting ? "Calculando..." : "Sugerir costo"}
                     </button>
                   </div>
                 </div>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {(
+                    ["conservative", "balanced", "aggressive"] as ProductCostSuggestionMode[]
+                  ).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setCreateCostSuggestionMode(mode)}
+                      className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                        createCostSuggestionMode === mode
+                          ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                          : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500"
+                      }`}
+                    >
+                      {formatCostSuggestionModeLabel(mode)}
+                    </button>
+                  ))}
+                </div>
+                <p className="pt-1 text-[11px] text-slate-500">
+                  {formatCostSuggestionModeDescription(createCostSuggestionMode)}
+                </p>
+              </div>
+              <div className="md:col-span-2 xl:col-span-3">
+                {renderCostSuggestionSummary(createCostSuggestion, createCostSuggestionMode)}
               </div>
 
               <div className="space-y-1">
@@ -3806,13 +3996,42 @@ export default function ProductsPage() {
                     <button
                       type="button"
                       onClick={() => void handleSuggestEditCost()}
-                      disabled={editCostSuggesting}
+                      disabled={editCostSuggesting || !canRequestCostSuggestion(editForm)}
                       className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
+                      title={
+                        canRequestCostSuggestion(editForm)
+                          ? "Sugerir costo"
+                          : "Completa nombre, precio y grupo para sugerir costo"
+                      }
                     >
                       {editCostSuggesting ? "Calculando..." : "Sugerir costo"}
                     </button>
                   </div>
                 </div>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {(
+                    ["conservative", "balanced", "aggressive"] as ProductCostSuggestionMode[]
+                  ).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setEditCostSuggestionMode(mode)}
+                      className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                        editCostSuggestionMode === mode
+                          ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                          : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500"
+                      }`}
+                    >
+                      {formatCostSuggestionModeLabel(mode)}
+                    </button>
+                  ))}
+                </div>
+                <p className="pt-1 text-[11px] text-slate-500">
+                  {formatCostSuggestionModeDescription(editCostSuggestionMode)}
+                </p>
+              </div>
+              <div className="md:col-span-2 xl:col-span-3">
+                {renderCostSuggestionSummary(editCostSuggestion, editCostSuggestionMode)}
               </div>
 
               <div className="space-y-1">
