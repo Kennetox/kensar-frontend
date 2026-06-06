@@ -532,6 +532,8 @@ export default function ProductsPage() {
     () => createDuplicateCandidates.slice(0, 3),
     [createDuplicateCandidates],
   );
+  const [createBrandFocused, setCreateBrandFocused] = useState(false);
+  const [createSupplierFocused, setCreateSupplierFocused] = useState(false);
   const createNameSpellingSuggestion = useMemo(
     () => suggestProductNameSpelling(createForm.name),
     [createForm.name],
@@ -553,6 +555,8 @@ export default function ProductsPage() {
     useState<ProductCostSuggestionMode>("balanced");
   const [editCostSuggestion, setEditCostSuggestion] = useState<ProductCostSuggestion | null>(null);
   const [editCostSuggesting, setEditCostSuggesting] = useState(false);
+  const [editBrandFocused, setEditBrandFocused] = useState(false);
+  const [editSupplierFocused, setEditSupplierFocused] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -632,6 +636,10 @@ export default function ProductsPage() {
   const tableWrapperRef = useRef<HTMLDivElement | null>(null);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
+  const createBrandAutocompleteRef = useRef<HTMLDivElement | null>(null);
+  const editBrandAutocompleteRef = useRef<HTMLDivElement | null>(null);
+  const createSupplierAutocompleteRef = useRef<HTMLDivElement | null>(null);
+  const editSupplierAutocompleteRef = useRef<HTMLDivElement | null>(null);
   const [tableScrollWidth, setTableScrollWidth] = useState(0);
   const { token, user } = useAuth();
   const isAdmin = user?.role === "Administrador";
@@ -1313,6 +1321,8 @@ export default function ProductsPage() {
     setCreateDuplicateChecking(false);
     setCreateDuplicateError(null);
     setCreateHasHighDuplicateRisk(false);
+    setCreateBrandFocused(false);
+    setCreateSupplierFocused(false);
   }
 
   function handleCloseEditModal() {
@@ -1334,6 +1344,8 @@ export default function ProductsPage() {
     setEditCostSuggestionMode("balanced");
     setEditCostSuggestion(null);
     setEditCostSuggesting(false);
+    setEditBrandFocused(false);
+    setEditSupplierFocused(false);
     if (productImageInputRef.current) {
       productImageInputRef.current.value = "";
     }
@@ -2647,6 +2659,16 @@ export default function ProductsPage() {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
   }, [products]);
+  const createBrandOptions = useMemo(() => {
+    const search = createForm.brand.trim().toLocaleLowerCase("es");
+    if (!search) return brandOptions;
+    return brandOptions.filter((option) => option.toLocaleLowerCase("es").includes(search));
+  }, [brandOptions, createForm.brand]);
+  const editBrandOptions = useMemo(() => {
+    const search = editForm.brand.trim().toLocaleLowerCase("es");
+    if (!search) return brandOptions;
+    return brandOptions.filter((option) => option.toLocaleLowerCase("es").includes(search));
+  }, [brandOptions, editForm.brand]);
 
   const supplierOptions = useMemo(() => {
     const set = new Set<string>();
@@ -2657,9 +2679,80 @@ export default function ProductsPage() {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
   }, [products]);
+  const createSupplierOptions = useMemo(() => {
+    const search = createForm.supplier.trim().toLocaleLowerCase("es");
+    if (!search) return supplierOptions;
+    return supplierOptions.filter((option) => option.toLocaleLowerCase("es").includes(search));
+  }, [createForm.supplier, supplierOptions]);
+  const editSupplierOptions = useMemo(() => {
+    const search = editForm.supplier.trim().toLocaleLowerCase("es");
+    if (!search) return supplierOptions;
+    return supplierOptions.filter((option) => option.toLocaleLowerCase("es").includes(search));
+  }, [editForm.supplier, supplierOptions]);
 
   const [createGroupFocused, setCreateGroupFocused] = useState(false);
   const [editGroupFocused, setEditGroupFocused] = useState(false);
+
+  useEffect(() => {
+    if (!createBrandFocused) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (!createBrandAutocompleteRef.current?.contains(target)) {
+        setCreateBrandFocused(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [createBrandFocused]);
+
+  useEffect(() => {
+    if (!editBrandFocused) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (!editBrandAutocompleteRef.current?.contains(target)) {
+        setEditBrandFocused(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [editBrandFocused]);
+
+  useEffect(() => {
+    if (!createSupplierFocused) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (!createSupplierAutocompleteRef.current?.contains(target)) {
+        setCreateSupplierFocused(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [createSupplierFocused]);
+
+  useEffect(() => {
+    if (!editSupplierFocused) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (!editSupplierAutocompleteRef.current?.contains(target)) {
+        setEditSupplierFocused(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [editSupplierFocused]);
+
   const showDuplicatePanel =
     createForm.name.trim().length >= 3 ||
     createDuplicateChecking ||
@@ -3565,22 +3658,84 @@ export default function ProductsPage() {
 
               <div className="space-y-1">
                 <label className="block text-slate-300">Marca</label>
-                <input
-                  name="brand"
-                  value={createForm.brand}
-                  onChange={(e) => handleFormChange(e, setCreateForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
+                <div ref={createBrandAutocompleteRef} className="relative">
+                  <input
+                    name="brand"
+                    value={createForm.brand}
+                    onFocus={() => setCreateBrandFocused(true)}
+                    onChange={(e) => {
+                      handleFormChange(e, setCreateForm);
+                      setCreateBrandFocused(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setCreateBrandFocused(false);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setCreateBrandFocused(false), 100);
+                    }}
+                    autoComplete="off"
+                    className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
+                  />
+                  {createBrandFocused && createBrandOptions.length > 0 ? (
+                    <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-700 bg-slate-950 text-xs shadow-lg">
+                      {createBrandOptions.map((brand) => (
+                        <button
+                          key={brand}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setCreateForm((prev) => ({ ...prev, brand }));
+                            setCreateBrandFocused(false);
+                          }}
+                          className="block w-full px-3 py-1.5 text-left hover:bg-slate-800"
+                        >
+                          {brand}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="space-y-1 md:col-span-2 xl:col-span-1">
                 <label className="block text-slate-300">Proveedor</label>
-                <input
-                  name="supplier"
-                  value={createForm.supplier}
-                  onChange={(e) => handleFormChange(e, setCreateForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
+                <div ref={createSupplierAutocompleteRef} className="relative">
+                  <input
+                    name="supplier"
+                    value={createForm.supplier}
+                    onFocus={() => setCreateSupplierFocused(true)}
+                    onChange={(e) => {
+                      handleFormChange(e, setCreateForm);
+                      setCreateSupplierFocused(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setCreateSupplierFocused(false);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setCreateSupplierFocused(false), 100);
+                    }}
+                    autoComplete="off"
+                    className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
+                  />
+                  {createSupplierFocused && createSupplierOptions.length > 0 ? (
+                    <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-700 bg-slate-950 text-xs shadow-lg">
+                      {createSupplierOptions.map((supplier) => (
+                        <button
+                          key={supplier}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setCreateForm((prev) => ({ ...prev, supplier }));
+                            setCreateSupplierFocused(false);
+                          }}
+                          className="block w-full px-3 py-1.5 text-left hover:bg-slate-800"
+                        >
+                          {supplier}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -3949,22 +4104,84 @@ export default function ProductsPage() {
 
               <div className="space-y-1">
                 <label className="block text-slate-300">Marca</label>
-                <input
-                  name="brand"
-                  value={editForm.brand}
-                  onChange={(e) => handleFormChange(e, setEditForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
+                <div ref={editBrandAutocompleteRef} className="relative">
+                  <input
+                    name="brand"
+                    value={editForm.brand}
+                    onFocus={() => setEditBrandFocused(true)}
+                    onChange={(e) => {
+                      handleFormChange(e, setEditForm);
+                      setEditBrandFocused(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setEditBrandFocused(false);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setEditBrandFocused(false), 100);
+                    }}
+                    autoComplete="off"
+                    className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
+                  />
+                  {editBrandFocused && editBrandOptions.length > 0 ? (
+                    <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-700 bg-slate-950 text-xs shadow-lg">
+                      {editBrandOptions.map((brand) => (
+                        <button
+                          key={brand}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setEditForm((prev) => ({ ...prev, brand }));
+                            setEditBrandFocused(false);
+                          }}
+                          className="block w-full px-3 py-1.5 text-left hover:bg-slate-800"
+                        >
+                          {brand}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="space-y-1 md:col-span-2 xl:col-span-1">
                 <label className="block text-slate-300">Proveedor</label>
-                <input
-                  name="supplier"
-                  value={editForm.supplier}
-                  onChange={(e) => handleFormChange(e, setEditForm)}
-                  className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
-                />
+                <div ref={editSupplierAutocompleteRef} className="relative">
+                  <input
+                    name="supplier"
+                    value={editForm.supplier}
+                    onFocus={() => setEditSupplierFocused(true)}
+                    onChange={(e) => {
+                      handleFormChange(e, setEditForm);
+                      setEditSupplierFocused(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setEditSupplierFocused(false);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setEditSupplierFocused(false), 100);
+                    }}
+                    autoComplete="off"
+                    className="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 outline-none focus:border-emerald-400"
+                  />
+                  {editSupplierFocused && editSupplierOptions.length > 0 ? (
+                    <div className="absolute left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-700 bg-slate-950 text-xs shadow-lg">
+                      {editSupplierOptions.map((supplier) => (
+                        <button
+                          key={supplier}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setEditForm((prev) => ({ ...prev, supplier }));
+                            setEditSupplierFocused(false);
+                          }}
+                          className="block w-full px-3 py-1.5 text-left hover:bg-slate-800"
+                        >
+                          {supplier}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="space-y-1">
