@@ -492,8 +492,8 @@ const getColumnPresentation = (
     }
     if (normalized === "grupo") {
       presentation.clampLines = 1;
-      presentation.maxWidth = 150;
-      presentation.width = 150;
+      presentation.maxWidth = 75;
+      presentation.width = 75;
       return presentation;
     }
     if (normalized === "precio") {
