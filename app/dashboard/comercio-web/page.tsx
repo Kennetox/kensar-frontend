@@ -27,6 +27,7 @@ import {
   updateComercioWebCatalogCategory,
   updateComercioWebCatalogProduct,
   updateComercioWebDescriptionTemplate,
+  fetchComercioWebTechnicalSpecTypes,
   type ComercioWebCatalogCategory,
   type ComercioWebDescriptionTemplate,
   type ComercioWebCatalogPublicationStats,
@@ -60,6 +61,7 @@ import {
   type CommerceDescriptionGeneratorConfig,
   type DescriptionTemplateConfig,
 } from "@/lib/comercioWebDescriptionGenerator";
+import { DEFAULT_TECHNICAL_SPEC_TYPE_OPTIONS } from "@/lib/comercioWebTechnicalSpecTypes";
 
 type CommerceTab = "overview" | "catalog" | "orders" | "personalization" | "payments" | "customers" | "sliders";
 
@@ -313,17 +315,9 @@ const WARRANTY_PRESET_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "Garantía de 6 meses", label: "Garantía de 6 meses" },
   { value: "Garantía de 1 año", label: "Garantía de 1 año" },
 ];
-const TECHNICAL_SPEC_TYPE_OPTIONS = [
-  "Dimensiones",
-  "Longitud",
-  "Potencia",
-  "Conectividad",
-  "Accesorios",
-  "Entradas",
-] as const;
-
 const CATALOG_TABLE_PAGE_SIZE = 50;
 const DISCOUNT_CODE_TABLE_PAGE_SIZE = 50;
+const TECHNICAL_SPEC_TYPE_OPTIONS = DEFAULT_TECHNICAL_SPEC_TYPE_OPTIONS;
 
 const DEFAULT_PERSONALIZATION_BINDINGS: Record<
   PersonalizableInstrumentKey,
@@ -1226,11 +1220,18 @@ function sanitizeCatalogTechnicalSpecs(value: unknown): CatalogTechnicalSpec[] {
       const row = item as Partial<CatalogTechnicalSpec>;
       const type = typeof row.type === "string" ? row.type.trim() : "";
       const fieldValue = typeof row.value === "string" ? row.value.trim() : "";
-      if (!type || !fieldValue) return null;
+      if (!type) return null;
       if (type.toLowerCase() === "sku") return null;
       return { type, value: fieldValue };
     })
     .filter((item): item is CatalogTechnicalSpec => Boolean(item));
+}
+
+function formatCatalogTechnicalSpec(spec: CatalogTechnicalSpec): string {
+  const type = spec.type.trim();
+  const value = spec.value.trim();
+  if (!type) return "";
+  return value ? `${type}: ${value}` : type;
 }
 
 function parseTechnicalSpecsFromShortDescription(raw?: string | null): CatalogTechnicalSpec[] {
@@ -1242,11 +1243,15 @@ function parseTechnicalSpecsFromShortDescription(raw?: string | null): CatalogTe
     .filter(Boolean);
   const parsed = lines
     .map((line) => {
+      const hasSeparator = line.includes(":");
+      if (!hasSeparator) {
+        if (line.length > 30 || /[.!?]$/.test(line)) return null;
+        return { type: line.trim(), value: "" };
+      }
       const parts = line.split(":");
-      if (parts.length < 2) return null;
       const type = parts.shift()?.trim() || "";
       const value = parts.join(":").trim();
-      if (!type || !value) return null;
+      if (!type) return null;
       if (type.toLowerCase() === "sku") return null;
       return { type, value };
     })
@@ -1257,8 +1262,8 @@ function parseTechnicalSpecsFromShortDescription(raw?: string | null): CatalogTe
 
 function serializeTechnicalSpecsForShortDescription(specs: CatalogTechnicalSpec[]): string {
   return specs
-    .map((item) => `${item.type.trim()}: ${item.value.trim()}`)
-    .filter((item) => item !== ":")
+    .map((item) => formatCatalogTechnicalSpec(item))
+    .filter(Boolean)
     .join("\n")
     .trim();
 }
@@ -1564,6 +1569,9 @@ export default function ComercioWebPage() {
     TECHNICAL_SPEC_TYPE_OPTIONS[0]
   );
   const [catalogSpecDraftValue, setCatalogSpecDraftValue] = useState("");
+  const [technicalSpecTypeOptions, setTechnicalSpecTypeOptions] = useState<string[]>(
+    [...TECHNICAL_SPEC_TYPE_OPTIONS]
+  );
   const [descriptionConfig, setDescriptionConfig] = useState<CommerceDescriptionGeneratorConfig>(
     DEFAULT_COMMERCE_DESCRIPTION_CONFIG
   );
@@ -2851,6 +2859,28 @@ export default function ComercioWebPage() {
     }
   }, [showToast, token]);
 
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await fetchComercioWebTechnicalSpecTypes(token);
+        if (cancelled || !rows.length) return;
+        setTechnicalSpecTypeOptions(rows);
+        setCatalogSpecDraftType((current) =>
+          rows.includes(current) ? current : rows[0] || TECHNICAL_SPEC_TYPE_OPTIONS[0]
+        );
+      } catch {
+        if (!cancelled) {
+          setTechnicalSpecTypeOptions([...TECHNICAL_SPEC_TYPE_OPTIONS]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
   const resetCatalogComposer = useCallback(() => {
     setCatalogComposerOpen(false);
     setCatalogWorkspaceView("publications");
@@ -3546,8 +3576,8 @@ export default function ComercioWebPage() {
   function addCatalogTechnicalSpec() {
     const nextType = catalogSpecDraftType.trim();
     const nextValue = catalogSpecDraftValue.trim();
-    if (!nextType || !nextValue) {
-      showToast("Selecciona la caracteristica y escribe su valor.", "error");
+    if (!nextType) {
+      showToast("Selecciona la caracteristica.", "error");
       return;
     }
     setCatalogEditor((prev) => ({
@@ -3596,9 +3626,7 @@ export default function ComercioWebPage() {
         subcategoryKey: selectedCatalogCategory?.parent_key ? selectedCatalogCategory.key : "",
         brand: catalogEditor.brand || selectedProduct.brand,
         warrantyText: catalogEditor.web_warranty_text,
-        technicalSpecs: catalogEditor.web_technical_specs.map(
-          (item) => `${item.type.trim()}: ${item.value.trim()}`
-        ),
+        technicalSpecs: catalogEditor.web_technical_specs.map((item) => formatCatalogTechnicalSpec(item)),
       }, generatorConfig);
       handleCatalogField("web_long_description", generated);
       showToast("Descripcion generada. Revisa y edita antes de guardar.");
@@ -3626,7 +3654,7 @@ export default function ComercioWebPage() {
       return;
     }
     const nextSpecs = catalogEditor.web_technical_specs
-      .map((item) => `${item.type.trim()}: ${item.value.trim()}`)
+      .map((item) => formatCatalogTechnicalSpec(item))
       .filter(Boolean);
     try {
       setCatalogDescriptionSpecsUpdating(true);
@@ -6599,7 +6627,7 @@ export default function ComercioWebPage() {
                                       onChange={(event) => setCatalogSpecDraftType(event.target.value)}
                                       className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-emerald-400"
                                     >
-                                      {TECHNICAL_SPEC_TYPE_OPTIONS.map((option) => (
+                                      {technicalSpecTypeOptions.map((option) => (
                                         <option key={`technical-spec-type-${option}`} value={option}>
                                           {option}
                                         </option>
@@ -6608,9 +6636,12 @@ export default function ComercioWebPage() {
                                     <input
                                       value={catalogSpecDraftValue}
                                       onChange={(event) => setCatalogSpecDraftValue(event.target.value)}
-                                      placeholder="Ej: 3 Mts"
+                                      placeholder="Ej: 3 Mts o deja vacío si solo aplica el tipo"
                                       className="mt-2 w-full rounded-lg border border-slate-200 px-2.5 py-2 text-sm outline-none focus:border-emerald-400"
                                     />
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                      Algunos tipos, como USB o Bluetooth, pueden agregarse solo con el nombre.
+                                    </p>
                                     <div className="mt-2 flex justify-end gap-2">
                                       <button
                                         type="button"
@@ -6640,7 +6671,8 @@ export default function ComercioWebPage() {
                                     className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-2.5 py-2"
                                   >
                                     <span className="text-sm text-slate-700">
-                                      <strong>{spec.type}:</strong> {spec.value}
+                                      <strong>{spec.type}</strong>
+                                      {spec.value.trim() ? <span>: {spec.value}</span> : null}
                                     </span>
                                     <button
                                       type="button"

@@ -1,6 +1,7 @@
 "use client";
 
 import { getApiBase } from "@/lib/api/base";
+import { DEFAULT_TECHNICAL_SPEC_TYPE_OPTIONS } from "@/lib/comercioWebTechnicalSpecTypes";
 
 export type ComercioWebCatalogProduct = {
   id: number;
@@ -445,4 +446,24 @@ export async function resetComercioWebDescriptionTemplates(
   if (!res.ok) throw await parseError(res);
   const data = (await res.json()) as ComercioWebDescriptionTemplate[];
   return Array.isArray(data) ? data : [];
+}
+
+export async function fetchComercioWebTechnicalSpecTypes(
+  token: string
+): Promise<string[]> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/technical-spec-types`, {
+    headers: buildHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) {
+    return [...DEFAULT_TECHNICAL_SPEC_TYPE_OPTIONS];
+  }
+  const data = (await res.json()) as unknown;
+  if (!Array.isArray(data)) {
+    return [...DEFAULT_TECHNICAL_SPEC_TYPE_OPTIONS];
+  }
+  const normalized = data
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+  return normalized.length ? normalized : [...DEFAULT_TECHNICAL_SPEC_TYPE_OPTIONS];
 }
