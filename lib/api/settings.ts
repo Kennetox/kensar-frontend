@@ -27,6 +27,28 @@ export type WebPersonalizationBindings = {
   maraca_par: WebPersonalizationBindingEntry;
 };
 
+export type WebPersonalizationHomeImageEntry = {
+  before_image_url?: string | null;
+  after_image_url?: string | null;
+};
+
+export type WebPersonalizationHomeImages = {
+  campana: WebPersonalizationHomeImageEntry;
+  guiro: WebPersonalizationHomeImageEntry;
+  maraca: WebPersonalizationHomeImageEntry;
+};
+
+export type WebBrandCollageTile = {
+  image_url?: string | null;
+};
+
+export type WebBrandCollageImages = {
+  main: WebBrandCollageTile;
+  top_left: WebBrandCollageTile;
+  top_right: WebBrandCollageTile;
+  bottom: WebBrandCollageTile;
+};
+
 export type PosSettingsPayload = {
   company_name: string;
   tax_id: string;
@@ -64,6 +86,8 @@ export type PosSettingsPayload = {
   web_pos_send_closure_email?: boolean | null;
   station_closure_email_overrides?: Record<string, boolean> | null;
   web_personalization_bindings?: WebPersonalizationBindings | null;
+  web_personalization_home_images?: WebPersonalizationHomeImages | null;
+  web_brand_collage_images?: WebBrandCollageImages | null;
 };
 
 export type PosUserRecord = {
@@ -263,6 +287,17 @@ const defaultSettings: PosSettingsPayload = {
     guiro_mediano: {},
     guiro_grande: {},
     maraca_par: {},
+  },
+  web_personalization_home_images: {
+    campana: {},
+    guiro: {},
+    maraca: {},
+  },
+  web_brand_collage_images: {
+    main: {},
+    top_left: {},
+    top_right: {},
+    bottom: {},
   },
 };
 

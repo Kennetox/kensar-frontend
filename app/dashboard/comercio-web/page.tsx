@@ -53,6 +53,8 @@ import {
   fetchPosSettings,
   fetchRolePermissions,
   updatePosSettings,
+  type WebBrandCollageImages,
+  type WebPersonalizationHomeImages,
   type RolePermissionModule,
 } from "@/lib/api/settings";
 import {
@@ -63,7 +65,15 @@ import {
 } from "@/lib/comercioWebDescriptionGenerator";
 import { DEFAULT_TECHNICAL_SPEC_TYPE_OPTIONS } from "@/lib/comercioWebTechnicalSpecTypes";
 
-type CommerceTab = "overview" | "catalog" | "orders" | "personalization" | "payments" | "customers" | "sliders";
+type CommerceTab =
+  | "overview"
+  | "catalog"
+  | "orders"
+  | "personalization"
+  | "personalization_home_images"
+  | "payments"
+  | "customers"
+  | "sliders";
 
 type PaymentRow = {
   paymentId: number;
@@ -96,6 +106,19 @@ type PersonalizationConfiguration = {
   label: string;
   traceLines: string[];
   viewerPayload: Record<string, unknown> | null;
+};
+
+type PersonalizationHomeImageSide = "before" | "after";
+
+type PersonalizationHomeImageConfig = {
+  beforeImageUrl: string;
+  afterImageUrl: string;
+};
+
+type BrandCollageSlotKey = "main" | "top_left" | "top_right" | "bottom";
+
+type BrandCollageSlotConfig = {
+  imageUrl: string;
 };
 
 type PersonalizableInstrumentKey = "campana" | "guiro" | "maraca";
@@ -273,6 +296,7 @@ const TABS: Array<{ id: CommerceTab; label: string }> = [
   { id: "sliders", label: "Sliders Inicio" },
   { id: "orders", label: "Órdenes" },
   { id: "personalization", label: "Personalización" },
+  { id: "personalization_home_images", label: "Imágenes Home" },
   { id: "payments", label: "Pagos" },
   { id: "customers", label: "Clientes" },
 ];
@@ -349,6 +373,39 @@ const DEFAULT_PERSONALIZATION_BINDINGS: Record<
     serviceId: "",
     serviceSku: "",
     serviceName: "",
+  },
+};
+
+const DEFAULT_PERSONALIZATION_HOME_IMAGES: Record<
+  PersonalizableInstrumentKey,
+  PersonalizationHomeImageConfig
+> = {
+  campana: {
+    beforeImageUrl: "",
+    afterImageUrl: "",
+  },
+  guiro: {
+    beforeImageUrl: "",
+    afterImageUrl: "",
+  },
+  maraca: {
+    beforeImageUrl: "",
+    afterImageUrl: "",
+  },
+};
+
+const DEFAULT_BRAND_COLLAGE_IMAGES: Record<BrandCollageSlotKey, BrandCollageSlotConfig> = {
+  main: {
+    imageUrl: "/brands/collage/hero-yamaha.webp",
+  },
+  top_left: {
+    imageUrl: "/brands/collage/title-prodj.webp",
+  },
+  top_right: {
+    imageUrl: "/brands/collage/title-rm1.webp",
+  },
+  bottom: {
+    imageUrl: "/brands/collage/banner-spain.webp",
   },
 };
 
@@ -1517,6 +1574,32 @@ export default function ComercioWebPage() {
     variant: InstrumentVariantKey;
     kind: SkuFieldKind;
   } | null>(null);
+  const [personalizationHomeImages, setPersonalizationHomeImages] = useState<
+    Record<PersonalizableInstrumentKey, PersonalizationHomeImageConfig>
+  >(DEFAULT_PERSONALIZATION_HOME_IMAGES);
+  const [personalizationHomeImagesBaseline, setPersonalizationHomeImagesBaseline] = useState<
+    Record<PersonalizableInstrumentKey, PersonalizationHomeImageConfig>
+  >(DEFAULT_PERSONALIZATION_HOME_IMAGES);
+  const [personalizationHomeImagesSavingInstrument, setPersonalizationHomeImagesSavingInstrument] =
+    useState<PersonalizableInstrumentKey | null>(null);
+  const [personalizationHomeImagesUploading, setPersonalizationHomeImagesUploading] = useState<{
+    instrument: PersonalizableInstrumentKey;
+    side: PersonalizationHomeImageSide;
+  } | null>(null);
+  const [brandCollageImages, setBrandCollageImages] = useState<
+    Record<BrandCollageSlotKey, BrandCollageSlotConfig>
+  >(DEFAULT_BRAND_COLLAGE_IMAGES);
+  const [brandCollageImagesBaseline, setBrandCollageImagesBaseline] = useState<
+    Record<BrandCollageSlotKey, BrandCollageSlotConfig>
+  >(DEFAULT_BRAND_COLLAGE_IMAGES);
+  const [brandCollageImagesSavingSlot, setBrandCollageImagesSavingSlot] =
+    useState<BrandCollageSlotKey | null>(null);
+  const [brandCollageImagesUploadingSlot, setBrandCollageImagesUploadingSlot] =
+    useState<BrandCollageSlotKey | null>(null);
+  const [brandCollageImagePicker, setBrandCollageImagePicker] = useState<BrandCollageSlotKey | null>(
+    null
+  );
+  const brandCollageImageInputRef = useRef<HTMLInputElement | null>(null);
   const [skuSuggestions, setSkuSuggestions] = useState<ComercioWebCatalogProduct[]>([]);
   const [skuSuggestionsLoading, setSkuSuggestionsLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -1645,6 +1728,10 @@ export default function ComercioWebPage() {
   const [viewportWidth, setViewportWidth] = useState<number>(1920);
   const [homeSliderPreviewWidth, setHomeSliderPreviewWidth] = useState<number>(0);
   const [homeSlidersError, setHomeSlidersError] = useState<string | null>(null);
+  const [personalizationHomeImagePicker, setPersonalizationHomeImagePicker] = useState<{
+    instrument: PersonalizableInstrumentKey;
+    side: PersonalizationHomeImageSide;
+  } | null>(null);
   const [catalogAssetPreviewOpenUrl, setCatalogAssetPreviewOpenUrl] = useState<string | null>(null);
   const [draggedGalleryIndex, setDraggedGalleryIndex] = useState<number | null>(null);
   const [dragOverGalleryIndex, setDragOverGalleryIndex] = useState<number | null>(null);
@@ -1663,6 +1750,7 @@ export default function ComercioWebPage() {
   const catalogVideoInputRef = useRef<HTMLInputElement | null>(null);
   const categoryImageInputRef = useRef<HTMLInputElement | null>(null);
   const homeSliderImageInputRef = useRef<HTMLInputElement | null>(null);
+  const personalizationHomeImageInputRef = useRef<HTMLInputElement | null>(null);
   const homeSliderPositionerRef = useRef<HTMLDivElement | null>(null);
   const categoryTableScrollRef = useRef<HTMLDivElement | null>(null);
   const publishedCatalogTableScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1681,6 +1769,14 @@ export default function ComercioWebPage() {
       JSON.stringify(personalizationVariantBindings) !==
       JSON.stringify(personalizationVariantBindingsBaseline),
     [personalizationVariantBindings, personalizationVariantBindingsBaseline]
+  );
+  const personalizationHomeImagesDirty = useMemo(
+    () => JSON.stringify(personalizationHomeImages) !== JSON.stringify(personalizationHomeImagesBaseline),
+    [personalizationHomeImages, personalizationHomeImagesBaseline]
+  );
+  const brandCollageImagesDirty = useMemo(
+    () => JSON.stringify(brandCollageImages) !== JSON.stringify(brandCollageImagesBaseline),
+    [brandCollageImages, brandCollageImagesBaseline]
   );
 
   useEffect(() => {
@@ -1935,23 +2031,56 @@ export default function ComercioWebPage() {
       .then((settings) => {
         if (!active) return;
         const source = settings.web_personalization_bindings;
-        if (!source || typeof source !== "object") return;
-        const next = { ...DEFAULT_PERSONALIZATION_VARIANT_BINDINGS };
-        PERSONALIZATION_VARIANT_OPTIONS.forEach(({ key }) => {
-          const row = source[key as keyof typeof source];
-          if (!row || typeof row !== "object") return;
-          next[key] = {
-            productId: typeof row.product_id === "string" ? row.product_id : "",
-            productSku: typeof row.product_sku === "string" ? row.product_sku : "",
-            productName: typeof row.product_name === "string" ? row.product_name : "",
-            productSlug: typeof row.product_slug === "string" ? row.product_slug : "",
-            serviceId: typeof row.service_id === "string" ? row.service_id : "",
-            serviceSku: typeof row.service_sku === "string" ? row.service_sku : "",
-            serviceName: typeof row.service_name === "string" ? row.service_name : "",
-          };
-        });
-        setPersonalizationVariantBindings(next);
-        setPersonalizationVariantBindingsBaseline(next);
+        if (source && typeof source === "object") {
+          const next = { ...DEFAULT_PERSONALIZATION_VARIANT_BINDINGS };
+          PERSONALIZATION_VARIANT_OPTIONS.forEach(({ key }) => {
+            const row = source[key as keyof typeof source];
+            if (!row || typeof row !== "object") return;
+            next[key] = {
+              productId: typeof row.product_id === "string" ? row.product_id : "",
+              productSku: typeof row.product_sku === "string" ? row.product_sku : "",
+              productName: typeof row.product_name === "string" ? row.product_name : "",
+              productSlug: typeof row.product_slug === "string" ? row.product_slug : "",
+              serviceId: typeof row.service_id === "string" ? row.service_id : "",
+              serviceSku: typeof row.service_sku === "string" ? row.service_sku : "",
+              serviceName: typeof row.service_name === "string" ? row.service_name : "",
+            };
+          });
+          setPersonalizationVariantBindings(next);
+          setPersonalizationVariantBindingsBaseline(next);
+        }
+
+        const homeImagesSource = settings.web_personalization_home_images;
+        if (homeImagesSource && typeof homeImagesSource === "object") {
+          const nextHomeImages = { ...DEFAULT_PERSONALIZATION_HOME_IMAGES };
+          (Object.keys(DEFAULT_PERSONALIZATION_HOME_IMAGES) as PersonalizableInstrumentKey[]).forEach(
+            (key) => {
+              const row = homeImagesSource[key as keyof typeof homeImagesSource];
+              if (!row || typeof row !== "object") return;
+              nextHomeImages[key] = {
+                beforeImageUrl:
+                  typeof row.before_image_url === "string" ? row.before_image_url : "",
+                afterImageUrl: typeof row.after_image_url === "string" ? row.after_image_url : "",
+              };
+            }
+          );
+          setPersonalizationHomeImages(nextHomeImages);
+          setPersonalizationHomeImagesBaseline(nextHomeImages);
+        }
+
+        const brandCollageSource = settings.web_brand_collage_images;
+        if (brandCollageSource && typeof brandCollageSource === "object") {
+          const nextBrandCollageImages = { ...DEFAULT_BRAND_COLLAGE_IMAGES };
+          (Object.keys(DEFAULT_BRAND_COLLAGE_IMAGES) as BrandCollageSlotKey[]).forEach((key) => {
+            const row = brandCollageSource[key as keyof typeof brandCollageSource];
+            if (!row || typeof row !== "object") return;
+            nextBrandCollageImages[key] = {
+              imageUrl: typeof row.image_url === "string" ? row.image_url : "",
+            };
+          });
+          setBrandCollageImages(nextBrandCollageImages);
+          setBrandCollageImagesBaseline(nextBrandCollageImages);
+        }
       })
       .catch(() => {
         // Keep current local state on fetch errors.
@@ -2111,6 +2240,186 @@ export default function ComercioWebPage() {
       .then(() => setPersonalizationVariantBindingsBaseline(personalizationVariantBindings))
       .finally(() => setPersonalizationBindingsSaving(false));
   }, [personalizationVariantBindings, token]);
+
+  const clearToastTimers = useCallback(() => {
+    const timers = toastTimerRef.current;
+    if (timers.hide) window.clearTimeout(timers.hide);
+    if (timers.remove) window.clearTimeout(timers.remove);
+  }, []);
+
+  const showToast = useCallback(
+    (message: string, tone: InlineToast["tone"] = "success") => {
+      clearToastTimers();
+
+      const toastId = Date.now();
+      setToast({ id: toastId, message, tone });
+      setToastVisible(true);
+
+      toastTimerRef.current.hide = window.setTimeout(() => setToastVisible(false), 2600);
+      toastTimerRef.current.remove = window.setTimeout(() => {
+        setToast((current) => (current?.id === toastId ? null : current));
+      }, 3000);
+    },
+    [clearToastTimers]
+  );
+
+  const handleSavePersonalizationHomeImages = useCallback(
+    (instrument: PersonalizableInstrumentKey) => {
+      if (!token) return;
+      setPersonalizationHomeImagesSavingInstrument(instrument);
+      const payloadHomeImages = (Object.keys(personalizationHomeImages) as PersonalizableInstrumentKey[]).reduce(
+        (acc, key) => {
+          const row = personalizationHomeImages[key];
+          acc[key] = {
+            before_image_url: row.beforeImageUrl.trim(),
+            after_image_url: row.afterImageUrl.trim(),
+          };
+          return acc;
+        },
+        {} as WebPersonalizationHomeImages
+      );
+      void fetchPosSettings(token)
+        .then((settings) =>
+          updatePosSettings(
+            {
+              ...settings,
+              web_personalization_home_images: payloadHomeImages,
+            },
+            token
+          )
+        )
+        .then(() => setPersonalizationHomeImagesBaseline(personalizationHomeImages))
+        .then(() => showToast(`Imágenes de ${instrument} guardadas.`))
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : "No se pudieron guardar las imágenes.";
+          showToast(message, "error");
+        })
+        .finally(() => setPersonalizationHomeImagesSavingInstrument(null));
+    },
+    [personalizationHomeImages, showToast, token]
+  );
+
+  const handlePersonalizationHomeImageFileChange = useCallback(
+    async (instrument: PersonalizableInstrumentKey, side: PersonalizationHomeImageSide, file: File) => {
+      if (!token) {
+        showToast("Debes iniciar sesión para subir la imagen.", "error");
+        return;
+      }
+      setPersonalizationHomeImagesUploading({ instrument, side });
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const uploadRes = await fetch(`${getApiBase()}/uploads/product-images`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+          body: formData,
+        });
+        if (!uploadRes.ok) {
+          const data = await uploadRes.json().catch(() => null);
+          const msg =
+            (data && (data.detail as string)) || `Error al subir imagen (código ${uploadRes.status})`;
+          throw new Error(msg);
+        }
+        const data: UploadProductImageResponse = await uploadRes.json();
+        const fieldName = side === "before" ? "beforeImageUrl" : "afterImageUrl";
+        setPersonalizationHomeImages((current) => ({
+          ...current,
+          // Mantiene el otro lado intacto y solo reemplaza el que se subió.
+          [instrument]: {
+            ...current[instrument],
+            [fieldName]: data.url || current[instrument][fieldName as keyof PersonalizationHomeImageConfig],
+          },
+        }));
+        showToast(`Imagen ${side === "before" ? "antes" : "después"} cargada con éxito.`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "No se pudo subir la imagen.";
+        showToast(message, "error");
+      } finally {
+        setPersonalizationHomeImagesUploading(null);
+      }
+    },
+    [showToast, token]
+  );
+
+  const handleSaveBrandCollageImage = useCallback(
+    (slot: BrandCollageSlotKey) => {
+      if (!token) return;
+      setBrandCollageImagesSavingSlot(slot);
+      const payloadBrandCollageImages = (Object.keys(brandCollageImages) as BrandCollageSlotKey[]).reduce(
+        (acc, key) => {
+          const row = brandCollageImages[key];
+          acc[key] = {
+            image_url: row.imageUrl.trim(),
+          };
+          return acc;
+        },
+        {} as WebBrandCollageImages
+      );
+      void fetchPosSettings(token)
+        .then((settings) =>
+          updatePosSettings(
+            {
+              ...settings,
+              web_brand_collage_images: payloadBrandCollageImages,
+            },
+            token
+          )
+        )
+        .then(() => setBrandCollageImagesBaseline(brandCollageImages))
+        .then(() => showToast(`Imagen de collage guardada.`))
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : "No se pudo guardar la imagen del collage.";
+          showToast(message, "error");
+        })
+        .finally(() => setBrandCollageImagesSavingSlot(null));
+    },
+    [brandCollageImages, showToast, token]
+  );
+
+  const handleBrandCollageImageFileChange = useCallback(
+    async (slot: BrandCollageSlotKey, file: File) => {
+      if (!token) {
+        showToast("Debes iniciar sesión para subir la imagen.", "error");
+        return;
+      }
+      setBrandCollageImagesUploadingSlot(slot);
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const uploadRes = await fetch(`${getApiBase()}/uploads/product-images`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+          body: formData,
+        });
+        if (!uploadRes.ok) {
+          const data = await uploadRes.json().catch(() => null);
+          const msg =
+            (data && (data.detail as string)) || `Error al subir imagen (código ${uploadRes.status})`;
+          throw new Error(msg);
+        }
+        const data: UploadProductImageResponse = await uploadRes.json();
+        setBrandCollageImages((current) => ({
+          ...current,
+          [slot]: {
+            imageUrl: data.url || current[slot].imageUrl,
+          },
+        }));
+        showToast("Imagen del collage cargada con éxito.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "No se pudo subir la imagen.";
+        showToast(message, "error");
+      } finally {
+        setBrandCollageImagesUploadingSlot(null);
+      }
+    },
+    [showToast, token]
+  );
 
   const handleCloseBindingsModal = useCallback(() => {
     if (personalizationBindingsDirty) {
@@ -2637,6 +2946,18 @@ export default function ComercioWebPage() {
     }
   }, []);
 
+  const resolveBrandCollagePreviewUrl = useCallback((url?: string | null) => {
+    if (!url) return null;
+    const trimmed = url.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith("/brands/")) return trimmed;
+    try {
+      return new URL(trimmed, getApiBase()).toString();
+    } catch {
+      return trimmed;
+    }
+  }, []);
+
   const publishedCatalogTotalPages = useMemo(
     () => Math.max(1, Math.ceil(publishedCatalogTotal / CATALOG_TABLE_PAGE_SIZE)),
     [publishedCatalogTotal]
@@ -2756,25 +3077,6 @@ export default function ComercioWebPage() {
       return Math.min(prev, previewGalleryImages.length - 1);
     });
   }, [previewGalleryImages.length]);
-
-  const clearToastTimers = useCallback(() => {
-    const timers = toastTimerRef.current;
-    if (timers.hide) window.clearTimeout(timers.hide);
-    if (timers.remove) window.clearTimeout(timers.remove);
-  }, []);
-
-  const showToast = useCallback((message: string, tone: InlineToast["tone"] = "success") => {
-    clearToastTimers();
-
-    const toastId = Date.now();
-    setToast({ id: toastId, message, tone });
-    setToastVisible(true);
-
-    toastTimerRef.current.hide = window.setTimeout(() => setToastVisible(false), 2600);
-    toastTimerRef.current.remove = window.setTimeout(() => {
-      setToast((current) => (current?.id === toastId ? null : current));
-    }, 3000);
-  }, [clearToastTimers]);
 
   useEffect(() => {
     return () => {
@@ -9256,6 +9558,352 @@ export default function ComercioWebPage() {
                   ))}
                 </div>
               )}
+            </SectionCard>
+          </section>
+        ) : null}
+
+        {activeTab === "personalization_home_images" ? (
+          <section className="space-y-4">
+            <SectionCard
+              title="Imágenes Home de personalización"
+              subtitle="Configura las imágenes before/after que se muestran en la portada del sitio."
+              headerActions={
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!token) return;
+                    void fetchPosSettings(token).then((settings) => {
+                      const source = settings.web_personalization_home_images;
+                      if (!source || typeof source !== "object") return;
+                      const next = { ...DEFAULT_PERSONALIZATION_HOME_IMAGES };
+                      (Object.keys(DEFAULT_PERSONALIZATION_HOME_IMAGES) as PersonalizableInstrumentKey[]).forEach(
+                        (key) => {
+                          const row = source[key as keyof typeof source];
+                          if (!row || typeof row !== "object") return;
+                          next[key] = {
+                            beforeImageUrl:
+                              typeof row.before_image_url === "string" ? row.before_image_url : "",
+                            afterImageUrl:
+                              typeof row.after_image_url === "string" ? row.after_image_url : "",
+                          };
+                        }
+                      );
+                      setPersonalizationHomeImages(next);
+                      setPersonalizationHomeImagesBaseline(next);
+                    });
+                  }}
+                  className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-100"
+                >
+                  Refrescar
+                </button>
+              }
+            >
+              <input
+                ref={personalizationHomeImageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file || !personalizationHomeImagePicker) return;
+                  void handlePersonalizationHomeImageFileChange(
+                    personalizationHomeImagePicker.instrument,
+                    personalizationHomeImagePicker.side,
+                    file
+                  );
+                  if (personalizationHomeImageInputRef.current) {
+                    personalizationHomeImageInputRef.current.value = "";
+                  }
+                  setPersonalizationHomeImagePicker(null);
+                }}
+              />
+              <p className="text-xs text-slate-500">
+                Sube dos imágenes por instrumento: una para el estado antes y otra para el estado después.
+              </p>
+              <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                Recomendado: <span className="font-semibold text-slate-800">1200x1200 px</span> o
+                más, fondo limpio y el instrumento centrado para que no se corte en el preview.
+              </div>
+
+              <div className="mt-4 grid gap-4 xl:grid-cols-3">
+                {(Object.keys(DEFAULT_PERSONALIZATION_HOME_IMAGES) as PersonalizableInstrumentKey[]).map((instrument) => {
+                  const item = personalizationHomeImages[instrument];
+                  const beforeSrc = item.beforeImageUrl.trim();
+                  const afterSrc = item.afterImageUrl.trim();
+                  const saving = personalizationHomeImagesSavingInstrument === instrument;
+                  const uploadingBefore =
+                    personalizationHomeImagesUploading?.instrument === instrument &&
+                    personalizationHomeImagesUploading.side === "before";
+                  const uploadingAfter =
+                    personalizationHomeImagesUploading?.instrument === instrument &&
+                    personalizationHomeImagesUploading.side === "after";
+                  return (
+                    <div
+                      key={`personalization-home-image-${instrument}`}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {instrument === "campana" ? "Campana" : instrument === "guiro" ? "Güiro" : "Maracas"}
+                        </p>
+                        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500">
+                          Before / After
+                        </span>
+                      </div>
+
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                            Antes
+                          </p>
+                          <div
+                            className="h-28 w-full border border-slate-200 bg-white bg-cover bg-center bg-no-repeat"
+                            style={
+                              beforeSrc
+                                ? { backgroundImage: `url('${resolveAssetUrl(beforeSrc) || beforeSrc}')` }
+                                : undefined
+                            }
+                          >
+                            {!beforeSrc ? (
+                              <div className="flex h-full items-center justify-center text-xs text-slate-400">
+                                Sin imagen
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={uploadingBefore}
+                              onClick={() => {
+                                setPersonalizationHomeImagePicker({ instrument, side: "before" });
+                                personalizationHomeImageInputRef.current?.click();
+                              }}
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {uploadingBefore ? "Subiendo..." : "Subir antes"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPersonalizationHomeImages((current) => ({
+                                  ...current,
+                                  [instrument]: {
+                                    ...current[instrument],
+                                    beforeImageUrl: "",
+                                  },
+                                }))
+                              }
+                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300"
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                            Después
+                          </p>
+                          <div
+                            className="h-28 w-full border border-slate-200 bg-white bg-cover bg-center bg-no-repeat"
+                            style={
+                              afterSrc
+                                ? { backgroundImage: `url('${resolveAssetUrl(afterSrc) || afterSrc}')` }
+                                : undefined
+                            }
+                          >
+                            {!afterSrc ? (
+                              <div className="flex h-full items-center justify-center text-xs text-slate-400">
+                                Sin imagen
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={uploadingAfter}
+                              onClick={() => {
+                                setPersonalizationHomeImagePicker({ instrument, side: "after" });
+                                personalizationHomeImageInputRef.current?.click();
+                              }}
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {uploadingAfter ? "Subiendo..." : "Subir después"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPersonalizationHomeImages((current) => ({
+                                  ...current,
+                                  [instrument]: {
+                                    ...current[instrument],
+                                    afterImageUrl: "",
+                                  },
+                                }))
+                              }
+                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300"
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleSavePersonalizationHomeImages(instrument);
+                          }}
+                          disabled={!personalizationHomeImagesDirty || saving}
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {saving ? "Guardando..." : "Guardar imágenes"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="Collage de marcas"
+              subtitle="Reemplaza las imágenes del collage de la portada sin tocar el diseño general."
+              headerActions={
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!token) return;
+                    void fetchPosSettings(token).then((settings) => {
+                      const source = settings.web_brand_collage_images;
+                      if (!source || typeof source !== "object") return;
+                      const next = { ...DEFAULT_BRAND_COLLAGE_IMAGES };
+                      (Object.keys(DEFAULT_BRAND_COLLAGE_IMAGES) as BrandCollageSlotKey[]).forEach(
+                        (key) => {
+                          const row = source[key as keyof typeof source];
+                          if (!row || typeof row !== "object") return;
+                          next[key] = {
+                            imageUrl: typeof row.image_url === "string" ? row.image_url : "",
+                          };
+                        }
+                      );
+                      setBrandCollageImages(next);
+                      setBrandCollageImagesBaseline(next);
+                    });
+                  }}
+                  className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-100"
+                >
+                  Refrescar
+                </button>
+              }
+            >
+              <input
+                ref={brandCollageImageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file || !brandCollageImagePicker) return;
+                  void handleBrandCollageImageFileChange(brandCollageImagePicker, file);
+                  if (brandCollageImageInputRef.current) {
+                    brandCollageImageInputRef.current.value = "";
+                  }
+                  setBrandCollageImagePicker(null);
+                }}
+              />
+              <p className="text-xs text-slate-500">
+                Usa imágenes limpias y centradas. Recomendado: 1200x1200 px o más, fondo claro y
+                sin texto demasiado pequeño para que el collage no se vea cortado.
+              </p>
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                {(
+                  [
+                    { key: "main", label: "Principal" },
+                    { key: "top_left", label: "Superior izquierda" },
+                    { key: "top_right", label: "Superior derecha" },
+                    { key: "bottom", label: "Inferior" },
+                  ] as Array<{ key: BrandCollageSlotKey; label: string }>
+                ).map((slot) => {
+                  const item = brandCollageImages[slot.key];
+                  const imageSrc = item.imageUrl.trim();
+                  const saving = brandCollageImagesSavingSlot === slot.key;
+                  const uploading = brandCollageImagesUploadingSlot === slot.key;
+                  return (
+                    <div
+                      key={`brand-collage-${slot.key}`}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-900">{slot.label}</p>
+                        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500">
+                          Collage
+                        </span>
+                      </div>
+
+                      <div
+                        className="mt-3 h-36 w-full border border-slate-200 bg-white bg-cover bg-center bg-no-repeat"
+                        style={
+                          imageSrc
+                            ? {
+                                backgroundImage: `url('${resolveBrandCollagePreviewUrl(imageSrc) || imageSrc}')`,
+                              }
+                            : undefined
+                        }
+                      >
+                        {!imageSrc ? (
+                          <div className="flex h-full items-center justify-center text-xs text-slate-400">
+                            Sin imagen
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={uploading}
+                          onClick={() => {
+                            setBrandCollageImagePicker(slot.key);
+                            brandCollageImageInputRef.current?.click();
+                          }}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {uploading ? "Subiendo..." : "Subir imagen"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBrandCollageImages((current) => ({
+                              ...current,
+                              [slot.key]: {
+                                imageUrl: "",
+                              },
+                            }))
+                          }
+                          className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleSaveBrandCollageImage(slot.key);
+                          }}
+                          disabled={!brandCollageImagesDirty || saving}
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {saving ? "Guardando..." : "Guardar imagen"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </SectionCard>
           </section>
         ) : null}
