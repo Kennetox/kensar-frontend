@@ -18,6 +18,10 @@ import {
   renderSaleInvoice,
   buildSaleTicketCustomer,
 } from "@/lib/printing/saleTicket";
+import {
+  buildSaleTicketDisplayBreakdown,
+  type SaleTicketSourceItem,
+} from "@/lib/pos/saleTicketData";
 import CustomerPanel from "../../components/CustomerPanel";
 import { type PaymentMethodRecord } from "@/lib/api/paymentMethods";
 import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
@@ -66,6 +70,10 @@ type SaleResponse = {
   created_at: string;
   surcharge_amount?: number | null;
   surcharge_label?: string | null;
+  cart_discount_value?: number | null;
+  cart_discount_percent?: number | null;
+  items?: SaleTicketSourceItem[];
+  payments?: { method: PaymentMethodSlug; amount: number }[];
 };
 
 type SuccessSaleSummary = {
@@ -1138,6 +1146,7 @@ export default function PagoMultiplePage() {
       let responseSurchargeLabel: string | undefined;
       let shouldShowChange = false;
       let shouldOpenDrawer = false;
+      let saleResponse: SaleResponse | null = null;
 
       if (isSeparatedSale) {
         const order: SeparatedOrder = await res.json();
@@ -1192,7 +1201,11 @@ export default function PagoMultiplePage() {
           responseSurchargeLabel = order.surcharge_label;
         }
       } else {
-        const sale: SaleResponse = await res.json();
+        saleResponse = await res.json();
+        if (!saleResponse) {
+          throw new Error("Respuesta de venta inválida.");
+        }
+        const sale = saleResponse;
         backendSaleNumber = sale.sale_number ?? sale.id;
         saleId = sale.id;
         documentNumber =
@@ -1247,46 +1260,72 @@ export default function PagoMultiplePage() {
           ? formatMoney(summarySurchargeAmount)
           : undefined;
 
-      const saleItemsForTicket = saleItemsPayload.map((item) => ({
-        name: item.product_name,
-        quantity: item.quantity,
-        unitPrice: item.unit_price,
-        total: item.total ?? item.quantity * item.unit_price,
+      const responseItems = saleResponse?.items?.length ? saleResponse.items : saleItemsPayload;
+      const responseCartDiscountValue =
+        typeof saleResponse?.cart_discount_value === "number"
+          ? saleResponse.cart_discount_value
+          : cartDiscountValue;
+      const responseCartDiscountPercent =
+        typeof saleResponse?.cart_discount_percent === "number"
+          ? saleResponse.cart_discount_percent
+          : cartDiscountPercent;
+      const ticketLineBreakdown = buildSaleTicketDisplayBreakdown(
+        responseItems,
+        responseCartDiscountValue
+      );
+      const saleItemsForTicket = ticketLineBreakdown.lines.map((line) => ({
+        name: line.name,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        total: line.displayTotal,
       }));
-
-      const paymentSummary = normalizedPayments
-        .filter((p) => p.amount > 0)
-        .map((p) => ({
-          label: getMethodLabel(p.method, paymentCatalog),
-          amount: p.amount,
-        }));
+      const paymentSummary =
+        saleResponse?.payments && saleResponse.payments.length > 0
+          ? saleResponse.payments.map((payment) => ({
+              label: getMethodLabel(payment.method, paymentCatalog),
+              amount: payment.amount,
+            }))
+          : normalizedPayments
+              .filter((p) => p.amount > 0)
+              .map((p) => ({
+                label: getMethodLabel(p.method, paymentCatalog),
+                amount: p.amount,
+              }));
+      const ticketTotal =
+        typeof saleResponse?.total === "number"
+          ? saleResponse.total
+          : saleTotalForSummary;
+      const ticketChangeAmount =
+        typeof saleResponse?.change_amount === "number"
+          ? saleResponse.change_amount
+          : changeAmountValue;
 
       setSuccessSale({
         saleId,
         documentNumber,
         saleNumber: backendSaleNumber,
-        total: saleTotalForSummary,
-        subtotal: cartSubtotal,
-        lineDiscountTotal: cartLineDiscountTotal,
+        total: ticketTotal,
+        subtotal: ticketLineBreakdown.subtotal,
+        lineDiscountTotal: ticketLineBreakdown.lineDiscountTotal,
         surchargeLabel: summarySurchargeLabel,
         surchargeValueDisplay: summarySurchargeDisplay,
         surchargeAmount: summarySurchargeAmount,
         cartDiscountLabel:
-          cartDiscountValue > 0
+          responseCartDiscountValue > 0
             ? "Descuento carrito (valor)"
-            : cartDiscountPercent > 0
+            : responseCartDiscountPercent > 0
             ? "Descuento carrito (%)"
             : "Descuento carrito",
         cartDiscountValueDisplay:
-          cartDiscountValue > 0
-            ? `-${formatMoney(cartDiscountValue)}`
-            : cartDiscountPercent > 0
-            ? `-${cartDiscountPercent}%`
+          responseCartDiscountValue > 0
+            ? `-${formatMoney(responseCartDiscountValue)}`
+            : responseCartDiscountPercent > 0
+            ? `-${responseCartDiscountPercent}%`
             : "0",
         notes: serverNotes ?? (combinedSaleNotes || undefined),
         items: saleItemsForTicket,
         payments: paymentSummary,
-        changeAmount: changeAmountValue,
+        changeAmount: ticketChangeAmount,
         showChange: shouldShowChange,
         customer: ticketCustomer,
         separatedInfo,

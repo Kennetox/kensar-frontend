@@ -539,6 +539,10 @@ export default function CambiosPage() {
     });
   }, [sale]);
 
+  const lineDataById = useMemo(() => {
+    return new Map(lineData.map((line) => [line.item.id, line]));
+  }, [lineData]);
+
   const saleNetAfterLine = useMemo(
     () => lineData.reduce((sum, line) => sum + line.total, 0),
     [lineData]
@@ -563,7 +567,7 @@ export default function CambiosPage() {
     saleNetAfterLine > 0
       ? (selectedNet / saleNetAfterLine) * cartDiscountValue
       : 0;
-  const totalCredit = Math.max(0, selectedNet - estimatedCartShare);
+  const totalCredit = Math.max(0, Math.round(selectedNet - estimatedCartShare));
 
   const totalNew = useMemo(
     () =>
@@ -573,9 +577,10 @@ export default function CambiosPage() {
       ),
     [newItems]
   );
-  const netDifference = totalNew - totalCredit;
-  const extraPayment = Math.max(0, netDifference);
-  const refundDue = Math.max(0, -netDifference);
+  const roundedTotalNew = Math.max(0, Math.round(totalNew));
+  const netDifference = roundedTotalNew - totalCredit;
+  const extraPayment = Math.max(0, Math.round(netDifference));
+  const refundDue = Math.max(0, Math.round(-netDifference));
 
   const parseAmountInput = useCallback((value: string) => {
     const normalized = value.replace(/[^\d]/g, "");
@@ -920,8 +925,8 @@ export default function CambiosPage() {
   const canSubmit =
     !!sale &&
     totalCredit > 0 &&
-    totalNew > 0 &&
-    (extraPayment <= 0 || Math.abs(totalPayments - extraPayment) < 0.01);
+    roundedTotalNew > 0 &&
+    (extraPayment <= 0 || totalPayments === extraPayment);
 
   const showToast = useCallback((message: string, tone: "info" | "error" = "info") => {
     const timers = toastTimerRef.current;
@@ -948,7 +953,7 @@ export default function CambiosPage() {
       showToast("Sesion expirada, inicia sesion nuevamente.", "error");
       return;
     }
-    if (totalNew <= 0) {
+    if (roundedTotalNew <= 0) {
       setSubmitError("Agrega el producto nuevo del cambio.");
       showToast("Agrega el producto nuevo del cambio.", "error");
       return;
@@ -958,7 +963,7 @@ export default function CambiosPage() {
       showToast("Selecciona el producto a devolver.", "error");
       return;
     }
-    if (extraPayment > 0 && Math.abs(totalPayments - extraPayment) > 0.01) {
+    if (extraPayment > 0 && totalPayments !== extraPayment) {
       setSubmitError("El excedente debe coincidir con la suma de pagos.");
       showToast("El excedente debe coincidir con la suma de pagos.", "error");
       return;
@@ -1046,7 +1051,7 @@ export default function CambiosPage() {
     resolvedPosName,
     token,
     totalCredit,
-    totalNew,
+    roundedTotalNew,
     totalPayments,
     showToast,
     parseAmountInput,
@@ -1273,7 +1278,7 @@ export default function CambiosPage() {
     void handleLoadSale(initialSaleId);
   }, [authHeaders, handleLoadSale, initialSaleId]);
 
-  const paymentMismatch = extraPayment > 0 && Math.abs(totalPayments - extraPayment) > 0.01;
+  const paymentMismatch = extraPayment > 0 && totalPayments !== extraPayment;
   const cashChangeAmount = useMemo(() => {
     if (!changeSuccess) return 0;
     return (changeSuccess.payments ?? []).reduce((sum, payment) => {
@@ -1518,6 +1523,7 @@ export default function CambiosPage() {
               <div className="rounded-xl border border-slate-800/60 bg-slate-950/40 p-4 space-y-3 max-h-[300px] overflow-y-auto">
                 {sale.items.map((item) => {
                   const id = item.id;
+                  const line = lineDataById.get(id);
                   const returned = alreadyReturnedMap.get(id) ?? 0;
                   const available = Math.max(0, (item.quantity ?? 0) - returned);
                   const currentQty =
@@ -1534,6 +1540,9 @@ export default function CambiosPage() {
                       <div>
                         <div className="text-sm font-semibold text-slate-100">
                           {item.product_name ?? item.name ?? "Producto"}
+                        </div>
+                        <div className="text-xs text-emerald-300">
+                          Vendido a: {formatMoney(line?.unitNet ?? item.unit_price ?? item.total ?? 0)}
                         </div>
                         <div className="text-xs text-slate-400">
                           Disponible: {available} de {item.quantity}
@@ -1605,7 +1614,7 @@ export default function CambiosPage() {
                 <div className="text-sm text-slate-400">
                   Total nuevo:{" "}
                   <span className="text-emerald-300 font-semibold">
-                    {formatMoney(totalNew)}
+                    {formatMoney(roundedTotalNew)}
                   </span>
                 </div>
               </div>
@@ -1741,7 +1750,7 @@ export default function CambiosPage() {
                 <div className="flex justify-between">
                   <span className="text-slate-400">Total nuevo</span>
                   <span className="text-slate-100">
-                    {formatMoney(totalNew)}
+                    {formatMoney(roundedTotalNew)}
                   </span>
                 </div>
                 {extraPayment > 0 && (
