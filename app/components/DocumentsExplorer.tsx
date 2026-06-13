@@ -422,6 +422,14 @@ type DocumentAdjustmentRecord = {
   created_at: string;
 };
 
+type LocalAdjustmentPatch = {
+  adjustmentType: DocumentAdjustmentRecord["adjustment_type"];
+  totalDelta: number;
+  paymentDelta: number;
+  payload: Record<string, unknown>;
+  reason: string;
+};
+
 type DocumentsCachePayload = {
   savedAt: number;
   sales: SaleRecord[];
@@ -1172,6 +1180,97 @@ export default function DocumentsExplorer({
   const documentRowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
   const fastOpenInProgressRef = useRef(false);
   const fastOpenHandledRef = useRef(false);
+
+  const applyLocalAdjustmentPatch = useCallback(
+    (patch: LocalAdjustmentPatch) => {
+      if (!adjustTarget) return;
+
+      const currentSale =
+        selectedDoc?.type === "venta" ? (selectedDoc.data as SaleRecord) : null;
+      if (currentSale) {
+        const currentPayments = currentSale.payments ?? [];
+        const updatedSale: SaleRecord = { ...currentSale };
+
+        if (patch.adjustmentType === "payment") {
+          const payments = (patch.payload.payments as unknown[] | undefined) ?? [];
+          const normalizedPayments = payments
+            .map((entry) => {
+              if (!entry || typeof entry !== "object") return null;
+              const record = entry as Record<string, unknown>;
+              const method = typeof record.method === "string" ? record.method : "";
+              const amount = Number(record.amount ?? 0) || 0;
+              if (!method) return null;
+              return { method, amount };
+            })
+            .filter(
+              (entry): entry is { method: string; amount: number } => !!entry
+            );
+          if (normalizedPayments.length > 0) {
+            updatedSale.payments = normalizedPayments.map((payment, index) => ({
+              id: currentPayments[index]?.id,
+              method: payment.method,
+              amount: payment.amount,
+            }));
+            updatedSale.paid_amount = normalizedPayments.reduce(
+              (sum, payment) => sum + payment.amount,
+              0
+            );
+          } else {
+            updatedSale.paid_amount = Math.max(
+              0,
+              (updatedSale.paid_amount ?? updatedSale.total ?? 0) + patch.paymentDelta
+            );
+          }
+        } else if (patch.adjustmentType === "discount" || patch.adjustmentType === "total") {
+          const adjustedTotal =
+            typeof patch.payload.adjusted_total === "number"
+              ? patch.payload.adjusted_total
+              : currentSale.total ?? 0;
+          updatedSale.total = adjustedTotal;
+        }
+
+        const nextSaleTotals = computeSaleTotals(updatedSale);
+        const nextSelectedDoc: DocumentRow = {
+          ...adjustTarget,
+          total: nextSaleTotals.netTotal,
+          data: updatedSale,
+        };
+        setSales((prev) =>
+          prev.map((sale) =>
+            sale.id === updatedSale.id
+              ? updatedSale
+              : sale
+          )
+        );
+        setSelectedDoc((prev) => {
+          if (prev?.id !== adjustTarget.id) return prev;
+          return nextSelectedDoc;
+        });
+      }
+
+      const nowIso = new Date().toISOString();
+      const syntheticAdjustment: DocumentAdjustmentRecord = {
+        id: Date.now(),
+        doc_id: adjustTarget.recordId,
+        adjustment_type: patch.adjustmentType,
+        reason: patch.reason,
+        payload: patch.payload,
+        total_delta: patch.totalDelta,
+        payment_delta: patch.paymentDelta,
+        created_at: nowIso,
+      };
+
+      setDocumentAdjustments((prev) => [syntheticAdjustment, ...prev]);
+      setSaleAdjustmentsById((prev) => {
+        const current = prev[adjustTarget.recordId] ?? [];
+        return {
+          ...prev,
+          [adjustTarget.recordId]: [syntheticAdjustment, ...current],
+        };
+      });
+    },
+    [adjustTarget, selectedDoc]
+  );
 
   const formatDateInput = (date: Date) => getBogotaDateKey(date);
 
@@ -1987,6 +2086,20 @@ export default function DocumentsExplorer({
         paymentDelta = 0;
         payload.current_total = currentEffectiveSaleTotal;
         payload.adjusted_total = targetTotal;
+        const paymentGap = targetTotal - displaySalePaymentsTotal;
+        if (Math.abs(paymentGap) > 0.01) {
+          const message =
+            paymentGap > 0
+              ? `Este ajuste dejará un saldo pendiente de ${formatMoney(paymentGap)}.`
+              : `Este ajuste dejará un sobrante de pago de ${formatMoney(Math.abs(paymentGap))}.`;
+          const confirmed = window.confirm(
+            `${message} ¿Quieres guardar de todos modos?`
+          );
+          if (!confirmed) {
+            setAdjusting(false);
+            return;
+          }
+        }
       }
       if (adjustNote.trim()) {
         payload.note = adjustNote.trim();
@@ -2016,6 +2129,13 @@ export default function DocumentsExplorer({
           `Error al ajustar (código ${res.status})`;
         throw new Error(message);
       }
+      applyLocalAdjustmentPatch({
+        adjustmentType: adjustType,
+        totalDelta,
+        paymentDelta,
+        payload,
+        reason: adjustReason.trim(),
+      });
       closeAdjustModal();
       showToast("Ajuste registrado correctamente.", "info");
       await loadDocuments({ force: true });
@@ -3426,6 +3546,15 @@ const selectedSalePayments = useMemo(() => {
     0,
     currentEffectiveSaleTotal - discountTargetTotal
   );
+  const totalPaymentGap = targetTotalPreview - displaySalePaymentsTotal;
+  const totalAdjustmentNeedsWarning =
+    adjustType === "total" && Math.abs(totalPaymentGap) > 0.01;
+  const totalAdjustmentWarningLabel =
+    totalPaymentGap > 0.01
+      ? `Quedará un saldo pendiente de ${formatMoney(Math.abs(totalPaymentGap))}.`
+      : totalPaymentGap < -0.01
+      ? `Quedará un sobrante de pago de ${formatMoney(Math.abs(totalPaymentGap))}.`
+      : "El total corregido cuadra con los pagos.";
   const adjustedSaleTotal = baseSaleTotal + totalAdjustmentsDelta;
   const adjustPaymentsTotal = useMemo(
     () =>
@@ -3910,8 +4039,22 @@ useEffect(() => {
               paidAt: entry.paidAt ?? undefined,
               method: entry.methodLabel,
             })),
-          }
+        }
         : undefined;
+    const hasSaleAdjustment =
+      Math.abs(totalAdjustmentsDelta) > 0.01 ||
+      (adjustedPayments?.length ?? 0) > 0 ||
+      documentAdjustments.length > 0;
+    const adjustmentNote =
+      Math.abs(totalAdjustmentsDelta) > 0.01
+        ? `Ajuste posterior: ${totalAdjustmentsDelta >= 0 ? "+" : "-"}${formatCurrency(
+            Math.abs(totalAdjustmentsDelta)
+          )}`
+        : (adjustedPayments?.length ?? 0) > 0
+        ? "Pagos ajustados después de la venta"
+        : documentAdjustments.some((entry) => entry.adjustment_type === "note")
+        ? "Venta con nota de ajuste"
+        : "Venta ajustada";
 
     return {
       documentNumber:
@@ -3935,6 +4078,8 @@ useEffect(() => {
       notes:
         combinedSaleNotes ||
         sanitizeSaleNotesForDisplay(selectedSaleDocument.notes),
+      adjustmentBadge: hasSaleAdjustment ? "Venta ajustada" : undefined,
+      adjustmentNote: hasSaleAdjustment ? adjustmentNote : undefined,
       posName: selectedSaleDocument.pos_name ?? undefined,
       vendorName: selectedSaleDocument.vendor_name ?? undefined,
       settings: posSettings,
@@ -4995,7 +5140,7 @@ useEffect(() => {
                     </div>
                     <div className="flex justify-between gap-3">
                       <span className="text-slate-400">Devoluciones</span>
-                      <span className="text-right text-rose-300">
+                      <span className="text-right font-semibold text-rose-700">
                         -{formatMoney(selectedClosure.total_refunds)}
                       </span>
                     </div>
@@ -5003,13 +5148,13 @@ useEffect(() => {
                       <>
                         <div className="flex justify-between gap-3">
                           <span className="text-slate-400">Cambios (excedente)</span>
-                          <span className="text-right text-emerald-200">
+                          <span className="text-right font-semibold text-emerald-700">
                             {formatMoney(selectedClosure.change_extra_total ?? 0)}
                           </span>
                         </div>
                         <div className="flex justify-between gap-3">
                           <span className="text-slate-400">Cambios (reembolsos)</span>
-                          <span className="text-right text-rose-300">
+                          <span className="text-right font-semibold text-rose-700">
                             -{formatMoney(selectedClosure.change_refund_total ?? 0)}
                           </span>
                         </div>
@@ -5038,7 +5183,7 @@ useEffect(() => {
                       <span
                         className={`text-right ${
                           selectedClosure.difference !== 0
-                            ? "text-amber-200"
+                            ? "font-semibold text-amber-700"
                             : "text-slate-100"
                         }`}
                       >
@@ -5360,23 +5505,31 @@ useEffect(() => {
                           card.highlight === "positive"
                             ? "text-emerald-700"
                             : card.highlight === "warning"
-                            ? "text-amber-200"
+                            ? "text-amber-700"
                             : card.highlight === "danger"
-                            ? "text-rose-300"
+                            ? "text-rose-700"
                             : "text-slate-100";
+                        const cardClass =
+                          card.highlight === "positive"
+                            ? "border-emerald-200 bg-emerald-50"
+                            : card.highlight === "warning"
+                            ? "border-amber-200 bg-amber-50"
+                            : card.highlight === "danger"
+                            ? "border-rose-200 bg-rose-50"
+                            : "border-slate-200 bg-white";
                         return (
                           <div
                             key={`${card.label}-${card.value}`}
-                            className="rounded-2xl border border-slate-800/60 bg-slate-950/30 p-3"
+                            className={`rounded-2xl border p-3 shadow-sm ${cardClass}`}
                           >
-                            <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                            <div className="text-[10px] uppercase tracking-wide text-slate-600">
                               {card.label}
                             </div>
                             <div className={`text-lg font-semibold ${toneClass}`}>
                               {card.value}
                             </div>
                             {card.hint && (
-                              <div className="text-[10px] text-slate-500">
+                              <div className="text-[10px] text-slate-600">
                                 {card.hint}
                               </div>
                             )}
@@ -6177,6 +6330,19 @@ useEffect(() => {
                         {`${targetTotalPreview >= currentEffectiveSaleTotal ? "+" : ""}${formatMoney(
                           Math.abs(targetTotalPreview - currentEffectiveSaleTotal)
                         )}`}
+                      </div>
+                    </div>
+                  )}
+                  {totalAdjustmentNeedsWarning && (
+                    <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-sm">
+                      <div className="font-semibold">
+                        Atención: este ajuste de total no cuadra con los pagos.
+                      </div>
+                      <div className="mt-1">
+                        {totalAdjustmentWarningLabel}
+                      </div>
+                      <div className="mt-1 text-[11px] text-amber-700">
+                        Si guardas así, el documento quedará con esa diferencia en saldo.
                       </div>
                     </div>
                   )}

@@ -62,6 +62,7 @@ import {
   fetchRolePermissions,
   updatePosSettings,
   type WebBrandCollageImages,
+  type WebHomeSectionsMode,
   type WebPersonalizationHomeImages,
   type RolePermissionModule,
 } from "@/lib/api/settings";
@@ -1759,6 +1760,10 @@ export default function ComercioWebPage() {
   const [personalizationHomeImagesBaseline, setPersonalizationHomeImagesBaseline] = useState<
     Record<PersonalizableInstrumentKey, PersonalizationHomeImageConfig>
   >(DEFAULT_PERSONALIZATION_HOME_IMAGES);
+  const [homeSectionsMode, setHomeSectionsMode] = useState<WebHomeSectionsMode>("categories");
+  const [homeSectionsModeBaseline, setHomeSectionsModeBaseline] =
+    useState<WebHomeSectionsMode>("categories");
+  const [homeSectionsModeSaving, setHomeSectionsModeSaving] = useState(false);
   const [personalizationHomeImagesSavingInstrument, setPersonalizationHomeImagesSavingInstrument] =
     useState<PersonalizableInstrumentKey | null>(null);
   const [personalizationHomeImagesUploading, setPersonalizationHomeImagesUploading] = useState<{
@@ -1974,6 +1979,7 @@ export default function ComercioWebPage() {
     () => JSON.stringify(personalizationHomeImages) !== JSON.stringify(personalizationHomeImagesBaseline),
     [personalizationHomeImages, personalizationHomeImagesBaseline]
   );
+  const homeSectionsModeDirty = homeSectionsMode !== homeSectionsModeBaseline;
   const brandCollageImagesDirty = useMemo(
     () => JSON.stringify(brandCollageImages) !== JSON.stringify(brandCollageImagesBaseline),
     [brandCollageImages, brandCollageImagesBaseline]
@@ -2334,6 +2340,14 @@ export default function ComercioWebPage() {
           setPersonalizationHomeImagesBaseline(nextHomeImages);
         }
 
+        const homeSectionsModeSource = settings.web_home_sections_mode;
+        const nextHomeSectionsMode: WebHomeSectionsMode =
+          homeSectionsModeSource === "instruments" || homeSectionsModeSource === "both"
+            ? homeSectionsModeSource
+            : "categories";
+        setHomeSectionsMode(nextHomeSectionsMode);
+        setHomeSectionsModeBaseline(nextHomeSectionsMode);
+
         const brandCollageSource = settings.web_brand_collage_images;
         if (brandCollageSource && typeof brandCollageSource === "object") {
           const nextBrandCollageImages = { ...DEFAULT_BRAND_COLLAGE_IMAGES };
@@ -2577,10 +2591,32 @@ export default function ComercioWebPage() {
           const message = err instanceof Error ? err.message : "No se pudieron guardar las imágenes.";
           showToast(message, "error");
         })
-        .finally(() => setPersonalizationHomeImagesSavingInstrument(null));
+      .finally(() => setPersonalizationHomeImagesSavingInstrument(null));
     },
     [personalizationHomeImages, showToast, token]
   );
+
+  const handleSaveHomeSectionsMode = useCallback(() => {
+    if (!token) return;
+    setHomeSectionsModeSaving(true);
+    void fetchPosSettings(token)
+      .then((settings) =>
+        updatePosSettings(
+          {
+            ...settings,
+            web_home_sections_mode: homeSectionsMode,
+          },
+          token
+        )
+      )
+      .then(() => setHomeSectionsModeBaseline(homeSectionsMode))
+      .then(() => showToast("Preferencia de portada guardada."))
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : "No se pudo guardar la preferencia.";
+        showToast(message, "error");
+      })
+      .finally(() => setHomeSectionsModeSaving(false));
+  }, [homeSectionsMode, showToast, token]);
 
   const handlePersonalizationHomeImageFileChange = useCallback(
     async (instrument: PersonalizableInstrumentKey, side: PersonalizationHomeImageSide, file: File) => {
@@ -11479,6 +11515,92 @@ export default function ComercioWebPage() {
 
         {activeTab === "personalization_home_images" ? (
           <section className="space-y-4">
+            <SectionCard
+              title="Sección principal de la portada"
+              subtitle="Elige si la home muestra las categorías destacadas, el carrusel de instrumentos o ambos."
+              headerActions={
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!token) return;
+                    void fetchPosSettings(token).then((settings) => {
+                      const value = settings.web_home_sections_mode;
+                      const nextMode: WebHomeSectionsMode =
+                        value === "instruments" || value === "both" ? value : "categories";
+                      setHomeSectionsMode(nextMode);
+                      setHomeSectionsModeBaseline(nextMode);
+                    });
+                  }}
+                  className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-100"
+                >
+                  Refrescar
+                </button>
+              }
+            >
+              <div className="grid gap-3 md:grid-cols-3">
+                {[
+                  {
+                    value: "categories" as const,
+                    title: "Solo categorías",
+                    copy: "Muestra únicamente el bloque de categorías destacadas actual.",
+                  },
+                  {
+                    value: "instruments" as const,
+                    title: "Solo instrumentos",
+                    copy: "Oculta categorías y muestra el carrusel de instrumentos.",
+                  },
+                  {
+                    value: "both" as const,
+                    title: "Ambos bloques",
+                    copy: "Muestra categorías destacadas y carrusel de instrumentos.",
+                  },
+                ].map((option) => {
+                  const active = homeSectionsMode === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setHomeSectionsMode(option.value)}
+                      className={`rounded-2xl border px-4 py-4 text-left transition ${
+                        active
+                          ? "border-slate-900 bg-slate-900 text-white shadow-lg"
+                          : "border-slate-200 bg-slate-50 text-slate-800 hover:border-slate-300 hover:bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">{option.title}</p>
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                            active
+                              ? "bg-white/15 text-white"
+                              : "bg-slate-200 text-slate-600"
+                          }`}
+                        >
+                          {active ? "Activo" : "Elegir"}
+                        </span>
+                      </div>
+                      <p className={`mt-2 text-sm leading-5 ${active ? "text-slate-100" : "text-slate-500"}`}>
+                        {option.copy}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <p className="text-xs text-slate-500">
+                  Esta preferencia controla qué bloques se muestran en la portada pública.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSaveHomeSectionsMode}
+                  disabled={!homeSectionsModeDirty || homeSectionsModeSaving}
+                  className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {homeSectionsModeSaving ? "Guardando..." : "Guardar preferencia"}
+                </button>
+              </div>
+            </SectionCard>
+
             <SectionCard
               title="Imágenes Home de personalización"
               subtitle="Configura las imágenes before/after que se muestran en la portada del sitio."

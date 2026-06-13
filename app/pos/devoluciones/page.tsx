@@ -12,6 +12,10 @@ import {
 } from "@/lib/api/paymentMethods";
 import { getApiBase } from "@/lib/api/base";
 import {
+  distributeSaleAdjustment,
+  fetchSaleAdjustmentSummary,
+} from "@/lib/pos/saleAdjustments";
+import {
   ensureStoredPosMode,
   fetchPosStationPrinterConfig,
   getPosStationAccess,
@@ -105,6 +109,8 @@ type Sale = {
   is_separated?: boolean;
   initial_payment_amount?: number | null;
   balance?: number | null;
+  adjustment_total_delta?: number | null;
+  adjustment_payment_delta?: number | null;
   items: SaleItem[];
   returns?: SaleReturn[];
   changes?: SaleChange[];
@@ -205,6 +211,8 @@ export default function DevolucionesPage() {
 
   const [sale, setSale] = useState<Sale | null>(null);
   const [saleError, setSaleError] = useState<string | null>(null);
+  const [saleAdjustmentTotalDelta, setSaleAdjustmentTotalDelta] = useState(0);
+  const [saleAdjustmentPaymentDelta, setSaleAdjustmentPaymentDelta] = useState(0);
   const [scanValue, setScanValue] = useState("");
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -613,12 +621,25 @@ export default function DevolucionesPage() {
     }, 0);
   }, [sale, lineData, quantities, alreadyReturnedMap]);
 
+  const selectedNetAdjusted = useMemo(
+    () =>
+      distributeSaleAdjustment(
+        selectedNet,
+        saleNetAfterLine,
+        saleAdjustmentTotalDelta
+      ),
+    [selectedNet, saleNetAfterLine, saleAdjustmentTotalDelta]
+  );
+
   const cartDiscountValue = sale?.cart_discount_value ?? 0;
   const estimatedCartShare =
     saleNetAfterLine > 0
       ? (selectedNet / saleNetAfterLine) * cartDiscountValue
       : 0;
-  const refundEstimate = Math.max(0, selectedNet - estimatedCartShare);
+  const refundEstimate = Math.max(0, selectedNetAdjusted - estimatedCartShare);
+  const hasBackendAdjustmentSnapshot =
+    sale?.adjustment_total_delta !== undefined ||
+    sale?.adjustment_payment_delta !== undefined;
   const paidTotal = useMemo(() => {
     if (!sale) return 0;
     if (sale.is_separated) {
@@ -627,8 +648,12 @@ export default function DevolucionesPage() {
       }
       return Math.max(0, sale.initial_payment_amount ?? sale.paid_amount ?? 0);
     }
-    return Math.max(0, sale.paid_amount ?? sale.total ?? 0);
-  }, [sale]);
+    return Math.max(
+      0,
+      (sale.paid_amount ?? sale.total ?? 0) +
+        (hasBackendAdjustmentSnapshot ? 0 : saleAdjustmentPaymentDelta)
+    );
+  }, [sale, saleAdjustmentPaymentDelta, hasBackendAdjustmentSnapshot]);
   const paidRemaining = useMemo(() => {
     if (!sale) return 0;
     const refunded = sale.refunded_total ?? 0;
@@ -735,6 +760,8 @@ export default function DevolucionesPage() {
 
   const clearSelection = useCallback(() => {
     setSale(null);
+    setSaleAdjustmentTotalDelta(0);
+    setSaleAdjustmentPaymentDelta(0);
     resetFormState();
   }, [resetFormState]);
 
@@ -747,11 +774,29 @@ export default function DevolucionesPage() {
         return false;
       }
       setSaleError(null);
+      setSaleAdjustmentTotalDelta(0);
+      setSaleAdjustmentPaymentDelta(0);
       resetFormState();
       setSale(loadedSale);
       return true;
     },
     [resetFormState]
+  );
+
+  const loadSaleAdjustments = useCallback(
+    async (saleId: number) => {
+      if (!authHeaders || !saleId) return;
+      try {
+        const summary = await fetchSaleAdjustmentSummary(saleId, authHeaders);
+        setSaleAdjustmentTotalDelta(summary.totalDelta);
+        setSaleAdjustmentPaymentDelta(summary.paymentDelta);
+      } catch (err) {
+        console.warn("No se pudieron cargar los ajustes de la venta", err);
+        setSaleAdjustmentTotalDelta(0);
+        setSaleAdjustmentPaymentDelta(0);
+      }
+    },
+    [authHeaders]
   );
 
   const handleLoadSale = useCallback(
@@ -768,11 +813,13 @@ export default function DevolucionesPage() {
       try {
         const loadedSale = await fetchSaleById(value);
         applyLoadedSale(loadedSale);
+        void loadSaleAdjustments(loadedSale.id);
       } catch (err) {
         console.error(err);
         if (fallbackSale) {
           console.warn("Usando datos locales para la venta", fallbackSale.id);
           applyLoadedSale(fallbackSale);
+          void loadSaleAdjustments(fallbackSale.id);
         } else {
           setSaleError(
             err instanceof Error ? err.message : "Error al cargar la venta."
@@ -780,7 +827,7 @@ export default function DevolucionesPage() {
         }
       }
     },
-    [applyLoadedSale, authHeaders, fetchSaleById]
+    [applyLoadedSale, authHeaders, fetchSaleById, loadSaleAdjustments]
   );
 
   const handleScanSubmit = useCallback(
@@ -833,6 +880,8 @@ export default function DevolucionesPage() {
       void handleLoadSale(initialSaleId);
     } else {
       clearSelection();
+      setSaleAdjustmentTotalDelta(0);
+      setSaleAdjustmentPaymentDelta(0);
       setSaleError(
         "Selecciona una venta desde el historial para registrar la devolución."
       );
@@ -1295,11 +1344,7 @@ export default function DevolucionesPage() {
                   <div className="flex justify-between">
                     <span className="text-slate-400">Saldo disponible</span>
                     <span className="text-emerald-300 font-semibold">
-                      {formatMoney(
-                        sale.is_separated
-                          ? paidRemaining
-                          : getSaleNetBalance(sale)
-                      )}
+                      {formatMoney(paidRemaining)}
                     </span>
                   </div>
                 </div>

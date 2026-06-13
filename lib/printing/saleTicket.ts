@@ -114,6 +114,8 @@ export type SaleTicketOptions = {
   payments: SaleTicketPayment[];
   changeAmount?: number;
   notes?: string | null;
+  adjustmentBadge?: string | null;
+  adjustmentNote?: string | null;
   posName?: string;
   vendorName?: string;
   settings?: PosSettingsPayload | null;
@@ -914,6 +916,26 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           border-radius: 999px;
           letter-spacing: 0.08em;
         }
+        .adjustment-banner {
+          margin: 8px 0 10px;
+          padding: 7px 10px;
+          border: 1px solid #111827;
+          background: #ffffff;
+          color: #111827;
+          text-align: center;
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+          border-radius: 10px;
+        }
+        .adjustment-note {
+          margin-top: 4px;
+          color: #111827;
+          font-size: 11px;
+          line-height: 1.35;
+          text-align: center;
+        }
         .separated-row {
           align-items: flex-start;
         }
@@ -960,6 +982,19 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
 
         ${customerLines}
         ${customerLines ? '<div class="separator"></div>' : ''}
+        ${
+          options.adjustmentBadge
+            ? `<div class="adjustment-banner">${escapeHtml(
+                options.adjustmentBadge
+              )}</div>${
+                options.adjustmentNote
+                  ? `<div class="adjustment-note">${escapeHtml(
+                      options.adjustmentNote
+                    )}</div>`
+                  : ""
+              }`
+            : ""
+        }
         <div class="section">
           <div class="line"><span>No. Recibo</span><span>${escapeHtml(
             options.documentNumber
@@ -1142,6 +1177,14 @@ export function renderSaleInvoice(options: SaleTicketOptions): string {
       timeStyle: "short",
     }) || "";
 
+  const adjustmentBlock = options.adjustmentBadge
+    ? `<div class="adjustment-banner">${escapeHtml(options.adjustmentBadge)}</div>${
+        options.adjustmentNote
+          ? `<div class="adjustment-note">${escapeHtml(options.adjustmentNote)}</div>`
+          : ""
+      }`
+    : "";
+
   return `<!DOCTYPE html>
   <html>
     <head>
@@ -1321,6 +1364,8 @@ export function renderSaleInvoice(options: SaleTicketOptions): string {
             <div>Estado del pago: ${balance > 0 ? "Pendiente" : "Pagado"}</div>
           </div>
         </div>
+
+        ${adjustmentBlock}
 
         <table>
           <thead>

@@ -13,6 +13,10 @@ import { useAuth } from "../../providers/AuthProvider";
 import { renderChangeTicket } from "@/lib/printing/saleTicket";
 import { fetchPosSettings, PosSettingsPayload } from "@/lib/api/settings";
 import {
+  distributeSaleAdjustment,
+  fetchSaleAdjustmentSummary,
+} from "@/lib/pos/saleAdjustments";
+import {
   DEFAULT_PAYMENT_METHODS,
   fetchPaymentMethods,
   type PaymentMethodRecord,
@@ -226,6 +230,8 @@ export default function CambiosPage() {
 
   const [sale, setSale] = useState<Sale | null>(null);
   const [saleError, setSaleError] = useState<string | null>(null);
+  const [saleAdjustmentTotalDelta, setSaleAdjustmentTotalDelta] = useState(0);
+  const [saleAdjustmentPaymentDelta, setSaleAdjustmentPaymentDelta] = useState(0);
   const [scanValue, setScanValue] = useState("");
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -562,12 +568,25 @@ export default function CambiosPage() {
     }, 0);
   }, [sale, lineData, quantities, alreadyReturnedMap]);
 
+  const selectedNetAdjusted = useMemo(
+    () =>
+      distributeSaleAdjustment(
+        selectedNet,
+        saleNetAfterLine,
+        saleAdjustmentTotalDelta
+      ),
+    [selectedNet, saleNetAfterLine, saleAdjustmentTotalDelta]
+  );
+
   const cartDiscountValue = sale?.cart_discount_value ?? 0;
   const estimatedCartShare =
     saleNetAfterLine > 0
       ? (selectedNet / saleNetAfterLine) * cartDiscountValue
       : 0;
-  const totalCredit = Math.max(0, Math.round(selectedNet - estimatedCartShare));
+  const totalCredit = Math.max(
+    0,
+    Math.round(selectedNetAdjusted - estimatedCartShare)
+  );
 
   const totalNew = useMemo(
     () =>
@@ -713,17 +732,37 @@ export default function CambiosPage() {
 
   const clearSelection = useCallback(() => {
     setSale(null);
+    setSaleAdjustmentTotalDelta(0);
+    setSaleAdjustmentPaymentDelta(0);
     resetFormState();
   }, [resetFormState]);
 
   const applyLoadedSale = useCallback(
     (loadedSale: Sale) => {
       setSaleError(null);
+      setSaleAdjustmentTotalDelta(0);
+      setSaleAdjustmentPaymentDelta(0);
       resetFormState();
       setSale(loadedSale);
       return true;
     },
     [resetFormState]
+  );
+
+  const loadSaleAdjustments = useCallback(
+    async (saleId: number) => {
+      if (!authHeaders || !saleId) return;
+      try {
+        const summary = await fetchSaleAdjustmentSummary(saleId, authHeaders);
+        setSaleAdjustmentTotalDelta(summary.totalDelta);
+        setSaleAdjustmentPaymentDelta(summary.paymentDelta);
+      } catch (err) {
+        console.warn("No se pudieron cargar los ajustes de la venta", err);
+        setSaleAdjustmentTotalDelta(0);
+        setSaleAdjustmentPaymentDelta(0);
+      }
+    },
+    [authHeaders]
   );
 
   const handleLoadSale = useCallback(
@@ -738,10 +777,12 @@ export default function CambiosPage() {
       try {
         const loadedSale = await fetchSaleById(value);
         applyLoadedSale(loadedSale);
+        void loadSaleAdjustments(loadedSale.id);
       } catch (err) {
         console.error(err);
         if (fallbackSale) {
           applyLoadedSale(fallbackSale);
+          void loadSaleAdjustments(fallbackSale.id);
         } else {
           setSaleError(
             err instanceof Error ? err.message : "Error al cargar la venta."
@@ -749,7 +790,7 @@ export default function CambiosPage() {
         }
       }
     },
-    [applyLoadedSale, authHeaders, fetchSaleById]
+    [applyLoadedSale, authHeaders, fetchSaleById, loadSaleAdjustments]
   );
 
   const handleScanSubmit = useCallback(
@@ -1524,6 +1565,17 @@ export default function CambiosPage() {
                 {sale.items.map((item) => {
                   const id = item.id;
                   const line = lineDataById.get(id);
+                  const adjustedLineTotal = line
+                    ? distributeSaleAdjustment(
+                        line.total,
+                        saleNetAfterLine,
+                        saleAdjustmentTotalDelta
+                      )
+                    : item.total ?? item.unit_price ?? 0;
+                  const adjustedUnitNet =
+                    item.quantity > 0
+                      ? adjustedLineTotal / item.quantity
+                      : adjustedLineTotal;
                   const returned = alreadyReturnedMap.get(id) ?? 0;
                   const available = Math.max(0, (item.quantity ?? 0) - returned);
                   const currentQty =
@@ -1542,7 +1594,7 @@ export default function CambiosPage() {
                           {item.product_name ?? item.name ?? "Producto"}
                         </div>
                         <div className="text-xs text-emerald-300">
-                          Vendido a: {formatMoney(line?.unitNet ?? item.unit_price ?? item.total ?? 0)}
+                          Vendido a: {formatMoney(adjustedUnitNet)}
                         </div>
                         <div className="text-xs text-slate-400">
                           Disponible: {available} de {item.quantity}

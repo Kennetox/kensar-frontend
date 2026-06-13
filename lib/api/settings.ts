@@ -50,6 +50,8 @@ export type WebBrandCollageImages = {
   bottom: WebBrandCollageTile;
 };
 
+export type WebHomeSectionsMode = "categories" | "instruments" | "both";
+
 export type PosSettingsPayload = {
   company_name: string;
   tax_id: string;
@@ -89,6 +91,7 @@ export type PosSettingsPayload = {
   web_personalization_bindings?: WebPersonalizationBindings | null;
   web_personalization_home_images?: WebPersonalizationHomeImages | null;
   web_brand_collage_images?: WebBrandCollageImages | null;
+  web_home_sections_mode?: WebHomeSectionsMode | null;
 };
 
 export type PosUserRecord = {
@@ -300,6 +303,7 @@ const defaultSettings: PosSettingsPayload = {
     top_right: {},
     bottom: {},
   },
+  web_home_sections_mode: "categories",
 };
 
 const defaultUsers: PosUserRecord[] = [];
