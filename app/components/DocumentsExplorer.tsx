@@ -76,6 +76,7 @@ type SaleItem = {
   id?: number;
   product_name?: string;
   name?: string;
+  product_sku?: string | null;
   quantity: number;
   unit_price?: number;
   total?: number;
@@ -477,7 +478,14 @@ function parseMoneyString(raw: string): number {
     normalized = trimmed.replace(",", ".");
   } else if (hasDot) {
     const parts = trimmed.split(".");
-    if (
+    const looksLikeThousands =
+      parts.length > 1 &&
+      parts.every((part, index) =>
+        index === 0 ? /^-?\d+$/.test(part) : /^\d{3}$/.test(part)
+      );
+    if (looksLikeThousands) {
+      normalized = trimmed.replace(/\./g, "");
+    } else if (
       parts.length === 2 &&
       /^[0]+$/.test(parts[1]) &&
       parts[0].length <= 2
@@ -641,6 +649,7 @@ function getAdjustedPaymentsFromAdjustments(
 type SaleLineBreakdown = {
   key: string;
   name: string;
+  sku: string | null;
   quantity: number;
   unitPrice: number;
   subtotal: number;
@@ -655,7 +664,9 @@ function buildSaleLineBreakdown(sale: SaleRecord) {
     const explicitTotal =
       typeof item.total === "number" ? item.total : undefined;
     const unitPrice =
-      typeof item.unit_price === "number" && item.unit_price >= 0
+      typeof item.unit_price_original === "number" && item.unit_price_original >= 0
+        ? item.unit_price_original
+        : typeof item.unit_price === "number" && item.unit_price >= 0
         ? item.unit_price
         : explicitTotal != null && quantity > 0
         ? explicitTotal / quantity
@@ -669,6 +680,7 @@ function buildSaleLineBreakdown(sale: SaleRecord) {
     return {
       key: `${item.id ?? index}-${item.product_name ?? item.name ?? "producto"}`,
       name: item.product_name ?? item.name ?? "Producto",
+      sku: item.product_sku ?? null,
       quantity,
       unitPrice,
       subtotal,
@@ -1773,13 +1785,13 @@ export default function DocumentsExplorer({
         ? displaySalePayments.map((payment) => ({
             id: crypto.randomUUID(),
             method: payment.method,
-            amount: String(payment.amount ?? 0),
+            amount: formatMoney(payment.amount ?? 0),
           }))
         : [
             {
               id: crypto.randomUUID(),
               method: catalog[0]?.slug ?? "cash",
-              amount: "0",
+              amount: formatMoney(0),
             },
           ];
     setAdjustPayments(basePayments);
@@ -1817,12 +1829,12 @@ export default function DocumentsExplorer({
   function addAdjustPayment() {
     setAdjustPayments((prev) => [
       ...prev,
-      {
-        id: crypto.randomUUID(),
-        method: catalog[0]?.slug ?? "cash",
-        amount: "0",
-      },
-    ]);
+        {
+          id: crypto.randomUUID(),
+          method: catalog[0]?.slug ?? "cash",
+          amount: formatMoney(0),
+        },
+      ]);
   }
 
   function updateAdjustPayment(
@@ -3650,6 +3662,20 @@ useEffect(() => {
     selectedSaleDocument?.cart_discount_value ?? 0;
   const selectedSaleCartDiscountPercent =
     selectedSaleDocument?.cart_discount_percent ?? 0;
+  const selectedSaleGrossSubtotal = selectedSaleLines?.subtotal ?? baseSaleTotal;
+  const selectedSaleLineDiscountTotal = selectedSaleLines?.lineDiscountTotal ?? 0;
+  const selectedSaleSubtotalAfterLineDiscounts = Math.max(
+    0,
+    selectedSaleGrossSubtotal - selectedSaleLineDiscountTotal
+  );
+  const selectedSaleGlobalDiscountValue =
+    selectedSaleCartDiscountValue > 0
+      ? selectedSaleCartDiscountValue
+      : selectedSaleCartDiscountPercent > 0
+      ? (selectedSaleSubtotalAfterLineDiscounts *
+          selectedSaleCartDiscountPercent) /
+        100
+      : 0;
   const documentsGridClass = "grid gap-4 grid-cols-1";
   const displaySalePayments = useMemo(
     () =>
@@ -3729,14 +3755,16 @@ useEffect(() => {
     }
     if (selectedSaleCartDiscountValue > 0) {
       cards.push({
-        label: "Descuento carrito",
+        label: "Descuento global",
         value: `-${formatMoney(selectedSaleCartDiscountValue)}`,
+        hint: "Aplicado al total de la venta",
         highlight: "danger",
       });
     } else if (selectedSaleCartDiscountPercent > 0) {
       cards.push({
-        label: "Descuento carrito",
+        label: "Descuento global",
         value: `-${selectedSaleCartDiscountPercent}%`,
+        hint: "Aplicado al total de la venta",
         highlight: "danger",
       });
     }
@@ -3745,8 +3773,15 @@ useEffect(() => {
       selectedSaleLines.lineDiscountTotal > 0
     ) {
       cards.push({
-        label: "Descuentos por línea",
+        label:
+          selectedSaleCartDiscountValue > 0
+            ? "Descuentos por línea"
+            : "Descuento global distribuido",
         value: `-${formatMoney(selectedSaleLines.lineDiscountTotal)}`,
+        hint:
+          selectedSaleCartDiscountValue > 0
+            ? "Distribuido entre los productos"
+            : "Proviene del descuento de la venta",
         highlight: "danger",
       });
     }
@@ -5600,6 +5635,7 @@ useEffect(() => {
                           <thead className="bg-slate-950 text-[11px] text-slate-400 uppercase tracking-wide">
                             <tr>
                               <th className="px-3 py-2 font-normal">Producto</th>
+                              <th className="px-3 py-2 font-normal">SKU</th>
                               <th className="px-3 py-2 font-normal text-right">Cant.</th>
                               <th className="px-3 py-2 font-normal text-right">P. unitario</th>
                               <th className="px-3 py-2 font-normal text-right">Desc.</th>
@@ -5613,6 +5649,9 @@ useEffect(() => {
                                 className="border-t border-slate-800/40 text-slate-100"
                               >
                                 <td className="px-3 py-2">{line.name}</td>
+                                <td className="px-3 py-2 text-slate-200 font-mono text-[11px]">
+                                  {line.sku ?? "—"}
+                                </td>
                                 <td className="px-3 py-2 text-right text-slate-200">
                                   {line.quantity}
                                 </td>
@@ -6046,6 +6085,50 @@ useEffect(() => {
               </label>
               {(adjustType === "discount" || adjustType === "total") && (
                 <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+                    <div className="text-xs uppercase tracking-wide text-slate-600">
+                      Referencia de la venta
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                          Subtotal bruto
+                        </div>
+                        <div className="text-base font-semibold text-slate-900">
+                          {formatMoney(selectedSaleGrossSubtotal)}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 shadow-sm">
+                        <div className="text-[10px] uppercase tracking-wide text-rose-700">
+                          Descuento por línea
+                        </div>
+                        <div className="text-base font-semibold text-rose-700">
+                          -{formatMoney(selectedSaleLineDiscountTotal)}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 shadow-sm">
+                        <div className="text-[10px] uppercase tracking-wide text-rose-700">
+                          Descuento global
+                        </div>
+                        <div className="text-base font-semibold text-rose-700">
+                          {selectedSaleGlobalDiscountValue > 0
+                            ? `-${formatMoney(selectedSaleGlobalDiscountValue)}`
+                            : "0"}
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 shadow-sm">
+                        <div className="text-[10px] uppercase tracking-wide text-emerald-700">
+                          Total actual
+                        </div>
+                        <div className="text-base font-semibold text-emerald-700">
+                          {formatMoney(currentEffectiveSaleTotal)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-slate-600">
+                      Este documento se vendió con descuento global, así que aquí verás el valor original y el descuento aplicado antes de ajustar.
+                    </div>
+                  </div>
                   <label className="flex flex-col gap-1">
                     <span className="text-slate-300">
                       {adjustType === "total"
@@ -6067,15 +6150,21 @@ useEffect(() => {
                   </label>
                   {adjustType === "discount" ? (
                     <div className="flex flex-col gap-1">
-                      <span className="text-slate-300">Total descontado</span>
-                      <div className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100">
+                      <span className="text-slate-700">Total descontado</span>
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 font-semibold text-rose-700">
                         {formatMoney(discountAmount)}
                       </div>
                     </div>
                   ) : (
                     <div className="flex flex-col gap-1">
-                      <span className="text-slate-300">Delta total</span>
-                      <div className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100">
+                      <span className="text-slate-700">Delta total</span>
+                      <div
+                        className={`rounded-lg border px-4 py-2.5 font-semibold ${
+                          targetTotalPreview >= currentEffectiveSaleTotal
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-rose-200 bg-rose-50 text-rose-700"
+                        }`}
+                      >
                         {`${targetTotalPreview >= currentEffectiveSaleTotal ? "+" : ""}${formatMoney(
                           Math.abs(targetTotalPreview - currentEffectiveSaleTotal)
                         )}`}
