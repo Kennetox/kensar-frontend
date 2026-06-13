@@ -4575,6 +4575,10 @@ useEffect(() => {
                       (sum, entry) => sum + toNumber(entry.total_delta),
                       0
                     );
+                    const adjustedDocTotal =
+                      doc.type === "venta" && Math.abs(adjustmentDelta) > 0.01
+                        ? toNumber(doc.total) + adjustmentDelta
+                        : toNumber(doc.total);
                     const hasAdjustment =
                       doc.type === "venta" &&
                       (Math.abs(adjustmentDelta) > 0.01 ||
@@ -4680,13 +4684,18 @@ useEffect(() => {
                           </span>
                         </td>
                         <td className="px-3 py-2 text-right font-semibold text-slate-100 tabular-nums align-middle">
-                          $ {formatMoney(toNumber(doc.total))}
-                          {doc.refundAmount != null &&
-                            toNumber(doc.refundAmount) > 0 && (
-                            <span className="block text-[10px] text-rose-300">
-                              -$ {formatMoney(toNumber(doc.refundAmount))}
+                          $ {formatMoney(adjustedDocTotal)}
+                          {doc.type === "venta" && Math.abs(adjustmentDelta) > 0.01 && (
+                            <span className="block text-[10px] text-slate-500">
+                              Original: $ {formatMoney(toNumber(doc.total))}
                             </span>
                           )}
+                          {doc.refundAmount != null &&
+                            toNumber(doc.refundAmount) > 0 && (
+                              <span className="block text-[10px] text-rose-300">
+                                -$ {formatMoney(toNumber(doc.refundAmount))}
+                              </span>
+                            )}
                         </td>
                         <td className="px-3 py-2 text-right text-slate-200 align-middle">
                           <div className="flex min-w-0 items-center justify-end gap-2">
