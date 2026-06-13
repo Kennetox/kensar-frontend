@@ -40,6 +40,7 @@ export type WebPersonalizationHomeImages = {
 
 export type WebBrandCollageTile = {
   image_url?: string | null;
+  href?: string | null;
 };
 
 export type WebBrandCollageImages = {

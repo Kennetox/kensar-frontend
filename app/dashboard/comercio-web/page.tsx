@@ -21,9 +21,13 @@ import {
   fetchComercioWebCatalogCategories,
   fetchComercioWebDescriptionTemplates,
   exportComercioWebCatalogPublicationsXlsx,
+  createComercioWebCatalogCombo,
+  deleteComercioWebCatalogCombo,
   fetchComercioWebCatalogPublicationsPage,
+  fetchComercioWebCatalogCombos,
   fetchComercioWebCatalogProducts,
   resetComercioWebDescriptionTemplates,
+  updateComercioWebCatalogCombo,
   updateComercioWebCatalogCategory,
   updateComercioWebCatalogProduct,
   updateComercioWebDescriptionTemplate,
@@ -31,6 +35,10 @@ import {
   type ComercioWebCatalogCategory,
   type ComercioWebDescriptionTemplate,
   type ComercioWebCatalogPublicationStats,
+  type ComercioWebCombo,
+  type ComercioWebComboCreate,
+  type ComercioWebComboItem,
+  type ComercioWebComboUpdate,
   type ComercioWebCatalogProduct,
   type ComercioWebCatalogProductUpdate,
 } from "@/lib/api/comercioWebCatalog";
@@ -119,6 +127,7 @@ type BrandCollageSlotKey = "main" | "top_left" | "top_right" | "bottom";
 
 type BrandCollageSlotConfig = {
   imageUrl: string;
+  href: string;
 };
 
 type PersonalizableInstrumentKey = "campana" | "guiro" | "maraca";
@@ -173,6 +182,43 @@ type CatalogEditorState = {
   web_video_url: string;
 };
 
+type ComboEditorItemState = {
+  product_id: string;
+  quantity: string;
+  required: boolean;
+  sort_order: string;
+  product_name: string;
+  product_sku: string;
+  product_original_price: string;
+  product_price: string;
+};
+
+type ComboEditorState = {
+  name: string;
+  slug: string;
+  short_description: string;
+  long_description: string;
+  image_url: string;
+  image_thumb_url: string;
+  gallery_urls: string[];
+  video_url: string;
+  badge_text: string;
+  price_mode: "auto" | "fixed" | "discount";
+  price: string;
+  compare_price: string;
+  stock_mode: "manual" | "components";
+  published: boolean;
+  featured: boolean;
+  sort_order: string;
+  visible_when_out_of_stock: boolean;
+  active: boolean;
+  warranty_text: string;
+  technical_specs: CatalogTechnicalSpec[];
+  items: ComboEditorItemState[];
+};
+
+type ComboWizardStep = 1 | 2;
+
 type InlineToast = {
   id: number;
   message: string;
@@ -180,7 +226,7 @@ type InlineToast = {
 };
 
 type CatalogComposerMode = "create" | "edit";
-type CatalogWorkspaceView = "publications" | "discount_codes" | "categories" | "descriptions";
+type CatalogWorkspaceView = "publications" | "combos" | "discount_codes" | "categories" | "descriptions";
 type PublishedCatalogStockFilter = "all" | "with_stock" | "without_stock" | "without_image";
 type DiscountCodePeriodOption = "day" | "week" | "month" | "indefinite" | "custom";
 
@@ -247,6 +293,14 @@ type CommerceWebDraftState = {
   discountCodeComposerOpen?: boolean;
   discountCodeEditingId?: number | null;
   discountCodeEditor?: DiscountCodeEditorState;
+  catalogComboEditorOpen?: boolean;
+  catalogComboEditingId?: number | null;
+  catalogComboEditor?: ComboEditorState;
+  catalogComboDirty?: boolean;
+  catalogComboSearchTerm?: string;
+  catalogComboWizardStep?: ComboWizardStep;
+  catalogComboDraggedGalleryIndex?: number | null;
+  catalogComboDragOverGalleryIndex?: number | null;
   catalogCategoryEditingId?: number | null;
   catalogCategoryEditor?: CategoryEditorState;
   descriptionTemplateSelectedId?: string;
@@ -308,6 +362,7 @@ function isCommerceTab(value: string): value is CommerceTab {
 function isCatalogWorkspaceView(value: string): value is CatalogWorkspaceView {
   return (
     value === "publications" ||
+    value === "combos" ||
     value === "discount_codes" ||
     value === "categories" ||
     value === "descriptions"
@@ -397,15 +452,19 @@ const DEFAULT_PERSONALIZATION_HOME_IMAGES: Record<
 const DEFAULT_BRAND_COLLAGE_IMAGES: Record<BrandCollageSlotKey, BrandCollageSlotConfig> = {
   main: {
     imageUrl: "/brands/collage/hero-yamaha.webp",
+    href: "/catalogo?brand=Yamaha",
   },
   top_left: {
     imageUrl: "/brands/collage/title-prodj.webp",
+    href: "/catalogo?brand=Pro%20DJ",
   },
   top_right: {
     imageUrl: "/brands/collage/title-rm1.webp",
+    href: "/catalogo?brand=Ritmo%20Musical",
   },
   bottom: {
     imageUrl: "/brands/collage/banner-spain.webp",
+    href: "/catalogo?brand=Spain",
   },
 };
 
@@ -480,6 +539,30 @@ const emptyCatalogEditorState: CatalogEditorState = {
   image_thumb_url: "",
   web_gallery_urls: [],
   web_video_url: "",
+};
+
+const emptyComboEditorState: ComboEditorState = {
+  name: "",
+  slug: "",
+  short_description: "",
+  long_description: "",
+  image_url: "",
+  image_thumb_url: "",
+  gallery_urls: [],
+  video_url: "",
+  badge_text: "",
+  price_mode: "auto",
+  price: "",
+  compare_price: "",
+  stock_mode: "components",
+  published: false,
+  featured: false,
+  sort_order: "0",
+  visible_when_out_of_stock: true,
+  active: true,
+  warranty_text: "",
+  technical_specs: [],
+  items: [],
 };
 
 const emptyDiscountCodeEditorState: DiscountCodeEditorState = {
@@ -1083,6 +1166,16 @@ function getCatalogDisplayName(product: ComercioWebCatalogProduct): string {
   return product.web_name?.trim() || product.name;
 }
 
+function buildSuggestedComboName(items: ComboEditorItemState[]): string {
+  const names = items
+    .map((item) => item.product_name.trim())
+    .filter(Boolean);
+  if (!names.length) return "Nuevo combo";
+  if (names.length === 1) return `Kit ${names[0]}`;
+  if (names.length === 2) return `Kit ${names[0]} + ${names[1]}`;
+  return `Kit ${names[0]} + ${names[1]} y más`;
+}
+
 function normalizeSlugBase(value: string): string {
   return value
     .normalize("NFD")
@@ -1449,8 +1542,94 @@ function buildEditorState(product: ComercioWebCatalogProduct | null): CatalogEdi
         : [product.image_url, product.image_thumb_url].filter(
             (value, index, list): value is string =>
               Boolean(value?.trim()) && list.indexOf(value) === index
-          ),
+      ),
   };
+}
+
+function buildComboItemEditorState(
+  item: ComercioWebComboItem | null,
+  fallbackProduct?: ComercioWebCatalogProduct | null
+): ComboEditorItemState {
+  const product = fallbackProduct || null;
+  return {
+    product_id: item ? String(item.product_id || "") : product ? String(product.id || "") : "",
+    quantity: item ? String(item.quantity || 1) : "1",
+    required: item ? Boolean(item.required) : true,
+    sort_order: item ? String(item.sort_order || 0) : "0",
+    product_name:
+      item?.product_name?.trim() ||
+      product?.web_name?.trim() ||
+      product?.name?.trim() ||
+      "",
+    product_sku: item?.product_sku?.trim() || product?.sku?.trim() || "",
+    product_original_price:
+      typeof item?.product_original_price === "number"
+        ? formatThousandsWithDots(String(Math.round(item.product_original_price)))
+        : product
+          ? formatThousandsWithDots(String(Math.round(product.price || 0)))
+          : "",
+    product_price:
+      typeof item?.product_price === "number"
+        ? formatThousandsWithDots(String(Math.round(item.product_price)))
+        : product
+          ? formatThousandsWithDots(String(Math.round(product.price || 0)))
+          : "",
+  };
+}
+
+function buildComboEditorState(combo: ComercioWebCombo | null): ComboEditorState {
+  if (!combo) return emptyComboEditorState;
+  const items = (combo.items || []).map((item) => buildComboItemEditorState(item));
+  const calculatedTotal = formatComboTotalValue(items);
+  const price = typeof combo.price === "number" ? formatThousandsWithDots(String(Math.round(combo.price))) : "";
+  const comparePrice =
+    typeof combo.compare_price === "number"
+      ? formatThousandsWithDots(String(Math.round(combo.compare_price)))
+      : "";
+  const priceMode: ComboEditorState["price_mode"] =
+    comparePrice && (parseThousandsWithDots(comparePrice) || 0) > (parseThousandsWithDots(price) || 0)
+      ? "discount"
+      : price && calculatedTotal && parseThousandsWithDots(price) === parseThousandsWithDots(calculatedTotal)
+        ? "auto"
+        : "fixed";
+  return {
+    name: combo.name || "",
+    slug: combo.slug || "",
+    short_description: combo.short_description || "",
+    long_description: combo.long_description || "",
+    image_url: combo.image_url || "",
+    image_thumb_url: combo.image_thumb_url || "",
+    gallery_urls: Array.isArray(combo.gallery_urls)
+      ? combo.gallery_urls.slice(0, MAX_CATALOG_GALLERY_IMAGES)
+      : [],
+    video_url: combo.video_url || "",
+    badge_text: combo.badge_text || "",
+    price_mode: priceMode,
+    price: price || calculatedTotal,
+    compare_price: comparePrice,
+    stock_mode: combo.stock_mode || "components",
+    published: Boolean(combo.published),
+    featured: Boolean(combo.featured),
+    sort_order: String(combo.sort_order ?? 0),
+    visible_when_out_of_stock: Boolean(combo.visible_when_out_of_stock),
+    active: Boolean(combo.active),
+    warranty_text: combo.warranty_text || "",
+    technical_specs: Array.isArray(combo.technical_specs) ? combo.technical_specs : [],
+    items,
+  };
+}
+
+function computeComboItemsTotal(items: ComboEditorItemState[]): number {
+  return items.reduce((sum, item) => {
+    const quantity = Number(String(item.quantity || "0").replace(",", ".")) || 0;
+    const unitPrice = parseThousandsWithDots(item.product_price) ?? 0;
+    if (quantity <= 0 || unitPrice <= 0) return sum;
+    return sum + quantity * unitPrice;
+  }, 0);
+}
+
+function formatComboTotalValue(items: ComboEditorItemState[]): string {
+  return formatThousandsWithDots(String(Math.round(computeComboItemsTotal(items))));
 }
 
 function MetricCard({
@@ -1600,6 +1779,8 @@ export default function ComercioWebPage() {
     null
   );
   const brandCollageImageInputRef = useRef<HTMLInputElement | null>(null);
+  const catalogComboImageInputRef = useRef<HTMLInputElement | null>(null);
+  const catalogComboVideoInputRef = useRef<HTMLInputElement | null>(null);
   const [skuSuggestions, setSkuSuggestions] = useState<ComercioWebCatalogProduct[]>([]);
   const [skuSuggestionsLoading, setSkuSuggestionsLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -1633,6 +1814,23 @@ export default function ComercioWebPage() {
   const [publishedCatalogPage, setPublishedCatalogPage] = useState(1);
   const [catalogWorkspaceView, setCatalogWorkspaceView] =
     useState<CatalogWorkspaceView>("publications");
+  const [catalogCombos, setCatalogCombos] = useState<ComercioWebCombo[]>([]);
+  const [catalogCombosLoading, setCatalogCombosLoading] = useState(false);
+  const [catalogCombosError, setCatalogCombosError] = useState<string | null>(null);
+  const [catalogComboEditorOpen, setCatalogComboEditorOpen] = useState(false);
+  const [catalogComboEditingId, setCatalogComboEditingId] = useState<number | null>(null);
+  const [catalogComboWizardStep, setCatalogComboWizardStep] = useState<ComboWizardStep>(1);
+  const [catalogComboEditor, setCatalogComboEditor] = useState<ComboEditorState>(
+    emptyComboEditorState
+  );
+  const [catalogComboDirty, setCatalogComboDirty] = useState(false);
+  const [catalogComboSaving, setCatalogComboSaving] = useState(false);
+  const [catalogComboSearchTerm, setCatalogComboSearchTerm] = useState("");
+  const [catalogComboSearchResults, setCatalogComboSearchResults] = useState<
+    ComercioWebCatalogProduct[]
+  >([]);
+  const [catalogComboSearching, setCatalogComboSearching] = useState(false);
+  const [catalogComboSearchExecuted, setCatalogComboSearchExecuted] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [catalogComposerOpen, setCatalogComposerOpen] = useState(false);
   const [catalogComposerMode, setCatalogComposerMode] = useState<CatalogComposerMode>("create");
@@ -1735,6 +1933,8 @@ export default function ComercioWebPage() {
   const [catalogAssetPreviewOpenUrl, setCatalogAssetPreviewOpenUrl] = useState<string | null>(null);
   const [draggedGalleryIndex, setDraggedGalleryIndex] = useState<number | null>(null);
   const [dragOverGalleryIndex, setDragOverGalleryIndex] = useState<number | null>(null);
+  const [catalogComboDraggedGalleryIndex, setCatalogComboDraggedGalleryIndex] = useState<number | null>(null);
+  const [catalogComboDragOverGalleryIndex, setCatalogComboDragOverGalleryIndex] = useState<number | null>(null);
   const [draggedCategoryId, setDraggedCategoryId] = useState<number | null>(null);
   const [dragOverCategoryId, setDragOverCategoryId] = useState<number | null>(null);
   const [dragOverCategoryPosition, setDragOverCategoryPosition] = useState<"before" | "after" | null>(null);
@@ -1909,6 +2109,72 @@ export default function ComercioWebPage() {
       if (typeof draft.catalogDirty === "boolean") {
         setCatalogDirty(draft.catalogDirty);
       }
+      if (typeof draft.catalogComboEditorOpen === "boolean") {
+        setCatalogComboEditorOpen(draft.catalogComboEditorOpen);
+      }
+      if (typeof draft.catalogComboEditingId === "number" || draft.catalogComboEditingId === null) {
+        setCatalogComboEditingId(draft.catalogComboEditingId ?? null);
+      }
+      if (draft.catalogComboWizardStep === 1 || draft.catalogComboWizardStep === 2) {
+        setCatalogComboWizardStep(draft.catalogComboWizardStep);
+      }
+      if (typeof draft.catalogComboDirty === "boolean") {
+        setCatalogComboDirty(draft.catalogComboDirty);
+      }
+      if (typeof draft.catalogComboSearchTerm === "string") {
+        setCatalogComboSearchTerm(draft.catalogComboSearchTerm);
+      }
+      if (draft.catalogComboEditor) {
+        setCatalogComboEditor({
+          ...emptyComboEditorState,
+          ...draft.catalogComboEditor,
+          gallery_urls: Array.isArray(draft.catalogComboEditor.gallery_urls)
+            ? draft.catalogComboEditor.gallery_urls
+                .filter((item) => typeof item === "string")
+                .slice(0, MAX_CATALOG_GALLERY_IMAGES)
+            : [],
+          video_url:
+            typeof draft.catalogComboEditor.video_url === "string"
+              ? draft.catalogComboEditor.video_url
+              : "",
+          warranty_text:
+            typeof draft.catalogComboEditor.warranty_text === "string"
+              ? draft.catalogComboEditor.warranty_text
+              : "",
+          technical_specs: Array.isArray(draft.catalogComboEditor.technical_specs)
+            ? draft.catalogComboEditor.technical_specs
+                .filter((item) => item && typeof item === "object")
+                .map((item) => {
+                  const row = item as Partial<CatalogTechnicalSpec>;
+                  return {
+                    type: typeof row.type === "string" ? row.type : "",
+                    value: typeof row.value === "string" ? row.value : "",
+                  };
+                })
+                .filter((item) => Boolean(item.type))
+            : [],
+          items: Array.isArray(draft.catalogComboEditor.items)
+            ? draft.catalogComboEditor.items
+                .filter((item) => item && typeof item === "object")
+                .map((item) => {
+                  const row = item as Partial<ComboEditorItemState>;
+                  return {
+                    product_id: typeof row.product_id === "string" ? row.product_id : "",
+                    quantity: typeof row.quantity === "string" ? row.quantity : "1",
+                    required: typeof row.required === "boolean" ? row.required : true,
+                    sort_order: typeof row.sort_order === "string" ? row.sort_order : "0",
+                    product_name: typeof row.product_name === "string" ? row.product_name : "",
+                    product_sku: typeof row.product_sku === "string" ? row.product_sku : "",
+                    product_original_price:
+                      typeof row.product_original_price === "string"
+                        ? row.product_original_price
+                        : "",
+                    product_price: typeof row.product_price === "string" ? row.product_price : "",
+                  };
+                })
+            : [],
+        });
+      }
       if (draft.catalogEditor) {
         const draftTechnicalSpecs = sanitizeCatalogTechnicalSpecs(draft.catalogEditor.web_technical_specs);
         setCatalogEditor({
@@ -2076,6 +2342,7 @@ export default function ComercioWebPage() {
             if (!row || typeof row !== "object") return;
             nextBrandCollageImages[key] = {
               imageUrl: typeof row.image_url === "string" ? row.image_url : "",
+              href: typeof row.href === "string" ? row.href : DEFAULT_BRAND_COLLAGE_IMAGES[key].href,
             };
           });
           setBrandCollageImages(nextBrandCollageImages);
@@ -2102,6 +2369,14 @@ export default function ComercioWebPage() {
       previewImageIndex,
       catalogDirty,
       catalogEditor,
+      catalogComboEditorOpen,
+      catalogComboEditingId,
+      catalogComboWizardStep,
+      catalogComboDraggedGalleryIndex,
+      catalogComboDragOverGalleryIndex,
+      catalogComboDirty,
+      catalogComboEditor,
+      catalogComboSearchTerm,
       catalogSearchTerm,
       publishedCatalogFilter,
       publishedCatalogFieldFilter,
@@ -2129,6 +2404,14 @@ export default function ComercioWebPage() {
     previewImageIndex,
     catalogDirty,
     catalogEditor,
+    catalogComboEditorOpen,
+    catalogComboEditingId,
+    catalogComboWizardStep,
+    catalogComboDraggedGalleryIndex,
+    catalogComboDragOverGalleryIndex,
+    catalogComboDirty,
+    catalogComboEditor,
+    catalogComboSearchTerm,
     catalogSearchTerm,
     publishedCatalogFilter,
     publishedCatalogFieldFilter,
@@ -2353,6 +2636,7 @@ export default function ComercioWebPage() {
           const row = brandCollageImages[key];
           acc[key] = {
             image_url: row.imageUrl.trim(),
+            href: row.href.trim(),
           };
           return acc;
         },
@@ -2958,6 +3242,27 @@ export default function ComercioWebPage() {
     }
   }, []);
 
+  function buildBrandCollageHref(brand: string) {
+    const clean = brand.trim();
+    return clean ? `/catalogo?brand=${encodeURIComponent(clean)}` : "";
+  }
+
+  function resolveBrandCollageSelection(href?: string | null) {
+    const cleanHref = (href || "").trim();
+    if (!cleanHref) return "";
+
+    try {
+      const parsed = new URL(cleanHref, getApiBase());
+      const brandValue = (parsed.searchParams.get("brand") || "").trim();
+      if (!brandValue) return "";
+      const normalized = brandValue.toLocaleLowerCase("es");
+      const match = catalogBrandOptions.find((option) => option.toLocaleLowerCase("es") === normalized);
+      return match || "";
+    } catch {
+      return "";
+    }
+  }
+
   const publishedCatalogTotalPages = useMemo(
     () => Math.max(1, Math.ceil(publishedCatalogTotal / CATALOG_TABLE_PAGE_SIZE)),
     [publishedCatalogTotal]
@@ -3161,6 +3466,377 @@ export default function ComercioWebPage() {
     }
   }, [showToast, token]);
 
+  const loadCatalogCombos = useCallback(async (options?: { silent?: boolean }) => {
+    if (!token) return;
+    const silent = Boolean(options?.silent);
+    try {
+      if (!silent) {
+        setCatalogCombosLoading(true);
+      }
+      setCatalogCombosError(null);
+      const rows = await fetchComercioWebCatalogCombos(token);
+      setCatalogCombos(rows);
+      setCatalogComboEditingId((current) => {
+        if (current && rows.some((row) => row.id === current)) {
+          return current;
+        }
+        return current;
+      });
+      setCatalogComboEditor((current) => {
+        if (catalogComboEditorOpen && catalogComboEditingId !== null) {
+          const next = rows.find((row) => row.id === catalogComboEditingId);
+          if (next && !catalogComboDirty) {
+            return buildComboEditorState(next);
+          }
+        }
+        return current;
+      });
+    } catch (err) {
+      setCatalogCombosError(
+        err instanceof Error ? err.message : "No se pudieron cargar los combos"
+      );
+    } finally {
+      if (!silent) {
+        setCatalogCombosLoading(false);
+      }
+    }
+  }, [catalogComboDirty, catalogComboEditorOpen, catalogComboEditingId, token]);
+
+  const resetComboEditor = useCallback(() => {
+    setCatalogComboEditorOpen(false);
+    setCatalogComboEditingId(null);
+    setCatalogComboWizardStep(1);
+    setCatalogComboDraggedGalleryIndex(null);
+    setCatalogComboDragOverGalleryIndex(null);
+    setCatalogComboEditor(emptyComboEditorState);
+    setCatalogComboDirty(false);
+    setCatalogComboSearchTerm("");
+    setCatalogComboSearchResults([]);
+    setCatalogComboSearchExecuted(false);
+  }, []);
+
+  const openComboEditor = useCallback(
+    (comboId?: number) => {
+      setCatalogWorkspaceView("combos");
+      setCatalogCombosError(null);
+      if (typeof comboId !== "number") {
+        setCatalogComboEditorOpen(true);
+        setCatalogComboEditingId(null);
+        setCatalogComboWizardStep(1);
+        setCatalogComboDraggedGalleryIndex(null);
+        setCatalogComboDragOverGalleryIndex(null);
+        setCatalogComboEditor(emptyComboEditorState);
+        setCatalogComboDirty(false);
+        setCatalogComboSearchTerm("");
+        setCatalogComboSearchResults([]);
+        setCatalogComboSearchExecuted(false);
+        return;
+      }
+      const combo = catalogCombos.find((row) => row.id === comboId) || null;
+      setCatalogComboEditorOpen(true);
+      setCatalogComboEditingId(comboId);
+      setCatalogComboWizardStep(2);
+      setCatalogComboDraggedGalleryIndex(null);
+      setCatalogComboDragOverGalleryIndex(null);
+      setCatalogComboEditor(buildComboEditorState(combo));
+      setCatalogComboDirty(false);
+      setCatalogComboSearchTerm("");
+      setCatalogComboSearchResults([]);
+      setCatalogComboSearchExecuted(false);
+    },
+    [catalogCombos]
+  );
+
+  const searchComboProducts = useCallback(async () => {
+    if (!token) return;
+    const term = catalogComboSearchTerm.trim();
+    if (!term) {
+      setCatalogComboSearchResults([]);
+      setCatalogComboSearchExecuted(false);
+      return;
+    }
+    try {
+      setCatalogComboSearching(true);
+      setCatalogCombosError(null);
+      const rows = await fetchComercioWebCatalogProducts(token, {
+        q: term,
+        limit: 20,
+      });
+      setCatalogComboSearchResults(rows);
+      setCatalogComboSearchExecuted(true);
+    } catch (err) {
+      setCatalogCombosError(err instanceof Error ? err.message : "No se pudo buscar productos");
+    } finally {
+      setCatalogComboSearching(false);
+    }
+  }, [catalogComboSearchTerm, token]);
+
+  const syncComboPriceWithMode = useCallback(
+    (prev: ComboEditorState, nextItems: ComboEditorItemState[]) => {
+      const nextTotal = formatComboTotalValue(nextItems);
+      if (prev.price_mode === "auto") {
+        return { ...prev, items: nextItems, price: nextTotal };
+      }
+      if (prev.price_mode === "discount" && !prev.compare_price.trim()) {
+        return { ...prev, items: nextItems, price: prev.price || nextTotal, compare_price: nextTotal };
+      }
+      return { ...prev, items: nextItems };
+    },
+    []
+  );
+
+  const addComboProduct = useCallback((product: ComercioWebCatalogProduct) => {
+    setCatalogComboEditor((prev) => {
+      const existingIndex = prev.items.findIndex(
+        (item) => Number(item.product_id || 0) === product.id
+      );
+      if (existingIndex >= 0) {
+        const nextItems = [...prev.items];
+        const currentItem = nextItems[existingIndex];
+        const currentQuantity = Number(String(currentItem.quantity || "1").replace(",", ".")) || 1;
+        const currentPrice = parseThousandsWithDots(currentItem.product_price) ?? 0;
+        const fallbackPrice = resolveWebSalePriceFromProduct(product);
+        nextItems[existingIndex] = {
+          ...nextItems[existingIndex],
+          quantity: String(Math.max(1, currentQuantity + 1)),
+          product_price: formatThousandsWithDots(
+            String(Math.round(currentPrice || fallbackPrice || 0))
+          ),
+        };
+        return syncComboPriceWithMode(prev, nextItems);
+      }
+      const nextSortOrder = prev.items.length
+        ? Math.max(...prev.items.map((item) => Number(item.sort_order || 0))) + 1
+      : 0;
+      const nextItems = [
+        ...prev.items,
+        {
+          product_id: String(product.id),
+          quantity: "1",
+          required: true,
+          sort_order: String(nextSortOrder),
+          product_name: getCatalogDisplayName(product),
+          product_sku: product.sku || "",
+          product_original_price: formatThousandsWithDots(
+            String(Math.round(product.price || resolveWebSalePriceFromProduct(product)))
+          ),
+          product_price: formatThousandsWithDots(
+            String(Math.round(resolveWebSalePriceFromProduct(product)))
+          ),
+        },
+      ];
+      const shouldAutoName = !prev.name.trim();
+      const nextName = shouldAutoName ? buildSuggestedComboName(nextItems) : prev.name;
+      const currentSuggestedSlug = generateSuggestedSlug(prev.name);
+      const nextSuggestedSlug = generateSuggestedSlug(nextName);
+      const nextState = syncComboPriceWithMode(
+        {
+          ...prev,
+          items: nextItems,
+          name: nextName,
+          slug:
+            !prev.slug.trim() || prev.slug === currentSuggestedSlug ? nextSuggestedSlug : prev.slug,
+        },
+        nextItems
+      );
+      return {
+        ...prev,
+        ...nextState,
+        name: nextName,
+        slug:
+          !prev.slug.trim() || prev.slug === currentSuggestedSlug ? nextSuggestedSlug : prev.slug,
+      };
+    });
+    setCatalogComboDirty(true);
+  }, [syncComboPriceWithMode]);
+
+  const saveComboEditor = useCallback(async () => {
+    if (!token) return;
+    const name = catalogComboEditor.name.trim();
+    const slug = catalogComboEditor.slug.trim() || generateSuggestedSlug(name);
+    const computedPrice = computeComboItemsTotal(catalogComboEditor.items);
+    const manualPrice = parseThousandsWithDots(catalogComboEditor.price);
+    const manualComparePrice = parseThousandsWithDots(catalogComboEditor.compare_price);
+    const price =
+      catalogComboEditor.price_mode === "auto"
+        ? computedPrice
+        : manualPrice ?? null;
+    if (!name) {
+      showToast("Debes escribir el nombre del combo.", "error");
+      return;
+    }
+    if (!slug) {
+      showToast("Debes escribir un slug válido para el combo.", "error");
+      return;
+    }
+    if (price === null || price <= 0) {
+      showToast("Debes definir un precio válido para el combo.", "error");
+      return;
+    }
+    const comparePrice =
+      catalogComboEditor.price_mode === "discount"
+        ? manualComparePrice && manualComparePrice > price
+          ? manualComparePrice
+          : computedPrice > price
+            ? computedPrice
+            : null
+        : catalogComboEditor.compare_price.trim()
+          ? manualComparePrice && manualComparePrice > price
+            ? manualComparePrice
+            : null
+          : null;
+    const items = catalogComboEditor.items
+      .map((item) => ({
+        product_id: Number(item.product_id || 0),
+        quantity: Number(String(item.quantity || "0").replace(",", ".")),
+        required: Boolean(item.required),
+        sort_order: Number(item.sort_order || 0),
+        product_price: Number(parseThousandsWithDots(item.product_price) || 0),
+      }))
+      .filter((item) => item.product_id > 0 && item.quantity > 0 && item.product_price > 0);
+    if (!items.length) {
+      showToast("Debes agregar al menos un producto al combo.", "error");
+      return;
+    }
+    const totalFromItems = items.reduce((sum, item) => sum + item.quantity * item.product_price, 0);
+    if (totalFromItems <= 0) {
+      showToast("Los productos del combo deben tener precio válido.", "error");
+      return;
+    }
+
+    const payload: ComercioWebComboCreate | ComercioWebComboUpdate = {
+      name,
+      slug,
+      short_description: catalogComboEditor.short_description.trim() || null,
+      long_description: catalogComboEditor.long_description.trim() || null,
+      image_url: catalogComboEditor.image_url.trim() || null,
+      image_thumb_url: catalogComboEditor.image_thumb_url.trim() || null,
+      gallery_urls: catalogComboEditor.gallery_urls
+        .map((item) => item.trim())
+        .filter(Boolean),
+      video_url: catalogComboEditor.video_url.trim() || null,
+      badge_text: catalogComboEditor.badge_text.trim() || null,
+      price,
+      compare_price: comparePrice,
+      stock_mode: catalogComboEditor.stock_mode,
+      published: catalogComboEditor.published,
+      featured: catalogComboEditor.featured,
+      sort_order: Number(catalogComboEditor.sort_order || 0),
+      visible_when_out_of_stock: catalogComboEditor.visible_when_out_of_stock,
+      active: catalogComboEditor.active,
+      warranty_text: catalogComboEditor.warranty_text.trim() || null,
+      technical_specs: catalogComboEditor.technical_specs
+        .map((spec) => ({
+          type: spec.type.trim(),
+          value: spec.value.trim(),
+        }))
+        .filter((spec) => spec.type),
+      items,
+    };
+
+    try {
+      setCatalogComboSaving(true);
+      const updated =
+        catalogComboEditingId !== null
+          ? await updateComercioWebCatalogCombo(token, catalogComboEditingId, payload)
+          : await createComercioWebCatalogCombo(token, payload as ComercioWebComboCreate);
+      setCatalogCombos((prev) => {
+        const next = prev.filter((row) => row.id !== updated.id);
+        next.unshift(updated);
+        return next.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || b.id - a.id);
+      });
+      setCatalogComboEditor(buildComboEditorState(updated));
+      setCatalogComboEditingId(updated.id);
+      setCatalogComboWizardStep(2);
+      setCatalogComboDirty(false);
+      setCatalogComboEditorOpen(false);
+      showToast(catalogComboEditingId !== null ? "Combo actualizado." : "Combo creado.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "No se pudo guardar el combo.", "error");
+    } finally {
+      setCatalogComboSaving(false);
+    }
+  }, [
+    catalogComboEditingId,
+    catalogComboEditor,
+    showToast,
+    token,
+  ]);
+
+  const toggleComboPublished = useCallback(
+    async (combo: ComercioWebCombo) => {
+      if (!token || !canManage) return;
+      try {
+        setBusyAction(`combo-published-${combo.id}`);
+        setCatalogCombosError(null);
+        const updated = await updateComercioWebCatalogCombo(token, combo.id, {
+          published: !combo.published,
+        });
+        setCatalogCombos((prev) =>
+          prev
+            .map((row) => (row.id === updated.id ? updated : row))
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || b.id - a.id)
+        );
+      } catch (err) {
+        showToast(
+          err instanceof Error ? err.message : "No se pudo cambiar la publicación.",
+          "error"
+        );
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [canManage, showToast, token]
+  );
+
+  const toggleComboFeatured = useCallback(
+    async (combo: ComercioWebCombo) => {
+      if (!token || !canManage) return;
+      try {
+        setBusyAction(`combo-featured-${combo.id}`);
+        setCatalogCombosError(null);
+        const updated = await updateComercioWebCatalogCombo(token, combo.id, {
+          featured: !combo.featured,
+        });
+        setCatalogCombos((prev) =>
+          prev
+            .map((row) => (row.id === updated.id ? updated : row))
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || b.id - a.id)
+        );
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "No se pudo cambiar el destacado.", "error");
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [canManage, showToast, token]
+  );
+
+  const deleteCombo = useCallback(
+    async (combo: ComercioWebCombo) => {
+      if (!token || !canManage) return;
+      const confirmed = window.confirm(
+        `¿Eliminar el combo "${combo.name}"? Esta acción no se puede deshacer.`
+      );
+      if (!confirmed) return;
+      try {
+        setBusyAction(`combo-delete-${combo.id}`);
+        setCatalogCombosError(null);
+        await deleteComercioWebCatalogCombo(token, combo.id);
+        setCatalogCombos((prev) => prev.filter((row) => row.id !== combo.id));
+        if (catalogComboEditingId === combo.id) {
+          resetComboEditor();
+        }
+        showToast("Combo eliminado.");
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "No se pudo eliminar el combo.", "error");
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [canManage, catalogComboEditingId, resetComboEditor, showToast, token]
+  );
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -3196,6 +3872,13 @@ export default function ComercioWebPage() {
     setCatalogSpecModalOpen(false);
     setCatalogSpecDraftType(TECHNICAL_SPEC_TYPE_OPTIONS[0]);
     setCatalogSpecDraftValue("");
+    setCatalogComboEditorOpen(false);
+    setCatalogComboEditingId(null);
+    setCatalogComboEditor(emptyComboEditorState);
+    setCatalogComboDirty(false);
+    setCatalogComboSearchTerm("");
+    setCatalogComboSearchResults([]);
+    setCatalogComboSearchExecuted(false);
   }, []);
 
   const captureCatalogScrollSnapshot = useCallback(() => {
@@ -3267,9 +3950,12 @@ export default function ComercioWebPage() {
       if (catalogComposerOpen) {
         resetCatalogComposer();
       }
+      if (catalogComboEditorOpen) {
+        resetComboEditor();
+      }
       setActiveTab(action.tab);
     },
-    [catalogComposerOpen, resetCatalogComposer]
+    [catalogComboEditorOpen, catalogComposerOpen, resetCatalogComposer, resetComboEditor]
   );
 
   const requestCatalogExit = useCallback(
@@ -3277,9 +3963,10 @@ export default function ComercioWebPage() {
       if (catalogSaving) return;
       const hasUnsavedCatalogChanges =
         activeTab === "catalog" &&
-        catalogWorkspaceView === "publications" &&
-        catalogComposerOpen &&
-        catalogDirty;
+        ((catalogWorkspaceView === "publications" &&
+          catalogComposerOpen &&
+          catalogDirty) ||
+          (catalogWorkspaceView === "combos" && catalogComboEditorOpen && catalogComboDirty));
       if (hasUnsavedCatalogChanges) {
         setPendingCatalogExitAction(action);
         setCatalogExitPromptOpen(true);
@@ -3291,6 +3978,8 @@ export default function ComercioWebPage() {
       activeTab,
       catalogComposerOpen,
       catalogDirty,
+      catalogComboDirty,
+      catalogComboEditorOpen,
       catalogSaving,
       catalogWorkspaceView,
       executeCatalogExitAction,
@@ -3465,6 +4154,27 @@ export default function ComercioWebPage() {
       approvedAmount,
     };
   }, [orders]);
+
+  const comboMetrics = useMemo(() => {
+    const published = catalogCombos.filter((combo) => combo.published).length;
+    const featured = catalogCombos.filter((combo) => combo.featured).length;
+    const active = catalogCombos.filter((combo) => combo.active).length;
+    const withItems = catalogCombos.filter((combo) => (combo.items?.length ?? 0) > 0).length;
+    const totalItems = catalogCombos.reduce((sum, combo) => sum + (combo.items?.length ?? 0), 0);
+    return {
+      total: catalogCombos.length,
+      published,
+      featured,
+      active,
+      withItems,
+      totalItems,
+    };
+  }, [catalogCombos]);
+
+  const comboDraftTotal = useMemo(
+    () => computeComboItemsTotal(catalogComboEditor.items),
+    [catalogComboEditor.items]
+  );
 
   const pendingPaymentOrders = useMemo(
     () => orders.filter((order) => order.status === "pending_payment").slice(0, 6),
@@ -3781,6 +4491,10 @@ export default function ComercioWebPage() {
         void loadDiscountCodes();
         return;
       }
+      if (catalogWorkspaceView === "combos") {
+        void loadCatalogCombos();
+        return;
+      }
       if (catalogWorkspaceView === "categories") {
         void loadCatalogCategories();
         return;
@@ -3795,6 +4509,7 @@ export default function ComercioWebPage() {
   }, [
     activeTab,
     catalogWorkspaceView,
+    loadCatalogCombos,
     loadCatalogProducts,
     loadDiscountCodes,
     loadCatalogCategories,
@@ -3802,7 +4517,7 @@ export default function ComercioWebPage() {
   ]);
 
   useEffect(() => {
-    if (activeTab !== "catalog") return;
+    if (activeTab !== "catalog" && activeTab !== "personalization_home_images") return;
     void loadCatalogBrands();
   }, [activeTab, loadCatalogBrands]);
 
@@ -3867,6 +4582,59 @@ export default function ComercioWebPage() {
   ) {
     setCatalogEditor((prev) => ({ ...prev, [key]: value }));
     setCatalogDirty(true);
+  }
+
+  function handleComboField<K extends keyof ComboEditorState>(key: K, value: ComboEditorState[K]) {
+    setCatalogComboEditor((prev) => ({ ...prev, [key]: value }));
+    setCatalogComboDirty(true);
+  }
+
+  function handleComboItemField<K extends keyof ComboEditorItemState>(
+    index: number,
+    key: K,
+    value: ComboEditorItemState[K]
+  ) {
+    setCatalogComboEditor((prev) => {
+      const nextItems = prev.items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value } : item
+      );
+      return syncComboPriceWithMode(prev, nextItems);
+    });
+    setCatalogComboDirty(true);
+  }
+
+  function removeComboItem(indexToRemove: number) {
+    setCatalogComboEditor((prev) => {
+      const nextItems = prev.items.filter((_, index) => index !== indexToRemove);
+      return syncComboPriceWithMode(prev, nextItems);
+    });
+    setCatalogComboDirty(true);
+  }
+
+  function addComboTechnicalSpec() {
+    setCatalogComboEditor((prev) => ({
+      ...prev,
+      technical_specs: [...prev.technical_specs, { type: "", value: "" }],
+    }));
+    setCatalogComboDirty(true);
+  }
+
+  function updateComboTechnicalSpec(index: number, key: keyof CatalogTechnicalSpec, value: string) {
+    setCatalogComboEditor((prev) => ({
+      ...prev,
+      technical_specs: prev.technical_specs.map((spec, specIndex) =>
+        specIndex === index ? { ...spec, [key]: value } : spec
+      ),
+    }));
+    setCatalogComboDirty(true);
+  }
+
+  function removeComboTechnicalSpec(indexToRemove: number) {
+    setCatalogComboEditor((prev) => ({
+      ...prev,
+      technical_specs: prev.technical_specs.filter((_, index) => index !== indexToRemove),
+    }));
+    setCatalogComboDirty(true);
   }
 
   function openCatalogSpecModal() {
@@ -4272,6 +5040,50 @@ export default function ComercioWebPage() {
     setDragOverGalleryIndex(null);
   }
 
+  function applyComboGalleryOrder(nextGallery: string[]) {
+    setCatalogComboEditor((prev) => ({
+      ...prev,
+      gallery_urls: nextGallery,
+      image_url: nextGallery[0] || "",
+      image_thumb_url: nextGallery[0] || "",
+    }));
+    setCatalogComboDirty(true);
+  }
+
+  function moveComboGalleryImage(fromIndex: number, toIndex: number) {
+    const current = [...(catalogComboEditor.gallery_urls ?? [])];
+    if (
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= current.length ||
+      toIndex >= current.length ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+    const [moved] = current.splice(fromIndex, 1);
+    current.splice(toIndex, 0, moved);
+    applyComboGalleryOrder(current);
+  }
+
+  function setComboGalleryPrimary(index: number) {
+    moveComboGalleryImage(index, 0);
+  }
+
+  function handleComboGalleryDragStart(index: number) {
+    setCatalogComboDraggedGalleryIndex(index);
+    setCatalogComboDragOverGalleryIndex(index);
+  }
+
+  function handleComboGalleryDrop(dropIndex: number) {
+    if (catalogComboDraggedGalleryIndex === null) return;
+    if (catalogComboDraggedGalleryIndex !== dropIndex) {
+      moveComboGalleryImage(catalogComboDraggedGalleryIndex, dropIndex);
+    }
+    setCatalogComboDraggedGalleryIndex(null);
+    setCatalogComboDragOverGalleryIndex(null);
+  }
+
   function shouldSkipRowDrag(target: EventTarget | null) {
     if (!(target instanceof HTMLElement)) return false;
     return Boolean(target.closest("button, a, input, textarea, select, label"));
@@ -4538,6 +5350,122 @@ export default function ComercioWebPage() {
     } finally {
       setCatalogVideoUploading(false);
       if (catalogVideoInputRef.current) catalogVideoInputRef.current.value = "";
+    }
+  }
+
+  async function handleComboImageFileChange(file: File) {
+    const galleryUrls = catalogComboEditor.gallery_urls ?? [];
+    if (!token) {
+      showToast("Debes iniciar sesión para subir la imagen.", "error");
+      return;
+    }
+    if (galleryUrls.length >= MAX_CATALOG_GALLERY_IMAGES) {
+      showToast(`Solo puedes cargar hasta ${MAX_CATALOG_GALLERY_IMAGES} imágenes por combo.`, "error");
+      return;
+    }
+
+    setCatalogImageUploading(true);
+    setCatalogCombosError(null);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const uploadRes = await fetch(`${getApiBase()}/uploads/product-images`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json().catch(() => null);
+        const msg =
+          (data && (data.detail as string)) ||
+          `Error al subir imagen (código ${uploadRes.status})`;
+        throw new Error(msg);
+      }
+      const data: UploadProductImageResponse = await uploadRes.json();
+      setCatalogComboEditor((prev) => ({
+        ...prev,
+        gallery_urls: [...(prev.gallery_urls ?? []), data.url]
+          .filter((value, index, list) => Boolean(value?.trim()) && list.indexOf(value) === index)
+          .slice(0, MAX_CATALOG_GALLERY_IMAGES),
+        image_url: (prev.gallery_urls ?? []).length > 0 ? (prev.gallery_urls ?? [])[0] : data.url,
+        image_thumb_url:
+          (prev.gallery_urls ?? []).length > 0
+            ? (prev.gallery_urls ?? [])[0]
+            : data.thumb_url || data.url,
+      }));
+      setCatalogComboDirty(true);
+      showToast("Imagen cargada con éxito.");
+    } catch (err) {
+      setCatalogCombosError(err instanceof Error ? err.message : "No se pudo subir la imagen");
+      showToast("No se pudo subir la imagen.", "error");
+    } finally {
+      setCatalogImageUploading(false);
+      if (catalogComboImageInputRef.current) catalogComboImageInputRef.current.value = "";
+    }
+  }
+
+  async function handleComboVideoFileChange(file: File) {
+    if (!token) {
+      showToast("Debes iniciar sesión para subir el video.", "error");
+      return;
+    }
+    const isMp4 = file.type === "video/mp4";
+    const isMov = file.type === "video/quicktime" || file.name.toLowerCase().endsWith(".mov");
+    if (!isMp4 && !isMov) {
+      showToast("Solo se permite video MP4 o MOV.", "error");
+      return;
+    }
+
+    let durationSeconds = 0;
+    try {
+      durationSeconds = await getVideoDurationSeconds(file);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "No se pudo leer la duración del video.", "error");
+      return;
+    }
+    if (durationSeconds > MAX_CATALOG_VIDEO_DURATION_SECONDS) {
+      showToast(`El video no puede superar ${MAX_CATALOG_VIDEO_DURATION_SECONDS} segundos.`, "error");
+      return;
+    }
+
+    setCatalogVideoUploading(true);
+    setCatalogCombosError(null);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const uploadRes = await fetch(`${getApiBase()}/uploads/product-videos`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json().catch(() => null);
+        const msg =
+          (data && (data.detail as string)) ||
+          `Error al subir video (código ${uploadRes.status})`;
+        throw new Error(msg);
+      }
+      const data: UploadProductVideoResponse = await uploadRes.json();
+      setCatalogComboEditor((prev) => ({
+        ...prev,
+        video_url: data.url || "",
+      }));
+      setCatalogComboDirty(true);
+      showToast("Video cargado con éxito.");
+    } catch (err) {
+      setCatalogCombosError(err instanceof Error ? err.message : "No se pudo subir el video");
+      showToast("No se pudo subir el video.", "error");
+    } finally {
+      setCatalogVideoUploading(false);
+      if (catalogComboVideoInputRef.current) catalogComboVideoInputRef.current.value = "";
     }
   }
 
@@ -5944,6 +6872,17 @@ export default function ComercioWebPage() {
                 }`}
               >
                 Códigos de descuento
+              </button>
+              <button
+                type="button"
+                onClick={() => requestWorkspaceChange("combos")}
+                className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                  catalogWorkspaceView === "combos"
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                Combos
               </button>
               <button
                 type="button"
@@ -8165,7 +9104,983 @@ export default function ComercioWebPage() {
                   )}
                 </div>
               </div>
-            </SectionCard>
+          </SectionCard>
+          ) : null}
+          {catalogWorkspaceView === "combos" ? (
+            <div className="space-y-4">
+              <SectionCard
+                title="Combos y kits"
+                subtitle="Agrupa productos, define un precio final y publícalo como una sola oferta."
+              >
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  <SummaryMini label="Total combos" value={comboMetrics.total} />
+                  <SummaryMini label="Publicados" value={comboMetrics.published} />
+                  <SummaryMini label="Destacados" value={comboMetrics.featured} />
+                  <SummaryMini label="Activos" value={comboMetrics.active} />
+                  <SummaryMini label="Con productos" value={comboMetrics.withItems} />
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-slate-600">
+                    {comboMetrics.totalItems} productos están distribuidos en {comboMetrics.total} combos.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={!canManage || catalogCombosLoading}
+                      onClick={() => openComboEditor()}
+                      className="rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
+                      style={{
+                        backgroundColor: canManage && !catalogCombosLoading ? "#2563eb" : "#bfdbfe",
+                        borderColor: canManage && !catalogCombosLoading ? "#1d4ed8" : "#93c5fd",
+                        color: canManage && !catalogCombosLoading ? "#ffffff" : "#1e3a8a",
+                      }}
+                    >
+                      + Crear combo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void loadCatalogCombos()}
+                      disabled={catalogCombosLoading}
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {catalogCombosLoading ? "Cargando..." : "Refrescar combos"}
+                    </button>
+                  </div>
+                </div>
+                {catalogCombosError ? (
+                  <p className="mt-3 text-sm text-rose-600">{catalogCombosError}</p>
+                ) : null}
+                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+                  {catalogCombosLoading ? (
+                    <div className="px-4 py-8 text-sm text-slate-500">Cargando combos...</div>
+                  ) : catalogCombos.length === 0 ? (
+                    <div className="px-4 py-8 text-sm text-slate-500">
+                      Aún no hay combos. Usa <span className="font-medium">Crear combo</span> para iniciar.
+                    </div>
+                  ) : (
+                    <table className="min-w-full text-sm">
+                      <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                        <tr>
+                          <th className="sticky top-0 bg-slate-50 px-4 py-3">Combo</th>
+                          <th className="sticky top-0 bg-slate-50 px-4 py-3">Precio</th>
+                          <th className="sticky top-0 bg-slate-50 px-4 py-3">Ítems</th>
+                          <th className="sticky top-0 bg-slate-50 px-4 py-3">Estado</th>
+                          <th className="sticky top-0 bg-slate-50 px-4 py-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {catalogCombos.map((combo) => {
+                          const coverUrl = resolveAssetUrl(combo.image_thumb_url || combo.image_url);
+                          return (
+                            <tr key={`combo-${combo.id}`} className="border-b border-slate-100 align-top">
+                              <td className="px-4 py-3">
+                                <div className="flex items-start gap-3">
+                                  <div className="h-12 w-12 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                                    {coverUrl ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={coverUrl} alt={combo.name} className="h-full w-full object-cover" />
+                                    ) : null}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-slate-900">{combo.name}</p>
+                                    <p className="truncate text-xs text-slate-500">/{combo.slug}</p>
+                                    {combo.short_description ? (
+                                      <p className="mt-1 max-w-[42rem] truncate text-xs text-slate-500">
+                                        {combo.short_description}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <p className="font-medium text-slate-900">{formatMoney(combo.price)}</p>
+                                {typeof combo.compare_price === "number" ? (
+                                  <p className="mt-1 text-xs text-slate-500 line-through">
+                                    {formatMoney(combo.compare_price)}
+                                  </p>
+                                ) : null}
+                              </td>
+                              <td className="px-4 py-3 text-slate-700">
+                                {combo.items.length} producto{combo.items.length === 1 ? "" : "s"}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-wrap gap-1.5">
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-[10px] font-medium leading-4 ${
+                                      combo.published
+                                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                                        : "border-amber-300 bg-amber-50 text-amber-700"
+                                    }`}
+                                  >
+                                    {combo.published ? "publicado" : "pausado"}
+                                  </span>
+                                  {combo.featured ? (
+                                    <span className="rounded-full border border-sky-300 bg-sky-50 px-2 py-0.5 text-[10px] font-medium leading-4 text-sky-700">
+                                      destacado
+                                    </span>
+                                  ) : null}
+                                  {combo.active ? (
+                                    <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-medium leading-4 text-slate-700">
+                                      activo
+                                    </span>
+                                  ) : (
+                                    <span className="rounded-full border border-rose-300 bg-rose-50 px-2 py-0.5 text-[10px] font-medium leading-4 text-rose-700">
+                                      inactivo
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-wrap justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={!canManage || catalogCombosLoading}
+                                    onClick={() => openComboEditor(combo.id)}
+                                    className="inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={!canManage || busyAction === `combo-published-${combo.id}`}
+                                    onClick={() => void toggleComboPublished(combo)}
+                                    className="inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {combo.published ? "Pausar" : "Publicar"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={!canManage || busyAction === `combo-featured-${combo.id}`}
+                                    onClick={() => void toggleComboFeatured(combo)}
+                                    className="inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {combo.featured ? "Quitar destacado" : "Destacar"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={!canManage || busyAction === `combo-delete-${combo.id}`}
+                                    onClick={() => void deleteCombo(combo)}
+                                    className="inline-flex h-8 items-center rounded-lg border border-rose-200 bg-rose-50 px-3 text-xs font-medium text-rose-700 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    Eliminar
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </SectionCard>
+
+              {catalogComboEditorOpen ? (
+                <div className="fixed inset-0 z-[121] overflow-y-auto bg-slate-950/55 p-4" role="dialog" aria-modal="true">
+                  <div className="mx-auto w-full max-w-7xl rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-semibold text-slate-900">
+                          {catalogComboEditingId !== null ? "Editar combo" : "Crear combo"}
+                        </h3>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Paso 1: selecciona productos. Paso 2: edita el combo y define su precio final.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex rounded-full border border-slate-200 bg-slate-50 p-1">
+                          <button
+                            type="button"
+                            onClick={() => setCatalogComboWizardStep(1)}
+                            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                              catalogComboWizardStep === 1
+                                ? "bg-white text-slate-900 shadow-sm"
+                                : "text-slate-500"
+                            }`}
+                          >
+                            1. Selección
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (catalogComboEditor.items.length === 0) return;
+                              setCatalogComboWizardStep(2);
+                            }}
+                            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                              catalogComboWizardStep === 2
+                                ? "bg-white text-slate-900 shadow-sm"
+                                : "text-slate-500"
+                            }`}
+                          >
+                            2. Edición
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={resetComboEditor}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                        >
+                          Cerrar
+                        </button>
+                      </div>
+                    </div>
+
+                    {catalogComboWizardStep === 1 ? (
+                      <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
+                        <SectionCard
+                          title="Buscar productos"
+                          subtitle="Busca y agrega los productos que formarán parte del combo."
+                        >
+                          <div className="space-y-3">
+                            <div className="flex gap-2">
+                              <input
+                                value={catalogComboSearchTerm}
+                                onChange={(event) => setCatalogComboSearchTerm(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    void searchComboProducts();
+                                  }
+                                }}
+                                placeholder="Nombre, SKU, marca..."
+                                className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void searchComboProducts()}
+                                disabled={catalogComboSearching}
+                                className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {catalogComboSearching ? "Buscando..." : "Buscar"}
+                              </button>
+                            </div>
+                            {catalogComboSearchExecuted ? (
+                              <div className="max-h-[34rem] overflow-auto rounded-2xl border border-slate-200">
+                                {catalogComboSearchResults.length ? (
+                                  <div className="divide-y divide-slate-100">
+                                    {catalogComboSearchResults.map((product) => (
+                                      <div
+                                        key={`combo-search-${product.id}`}
+                                        className="flex items-center justify-between gap-3 px-3 py-2.5"
+                                      >
+                                        <div className="min-w-0">
+                                          <p className="truncate text-sm font-medium text-slate-900">
+                                            {getCatalogDisplayName(product)}
+                                          </p>
+                                          <p className="text-xs text-slate-500">
+                                            SKU {product.sku || "sin SKU"} · {formatMoney(resolveWebSalePriceFromProduct(product))}
+                                          </p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => addComboProduct(product)}
+                                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:border-emerald-300"
+                                        >
+                                          Agregar
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="px-3 py-4 text-sm text-slate-500">
+                                    No encontramos productos con esa búsqueda.
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-500">
+                                Busca por nombre o SKU y luego agrega productos a la lista.
+                              </p>
+                            )}
+                          </div>
+                        </SectionCard>
+
+                        <SectionCard
+                          title="Productos seleccionados"
+                          subtitle="Aquí van quedando los productos elegidos antes de pasar a la edición comercial."
+                          headerActions={
+                            <button
+                              type="button"
+                              disabled={catalogComboEditor.items.length === 0}
+                              onClick={() => setCatalogComboWizardStep(2)}
+                              className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Siguiente
+                            </button>
+                          }
+                        >
+                          <div className="overflow-hidden rounded-2xl border border-slate-200">
+                            {catalogComboEditor.items.length ? (
+                              <table className="min-w-full text-sm">
+                                <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                                  <tr>
+                                    <th className="px-3 py-3">Producto</th>
+                                    <th className="px-3 py-3">Cant.</th>
+                                    <th className="px-3 py-3">Precio</th>
+                                    <th className="px-3 py-3">Subtotal</th>
+                                    <th className="px-3 py-3 text-right">Acción</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {catalogComboEditor.items.map((item, index) => {
+                                    const unitPrice = parseThousandsWithDots(item.product_price) ?? 0;
+                                    const quantity = Number(String(item.quantity || "0").replace(",", ".")) || 0;
+                                    const subtotal = quantity * unitPrice;
+                                    return (
+                                      <tr key={`combo-selected-${index}`} className="border-b border-slate-100">
+                                        <td className="px-3 py-3">
+                                          <p className="font-medium text-slate-900">
+                                            {item.product_name || "Sin nombre"}
+                                          </p>
+                                          <p className="text-xs text-slate-500">
+                                            SKU {item.product_sku || "sin SKU"} · ID {item.product_id || "-"}
+                                          </p>
+                                        </td>
+                                        <td className="px-3 py-3">{item.quantity}</td>
+                                        <td className="px-3 py-3">{formatMoney(unitPrice)}</td>
+                                        <td className="px-3 py-3">{formatMoney(subtotal)}</td>
+                                        <td className="px-3 py-3 text-right">
+                                          <button
+                                            type="button"
+                                            onClick={() => removeComboItem(index)}
+                                            className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300"
+                                          >
+                                            Quitar
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div className="px-4 py-8 text-sm text-slate-500">
+                                Todavía no agregaste productos. Usa el buscador para armar el combo.
+                              </div>
+                            )}
+                          </div>
+                          <div className="mt-3 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                            <p className="text-xs text-slate-600">
+                              Subtotal calculado: <span className="font-semibold text-slate-900">{formatMoney(comboDraftTotal)}</span>
+                            </p>
+                            <button
+                              type="button"
+                              disabled={catalogComboEditor.items.length === 0}
+                              onClick={() => setCatalogComboWizardStep(2)}
+                              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Editar combo
+                            </button>
+                          </div>
+                        </SectionCard>
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid gap-4 xl:grid-cols-[0.95fr,1.05fr]">
+                        <div className="space-y-4">
+                          <SectionCard
+                            title="Edición comercial"
+                            subtitle="Aquí ajustas el nombre global, imágenes, categoría y publicación del combo."
+                          >
+                            <div className="space-y-4">
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <LabeledField label="Nombre" required>
+                                  <input
+                                    value={catalogComboEditor.name}
+                                    onChange={(event) => {
+                                      const nextName = event.target.value;
+                                      setCatalogComboEditor((prev) => {
+                                        const currentSuggested = generateSuggestedSlug(prev.name);
+                                        const nextSuggested = generateSuggestedSlug(nextName);
+                                        const shouldSyncSlug =
+                                          !prev.slug.trim() || prev.slug === currentSuggested;
+                                        return {
+                                          ...prev,
+                                          name: nextName,
+                                          slug: shouldSyncSlug ? nextSuggested : prev.slug,
+                                        };
+                                      });
+                                      setCatalogComboDirty(true);
+                                    }}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                  />
+                                </LabeledField>
+                                <LabeledField label="Slug" required>
+                                  <input
+                                    value={catalogComboEditor.slug}
+                                    onChange={(event) =>
+                                      handleComboField("slug", generateSuggestedSlug(event.target.value))
+                                    }
+                                    placeholder="kit-dvr-4-camaras"
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                  />
+                                </LabeledField>
+                              </div>
+
+                              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                                  Precio calculado
+                                </p>
+                                <p className="mt-1 text-2xl font-semibold text-slate-900">{formatMoney(comboDraftTotal)}</p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Se calcula automáticamente desde el precio y la cantidad de cada componente.
+                                </p>
+                              </div>
+
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <LabeledField label="Modo de precio">
+                                  <select
+                                    value={catalogComboEditor.price_mode}
+                                    onChange={(event) => {
+                                      const nextMode = event.target.value as ComboEditorState["price_mode"];
+                                      setCatalogComboEditor((prev) => {
+                                        const nextCompare =
+                                          nextMode === "discount" && !prev.compare_price.trim()
+                                            ? formatThousandsWithDots(String(Math.round(comboDraftTotal)))
+                                            : prev.compare_price;
+                                        const nextPrice =
+                                          nextMode === "auto" ? formatThousandsWithDots(String(Math.round(comboDraftTotal))) : prev.price;
+                                        return {
+                                          ...prev,
+                                          price_mode: nextMode,
+                                          price: nextPrice,
+                                          compare_price:
+                                            nextMode === "auto" ? "" : nextCompare,
+                                        };
+                                      });
+                                      setCatalogComboDirty(true);
+                                    }}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                  >
+                                    <option value="auto">Automático: suma de componentes</option>
+                                    <option value="fixed">Precio fijo</option>
+                                    <option value="discount">Con descuento visible</option>
+                                  </select>
+                                </LabeledField>
+                                <LabeledField label="Orden">
+                                  <input
+                                    value={catalogComboEditor.sort_order}
+                                    onChange={(event) => handleComboField("sort_order", event.target.value)}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                  />
+                                </LabeledField>
+                              </div>
+
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <LabeledField label="Precio final">
+                                  <input
+                                    value={catalogComboEditor.price}
+                                    onChange={(event) =>
+                                      handleComboField("price", formatThousandsWithDots(event.target.value))
+                                    }
+                                    placeholder="Precio final del combo"
+                                    disabled={catalogComboEditor.price_mode === "auto"}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"
+                                  />
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {catalogComboEditor.price_mode === "auto"
+                                      ? "Se toma directamente del subtotal del combo."
+                                      : "Este es el precio visible al público."}
+                                  </p>
+                                </LabeledField>
+                                <LabeledField label="Precio comparativo">
+                                  <input
+                                    value={catalogComboEditor.compare_price}
+                                    onChange={(event) =>
+                                      handleComboField("compare_price", formatThousandsWithDots(event.target.value))
+                                    }
+                                    placeholder="Precio antes del descuento"
+                                    disabled={catalogComboEditor.price_mode === "auto"}
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400 disabled:bg-slate-100"
+                                  />
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {catalogComboEditor.price_mode === "discount"
+                                      ? "Si es mayor que el precio final, se mostrará tachado."
+                                      : "Opcional. Sirve para mostrar el precio anterior tachado."}
+                                  </p>
+                                </LabeledField>
+                              </div>
+
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <LabeledField label="Badge">
+                                  <input
+                                    value={catalogComboEditor.badge_text}
+                                    onChange={(event) => handleComboField("badge_text", event.target.value)}
+                                    placeholder="Oferta"
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                  />
+                                </LabeledField>
+                                <LabeledField label="Modo de stock">
+                                  <select
+                                    value={catalogComboEditor.stock_mode}
+                                    onChange={(event) =>
+                                      handleComboField(
+                                        "stock_mode",
+                                        event.target.value as "manual" | "components"
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                  >
+                                    <option value="components">Por componentes</option>
+                                    <option value="manual">Manual</option>
+                                  </select>
+                                </LabeledField>
+                              </div>
+
+                              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      catalogImageUploading ||
+                                      (catalogComboEditor.gallery_urls ?? []).length >= MAX_CATALOG_GALLERY_IMAGES
+                                    }
+                                    onClick={() => catalogComboImageInputRef.current?.click()}
+                                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {catalogImageUploading ? "Subiendo..." : "Agregar imagen"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={catalogVideoUploading || Boolean(catalogComboEditor.video_url?.trim())}
+                                    onClick={() => catalogComboVideoInputRef.current?.click()}
+                                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {catalogVideoUploading ? "Subiendo video..." : "Agregar video"}
+                                  </button>
+                                  <span className="text-xs text-slate-500">
+                                    JPG, PNG o WebP. Recomendado: 1200x1200 px (1:1), hasta {MAX_CATALOG_GALLERY_IMAGES} imágenes. La primera será la principal.
+                                  </span>
+                                  <span className="text-xs text-slate-500">
+                                    Video: 1 archivo MP4 o MOV, máximo {MAX_CATALOG_VIDEO_DURATION_SECONDS}s.
+                                  </span>
+                                  <span className="text-xs text-slate-500">Arrastra para reordenar.</span>
+                                </div>
+                                <input
+                                  ref={catalogComboImageInputRef}
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp"
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    if (!file) return;
+                                    void handleComboImageFileChange(file);
+                                  }}
+                                  className="hidden"
+                                />
+                                <input
+                                  ref={catalogComboVideoInputRef}
+                                  type="file"
+                                  accept="video/mp4,video/quicktime,.mov"
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    if (!file) return;
+                                    void handleComboVideoFileChange(file);
+                                  }}
+                                  className="hidden"
+                                />
+                                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                                  {(catalogComboEditor.gallery_urls ?? []).length || catalogComboEditor.video_url?.trim() ? (
+                                    <div className="grid grid-flow-col auto-cols-[minmax(220px,220px)] gap-3 overflow-x-auto pb-1">
+                                      {(catalogComboEditor.gallery_urls ?? []).map((imageUrl, index) => (
+                                        <div
+                                          key={`combo-gallery-${imageUrl}-${index}`}
+                                          draggable
+                                          onDragStart={() => handleComboGalleryDragStart(index)}
+                                          onDragOver={(event) => {
+                                            event.preventDefault();
+                                            setCatalogComboDragOverGalleryIndex(index);
+                                          }}
+                                          onDrop={(event) => {
+                                            event.preventDefault();
+                                            handleComboGalleryDrop(index);
+                                          }}
+                                          onDragEnd={() => {
+                                            setCatalogComboDraggedGalleryIndex(null);
+                                            setCatalogComboDragOverGalleryIndex(null);
+                                          }}
+                                          className={`rounded-xl border bg-slate-50 p-2 transition ${
+                                            catalogComboDragOverGalleryIndex === index
+                                              ? "border-blue-300 ring-1 ring-blue-200"
+                                              : "border-slate-200"
+                                          }`}
+                                        >
+                                          <div className="relative h-28 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                              src={resolveAssetUrl(imageUrl) || imageUrl}
+                                              alt={`Combo imagen ${index + 1}`}
+                                              className="h-full w-full object-cover"
+                                            />
+                                            {index === 0 ? (
+                                              <span className="absolute left-2 top-2 rounded-full bg-slate-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white">
+                                                Principal
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                          <div className="mt-2 space-y-1.5">
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="truncate text-[11px] text-slate-500">
+                                                Imagen {index + 1}
+                                              </span>
+                                              <div className="flex items-center gap-1">
+                                                <button
+                                                  type="button"
+                                                  disabled={index === 0}
+                                                  onClick={() => moveComboGalleryImage(index, index - 1)}
+                                                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-40"
+                                                >
+                                                  ←
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  disabled={index === (catalogComboEditor.gallery_urls ?? []).length - 1}
+                                                  onClick={() => moveComboGalleryImage(index, index + 1)}
+                                                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-40"
+                                                >
+                                                  →
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center justify-between gap-2">
+                                              {index !== 0 ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setComboGalleryPrimary(index)}
+                                                  className="text-[11px] font-medium text-sky-700"
+                                                >
+                                                  Hacer principal
+                                                </button>
+                                              ) : (
+                                                <span className="text-[11px] font-medium text-emerald-700">
+                                                  Imagen principal
+                                                </span>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const nextGallery = (catalogComboEditor.gallery_urls ?? []).filter(
+                                                    (_, galleryIndex) => galleryIndex !== index
+                                                  );
+                                                  applyComboGalleryOrder(nextGallery);
+                                                }}
+                                                className="text-[11px] font-medium text-rose-600"
+                                              >
+                                                Quitar
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                      {catalogComboEditor.video_url?.trim() ? (
+                                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
+                                          <div className="relative h-28 overflow-hidden rounded-lg border border-slate-200 bg-black">
+                                            <video
+                                              src={resolveAssetUrl(catalogComboEditor.video_url) || catalogComboEditor.video_url}
+                                              className="h-full w-full object-contain"
+                                              controls
+                                              preload="metadata"
+                                            />
+                                          </div>
+                                          <div className="mt-2 space-y-1.5">
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="truncate text-[11px] text-slate-500">Video (último)</span>
+                                            </div>
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="text-[11px] font-medium text-slate-500">
+                                                Se publica al final
+                                              </span>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setCatalogComboEditor((prev) => ({ ...prev, video_url: "" }));
+                                                  setCatalogComboDirty(true);
+                                                }}
+                                                className="text-[11px] font-medium text-rose-600"
+                                              >
+                                                Quitar
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-slate-500">Sin imagen cargada</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <ToggleField
+                                  label="Publicado"
+                                  checked={catalogComboEditor.published}
+                                  onChange={(checked) => handleComboField("published", checked)}
+                                />
+                                <ToggleField
+                                  label="Destacado"
+                                  checked={catalogComboEditor.featured}
+                                  onChange={(checked) => handleComboField("featured", checked)}
+                                />
+                                <ToggleField
+                                  label="Activo"
+                                  checked={catalogComboEditor.active}
+                                  onChange={(checked) => handleComboField("active", checked)}
+                                />
+                                <ToggleField
+                                  label="Visible sin stock"
+                                  checked={catalogComboEditor.visible_when_out_of_stock}
+                                  onChange={(checked) =>
+                                    handleComboField("visible_when_out_of_stock", checked)
+                                  }
+                                />
+                              </div>
+
+                              <LabeledField label="Resumen">
+                                <input
+                                  value={catalogComboEditor.short_description}
+                                  onChange={(event) =>
+                                    handleComboField("short_description", event.target.value)
+                                  }
+                                  placeholder="Kit para cámaras de seguridad"
+                                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                />
+                              </LabeledField>
+
+                              <LabeledField label="Descripción larga">
+                                <textarea
+                                  value={catalogComboEditor.long_description}
+                                  onChange={(event) =>
+                                    handleComboField("long_description", event.target.value)
+                                  }
+                                  rows={5}
+                                  className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                />
+                              </LabeledField>
+
+                              <LabeledField label="Garantía (detalle)">
+                                <input
+                                  value={catalogComboEditor.warranty_text}
+                                  onChange={(event) => handleComboField("warranty_text", event.target.value)}
+                                  placeholder="Ej: Garantía de 12 meses"
+                                  maxLength={160}
+                                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                />
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Solo se muestra en el detalle del combo.
+                                </p>
+                              </LabeledField>
+
+                              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                    Características técnicas
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={addComboTechnicalSpec}
+                                    className="rounded-lg border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 transition hover:border-blue-400"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                                <div className="mt-2 space-y-1.5">
+                                  {catalogComboEditor.technical_specs.length ? (
+                                    catalogComboEditor.technical_specs.map((spec, index) => (
+                                      <div
+                                        key={`combo-spec-${index}-${spec.type}`}
+                                        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2"
+                                      >
+                                        <input
+                                          value={spec.type}
+                                          onChange={(event) =>
+                                            updateComboTechnicalSpec(index, "type", event.target.value)
+                                          }
+                                          placeholder="Característica"
+                                          className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-emerald-400"
+                                        />
+                                        <input
+                                          value={spec.value}
+                                          onChange={(event) =>
+                                            updateComboTechnicalSpec(index, "value", event.target.value)
+                                          }
+                                          placeholder="Valor"
+                                          className="min-w-0 flex-[1.2] rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-emerald-400"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => removeComboTechnicalSpec(index)}
+                                          className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-medium text-rose-700 transition hover:border-rose-300"
+                                        >
+                                          Quitar
+                                        </button>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <p className="text-xs text-slate-500">Aun no hay caracteristicas agregadas.</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => setCatalogComboWizardStep(1)}
+                                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-400"
+                                >
+                                  Volver
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!canManage || catalogComboSaving}
+                                  onClick={() => void saveComboEditor()}
+                                  className="rounded-xl border px-4 py-2.5 text-sm font-medium shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed"
+                                  style={{
+                                    backgroundColor: canManage && !catalogComboSaving ? "#2563eb" : "#bfdbfe",
+                                    borderColor: canManage && !catalogComboSaving ? "#1d4ed8" : "#93c5fd",
+                                    color: canManage && !catalogComboSaving ? "#ffffff" : "#1e3a8a",
+                                  }}
+                                >
+                                  {catalogComboSaving ? "Guardando..." : "Guardar combo"}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={catalogComboSaving}
+                                  onClick={resetComboEditor}
+                                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          </SectionCard>
+                        </div>
+
+                        <div className="space-y-4">
+                          <SectionCard
+                            title="Componente por componente"
+                            subtitle="Edita nombre, precio, cantidad y orden de cada producto del combo."
+                          >
+                            <div className="overflow-hidden rounded-2xl border border-slate-200">
+                              {catalogComboEditor.items.length ? (
+                                <table className="min-w-full text-sm">
+                                  <thead className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                                    <tr>
+                                      <th className="px-3 py-3">Producto</th>
+                                      <th className="px-3 py-3">Precio</th>
+                                      <th className="px-3 py-3">Cant.</th>
+                                      <th className="px-3 py-3">Orden</th>
+                                      <th className="px-3 py-3">Req.</th>
+                                      <th className="px-3 py-3 text-right">Acción</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {catalogComboEditor.items.map((item, index) => {
+                                      const unitPrice = parseThousandsWithDots(item.product_price) ?? 0;
+                                      const quantity = Number(String(item.quantity || "0").replace(",", ".")) || 0;
+                                      const subtotal = quantity * unitPrice;
+                                      return (
+                                        <tr key={`combo-item-${index}`} className="border-b border-slate-100 align-top">
+                                          <td className="px-3 py-3">
+                                            <div className="space-y-2">
+                                              <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                                                <p className="text-sm font-medium text-slate-900">
+                                                  {item.product_name || "Producto"}
+                                                </p>
+                                                <p className="mt-1 text-xs text-slate-500">
+                                                  SKU {item.product_sku || "sin SKU"}
+                                                </p>
+                                                <p className="mt-1 text-xs text-slate-500">
+                                                  Precio original{" "}
+                                                  <span className="font-medium text-slate-700">
+                                                    {formatMoney(parseThousandsWithDots(item.product_original_price) || 0)}
+                                                  </span>
+                                                </p>
+                                              </div>
+                                            </div>
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            <input
+                                              value={item.product_price}
+                                              onChange={(event) =>
+                                                handleComboItemField(
+                                                  index,
+                                                  "product_price",
+                                                  formatThousandsWithDots(event.target.value)
+                                                )
+                                              }
+                                              className="w-28 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-emerald-400"
+                                            />
+                                            <p className="mt-1 text-[11px] text-slate-500">
+                                              Subtotal: {formatMoney(subtotal)}
+                                            </p>
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            <input
+                                              value={item.quantity}
+                                              onChange={(event) =>
+                                                handleComboItemField(index, "quantity", event.target.value)
+                                              }
+                                              className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-emerald-400"
+                                            />
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            <input
+                                              value={item.sort_order}
+                                              onChange={(event) =>
+                                                handleComboItemField(index, "sort_order", event.target.value)
+                                              }
+                                              className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-emerald-400"
+                                            />
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            <input
+                                              type="checkbox"
+                                              checked={item.required}
+                                              onChange={(event) =>
+                                                handleComboItemField(index, "required", event.target.checked)
+                                              }
+                                              className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                            />
+                                          </td>
+                                          <td className="px-3 py-3 text-right">
+                                            <button
+                                              type="button"
+                                              onClick={() => removeComboItem(index)}
+                                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300"
+                                            >
+                                              Quitar
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              ) : (
+                                <div className="px-4 py-8 text-sm text-slate-500">
+                                  Todavía no agregaste productos. Vuelve al paso 1 para armar el combo.
+                                </div>
+                              )}
+                            </div>
+                            <div className="mt-3 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                              <p className="text-xs text-slate-600">
+                                Total calculado: <span className="font-semibold text-slate-900">{formatMoney(comboDraftTotal)}</span>
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setCatalogComboWizardStep(1)}
+                                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                              >
+                                Volver al paso 1
+                              </button>
+                            </div>
+                          </SectionCard>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           ) : null}
           {catalogWorkspaceView === "discount_codes" ? (
             <SectionCard
@@ -9785,6 +11700,7 @@ export default function ComercioWebPage() {
                           if (!row || typeof row !== "object") return;
                           next[key] = {
                             imageUrl: typeof row.image_url === "string" ? row.image_url : "",
+                            href: typeof row.href === "string" ? row.href : DEFAULT_BRAND_COLLAGE_IMAGES[key].href,
                           };
                         }
                       );
@@ -9879,6 +11795,7 @@ export default function ComercioWebPage() {
                               ...current,
                               [slot.key]: {
                                 imageUrl: "",
+                                href: current[slot.key].href,
                               },
                             }))
                           }
@@ -9886,6 +11803,36 @@ export default function ComercioWebPage() {
                         >
                           Quitar
                         </button>
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                          Enlace destino
+                        </label>
+                        <select
+                          value={resolveBrandCollageSelection(item.href)}
+                          onChange={(event) => {
+                            const nextValue = event.target.value;
+                            setBrandCollageImages((current) => ({
+                              ...current,
+                              [slot.key]: {
+                                ...current[slot.key],
+                                href: buildBrandCollageHref(nextValue),
+                              },
+                            }));
+                          }}
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-slate-400"
+                        >
+                          <option value="">Selecciona una marca</option>
+                          {catalogBrandOptions.map((brandOption) => (
+                            <option key={brandOption} value={brandOption}>
+                              {brandOption}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] leading-4 text-slate-500">
+                          Elige una marca existente; el sistema arma automáticamente el enlace al catálogo.
+                        </p>
                       </div>
 
                       <div className="mt-3 flex justify-end">

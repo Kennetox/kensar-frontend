@@ -93,6 +93,87 @@ export type ComercioWebCatalogPublicationPage = {
   stats: ComercioWebCatalogPublicationStats;
 };
 
+export type ComercioWebComboItem = {
+  id: number;
+  product_id: number;
+  quantity: number;
+  required: boolean;
+  sort_order: number;
+  product_original_price: number;
+  product_price: number;
+  product_name: string;
+  product_sku?: string | null;
+  product_slug?: string | null;
+  product_image_url?: string | null;
+  product_image_thumb_url?: string | null;
+  product_brand?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ComercioWebCombo = {
+  id: number;
+  name: string;
+  slug: string;
+  short_description?: string | null;
+  long_description?: string | null;
+  image_url?: string | null;
+  image_thumb_url?: string | null;
+  gallery_urls: string[];
+  video_url?: string | null;
+  badge_text?: string | null;
+  category_key?: string | null;
+  price: number;
+  compare_price?: number | null;
+  stock_mode: "manual" | "components";
+  published: boolean;
+  featured: boolean;
+  sort_order: number;
+  visible_when_out_of_stock: boolean;
+  active: boolean;
+  warranty_text?: string | null;
+  technical_specs?: Array<{ type: string; value: string }>;
+  items: ComercioWebComboItem[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ComercioWebComboCreate = {
+  name: string;
+  slug: string;
+  short_description?: string | null;
+  long_description?: string | null;
+  image_url?: string | null;
+  image_thumb_url?: string | null;
+  gallery_urls?: string[];
+  video_url?: string | null;
+  badge_text?: string | null;
+  category_key?: string | null;
+  price: number;
+  compare_price?: number | null;
+  stock_mode?: "manual" | "components";
+  published?: boolean;
+  featured?: boolean;
+  sort_order?: number;
+  visible_when_out_of_stock?: boolean;
+  active?: boolean;
+  warranty_text?: string | null;
+  technical_specs?: Array<{ type: string; value: string }>;
+  items: Array<{
+    product_id: number;
+    quantity: number;
+    required?: boolean;
+    sort_order?: number;
+    product_price?: number;
+  }>;
+};
+
+export type ComercioWebComboUpdate = Partial<
+  Omit<ComercioWebComboCreate, "items"> & {
+    items?: ComercioWebComboCreate["items"];
+  }
+>;
+
 export type ComercioWebCatalogPublicationFilters = {
   q?: string;
   field?: "all" | "name" | "sku" | "brand" | "group" | "badge";
@@ -181,6 +262,41 @@ function normalizeCatalogProduct(product: ComercioWebCatalogProduct): ComercioWe
       typeof product.web_price_value === "number" ? product.web_price_value : null,
     web_gallery_urls: Array.isArray(product.web_gallery_urls) ? product.web_gallery_urls : [],
     web_video_url: typeof product.web_video_url === "string" ? product.web_video_url : null,
+  };
+}
+
+function normalizeCombo(combo: ComercioWebCombo): ComercioWebCombo {
+  return {
+    ...combo,
+    short_description: typeof combo.short_description === "string" ? combo.short_description : null,
+    long_description: typeof combo.long_description === "string" ? combo.long_description : null,
+    image_url: typeof combo.image_url === "string" ? combo.image_url : null,
+    image_thumb_url: typeof combo.image_thumb_url === "string" ? combo.image_thumb_url : null,
+    gallery_urls: Array.isArray(combo.gallery_urls) ? combo.gallery_urls : [],
+    video_url: typeof combo.video_url === "string" ? combo.video_url : null,
+    badge_text: typeof combo.badge_text === "string" ? combo.badge_text : null,
+    category_key: typeof combo.category_key === "string" ? combo.category_key : null,
+    compare_price:
+      typeof combo.compare_price === "number" ? combo.compare_price : null,
+    warranty_text: typeof combo.warranty_text === "string" ? combo.warranty_text : null,
+    technical_specs: Array.isArray(combo.technical_specs)
+      ? combo.technical_specs.filter(
+          (item): item is { type: string; value: string } =>
+            Boolean(item && typeof item.type === "string")
+        )
+      : [],
+    items: Array.isArray(combo.items)
+      ? combo.items.map((item) => ({
+          ...item,
+          product_sku: typeof item.product_sku === "string" ? item.product_sku : null,
+          product_slug: typeof item.product_slug === "string" ? item.product_slug : null,
+          product_image_url:
+            typeof item.product_image_url === "string" ? item.product_image_url : null,
+          product_image_thumb_url:
+            typeof item.product_image_thumb_url === "string" ? item.product_image_thumb_url : null,
+          product_brand: typeof item.product_brand === "string" ? item.product_brand : null,
+        }))
+      : [],
   };
 }
 
@@ -369,6 +485,69 @@ export async function deleteComercioWebCatalogCategory(
   categoryId: number
 ): Promise<void> {
   const res = await fetch(`${getApiBase()}/comercio-web/catalog/categories/${categoryId}`, {
+    method: "DELETE",
+    headers: buildHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+}
+
+export async function fetchComercioWebCatalogCombos(
+  token: string,
+  params?: { q?: string; published_only?: boolean; active_only?: boolean }
+): Promise<ComercioWebCombo[]> {
+  const qs = new URLSearchParams();
+  if (params?.q) qs.set("q", params.q);
+  if (typeof params?.published_only === "boolean") {
+    qs.set("published_only", String(params.published_only));
+  }
+  if (typeof params?.active_only === "boolean") {
+    qs.set("active_only", String(params.active_only));
+  }
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/combos${suffix}`, {
+    headers: buildHeaders(token),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  const data = (await res.json()) as ComercioWebCombo[];
+  return Array.isArray(data) ? data.map(normalizeCombo) : [];
+}
+
+export async function createComercioWebCatalogCombo(
+  token: string,
+  input: ComercioWebComboCreate
+): Promise<ComercioWebCombo> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/combos`, {
+    method: "POST",
+    headers: buildHeaders(token),
+    body: JSON.stringify(input),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  return normalizeCombo((await res.json()) as ComercioWebCombo);
+}
+
+export async function updateComercioWebCatalogCombo(
+  token: string,
+  comboId: number,
+  input: ComercioWebComboUpdate
+): Promise<ComercioWebCombo> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/combos/${comboId}`, {
+    method: "PUT",
+    headers: buildHeaders(token),
+    body: JSON.stringify(input),
+    credentials: "include",
+  });
+  if (!res.ok) throw await parseError(res);
+  return normalizeCombo((await res.json()) as ComercioWebCombo);
+}
+
+export async function deleteComercioWebCatalogCombo(
+  token: string,
+  comboId: number
+): Promise<void> {
+  const res = await fetch(`${getApiBase()}/comercio-web/catalog/combos/${comboId}`, {
     method: "DELETE",
     headers: buildHeaders(token),
     credentials: "include",
