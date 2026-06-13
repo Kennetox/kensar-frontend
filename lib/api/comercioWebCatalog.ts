@@ -125,6 +125,7 @@ export type ComercioWebCombo = {
   category_key?: string | null;
   price: number;
   compare_price?: number | null;
+  price_mode: "auto" | "fixed" | "discount";
   stock_mode: "manual" | "components";
   published: boolean;
   featured: boolean;
@@ -151,6 +152,7 @@ export type ComercioWebComboCreate = {
   category_key?: string | null;
   price: number;
   compare_price?: number | null;
+  price_mode?: "auto" | "fixed" | "discount";
   stock_mode?: "manual" | "components";
   published?: boolean;
   featured?: boolean;

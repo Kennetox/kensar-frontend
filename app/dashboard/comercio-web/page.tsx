@@ -1588,11 +1588,14 @@ function buildComboEditorState(combo: ComercioWebCombo | null): ComboEditorState
       ? formatThousandsWithDots(String(Math.round(combo.compare_price)))
       : "";
   const priceMode: ComboEditorState["price_mode"] =
-    comparePrice && (parseThousandsWithDots(comparePrice) || 0) > (parseThousandsWithDots(price) || 0)
-      ? "discount"
-      : price && calculatedTotal && parseThousandsWithDots(price) === parseThousandsWithDots(calculatedTotal)
-        ? "auto"
-        : "fixed";
+    combo.price_mode === "auto" || combo.price_mode === "fixed" || combo.price_mode === "discount"
+      ? combo.price_mode
+      : comparePrice &&
+          (parseThousandsWithDots(comparePrice) || 0) > (parseThousandsWithDots(price) || 0)
+        ? "discount"
+        : price && calculatedTotal && parseThousandsWithDots(price) === parseThousandsWithDots(calculatedTotal)
+          ? "auto"
+          : "fixed";
   return {
     name: combo.name || "",
     slug: combo.slug || "",
@@ -3752,6 +3755,7 @@ export default function ComercioWebPage() {
         .filter(Boolean),
       video_url: catalogComboEditor.video_url.trim() || null,
       badge_text: catalogComboEditor.badge_text.trim() || null,
+      price_mode: catalogComboEditor.price_mode,
       price,
       compare_price: comparePrice,
       stock_mode: catalogComboEditor.stock_mode,
