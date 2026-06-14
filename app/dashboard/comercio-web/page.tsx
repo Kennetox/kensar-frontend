@@ -11458,10 +11458,7 @@ export default function ComercioWebPage() {
                               ))}
                             </select>
                           </>
-                        ) : slider.link_type === "combos" ||
-                          slider.link_type === "catalogo" ||
-                          slider.link_type === "sin_link" ||
-                          slider.link_type === "personalizacion" ? null : (
+                        ) : !["combos", "catalogo", "sin_link", "personalizacion"].includes(slider.link_type) ? (
                           <input
                             value={slider.link_value || ""}
                             onChange={(event) =>
@@ -11491,7 +11488,7 @@ export default function ComercioWebPage() {
                             }
                             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400 disabled:bg-slate-100"
                           />
-                        )}
+                        ) : null}
                       </div>
 
                       <div className="mt-3 flex justify-end">
