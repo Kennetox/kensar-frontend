@@ -11380,6 +11380,7 @@ export default function ComercioWebPage() {
                               link_value:
                                 event.target.value === "sin_link" ||
                                 event.target.value === "catalogo" ||
+                                event.target.value === "combos" ||
                                 event.target.value === "personalizacion"
                                   ? ""
                                   : current.link_value,
@@ -11389,6 +11390,7 @@ export default function ComercioWebPage() {
                         >
                           <option value="sin_link">Sin link</option>
                           <option value="catalogo">Catálogo principal</option>
+                          <option value="combos">Combos</option>
                           <option value="categoria">Catálogo por categoría</option>
                           <option value="subcategoria">Catálogo por subcategoría</option>
                           <option value="personalizacion">Personalización</option>
@@ -11456,7 +11458,10 @@ export default function ComercioWebPage() {
                               ))}
                             </select>
                           </>
-                        ) : (
+                        ) : slider.link_type === "combos" ||
+                          slider.link_type === "catalogo" ||
+                          slider.link_type === "sin_link" ||
+                          slider.link_type === "personalizacion" ? null : (
                           <input
                             value={slider.link_value || ""}
                             onChange={(event) =>
@@ -11472,6 +11477,8 @@ export default function ComercioWebPage() {
                                   ? "Sin valor adicional"
                                 : slider.link_type === "sin_link"
                                   ? "Sin valor adicional"
+                                : slider.link_type === "combos"
+                                  ? "Sin valor adicional"
                                 : slider.link_type === "url_interna"
                                   ? "Ruta interna (ej: /catalogo?category=instrumentos)"
                                   : "Sin valor adicional"
@@ -11479,6 +11486,7 @@ export default function ComercioWebPage() {
                             disabled={
                               slider.link_type === "sin_link" ||
                               slider.link_type === "catalogo" ||
+                              slider.link_type === "combos" ||
                               slider.link_type === "personalizacion"
                             }
                             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400 disabled:bg-slate-100"

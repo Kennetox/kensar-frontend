@@ -5,6 +5,7 @@ import { getApiBase } from "@/lib/api/base";
 export type ComercioWebHomeSliderLinkType =
   | "sin_link"
   | "catalogo"
+  | "combos"
   | "categoria"
   | "subcategoria"
   | "personalizacion"
