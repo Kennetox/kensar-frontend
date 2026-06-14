@@ -11407,9 +11407,9 @@ export default function ComercioWebPage() {
                             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-400"
                           >
                             <option value="">Selecciona categoría</option>
-                            {allCatalogCategoryOptions.map((category) => (
+                            {rootCatalogCategoryOptions.map((category) => (
                               <option key={`slider-category-${slider.slot}-${category.id}`} value={category.key}>
-                                {`${"  ".repeat(Math.max(0, (category.level || 1) - 1))}${category.name}`}
+                                {category.name}
                               </option>
                             ))}
                             </select>
