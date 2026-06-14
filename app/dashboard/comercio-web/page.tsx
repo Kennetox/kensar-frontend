@@ -9874,17 +9874,6 @@ export default function ComercioWebPage() {
                                 />
                               </div>
 
-                              <LabeledField label="Resumen">
-                                <input
-                                  value={catalogComboEditor.short_description}
-                                  onChange={(event) =>
-                                    handleComboField("short_description", event.target.value)
-                                  }
-                                  placeholder="Kit para cámaras de seguridad"
-                                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
-                                />
-                              </LabeledField>
-
                               <LabeledField label="Descripción larga">
                                 <textarea
                                   value={catalogComboEditor.long_description}
