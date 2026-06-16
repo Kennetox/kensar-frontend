@@ -9929,6 +9929,22 @@ export default function ComercioWebPage() {
                               </LabeledField>
 
                               <LabeledField label="Garantía (detalle)">
+                                <select
+                                  value=""
+                                  onChange={(event) => {
+                                    const selected = event.target.value;
+                                    if (!selected) return;
+                                    handleComboField("warranty_text", selected);
+                                  }}
+                                  className="mb-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
+                                >
+                                  <option value="">Seleccionar opción rápida</option>
+                                  {WARRANTY_PRESET_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
                                 <input
                                   value={catalogComboEditor.warranty_text}
                                   onChange={(event) => handleComboField("warranty_text", event.target.value)}
