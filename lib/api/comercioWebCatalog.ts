@@ -122,6 +122,7 @@ export type ComercioWebCombo = {
   gallery_urls: string[];
   video_url?: string | null;
   badge_text?: string | null;
+  badge_color?: string | null;
   category_key?: string | null;
   price: number;
   compare_price?: number | null;
@@ -149,6 +150,7 @@ export type ComercioWebComboCreate = {
   gallery_urls?: string[];
   video_url?: string | null;
   badge_text?: string | null;
+  badge_color?: string | null;
   category_key?: string | null;
   price: number;
   compare_price?: number | null;
@@ -277,6 +279,7 @@ function normalizeCombo(combo: ComercioWebCombo): ComercioWebCombo {
     gallery_urls: Array.isArray(combo.gallery_urls) ? combo.gallery_urls : [],
     video_url: typeof combo.video_url === "string" ? combo.video_url : null,
     badge_text: typeof combo.badge_text === "string" ? combo.badge_text : null,
+    badge_color: typeof combo.badge_color === "string" ? combo.badge_color : null,
     category_key: typeof combo.category_key === "string" ? combo.category_key : null,
     compare_price:
       typeof combo.compare_price === "number" ? combo.compare_price : null,

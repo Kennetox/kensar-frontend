@@ -204,6 +204,7 @@ type ComboEditorState = {
   gallery_urls: string[];
   video_url: string;
   badge_text: string;
+  badge_color: string;
   price_mode: "auto" | "fixed" | "discount";
   price: string;
   compare_price: string;
@@ -552,6 +553,7 @@ const emptyComboEditorState: ComboEditorState = {
   gallery_urls: [],
   video_url: "",
   badge_text: "",
+  badge_color: "#475569",
   price_mode: "auto",
   price: "",
   compare_price: "",
@@ -614,6 +616,14 @@ function formatMoney(value: number): string {
     currency: "COP",
     maximumFractionDigits: 0,
   });
+}
+
+const DEFAULT_COMBO_BADGE_COLOR = "#475569";
+const COMBO_BADGE_SWATCHES = ["#ef4444", "#f97316", "#f59e0b", "#22c55e", "#0ea5e9", "#8b5cf6", "#475569"];
+
+function normalizeHexColor(value: string | null | undefined): string {
+  const trimmed = (value || "").trim();
+  return /^#([0-9a-fA-F]{6})$/.test(trimmed) ? trimmed : DEFAULT_COMBO_BADGE_COLOR;
 }
 
 function formatCopInputValue(value: string): string {
@@ -1608,6 +1618,7 @@ function buildComboEditorState(combo: ComercioWebCombo | null): ComboEditorState
       : [],
     video_url: combo.video_url || "",
     badge_text: combo.badge_text || "",
+    badge_color: normalizeHexColor(combo.badge_color),
     price_mode: priceMode,
     price: price || calculatedTotal,
     compare_price: comparePrice,
@@ -3755,6 +3766,9 @@ export default function ComercioWebPage() {
         .filter(Boolean),
       video_url: catalogComboEditor.video_url.trim() || null,
       badge_text: catalogComboEditor.badge_text.trim() || null,
+      badge_color: catalogComboEditor.badge_text.trim()
+        ? normalizeHexColor(catalogComboEditor.badge_color)
+        : null,
       price_mode: catalogComboEditor.price_mode,
       price,
       compare_price: comparePrice,
@@ -9648,6 +9662,35 @@ export default function ComercioWebPage() {
                                     placeholder="Oferta"
                                     className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
                                   />
+                                </LabeledField>
+                                <LabeledField label="Color del badge">
+                                  <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <div className="flex items-center gap-3">
+                                      <input
+                                        type="color"
+                                        value={normalizeHexColor(catalogComboEditor.badge_color)}
+                                        onChange={(event) => handleComboField("badge_color", event.target.value)}
+                                        className="h-10 w-12 cursor-pointer rounded-md border border-slate-200 bg-white p-1"
+                                        aria-label="Seleccionar color del badge"
+                                      />
+                                      <span className="text-xs font-medium text-slate-600">
+                                        {normalizeHexColor(catalogComboEditor.badge_color)}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {COMBO_BADGE_SWATCHES.map((swatch) => (
+                                        <button
+                                          key={swatch}
+                                          type="button"
+                                          onClick={() => handleComboField("badge_color", swatch)}
+                                          className="h-6 w-6 rounded-full border border-slate-200"
+                                          style={{ backgroundColor: swatch }}
+                                          aria-label={`Seleccionar color ${swatch}`}
+                                          title={swatch}
+                                        />
+                                      ))}
+                                    </div>
+                                  </div>
                                 </LabeledField>
                                 <LabeledField label="Modo de stock">
                                   <select
