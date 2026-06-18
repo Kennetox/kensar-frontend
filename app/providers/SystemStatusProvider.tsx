@@ -5,8 +5,8 @@ import { getApiBase } from "@/lib/api/base";
 
 type HealthState = "healthy" | "degraded" | "maintenance";
 
-const POLL_MS = 15000;
-const REQUEST_TIMEOUT_MS = 2500;
+const POLL_MS = 30000;
+const REQUEST_TIMEOUT_MS = 5000;
 const FAILURES_TO_OPEN = 3;
 const SUCCESSES_TO_CLOSE = 2;
 const MIN_DEGRADED_SECONDS = 20;
