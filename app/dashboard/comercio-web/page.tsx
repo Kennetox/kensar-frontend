@@ -561,7 +561,7 @@ const emptyComboEditorState: ComboEditorState = {
   published: false,
   featured: false,
   sort_order: "0",
-  visible_when_out_of_stock: true,
+  visible_when_out_of_stock: false,
   active: true,
   warranty_text: "",
   technical_specs: [],

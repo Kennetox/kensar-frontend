@@ -383,6 +383,16 @@ function resolveSeparatedBaseTotal(
   order?: SeparatedOrderSummary | null
 ): number | null {
   if (!sale || !sale.is_separated) return null;
+  const derivedTotal = computeSeparatedSaleTotal(sale);
+  if (derivedTotal != null && derivedTotal > 0) {
+    if (order?.total_amount && order.total_amount > 0) {
+      if (Math.abs(order.total_amount - derivedTotal) <= 0.01) {
+        return order.total_amount;
+      }
+      return derivedTotal;
+    }
+    return derivedTotal;
+  }
   if (order?.total_amount && order.total_amount > 0) {
     return order.total_amount;
   }
@@ -451,6 +461,28 @@ function computeLineBreakdown(item: SaleItem) {
     subtotal,
     unitGross,
   };
+}
+
+function computeSeparatedSaleTotal(sale: Sale | null): number | null {
+  if (!sale) return null;
+  const items = sale.items ?? [];
+  if (!items.length) {
+    return sale.total ?? null;
+  }
+
+  const lineData = items.map(computeLineBreakdown);
+  const lineNetTotal = lineData.reduce((sum, line) => sum + line.total, 0);
+  const cartDiscountValue = Math.max(0, sale.cart_discount_value ?? 0);
+  const cartDiscountPercent = Math.max(0, sale.cart_discount_percent ?? 0);
+  const surchargeAmount = Math.max(0, sale.surcharge_amount ?? 0);
+
+  return Math.max(
+    0,
+    lineNetTotal -
+      cartDiscountValue -
+      (lineNetTotal * cartDiscountPercent) / 100 +
+      surchargeAmount
+  );
 }
 
 function computeSaleSummary(sale: Sale | null) {
@@ -1546,8 +1578,15 @@ export default function SalesHistoryContent({
   }, [selectedSeparatedOrder, selectedSale]);
   const separatedBalance = useMemo(() => {
     if (!selectedSeparatedOrder) return null;
-    return Math.max(selectedSeparatedOrder.balance ?? 0, 0);
-  }, [selectedSeparatedOrder]);
+    const total = selectedSaleSeparatedTotal ?? selectedSeparatedOrder.total_amount ?? 0;
+    const paid =
+      (selectedSeparatedOrder.initial_payment ?? 0) +
+      selectedSeparatedOrder.payments.reduce(
+        (sum, payment) => sum + (payment.amount ?? 0),
+        0
+      );
+    return Math.max(total - paid, 0);
+  }, [selectedSaleSeparatedTotal, selectedSeparatedOrder]);
   const separatedDueDateLabel = useMemo(() => {
     if (!selectedSeparatedOrder?.due_date) return "—";
     return formatDateTime(selectedSeparatedOrder.due_date);
@@ -1610,10 +1649,18 @@ export default function SalesHistoryContent({
     ];
     return {
       dueDate: selectedSeparatedOrder.due_date,
-      balance: Math.max(selectedSeparatedOrder.balance ?? 0, 0),
+      balance: Math.max(
+        (selectedSaleSeparatedTotal ?? selectedSeparatedOrder.total_amount ?? 0) -
+          (selectedSeparatedOrder.initial_payment +
+            selectedSeparatedOrder.payments.reduce(
+              (sum, payment) => sum + (payment.amount ?? 0),
+              0
+            )),
+        0
+      ),
       payments,
     };
-  }, [selectedSeparatedOrder, selectedSale, mapPaymentMethod]);
+  }, [selectedSeparatedOrder, selectedSale, selectedSaleSeparatedTotal, mapPaymentMethod]);
 
   useEffect(() => {
     if (!selectedSale) {
@@ -1672,6 +1719,10 @@ export default function SalesHistoryContent({
         total: Math.max(0, (data?.total ?? item.total ?? 0) - cartShare),
       };
     });
+    const ticketItemsTotal = ticketItems.reduce(
+      (sum, item) => sum + (item.total ?? 0),
+      0
+    );
 
     const lineDiscountTotal = breakdown.reduce(
       (sum, line) => sum + (line?.discount ?? 0),
@@ -1681,17 +1732,23 @@ export default function SalesHistoryContent({
       (sum, line) => sum + (line?.subtotal ?? 0),
       0
     );
-    const ticketSeparatedTotal = resolveSeparatedBaseTotal(
-      selectedSale,
-      sumSaleItemsTotal(selectedSale.items),
-      selectedSeparatedOrder
+    const ticketSurchargeAmount =
+      selectedSale.surcharge_amount ??
+      selectedSaleSummary.surcharge ??
+      0;
+    const hasTicketSurcharge = ticketSurchargeAmount > 0;
+    const ticketSurchargeLabel = hasTicketSurcharge
+      ? selectedSale.surcharge_label ??
+        selectedSaleSummary.surchargeLabel ??
+        "Incremento"
+      : undefined;
+    const ticketSurchargeDisplay = hasTicketSurcharge
+      ? formatMoney(ticketSurchargeAmount)
+      : undefined;
+    const total = Math.max(
+      0,
+      ticketItemsTotal + ticketSurchargeAmount + totalAdjustmentsDelta
     );
-    const baseTotal =
-      ticketSeparatedTotal ??
-      (selectedSaleSummary.total > 0
-        ? selectedSaleSummary.total
-        : selectedSale.total ?? subtotal);
-    const total = baseTotal + totalAdjustmentsDelta;
 
     const cartDiscountLabel =
       cartDiscountValue > 0
@@ -1737,21 +1794,7 @@ export default function SalesHistoryContent({
       (sum, entry) => sum + (entry.amount ?? 0),
       0
     );
-
     const changeAmount = selectedSale.is_separated ? 0 : paymentsTotal - total;
-    const ticketSurchargeAmount =
-      selectedSale.surcharge_amount ??
-      selectedSaleSummary.surcharge ??
-      0;
-    const hasTicketSurcharge = ticketSurchargeAmount > 0;
-    const ticketSurchargeLabel = hasTicketSurcharge
-      ? selectedSale.surcharge_label ??
-        selectedSaleSummary.surchargeLabel ??
-        "Incremento"
-      : undefined;
-    const ticketSurchargeDisplay = hasTicketSurcharge
-      ? formatMoney(ticketSurchargeAmount)
-      : undefined;
 
     const html = renderSaleTicket({
       documentNumber:

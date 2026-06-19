@@ -90,8 +90,15 @@ type SuccessSaleSummary = {
   separatedInfo?: {
     dueDate?: string | null;
     balance: number;
+    initialPayments: { label: string; amount: number; paidAt?: string; method?: string }[];
     payments: { label: string; amount: number; paidAt?: string; method?: string }[];
   };
+};
+
+type SeparatedInitialPaymentLine = {
+  id: number;
+  method: PaymentMethodSlug;
+  amount: number;
 };
 
 const RESUME_HELD_SALE_KEY_BASE = "kensar_pos_resume_held_sale_v1";
@@ -183,6 +190,12 @@ export default function PagoPage() {
 
   const [method, setMethod] = useState<PaymentMethodSlug>("cash");
   const [paidValue, setPaidValue] = useState<string>("0");
+  const [separatedInitialPayments, setSeparatedInitialPayments] = useState<
+    SeparatedInitialPaymentLine[]
+  >([]);
+  const [selectedSeparatedPaymentId, setSelectedSeparatedPaymentId] = useState<
+    number | null
+  >(null);
   const [message, setMessage] = useState<string | null>(null);
   const [, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(
@@ -475,8 +488,6 @@ export default function PagoPage() {
   const paymentCatalog = usePaymentMethodsCatalog({
     fallbackToDefault: false,
   });
-  const [separatedPaymentMethod, setSeparatedPaymentMethod] =
-    useState<PaymentMethodSlug | null>(null);
   const creditMethodSlugs = useMemo(
     () => new Set(["credito", "separado"]),
     []
@@ -508,21 +519,35 @@ export default function PagoPage() {
     () => activePaymentMethods.filter((m) => !creditMethodSlugs.has(m.slug)),
     [activePaymentMethods, creditMethodSlugs]
   );
-  const separatedMethodLabel = separatedPaymentMethod
-    ? getMethodLabel(separatedPaymentMethod)
-    : null;
+  const separatedInitialPaymentTotal = useMemo(
+    () =>
+      separatedInitialPayments.reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+    [separatedInitialPayments]
+  );
+  const separatedInitialPaymentLabel = useMemo(() => {
+    if (!isSeparatedSale) return null;
+    if (separatedInitialPayments.length === 0) return "Sin método asignado";
+    if (separatedInitialPayments.length === 1) {
+      return "Abono inicial";
+    }
+    return "Pago mixto";
+  }, [isSeparatedSale, separatedInitialPayments]);
   const effectivePaymentLabel =
-    isSeparatedSale && separatedMethodLabel
-      ? separatedMethodLabel
+    isSeparatedSale && separatedInitialPaymentLabel
+      ? separatedInitialPaymentLabel
       : methodLabel;
 
   // Métodos que requieren escribir un monto manual
   // (los que permiten cambio o los que manejan crédito/separado)
-  const requiresManualAmount = allowsChange || isCreditLike;
+  const requiresManualAmount = allowsChange || (isCreditLike && !isSeparatedSale);
   const confirmDisabled =
     !cart.length ||
     !hasActivePaymentMethods ||
-    (requiresManualAmount && (!paidValue || paidValue === "0"));
+    (isSeparatedSale
+      ? separatedInitialPayments.length === 0 ||
+        separatedInitialPaymentTotal <= 0 ||
+        separatedInitialPaymentTotal - totalToPay > 0.01
+      : requiresManualAmount && (!paidValue || paidValue === "0"));
   const canSubmitWithEnter = !confirmDisabled && !successSale;
 
   useEffect(() => {
@@ -535,12 +560,28 @@ export default function PagoPage() {
 
   useEffect(() => {
     if (method !== "separado") {
-      setSeparatedPaymentMethod(null);
+      setSeparatedInitialPayments([]);
+      setSelectedSeparatedPaymentId(null);
+      setPaidValue("0");
+      return;
     }
-  }, [method]);
+    if (separatedMethodOptions.length > 0 && separatedInitialPayments.length === 0) {
+      const line: SeparatedInitialPaymentLine = {
+        id: Date.now(),
+        method: separatedMethodOptions[0].slug,
+        amount: 0,
+      };
+      setSeparatedInitialPayments([line]);
+      setSelectedSeparatedPaymentId(line.id);
+      setPaidValue("0");
+    }
+  }, [method, separatedInitialPayments.length, separatedMethodOptions]);
 
 
   useEffect(() => {
+    if (isSeparatedSale) {
+      return;
+    }
     if (requiresManualAmount) {
       // Para efectivo / crédito / separado, empezamos en 0
       setPaidValue("0");
@@ -549,7 +590,7 @@ export default function PagoPage() {
 
     // Métodos sin monto manual (tarjeta, qr, nequi, daviplata): pagado = total
     setPaidValue(totalToPay.toString());
-  }, [requiresManualAmount, totalToPay]);
+  }, [isSeparatedSale, requiresManualAmount, totalToPay]);
 
   const paidNumber =
     Number(paidValue.toString().replace(/[^\d.]/g, "")) || 0;
@@ -564,6 +605,12 @@ export default function PagoPage() {
     displayChangeLabel = "Cambio";
   }
   // Crédito / Separado: mostramos saldo pendiente (nunca negativo)
+  else if (isSeparatedSale) {
+    const saldoPendiente = Math.max(0, totalToPay - separatedInitialPaymentTotal);
+    displayChange = saldoPendiente;
+    displayChangeLabel = "Saldo pendiente";
+  }
+  // Crédito: mostramos saldo pendiente (nunca negativo)
   else if (isCreditLike) {
     const saldoPendiente = Math.max(0, totalToPay - paidNumber);
     displayChange = saldoPendiente;
@@ -653,7 +700,50 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
 
   function handleSelectMethod(slug: PaymentMethodSlug) {
     setMethod(slug);
-    setSeparatedPaymentMethod(null);
+    if (slug !== "separado") {
+      setSeparatedInitialPayments([]);
+      setSelectedSeparatedPaymentId(null);
+      setPaidValue("0");
+    }
+  }
+
+  function handleSeparatedMethodClick(slug: PaymentMethodSlug) {
+    const existing = separatedInitialPayments.find((entry) => entry.method === slug);
+    if (existing) {
+      setSelectedSeparatedPaymentId(existing.id);
+      return;
+    }
+    const line: SeparatedInitialPaymentLine = {
+      id: Date.now(),
+      method: slug,
+      amount: 0,
+    };
+    setSeparatedInitialPayments((prev) => [...prev, line]);
+    setSelectedSeparatedPaymentId(line.id);
+  }
+
+  function handleSeparatedAmountChange(lineId: number, rawValue: string) {
+    const normalized = sanitizeAmountInput(rawValue);
+    const numeric = Number(normalized) || 0;
+    setSeparatedInitialPayments((prev) =>
+      prev.map((entry) =>
+        entry.id === lineId ? { ...entry, amount: numeric } : entry
+      )
+    );
+    setSelectedSeparatedPaymentId(lineId);
+  }
+
+  function handleSeparatedDeleteLine(lineId: number) {
+    setSeparatedInitialPayments((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((entry) => entry.id !== lineId);
+      if (selectedSeparatedPaymentId === lineId) {
+        const fallback = next[0];
+        setSelectedSeparatedPaymentId(fallback.id);
+        setPaidValue(Math.max(0, Math.round(fallback.amount)).toString());
+      }
+      return next;
+    });
   }
 
   async function handleConfirm() {
@@ -672,15 +762,27 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         return;
       }
 
-      if (isSeparatedSale && !separatedPaymentMethod) {
-        setErrorWithToast(
-          "Selecciona el método del abono inicial para este separado."
-        );
-        return;
+      if (isSeparatedSale) {
+        if (separatedInitialPayments.length === 0) {
+          setErrorWithToast(
+            "Agrega al menos un método para el abono inicial."
+          );
+          return;
+        }
+        if (separatedInitialPaymentTotal <= 0) {
+          setErrorWithToast("El abono inicial debe ser mayor a cero.");
+          return;
+        }
+        if (separatedInitialPaymentTotal - totalToPay > 0.01) {
+          setErrorWithToast(
+            "El abono inicial dividido no puede superar el total de la venta."
+          );
+          return;
+        }
       }
 
       // Solo validamos que el efectivo no sea menor al total
-      if (!isCreditLike && allowsChange && paidNumber < totalToPay) {
+      if (!isSeparatedSale && !isCreditLike && allowsChange && paidNumber < totalToPay) {
         setErrorWithToast(
           "El monto pagado en efectivo no puede ser menor al total."
         );
@@ -696,13 +798,17 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       }
 
       // 1) Monto pagado y cambio (igual que antes)
-      const paid_amount = isCreditLike
+      const paid_amount = isSeparatedSale
+        ? separatedInitialPaymentTotal
+        : isCreditLike
         ? paidNumber
         : allowsChange
         ? paidNumber
         : totalToPay;
 
-      const change_amount = isCreditLike
+      const change_amount = isSeparatedSale
+        ? 0
+        : isCreditLike
         ? 0
         : allowsChange
         ? Math.max(0, paidNumber - totalToPay)
@@ -859,14 +965,15 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
 
       // 3) Si es CRÉDITO / SEPARADO, mandamos también la lista de pagos
       //    (por ahora es solo un pago, pero ya queda registrado en sale_payments).
-      if (isCreditLike) {
-        const paymentEntryMethod =
-          isSeparatedSale && separatedPaymentMethod
-            ? separatedPaymentMethod
-            : method;
+      if (isSeparatedSale) {
+        basePayload.payments = separatedInitialPayments.map((entry) => ({
+          method: entry.method,
+          amount: entry.amount,
+        }));
+      } else if (isCreditLike) {
         basePayload.payments = [
           {
-            method: paymentEntryMethod,
+            method,
             amount: paid_amount,
           },
         ];
@@ -1069,10 +1176,6 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       let shouldShowChange = false;
       let saleResponse: SaleResponse | null = null;
 
-      const saleItemsNetTotal = saleItemsPayload.reduce(
-        (sum, item) => sum + (item.total ?? item.quantity * item.unit_price),
-        0
-      );
       let saleTotalForSummary = totalToPay;
       if (isSeparatedSale) {
         const order: SeparatedOrder = await res.json();
@@ -1082,13 +1185,6 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           order.sale_document_number ??
           `V-${order.sale_id.toString().padStart(6, "0")}`;
         serverNotes = order.notes;
-        const pendingBalance = Math.max(order.balance ?? 0, 0);
-        changeAmountForTicket = pendingBalance > 0 ? -pendingBalance : 0;
-        if (order.total_amount && order.total_amount > 0) {
-          saleTotalForSummary = order.total_amount;
-        } else {
-          saleTotalForSummary = saleItemsNetTotal;
-        }
         if (!ticketCustomer && order.customer_name) {
           ticketCustomer = {
             id: order.customer_id ?? order.sale_id,
@@ -1103,24 +1199,36 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         if (order.surcharge_label) {
           responseSurchargeLabel = order.surcharge_label;
         }
-        const paymentsForTicket = [
-          {
-            label: "Abono inicial",
-            amount: order.initial_payment,
-            paidAt: order.created_at,
-            method: effectivePaymentLabel,
-          },
-          ...order.payments.map((payment, idx) => ({
-            label: `Abono ${idx + 2}`,
+        const initialPaymentsForTicket =
+          order.initial_payments && order.initial_payments.length > 0
+            ? order.initial_payments.map((payment, idx) => ({
+                label:
+                  order.initial_payments.length > 1
+                    ? `Abono inicial ${idx + 1}`
+                    : "Abono inicial",
+                amount: payment.amount,
+                paidAt: payment.paid_at ?? order.created_at,
+                method: getMethodLabel(payment.method),
+              }))
+            : [
+                {
+                  label: "Abono inicial",
+                  amount: order.initial_payment,
+                  paidAt: order.created_at,
+                  method: effectivePaymentLabel,
+                },
+              ];
+        const laterPaymentsForTicket = order.payments.map((payment, idx) => ({
+            label: `Abono ${initialPaymentsForTicket.length + idx + 1}`,
             amount: payment.amount,
             paidAt: payment.paid_at,
-            method: getMethodLabel(payment.method),
-          })),
-        ];
+              method: getMethodLabel(payment.method),
+            }));
         separatedInfo = {
           dueDate: order.due_date ?? basePayload.due_date,
-          balance: pendingBalance,
-          payments: paymentsForTicket,
+          balance: Math.max(order.balance ?? 0, 0),
+          initialPayments: initialPaymentsForTicket,
+          payments: laterPaymentsForTicket,
         };
       } else {
         saleResponse = await res.json();
@@ -1189,6 +1297,24 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         responseItems,
         responseCartDiscountValue
       );
+      const ticketItemsTotal = ticketLineBreakdown.lines.reduce(
+        (sum, line) => sum + (line.displayTotal ?? 0),
+        0
+      );
+      saleTotalForSummary = Math.max(
+        0,
+        ticketItemsTotal + (summarySurchargeAmount ?? 0)
+      );
+      if (isSeparatedSale && separatedInfo) {
+        const separatedPending = Math.max(
+          0,
+          saleTotalForSummary - separatedInitialPaymentTotal
+        );
+        separatedInfo = {
+          ...separatedInfo,
+          balance: separatedPending,
+        };
+      }
       const saleItemsForTicket = ticketLineBreakdown.lines.map((line) => ({
         name: line.name,
         quantity: line.quantity,
@@ -1208,9 +1334,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
               },
             ];
       const ticketTotal =
-        typeof saleResponse?.total === "number"
-          ? saleResponse.total
-          : saleTotalForSummary;
+        saleTotalForSummary;
       const ticketChangeAmount =
         typeof saleResponse?.change_amount === "number"
           ? saleResponse.change_amount
@@ -1544,9 +1668,10 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       ? `#${saleNumber.toString().padStart(3, "0")}`
       : "—";
   const successSeparatedInfo = successSale?.separatedInfo;
-  const successInitialPayment = successSeparatedInfo?.payments?.[0];
+  const successInitialPayments = successSeparatedInfo?.initialPayments ?? [];
+  const successFollowupPayments = successSeparatedInfo?.payments ?? [];
   const successPaidTotal = successSeparatedInfo
-    ? successSeparatedInfo.payments.reduce(
+    ? [...successInitialPayments, ...successFollowupPayments].reduce(
         (sum, payment) => sum + Number(payment.amount || 0),
         0
       )
@@ -1783,71 +1908,144 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                       {formatMoney(totalToPay)}
                     </span>
                   </div>
-                  <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                    <span className="text-slate-300">Pagado</span>
-                    <div className="flex items-center gap-3">
-                      <input
-                        ref={paidInputRef}
-                        type="text"
-                        inputMode="numeric"
-                        disabled={!requiresManualAmount}
-                        required={requiresManualAmount}
-                        value={formatInputAmount(paidValue)}
-                        onChange={(e) => setPaidValue(sanitizeAmountInput(e.target.value))}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            void handleConfirm();
+                  {!isSeparatedSale ? (
+                    <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                      <span className="text-slate-300">Pagado</span>
+                      <div className="flex items-center gap-3">
+                        <input
+                          ref={paidInputRef}
+                          type="text"
+                          inputMode="numeric"
+                          disabled={!requiresManualAmount}
+                          required={requiresManualAmount}
+                          value={formatInputAmount(paidValue)}
+                          onChange={(e) => setPaidValue(sanitizeAmountInput(e.target.value))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleConfirm();
+                            }
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              handleCancel();
+                            }
+                          }}
+                          className={
+                            "w-56 rounded-xl border px-4 py-3 text-2xl bg-slate-900/80 " +
+                            "border-slate-700 text-slate-50 outline-none shadow-inner " +
+                            "focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/40 " +
+                            (!requiresManualAmount ? "opacity-40 cursor-not-allowed" : "")
                           }
-                          if (e.key === "Escape") {
-                            e.preventDefault();
-                            handleCancel();
-                          }
-                        }}
-                        className={
-                          "w-56 rounded-xl border px-4 py-3 text-2xl bg-slate-900/80 " +
-                          "border-slate-700 text-slate-50 outline-none shadow-inner " +
-                          "focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/40 " +
-                          (!requiresManualAmount ? "opacity-40 cursor-not-allowed" : "")
-                        }
-                      />
-                    </div>
-                  </div>
-                  {isSeparatedSale && (
-                    <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-                      <div className="flex justify-between text-base text-slate-400">
-                        <span>Método del abono inicial</span>
-                        {separatedMethodLabel && (
-                          <span className="text-slate-100 font-semibold">
-                            {separatedMethodLabel}
-                          </span>
-                        )}
+                        />
                       </div>
-                      <p className="text-base text-slate-500">
-                        Selecciona cómo recibe el pago inicial (efectivo, tarjeta,
-                        transferencia, etc.). Este método se imprimirá en el ticket.
-                      </p>
+                    </div>
+                  ) : null}
+                  {isSeparatedSale && (
+                    <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                          <p className="text-base font-semibold text-slate-100">
+                            Abono inicial
+                          </p>
+                          <p className="text-base text-slate-500">
+                            Puedes registrar uno o varios métodos en el mismo abono.
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-right">
+                          <p className="text-xs uppercase tracking-wide text-slate-500">
+                            {separatedInitialPayments.length > 1 ? "Pago mixto" : "Abono inicial"}
+                          </p>
+                          <p className="text-lg font-semibold text-slate-100">
+                            {formatMoney(separatedInitialPaymentTotal)}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            Pendiente: {formatMoney(Math.max(0, totalToPay - separatedInitialPaymentTotal))}
+                          </p>
+                        </div>
+                      </div>
+
                       <div className="flex flex-wrap gap-2">
                         {separatedMethodOptions.length === 0 && (
                           <span className="text-base text-red-400">
                             No hay métodos disponibles para registrar el abono.
                           </span>
                         )}
-                        {separatedMethodOptions.map((option) => (
-                          <button
-                            key={option.id ?? option.slug}
-                            type="button"
-                            onClick={() => setSeparatedPaymentMethod(option.slug)}
-                            className={
-                              "px-4 py-2 rounded-lg border text-base transition-colors " +
-                              (separatedPaymentMethod === option.slug
-                                ? "bg-emerald-500 text-slate-900 border-emerald-400"
-                                : "bg-slate-900/80 border-slate-700 hover:border-emerald-400/60")
-                            }
-                          >
-                            {option.name}
-                          </button>
-                        ))}
+                        {separatedMethodOptions.map((option) => {
+                          const isUsed = separatedInitialPayments.some(
+                            (entry) => entry.method === option.slug
+                          );
+                          return (
+                            <button
+                              key={option.id ?? option.slug}
+                              type="button"
+                              onClick={() => handleSeparatedMethodClick(option.slug)}
+                              className={
+                                "px-4 py-2 rounded-lg border text-base transition-colors " +
+                                (isUsed
+                                  ? "bg-emerald-500 text-slate-900 border-emerald-400"
+                                  : "bg-slate-900/80 border-slate-700 hover:border-emerald-400/60")
+                              }
+                            >
+                              {option.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="space-y-3">
+                        {separatedInitialPayments.map((line, index) => {
+                          const activeLine = selectedSeparatedPaymentId === line.id;
+                          return (
+                            <div
+                              key={line.id}
+                              className={
+                                "rounded-xl border px-4 py-4 transition-colors " +
+                                (activeLine
+                                  ? "border-emerald-400 bg-emerald-500/10"
+                                  : "border-slate-700 bg-slate-900/60")
+                              }
+                              onClick={() => setSelectedSeparatedPaymentId(line.id)}
+                              role="button"
+                              tabIndex={0}
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-sm uppercase tracking-wide text-slate-500">
+                                    {separatedInitialPayments.length > 1 ? `Método ${index + 1}` : "Método"}
+                                  </p>
+                                  <p className="text-lg font-semibold text-slate-100">
+                                    {getMethodLabel(line.method)}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleSeparatedDeleteLine(line.id);
+                                  }}
+                                  disabled={separatedInitialPayments.length <= 1}
+                                  className="rounded-full border border-slate-700 px-3 py-1 text-sm text-slate-200 hover:border-rose-400 hover:text-rose-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  Quitar
+                                </button>
+                              </div>
+                              <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_200px] md:items-center">
+                                <div className="text-sm text-slate-400">
+                                  Usa este valor para el aporte de este método.
+                                </div>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={formatInputAmount(String(line.amount))}
+                                  onChange={(e) =>
+                                    handleSeparatedAmountChange(line.id, e.target.value)
+                                  }
+                                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-xl text-slate-50 outline-none shadow-inner focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/40"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -2031,21 +2229,52 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                         {successSale.total.toLocaleString("es-CO")}
                       </span>
                     </div>
-                    {successInitialPayment && (
-                      <>
-                        <div className="flex justify-between py-1 text-slate-400">
-                          <span>Método abono inicial</span>
-                          <span className="text-slate-100">
-                            {successInitialPayment.method ?? "No especificado"}
-                          </span>
+                    {successInitialPayments.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-xs uppercase tracking-wide text-slate-500">
+                          Abono inicial
                         </div>
-                        <div className="flex justify-between py-1 text-slate-300">
-                          <span>Abono inicial</span>
-                          <span className="font-semibold text-slate-100">
-                            {Number(successInitialPayment.amount || 0).toLocaleString("es-CO")}
-                          </span>
+                        {successInitialPayments.length > 1 && (
+                          <div className="text-xs text-emerald-300">
+                            Pago mixto
+                          </div>
+                        )}
+                        {successInitialPayments.map((payment, index) => (
+                          <div
+                            key={`${payment.method ?? "initial"}-${index}`}
+                            className="flex justify-between py-1 text-slate-300"
+                          >
+                            <span>
+                              {successInitialPayments.length > 1
+                                ? `Abono inicial ${index + 1}`
+                                : "Abono inicial"}
+                            </span>
+                            <span className="text-slate-100">
+                              {payment.method ?? "No especificado"} ·{" "}
+                              {Number(payment.amount || 0).toLocaleString("es-CO")}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {successFollowupPayments.length > 0 && (
+                      <div className="space-y-2 pt-2">
+                        <div className="text-xs uppercase tracking-wide text-slate-500">
+                          Abonos posteriores
                         </div>
-                      </>
+                        {successFollowupPayments.map((payment, index) => (
+                          <div
+                            key={`${payment.method ?? "payment"}-${index}`}
+                            className="flex justify-between py-1 text-slate-400"
+                          >
+                            <span>{payment.label ?? `Abono ${index + 2}`}</span>
+                            <span className="text-slate-100">
+                              {payment.method ?? "No especificado"} ·{" "}
+                              {Number(payment.amount || 0).toLocaleString("es-CO")}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     )}
                     <div className="flex justify-between py-1 text-rose-300">
                       <span>Saldo pendiente</span>

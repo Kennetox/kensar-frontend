@@ -123,6 +123,7 @@ export type SaleTicketOptions = {
   separatedInfo?: {
     dueDate?: string | null;
     balance?: number;
+    initialPayments?: SeparatedTicketPayment[];
     payments: SeparatedTicketPayment[];
   };
 };
@@ -215,6 +216,33 @@ export type ClosureTicketOptions = {
     dayWithPendingTotal?: number;
   };
 };
+
+function normalizeClosureSeparatedSummary(
+  separatedSummary?: ClosureTicketOptions["separatedSummary"]
+): ClosureTicketOptions["separatedSummary"] | undefined {
+  if (!separatedSummary) {
+    return undefined;
+  }
+
+  const reservedTotal = Number(separatedSummary.reservedTotal ?? 0);
+  const paymentsTotal = Number(separatedSummary.paymentsTotal ?? 0);
+  const pendingFromBalance = Math.max(reservedTotal - paymentsTotal, 0);
+  const pendingTotal = pendingFromBalance > 0 ? pendingFromBalance : Number(separatedSummary.pendingTotal ?? 0);
+  const dayCollectedTotal = Number(
+    separatedSummary.dayCollectedTotal ?? reservedTotal - pendingTotal
+  );
+
+  return {
+    tickets: Number(separatedSummary.tickets ?? 0),
+    paymentsTotal,
+    reservedTotal,
+    pendingTotal,
+    dayCollectedTotal,
+    dayWithPendingTotal:
+      separatedSummary.dayWithPendingTotal ??
+      dayCollectedTotal + pendingTotal,
+  };
+}
 
 const FALLBACK_COMPANY = {
   name: "Kensar Electronic",
@@ -649,7 +677,10 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
       : "";
   const separatedBlock = options.separatedInfo
     ? (() => {
-        const payments = options.separatedInfo?.payments ?? [];
+        const payments = [
+          ...(options.separatedInfo?.initialPayments ?? []),
+          ...(options.separatedInfo?.payments ?? []),
+        ];
         const paymentsRows = payments.length
           ? payments
               .map((entry) => {
@@ -1458,6 +1489,9 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
   const phone = settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
   const email = settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
   const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
+  const normalizedSeparatedSummary = normalizeClosureSeparatedSummary(
+    options.separatedSummary
+  );
 
   const hasDetailedMethods = options.methods.some(
     (method) =>
@@ -1522,7 +1556,7 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
             (entry) => {
               const stationPendingFallback =
                 options.stationBreakdown?.length === 1
-                  ? Number(options.separatedSummary?.pendingTotal ?? 0)
+                  ? Number(normalizedSeparatedSummary?.pendingTotal ?? 0)
                   : 0;
               const stationPendingRaw = Number(entry.pendingTotal ?? 0);
               const stationPending =
@@ -1543,10 +1577,10 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
   const showSeparatedClarification = Boolean(options.separatedSummary);
   const dayBaseWithoutSeparated = showSeparatedClarification
     ? Number(
-        options.separatedSummary?.dayCollectedTotal ??
+        normalizedSeparatedSummary?.dayCollectedTotal ??
           Math.max(
             Number(options.totals.net) -
-              Number(options.separatedSummary?.pendingTotal ?? 0),
+              Number(normalizedSeparatedSummary?.pendingTotal ?? 0),
             0
           )
       )
@@ -1695,20 +1729,20 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
           : ""
       }
       ${
-        options.separatedSummary
+        normalizedSeparatedSummary
           ? `<hr />
         <div class="block">
           <div class="muted">Ventas por separado</div>
-          <div class="row"><span>Tickets registrados</span><span>${options.separatedSummary.tickets}</span></div>
+          <div class="row"><span>Tickets registrados</span><span>${normalizedSeparatedSummary.tickets}</span></div>
           <div class="row"><span>Abonos cobrados</span><span>${formatMoney(
-              options.separatedSummary.paymentsTotal
+              normalizedSeparatedSummary.paymentsTotal
             )}</span></div>
           <div class="row"><span>Total reservado</span><span>${formatMoney(
-              options.separatedSummary.reservedTotal
+              normalizedSeparatedSummary.reservedTotal
             )}</span></div>
           <div class="row"><span>Saldo pendiente</span><span>${
-            options.separatedSummary.pendingTotal > 0
-              ? formatMoney(options.separatedSummary.pendingTotal)
+            normalizedSeparatedSummary.pendingTotal > 0
+              ? formatMoney(normalizedSeparatedSummary.pendingTotal)
               : "$ 0"
           }</span></div>
         </div>`

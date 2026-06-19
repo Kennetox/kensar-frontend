@@ -253,6 +253,29 @@ type ClosureRecord = {
   } | null;
 };
 
+function normalizeClosureSeparatedSummary(
+  summary?: ClosureRecord["separated_summary"] | null
+): ClosureRecord["separated_summary"] | null {
+  if (!summary) return null;
+  const reservedTotal = Number(summary.reserved_total ?? 0);
+  const paymentsTotal = Number(summary.payments_total ?? 0);
+  const pendingFromBalance = Math.max(reservedTotal - paymentsTotal, 0);
+  const pendingTotal = pendingFromBalance > 0 ? pendingFromBalance : Number(summary.pending_total ?? 0);
+  const dayCollectedTotal = Number(
+    summary.day_collected_total ?? reservedTotal - pendingTotal
+  );
+
+  return {
+    tickets: Number(summary.tickets ?? 0),
+    payments_total: paymentsTotal,
+    reserved_total: reservedTotal,
+    pending_total: pendingTotal,
+    day_collected_total: dayCollectedTotal,
+    day_with_pending_total:
+      summary.day_with_pending_total ?? dayCollectedTotal + pendingTotal,
+  };
+}
+
 type ReceivingDocumentRecord = {
   id: number;
   lot_number: string;
@@ -4249,8 +4272,11 @@ useEffect(() => {
       printClosureTicket(selectedClosure, posSettings);
     }
   };
+  const selectedClosureSeparatedSummary = selectedClosure
+    ? normalizeClosureSeparatedSummary(selectedClosure.separated_summary)
+    : null;
   const selectedClosureDisplayTotal = selectedClosure
-    ? selectedClosure.separated_summary?.day_collected_total ??
+    ? selectedClosureSeparatedSummary?.day_collected_total ??
       selectedClosure.net_amount ??
       selectedClosure.total_amount ??
       0
@@ -6012,7 +6038,7 @@ useEffect(() => {
                     </div>
                   </div>
 
-                  {selectedClosure.separated_summary && (
+                  {selectedClosureSeparatedSummary && (
                     <div className="rounded-2xl border border-slate-800/60 bg-slate-950/30 p-3">
                       <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
                         Resumen de separados
@@ -6023,7 +6049,7 @@ useEffect(() => {
                             Tickets de separados
                           </span>
                           <span className="text-slate-100">
-                            {selectedClosure.separated_summary.tickets ?? 0}
+                            {selectedClosureSeparatedSummary.tickets ?? 0}
                           </span>
                         </div>
                         <div className="flex flex-col">
@@ -6031,7 +6057,7 @@ useEffect(() => {
                             Abonos de separados
                           </span>
                           <span className="text-slate-100">
-                            {formatMoney(selectedClosure.separated_summary.payments_total ?? 0)}
+                            {formatMoney(selectedClosureSeparatedSummary.payments_total ?? 0)}
                           </span>
                         </div>
                         <div className="flex flex-col">
@@ -6039,7 +6065,7 @@ useEffect(() => {
                             Reservado
                           </span>
                           <span className="text-slate-100">
-                            {formatMoney(selectedClosure.separated_summary.reserved_total ?? 0)}
+                            {formatMoney(selectedClosureSeparatedSummary.reserved_total ?? 0)}
                           </span>
                         </div>
                         <div className="flex flex-col">
@@ -6047,7 +6073,7 @@ useEffect(() => {
                             Saldo pendiente de separados
                           </span>
                           <span className="text-slate-100">
-                            {formatMoney(selectedClosure.separated_summary.pending_total ?? 0)}
+                            {formatMoney(selectedClosureSeparatedSummary.pending_total ?? 0)}
                           </span>
                         </div>
                       </div>

@@ -48,6 +48,13 @@ export type SeparatedOrder = {
   updated_at: string;
   completed_at?: string | null;
   cancelled_at?: string | null;
+  initial_payments: {
+    id: number;
+    method: string;
+    amount: number;
+    paid_at?: string;
+    reference?: string | null;
+  }[];
   payments: SeparatedOrderPayment[];
   surcharge_amount?: number | null;
   surcharge_label?: string | null;

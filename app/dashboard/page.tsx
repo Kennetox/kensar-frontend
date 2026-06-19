@@ -30,7 +30,10 @@ import {
 } from "@/lib/time/bogota";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
 
-const DASHBOARD_CACHE_PREFIX = "kensar_dashboard_cache:v2:";
+const DASHBOARD_CACHE_PREFIX = "kensar_dashboard_cache:v3:";
+const RECENT_SALES_CACHE_KEY = "recent-sales:v3";
+const SEPARATED_ORDERS_CACHE_KEY = "separated-orders:v3";
+const PAYMENT_METHODS_CACHE_VERSION = "v3";
 const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
 
 type DashboardCacheEntry<T> = {
@@ -92,6 +95,10 @@ type RecentSaleItem = {
   name?: string;
   product_sku?: string | null;
   quantity: number;
+  total?: number;
+  unit_price?: number;
+  unit_price_original?: number;
+  line_discount_value?: number;
 };
 
 type RecentSale = {
@@ -109,6 +116,8 @@ type RecentSale = {
   customer_name?: string | null;
   surcharge_amount?: number | null;
   surcharge_label?: string | null;
+  cart_discount_value?: number | null;
+  cart_discount_percent?: number | null;
   items?: RecentSaleItem[];
   refund_count?: number;
   refunded_total?: number | null;
@@ -119,6 +128,12 @@ type RecentSale = {
   initial_payment_method?: string | null;
   initial_payment_amount?: number | null;
   balance?: number | null;
+  initial_payments?: {
+    id?: number;
+    method: string;
+    amount: number;
+    paid_at?: string;
+  }[];
 };
 
 type RecentSalePayment = {
@@ -126,6 +141,91 @@ type RecentSalePayment = {
   method: string;
   amount: number;
 };
+
+function sumSeparatedOrderPayments(order?: SeparatedOrder | null): number {
+  if (!order) return 0;
+  return (order.payments ?? []).reduce(
+    (sum, payment) =>
+      payment.status === "voided" ? sum : sum + Math.max(Number(payment.amount ?? 0), 0),
+    0
+  );
+}
+
+function roundCurrencyToUnit(value: number): number {
+  return Math.floor(Number(value ?? 0) + 0.5);
+}
+
+function resolveSaleTotalFromItems(sale?: RecentSale | null): number {
+  const saleTotal = Math.max(Number(sale?.total ?? 0), 0);
+  if (saleTotal > 0) {
+    return roundCurrencyToUnit(saleTotal);
+  }
+
+  let itemTotals = 0;
+  let itemHasData = false;
+  (sale?.items ?? []).forEach((item) => {
+    const raw = item as RecentSaleItem & {
+      total?: number;
+      unit_price?: number;
+      unit_price_original?: number;
+      line_discount_value?: number;
+    };
+    const quantity = Math.max(Number(raw.quantity ?? 0), 0);
+    const unitPriceOriginal = Math.max(
+      Number(raw.unit_price_original ?? raw.unit_price ?? 0),
+      0
+    );
+    const lineDiscount = Math.max(Number(raw.line_discount_value ?? 0), 0);
+    if (quantity > 0 && unitPriceOriginal > 0) {
+      itemHasData = true;
+      itemTotals += Math.max(quantity * unitPriceOriginal - lineDiscount, 0);
+      return;
+    }
+    if (typeof raw.total === "number" && raw.total > 0) {
+      itemHasData = true;
+      itemTotals += Math.max(raw.total, 0);
+    }
+  });
+  if (!itemHasData || itemTotals <= 0) {
+    return roundCurrencyToUnit(saleTotal);
+  }
+
+  const cartDiscountValue = Math.max(Number(sale?.cart_discount_value ?? 0), 0);
+  const cartDiscountPercent = Math.max(Number(sale?.cart_discount_percent ?? 0), 0);
+  const surchargeAmount = Math.max(Number(sale?.surcharge_amount ?? 0), 0);
+  const percentDiscount =
+    cartDiscountPercent > 0 ? (itemTotals * cartDiscountPercent) / 100.0 : 0;
+  return roundCurrencyToUnit(
+    Math.max(0, itemTotals - cartDiscountValue - percentDiscount + surchargeAmount)
+  );
+}
+
+function resolveSeparatedOrderTotal(
+  order?: SeparatedOrder | null,
+  sale?: RecentSale | null
+): number {
+  const saleItemsTotal = resolveSaleTotalFromItems(sale);
+  if (saleItemsTotal > 0) return saleItemsTotal;
+  const orderTotal = Math.max(Number(order?.total_amount ?? 0), 0);
+  if (orderTotal > 0) return orderTotal;
+  const saleTotal = Math.max(Number(sale?.total ?? 0), 0);
+  if (saleTotal > 0) return saleTotal;
+  return 0;
+}
+
+function resolveSeparatedOrderPending(
+  order?: SeparatedOrder | null,
+  sale?: RecentSale | null
+): number {
+  const total = resolveSeparatedOrderTotal(order, sale);
+  if (total <= 0) return 0;
+  const initial = Math.max(
+    Number(sale?.initial_payment_amount ?? order?.initial_payment ?? 0),
+    0
+  );
+  const laterPayments = sumSeparatedOrderPayments(order);
+  return Math.max(total - initial - laterPayments, 0);
+}
 
 type DocumentAdjustmentRecord = {
   id: number;
@@ -257,6 +357,8 @@ type SeparatedPaymentRow = {
   balance: number;
   customerName?: string | null;
   isInitialPayment?: boolean;
+  initialPaymentCount?: number;
+  initialPaymentMethodLabels?: string[];
 };
 
 type RecentIncrementRow = {
@@ -732,7 +834,7 @@ export default function DashboardHomePage() {
           recentChangeFeed: RecentChange[];
           recentReturnFeed: ReturnRecord[];
           recentAdjustments: Record<number, DocumentAdjustmentRecord[]>;
-        }>("recent-sales");
+        }>(RECENT_SALES_CACHE_KEY);
         if (cached) {
           setRecentSales(cached.recentSales);
           setRecentChanges(cached.recentChanges);
@@ -824,7 +926,7 @@ export default function DashboardHomePage() {
       } else {
         setRecentAdjustments({});
       }
-      writeDashboardCache("recent-sales", {
+      writeDashboardCache(RECENT_SALES_CACHE_KEY, {
         recentSales: sales,
         recentChanges: changesMap,
         recentChangeFeed: changesFeed,
@@ -916,7 +1018,7 @@ export default function DashboardHomePage() {
     }
     if (!token) return;
     const force = options?.force === true;
-    const cacheKey = "separated-orders:v2";
+    const cacheKey = SEPARATED_ORDERS_CACHE_KEY;
     try {
       setSeparatedLoading(true);
       setSeparatedError(null);
@@ -955,7 +1057,7 @@ export default function DashboardHomePage() {
       try {
         setPaymentMethodsLoading(true);
         setPaymentMethodsError(null);
-        const cacheKey = `payment-methods:${range}:${startDate ?? "none"}`;
+        const cacheKey = `payment-methods:${PAYMENT_METHODS_CACHE_VERSION}:${range}:${startDate ?? "none"}`;
         if (!force) {
           const cached = readDashboardCache<PaymentMethodSummary[]>(cacheKey);
           if (cached) {
@@ -1080,6 +1182,7 @@ export default function DashboardHomePage() {
   const separatedPaymentRows = useMemo<SeparatedPaymentRow[]>(() => {
     const rows: SeparatedPaymentRow[] = [];
     const recentSeparatedSales = new Map<number, RecentSale>();
+    const separatedOrderBySaleId = new Map<number, SeparatedOrder>();
     const shortenText = (value: string, maxLength = 28) =>
       value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
     const buildDetail = (sale: RecentSale) => {
@@ -1098,6 +1201,9 @@ export default function DashboardHomePage() {
       if (!sale.is_separated) return;
       recentSeparatedSales.set(sale.id, sale);
     });
+    separatedOrders.forEach((order) => {
+      separatedOrderBySaleId.set(order.sale_id, order);
+    });
 
     separatedOrders.forEach((order) => {
       const isCancelledOrder =
@@ -1107,7 +1213,7 @@ export default function DashboardHomePage() {
       const orderDetail = saleDetail ? buildDetail(saleDetail) : "Sin detalle";
       const saleCreatedAt =
         saleDetail?.created_at ?? order.created_at ?? order.payments?.[0]?.paid_at ?? "";
-      const orderBalance = Math.max(Number(order.balance ?? 0), 0);
+      const orderBalance = resolveSeparatedOrderPending(order, saleDetail ?? null);
       order.payments?.forEach((payment) => {
         if (payment.status === "voided") return;
         const amount = Math.max(Number(payment.amount ?? 0), 0);
@@ -1139,7 +1245,15 @@ export default function DashboardHomePage() {
       if (initialAmount <= 0) return;
       const saleDateKey = getBogotaDateKey(sale.created_at);
       if (saleDateKey !== todayDateKey) return;
-      const saleBalance = Math.max(Number(sale.balance ?? 0), 0);
+      const saleBalance = Math.max(
+        resolveSaleTotalFromItems(sale) - initialAmount,
+        0
+      );
+      const initialPayments = separatedOrderBySaleId.get(sale.id)?.initial_payments ?? [];
+      const initialPaymentCount = initialPayments.length;
+      const initialPaymentMethodLabels = initialPayments.map((payment) =>
+        getPaymentLabel(payment.method, payment.method)
+      );
 
       rows.push({
         rowId: `initial-${sale.id}`,
@@ -1158,6 +1272,8 @@ export default function DashboardHomePage() {
         detail: buildDetail(sale),
         customerName: sale.customer_name ?? null,
         isInitialPayment: true,
+        initialPaymentCount,
+        initialPaymentMethodLabels,
       });
     });
 
@@ -1167,7 +1283,7 @@ export default function DashboardHomePage() {
       if (timeDiff !== 0) return timeDiff;
       return b.paymentId - a.paymentId;
     });
-  }, [recentSales, separatedOrders, todayDateKey]);
+  }, [getPaymentLabel, recentSales, separatedOrders, todayDateKey]);
   const trendDayMap = useMemo(() => {
     const map = new Map<string, { total: number; tickets: number }>();
     if (!data) return map;
@@ -1684,6 +1800,12 @@ export default function DashboardHomePage() {
       paymentsTotal: 0,
     };
 
+    const recentSeparatedSales = new Map<number, RecentSale>();
+    recentSales.forEach((sale) => {
+      if (!sale.is_separated) return;
+      recentSeparatedSales.set(sale.id, sale);
+    });
+
     const initialPaymentMap = new Map<
       number,
       { method: string; amount: number }
@@ -1703,10 +1825,11 @@ export default function DashboardHomePage() {
       if (isCancelledOrder) return;
       const orderDate = parseDateInput(order.created_at);
       const orderInRange = orderDate ? isWithinRange(orderDate) : false;
+      const saleDetail = recentSeparatedSales.get(order.sale_id) ?? null;
       if (orderInRange) {
         separatedSummary.tickets += 1;
-        separatedSummary.reservedTotal += order.total_amount ?? 0;
-        separatedSummary.pendingTotal += Math.max(order.balance ?? 0, 0);
+        separatedSummary.reservedTotal += resolveSeparatedOrderTotal(order, saleDetail);
+        separatedSummary.pendingTotal += resolveSeparatedOrderPending(order, saleDetail);
         const initial = initialPaymentMap.get(order.sale_id);
         if (initial && initial.amount > 0) {
           separatedSummary.paymentsTotal += initial.amount;
@@ -2701,7 +2824,7 @@ export default function DashboardHomePage() {
                           className={`font-semibold ${
                             separatedOverview.pendingTotal === 0
                               ? "text-emerald-700"
-                              : "text-rose-300"
+                              : "text-rose-600"
                           }`}
                         >
                           {formatMoney(separatedOverview.pendingTotal)}
@@ -2819,6 +2942,7 @@ export default function DashboardHomePage() {
                           rowIndex % 2 === 0
                             ? "dashboard-row-zebra"
                             : "dashboard-row-zebra-alt";
+                        const methodLabels = row.initialPaymentMethodLabels ?? [];
                         return (
                           <div
                             key={row.rowId}
@@ -2845,13 +2969,33 @@ export default function DashboardHomePage() {
                                 hour12: true,
                               })}
                               {row.isInitialPayment && (
-                                <div className="text-[10px] uppercase tracking-[0.08em] text-emerald-700 whitespace-nowrap">
-                                  Abono inicial
+                                <div className="flex flex-wrap items-center gap-1">
+                                  <div className="text-[10px] uppercase tracking-[0.08em] text-emerald-700 whitespace-nowrap">
+                                    Abono inicial
+                                  </div>
+                                  {(row.initialPaymentCount ?? 0) > 1 && (
+                                    <div className="inline-flex items-center rounded-full border border-sky-300/80 bg-sky-100 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] font-semibold text-sky-800 whitespace-nowrap shadow-sm">
+                                      Pago mixto
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
-                            <div className="truncate whitespace-nowrap text-slate-300" title={row.detail}>
+                            <div
+                              className="truncate whitespace-nowrap text-slate-300"
+                              title={
+                                row.isInitialPayment &&
+                                methodLabels.length > 1
+                                  ? `${row.detail} · ${methodLabels.join(" + ")}`
+                                  : row.detail
+                              }
+                            >
                               {row.detail}
+                              {row.isInitialPayment && methodLabels.length > 1 && (
+                                <div className="mt-0.5 inline-flex items-center rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200 whitespace-nowrap">
+                                  {methodLabels.join(" + ")}
+                                </div>
+                              )}
                             </div>
                             <div className="text-slate-100 font-medium truncate whitespace-nowrap">
                               {row.saleDocumentNumber}
@@ -2860,7 +3004,9 @@ export default function DashboardHomePage() {
                               {row.customerName ?? "Sin cliente"}
                             </div>
                             <div className="text-right text-slate-200 truncate whitespace-nowrap">
-                              {getPaymentLabel(row.method, row.method)}
+                              {row.isInitialPayment && (row.initialPaymentCount ?? 0) > 1
+                                ? "Pago mixto"
+                                : getPaymentLabel(row.method, row.method)}
                             </div>
                             <div className="text-right font-semibold text-emerald-700 whitespace-nowrap">
                               {formatMoney(row.amount)}

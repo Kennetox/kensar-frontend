@@ -675,24 +675,34 @@ export default function AbonosPage() {
 
   const historyEntries = useMemo(() => {
     if (!result) return [];
-    const initialMethod =
-      saleDetail?.payments?.[0]?.method ??
-      result.payments?.[0]?.method ??
-      "";
-    const entries = [
-      {
-        id: "initial",
-        label: "Abono inicial",
-        method: initialMethod,
-        amount: result.initial_payment ?? 0,
-        paid_at: result.created_at,
-        reference: null as string | null,
-      },
-    ];
+    const initialEntries =
+      result.initial_payments && result.initial_payments.length > 0
+        ? result.initial_payments.map((payment, index) => ({
+            id: `initial-${payment.id ?? index}`,
+            label:
+              result.initial_payments.length > 1
+                ? `Abono inicial ${index + 1}`
+                : "Abono inicial",
+            method: payment.method,
+            amount: payment.amount,
+            paid_at: payment.paid_at ?? result.created_at,
+            reference: payment.reference ?? null,
+          }))
+        : [
+            {
+              id: "initial",
+              label: "Abono inicial",
+              method: saleDetail?.payments?.[0]?.method ?? "",
+              amount: result.initial_payment ?? 0,
+              paid_at: result.created_at,
+              reference: null as string | null,
+            },
+          ];
+    const entries = [...initialEntries];
     result.payments.forEach((payment, index) => {
       entries.push({
         id: `payment-${payment.id}`,
-        label: `Abono ${index + 2}`,
+        label: `Abono ${initialEntries.length + index + 1}`,
         method: payment.method,
         amount: payment.amount,
         paid_at: payment.paid_at,
@@ -888,23 +898,33 @@ export default function AbonosPage() {
         amount: totalPaid,
       },
     ];
-    const initialMethodLabel = getMethodLabel(
-      saleDetail?.payments?.[0]?.method ?? result?.payments?.[0]?.method ?? ""
-    );
-    const separatedPayments = [
-      {
-        label: "Abono inicial",
-        amount: order.initial_payment,
-        paidAt: order.created_at,
-        method: initialMethodLabel,
-      },
-      ...order.payments.map((payment, idx) => ({
-        label: `Abono ${idx + 2}`,
+    const initialPayments = order.initial_payments?.length
+      ? order.initial_payments.map((payment, idx) => ({
+          label:
+            order.initial_payments.length > 1
+              ? `Abono inicial ${idx + 1}`
+              : "Abono inicial",
+          amount: payment.amount,
+          paidAt: payment.paid_at ?? order.created_at,
+          method: getMethodLabel(payment.method),
+        }))
+      : [
+          {
+            label: "Abono inicial",
+            amount: order.initial_payment,
+            paidAt: order.created_at,
+            method:
+              getMethodLabel(
+                saleDetail?.payments?.[0]?.method ?? result?.payments?.[0]?.method ?? ""
+              ) || "No especificado",
+          },
+        ];
+    const separatedPayments = order.payments.map((payment, idx) => ({
+        label: `Abono ${initialPayments.length + idx + 1}`,
         amount: payment.amount,
         paidAt: payment.paid_at,
         method: getMethodLabel(payment.method),
-      })),
-    ];
+      }));
     return renderSaleTicket({
       documentNumber:
         order.sale_document_number ??
@@ -930,6 +950,7 @@ export default function AbonosPage() {
       separatedInfo: {
         dueDate: order.due_date,
         balance: Math.max(order.balance ?? 0, 0),
+        initialPayments,
         payments: separatedPayments,
       },
       settings: posSettings,
@@ -1071,7 +1092,7 @@ export default function AbonosPage() {
                 ) : null}
                 {result.payments.length === 0 && (
                   <p className="text-sm text-slate-400">
-                    Solo figura el pago inicial.
+                    Todavía no hay abonos posteriores.
                   </p>
                 )}
               </div>
@@ -1149,6 +1170,23 @@ export default function AbonosPage() {
                           <p className="text-lg font-semibold">
                             {formatMoney(result.initial_payment)}
                           </p>
+                          <div className="mt-2 space-y-1 text-xs text-slate-400">
+                            {(result.initial_payments ?? []).map((payment, index) => (
+                              <div
+                                key={`${payment.method}-${payment.id ?? index}`}
+                                className="flex items-center justify-between gap-3"
+                              >
+                                <span>
+                                  {(result.initial_payments ?? []).length > 1
+                                    ? `Método ${index + 1}`
+                                    : "Método"}
+                                </span>
+                                <span className="text-slate-200">
+                                  {getMethodLabel(payment.method)} · {formatMoney(payment.amount)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                         <div className="rounded-xl border border-slate-800 px-4 py-3">
                           <p className="text-xs uppercase text-slate-400 tracking-wide">
