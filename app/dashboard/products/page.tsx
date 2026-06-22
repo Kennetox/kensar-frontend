@@ -545,10 +545,14 @@ export default function ProductsPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<ProductForm>(emptyForm);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [editOriginalActive, setEditOriginalActive] = useState<boolean | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleteOptionsOpen, setDeleteOptionsOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [deleteCloseOnSuccess, setDeleteCloseOnSuccess] = useState(false);
+  const [deactivateWarningSource, setDeactivateWarningSource] = useState<"delete" | "edit">(
+    "delete"
+  );
   const [deactivateStockWarningOpen, setDeactivateStockWarningOpen] = useState(false);
   const [deactivateStockWarningLoading, setDeactivateStockWarningLoading] = useState(false);
   const [deactivateStockWarningError, setDeactivateStockWarningError] = useState<string | null>(
@@ -1345,6 +1349,7 @@ export default function ProductsPage() {
     setEditId(null);
     setEditForm(emptyForm);
     setEditOriginalPrice(null);
+    setEditOriginalActive(null);
     setProductAppearanceError(null);
     setProductAppearanceSuccess(null);
     setProductAppearanceLoading(false);
@@ -1392,6 +1397,7 @@ export default function ProductsPage() {
     setConfirmDeleteOpen(false);
     setDeleteTargetId(null);
     setDeleteCloseOnSuccess(false);
+    setDeactivateWarningSource("delete");
     closeDeactivateStockWarning();
   }
 
@@ -1401,6 +1407,7 @@ export default function ProductsPage() {
     setDeactivateStockWarningError(null);
     setDeactivateStockWarningProduct(null);
     setDeactivateStockWarningQty(0);
+    setDeactivateWarningSource("delete");
   }
 
   function closeEditPriceWarning() {
@@ -2186,6 +2193,7 @@ export default function ProductsPage() {
   function openEdit(product: Product) {
     setEditId(product.id);
     setEditOriginalPrice(product.price);
+    setEditOriginalActive(product.active);
     setEditForm({
       sku: product.sku ?? "",
       name: product.name,
@@ -2391,6 +2399,9 @@ export default function ProductsPage() {
       originalPrice != null &&
       Math.abs(nextPrice - originalPrice) > 0.01;
 
+    const activeChangedToInactive =
+      editOriginalActive === true && editForm.active === false;
+
     if (priceChanged && token) {
       try {
         setError(null);
@@ -2413,6 +2424,34 @@ export default function ProductsPage() {
         return;
       } finally {
         setEditPriceWarningLoading(false);
+      }
+    }
+
+    if (activeChangedToInactive && token) {
+      try {
+        setError(null);
+        setDeactivateStockWarningError(null);
+        setDeactivateStockWarningLoading(true);
+        const qtyOnHand = await getProductQtyOnHandForWarning(token, editId);
+        if (qtyOnHand > 0) {
+          setDeleteTargetId(editId);
+          setDeleteCloseOnSuccess(true);
+          setDeactivateWarningSource("edit");
+          setDeactivateStockWarningProduct(products.find((item) => item.id === editId) ?? null);
+          setDeactivateStockWarningQty(qtyOnHand);
+          setDeactivateStockWarningOpen(true);
+          return;
+        }
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "No se pudo verificar el stock antes de desactivar.";
+        setDeactivateStockWarningError(message);
+        setError(message);
+        return;
+      } finally {
+        setDeactivateStockWarningLoading(false);
       }
     }
 
@@ -2561,6 +2600,7 @@ export default function ProductsPage() {
         setConfirmDeleteOpen(false);
         setDeleteTargetId(id);
         setDeleteCloseOnSuccess(Boolean(options?.closeOnSuccess));
+        setDeactivateWarningSource("delete");
         setDeactivateStockWarningProduct(product);
         setDeactivateStockWarningQty(qtyOnHand);
         setDeactivateStockWarningOpen(true);
@@ -3611,6 +3651,13 @@ export default function ProductsPage() {
                 type="button"
                 onClick={() => {
                   if (deleteTargetId == null) return;
+                  if (deactivateWarningSource === "edit") {
+                    closeDeactivateStockWarning();
+                    void performEditSave().finally(() => {
+                      // handleCloseEditModal already closes the edit dialog on success.
+                    });
+                    return;
+                  }
                   void handleDeactivateProduct(deleteTargetId, {
                     closeOnSuccess: deleteCloseOnSuccess,
                   }).finally(() => {
