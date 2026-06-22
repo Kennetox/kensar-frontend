@@ -557,6 +557,12 @@ export default function ProductsPage() {
   const [deactivateStockWarningProduct, setDeactivateStockWarningProduct] =
     useState<Product | null>(null);
   const [deactivateStockWarningQty, setDeactivateStockWarningQty] = useState(0);
+  const [editPriceWarningOpen, setEditPriceWarningOpen] = useState(false);
+  const [editPriceWarningLoading, setEditPriceWarningLoading] = useState(false);
+  const [editPriceWarningError, setEditPriceWarningError] = useState<string | null>(null);
+  const [editPriceWarningProduct, setEditPriceWarningProduct] = useState<Product | null>(null);
+  const [editPriceWarningQty, setEditPriceWarningQty] = useState(0);
+  const [editOriginalPrice, setEditOriginalPrice] = useState<number | null>(null);
   const [editSkuLocked, setEditSkuLocked] = useState(true);
   const [editBarcodeLocked, setEditBarcodeLocked] = useState(true);
   const [editLabelFormatLocked, setEditLabelFormatLocked] = useState(true);
@@ -1338,6 +1344,7 @@ export default function ProductsPage() {
     setEditOpen(false);
     setEditId(null);
     setEditForm(emptyForm);
+    setEditOriginalPrice(null);
     setProductAppearanceError(null);
     setProductAppearanceSuccess(null);
     setProductAppearanceLoading(false);
@@ -1347,6 +1354,7 @@ export default function ProductsPage() {
     setDeleteOptionsOpen(false);
     setDeleteTargetId(null);
     setDeleteCloseOnSuccess(false);
+    closeEditPriceWarning();
     setEditSkuLocked(true);
     setEditBarcodeLocked(true);
     setEditLabelFormatLocked(true);
@@ -1393,6 +1401,14 @@ export default function ProductsPage() {
     setDeactivateStockWarningError(null);
     setDeactivateStockWarningProduct(null);
     setDeactivateStockWarningQty(0);
+  }
+
+  function closeEditPriceWarning() {
+    setEditPriceWarningOpen(false);
+    setEditPriceWarningLoading(false);
+    setEditPriceWarningError(null);
+    setEditPriceWarningProduct(null);
+    setEditPriceWarningQty(0);
   }
 
   const productGroupPaths = useMemo(() => {
@@ -2161,6 +2177,7 @@ export default function ProductsPage() {
   // abrir modal de edición
   function openEdit(product: Product) {
     setEditId(product.id);
+    setEditOriginalPrice(product.price);
     setEditForm({
       sku: product.sku ?? "",
       name: product.name,
@@ -2279,13 +2296,8 @@ export default function ProductsPage() {
     }
   }
 
-  // guardar cambios
-  async function handleSubmitEdit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function performEditSave() {
     if (editId == null) return;
-    if (!confirmUngroupedProduct(editForm.group_name)) {
-      return;
-    }
 
     try {
       setSavingEdit(true);
@@ -2295,10 +2307,8 @@ export default function ProductsPage() {
 
       if (editForm.name.trim() !== "") payload.name = editForm.name.trim();
       if (editForm.sku !== "") payload.sku = editForm.sku;
-      if (editForm.price !== "")
-        payload.price = parseMoneyValue(editForm.price);
-      if (editForm.cost !== "")
-        payload.cost = parseMoneyValue(editForm.cost);
+      if (editForm.price !== "") payload.price = parseMoneyValue(editForm.price);
+      if (editForm.cost !== "") payload.cost = parseMoneyValue(editForm.cost);
       if (editForm.stock_min !== "")
         payload.stock_min = parseInt(editForm.stock_min || "0", 10);
       if (editForm.preferred_qty !== "")
@@ -2320,7 +2330,11 @@ export default function ProductsPage() {
       payload.supplier = editForm.supplier || null;
       payload.low_stock_alert = editForm.low_stock_alert;
       payload.allow_price_change = editForm.allow_price_change;
-      payload.cost_suggestion_meta = buildCostSuggestionMeta(editCostSuggestion, editForm.cost, "edit");
+      payload.cost_suggestion_meta = buildCostSuggestionMeta(
+        editCostSuggestion,
+        editForm.cost,
+        "edit"
+      );
 
       if (!authHeaders) throw new Error("Sesión expirada.");
       const res = await fetch(`${API_BASE}/products/${editId}`, {
@@ -2342,9 +2356,7 @@ export default function ProductsPage() {
       }
 
       const updated: Product = await res.json();
-      setProducts((prev) =>
-        prev.map((p) => (p.id === updated.id ? updated : p)),
-      );
+      setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
 
       handleCloseEditModal();
       setSuccessMessage("Producto actualizado correctamente.");
@@ -2354,6 +2366,53 @@ export default function ProductsPage() {
     } finally {
       setSavingEdit(false);
     }
+  }
+
+  // guardar cambios
+  async function handleSubmitEdit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (editId == null) return;
+    if (!confirmUngroupedProduct(editForm.group_name)) {
+      return;
+    }
+
+    const nextPrice = editForm.price !== "" ? parseMoneyValue(editForm.price) : null;
+    const originalPrice = editOriginalPrice;
+    const priceChanged =
+      nextPrice != null &&
+      originalPrice != null &&
+      Math.abs(nextPrice - originalPrice) > 0.01;
+
+    if (priceChanged && token) {
+      try {
+        setError(null);
+        setEditPriceWarningError(null);
+        setEditPriceWarningLoading(true);
+        const history = await fetchInventoryProductHistory(token, editId, {
+          skip: 0,
+          limit: 1,
+        });
+        const qtyOnHand = Number(history.qty_on_hand ?? 0);
+        if (qtyOnHand > 0) {
+          setEditPriceWarningProduct(products.find((item) => item.id === editId) ?? null);
+          setEditPriceWarningQty(qtyOnHand);
+          setEditPriceWarningOpen(true);
+          return;
+        }
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "No se pudo verificar el stock antes de cambiar el precio.";
+        setEditPriceWarningError(message);
+        setError(message);
+        return;
+      } finally {
+        setEditPriceWarningLoading(false);
+      }
+    }
+
+    await performEditSave();
   }
 
   useEffect(() => {
@@ -3565,6 +3624,74 @@ export default function ProductsPage() {
                   </>
                 ) : (
                   "Sí, desactivar igual"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editPriceWarningOpen && editId != null && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 px-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-red-500/50 bg-slate-950 p-6 text-slate-100 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-red-300">
+                  Alerta de etiquetas e inventario
+                </p>
+                <h3 className="mt-1 text-lg font-semibold">
+                  Cambiaste el precio con stock disponible
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditPriceWarning}
+                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-slate-500"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-50">
+              <p className="font-medium">
+                {editPriceWarningProduct?.name
+                  ? `El producto “${editPriceWarningProduct.name}”`
+                  : `El producto #${editId}`}
+                {" "}tiene {editPriceWarningQty.toLocaleString("es-CO")} unidad
+                {editPriceWarningQty === 1 ? "" : "es"} todavía en inventario.
+              </p>
+              <p className="mt-2 text-red-100/90">
+                Si guardas este precio, las unidades ya existentes pueden quedar con
+                etiquetas antiguas. Debes revisar y reimprimir las etiquetas de ese stock
+                para evitar diferencias en caja e inventario.
+              </p>
+            </div>
+            {editPriceWarningError ? (
+              <p className="mt-3 text-xs text-rose-300">{editPriceWarningError}</p>
+            ) : null}
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeEditPriceWarning}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  closeEditPriceWarning();
+                  void performEditSave();
+                }}
+                disabled={editPriceWarningLoading}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {editPriceWarningLoading ? (
+                  <>
+                    Verificando...
+                    <LoadingSpinner size={16} className="!gap-0" />
+                  </>
+                ) : (
+                  "Sí, cambiar precio igual"
                 )}
               </button>
             </div>
