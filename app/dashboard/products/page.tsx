@@ -12,6 +12,7 @@ import React, {
 import Image from "next/image";
 import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
+import { fetchInventoryProductHistory } from "@/lib/api/inventory";
 import LoadingSpinner from "@/app/components/ui/LoadingSpinner";
 
 type Product = {
@@ -548,6 +549,14 @@ export default function ProductsPage() {
   const [deleteOptionsOpen, setDeleteOptionsOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [deleteCloseOnSuccess, setDeleteCloseOnSuccess] = useState(false);
+  const [deactivateStockWarningOpen, setDeactivateStockWarningOpen] = useState(false);
+  const [deactivateStockWarningLoading, setDeactivateStockWarningLoading] = useState(false);
+  const [deactivateStockWarningError, setDeactivateStockWarningError] = useState<string | null>(
+    null
+  );
+  const [deactivateStockWarningProduct, setDeactivateStockWarningProduct] =
+    useState<Product | null>(null);
+  const [deactivateStockWarningQty, setDeactivateStockWarningQty] = useState(0);
   const [editSkuLocked, setEditSkuLocked] = useState(true);
   const [editBarcodeLocked, setEditBarcodeLocked] = useState(true);
   const [editLabelFormatLocked, setEditLabelFormatLocked] = useState(true);
@@ -1375,6 +1384,15 @@ export default function ProductsPage() {
     setConfirmDeleteOpen(false);
     setDeleteTargetId(null);
     setDeleteCloseOnSuccess(false);
+    closeDeactivateStockWarning();
+  }
+
+  function closeDeactivateStockWarning() {
+    setDeactivateStockWarningOpen(false);
+    setDeactivateStockWarningLoading(false);
+    setDeactivateStockWarningError(null);
+    setDeactivateStockWarningProduct(null);
+    setDeactivateStockWarningQty(0);
   }
 
   const productGroupPaths = useMemo(() => {
@@ -2457,6 +2475,49 @@ export default function ProductsPage() {
     }
   }
 
+  async function handleRequestDeactivateProduct(
+    id: number,
+    options?: { closeOnSuccess?: boolean },
+  ) {
+    if (!token) {
+      setError("Sesión expirada.");
+      return;
+    }
+
+    const product = products.find((item) => item.id === id) ?? null;
+
+    try {
+      setError(null);
+      setDeactivateStockWarningError(null);
+      setDeactivateStockWarningLoading(true);
+
+      const history = await fetchInventoryProductHistory(token, id, { skip: 0, limit: 1 });
+      const qtyOnHand = Number(history.qty_on_hand ?? 0);
+
+      if (qtyOnHand > 0) {
+        setDeleteOptionsOpen(false);
+        setConfirmDeleteOpen(false);
+        setDeleteTargetId(id);
+        setDeleteCloseOnSuccess(Boolean(options?.closeOnSuccess));
+        setDeactivateStockWarningProduct(product);
+        setDeactivateStockWarningQty(qtyOnHand);
+        setDeactivateStockWarningOpen(true);
+        return;
+      }
+
+      await handleDeactivateProduct(id, options);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "No se pudo verificar el stock antes de desactivar.";
+      setDeactivateStockWarningError(message);
+      setError(message);
+    } finally {
+      setDeactivateStockWarningLoading(false);
+    }
+  }
+
   async function handleExport(format: "xlsx" | "csv") {
     setExportDialogOpen(false);
     if (!authHeaders) {
@@ -3386,7 +3447,7 @@ export default function ProductsPage() {
               <button
                 type="button"
                 onClick={() =>
-                  void handleDeactivateProduct(deleteTargetId, {
+                  void handleRequestDeactivateProduct(deleteTargetId, {
                     closeOnSuccess: deleteCloseOnSuccess,
                   })
                 }
@@ -3434,6 +3495,77 @@ export default function ProductsPage() {
                 className="px-3 py-2 text-xs rounded-md bg-red-500 text-white font-semibold hover:bg-red-400"
               >
                 Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deactivateStockWarningOpen && deleteTargetId != null && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-amber-500/40 bg-slate-950 p-6 text-slate-100 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-amber-300">
+                  Alerta de inventario
+                </p>
+                <h3 className="mt-1 text-lg font-semibold">
+                  El producto tiene stock positivo
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeDeactivateStockWarning}
+                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-slate-500"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-50">
+              <p>
+                {deactivateStockWarningProduct?.name
+                  ? `El producto “${deactivateStockWarningProduct.name}”`
+                  : `El producto #${deleteTargetId}`}
+                {" "}tiene {deactivateStockWarningQty.toLocaleString("es-CO")} unidad
+                {deactivateStockWarningQty === 1 ? "" : "es"} en inventario.
+              </p>
+              <p className="mt-2 text-amber-100/90">
+                Si lo desactivas, seguirá existiendo stock asociado y no podrás venderlo
+                como producto activo. Verifica si antes debes ajustar o mover ese inventario.
+              </p>
+            </div>
+            {deactivateStockWarningError ? (
+              <p className="mt-3 text-xs text-rose-300">{deactivateStockWarningError}</p>
+            ) : null}
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDeactivateStockWarning}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (deleteTargetId == null) return;
+                  void handleDeactivateProduct(deleteTargetId, {
+                    closeOnSuccess: deleteCloseOnSuccess,
+                  }).finally(() => {
+                    closeDeactivateStockWarning();
+                  });
+                }}
+                disabled={deactivateStockWarningLoading}
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deactivateStockWarningLoading ? (
+                  <>
+                    Verificando...
+                    <LoadingSpinner size={16} className="!gap-0" />
+                  </>
+                ) : (
+                  "Sí, desactivar igual"
+                )}
               </button>
             </div>
           </div>
