@@ -12,7 +12,10 @@ import React, {
 import Image from "next/image";
 import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
-import { fetchInventoryProductHistory } from "@/lib/api/inventory";
+import {
+  fetchInventoryProductHistory,
+  fetchInventoryProducts,
+} from "@/lib/api/inventory";
 import LoadingSpinner from "@/app/components/ui/LoadingSpinner";
 
 type Product = {
@@ -2383,26 +2386,42 @@ export default function ProductsPage() {
       originalPrice != null &&
       Math.abs(nextPrice - originalPrice) > 0.01;
 
-    if (priceChanged && token) {
-      try {
-        setError(null);
-        setEditPriceWarningError(null);
-        setEditPriceWarningLoading(true);
-        const history = await fetchInventoryProductHistory(token, editId, {
-          skip: 0,
-          limit: 1,
-        });
-        const qtyOnHand = Number(history.qty_on_hand ?? 0);
-        if (qtyOnHand > 0) {
-          setEditPriceWarningProduct(products.find((item) => item.id === editId) ?? null);
-          setEditPriceWarningQty(qtyOnHand);
-          setEditPriceWarningOpen(true);
-          return;
-        }
-      } catch (err: unknown) {
-        const message =
-          err instanceof Error
-            ? err.message
+      if (priceChanged && token) {
+        try {
+          setError(null);
+          setEditPriceWarningError(null);
+          setEditPriceWarningLoading(true);
+          let qtyOnHand = 0;
+          const inventoryProbe = await fetchInventoryProducts(token, {
+            skip: 0,
+            limit: 200,
+            search:
+              products.find((item) => item.id === editId)?.sku?.trim() ||
+              products.find((item) => item.id === editId)?.name ||
+              "",
+            sort: "name_asc",
+          });
+          const matchedInventoryRow = inventoryProbe.items.find((row) => row.product_id === editId);
+          if (matchedInventoryRow) {
+            qtyOnHand = Number(matchedInventoryRow.qty_on_hand ?? 0);
+          }
+          if (qtyOnHand <= 0) {
+            const history = await fetchInventoryProductHistory(token, editId, {
+              skip: 0,
+              limit: 1,
+            });
+            qtyOnHand = Number(history.qty_on_hand ?? 0);
+          }
+          if (qtyOnHand > 0) {
+            setEditPriceWarningProduct(products.find((item) => item.id === editId) ?? null);
+            setEditPriceWarningQty(qtyOnHand);
+            setEditPriceWarningOpen(true);
+            return;
+          }
+        } catch (err: unknown) {
+          const message =
+            err instanceof Error
+              ? err.message
             : "No se pudo verificar el stock antes de cambiar el precio.";
         setEditPriceWarningError(message);
         setError(message);
@@ -2550,8 +2569,21 @@ export default function ProductsPage() {
       setDeactivateStockWarningError(null);
       setDeactivateStockWarningLoading(true);
 
-      const history = await fetchInventoryProductHistory(token, id, { skip: 0, limit: 1 });
-      const qtyOnHand = Number(history.qty_on_hand ?? 0);
+      let qtyOnHand = 0;
+      const inventoryProbe = await fetchInventoryProducts(token, {
+        skip: 0,
+        limit: 200,
+        search: product?.sku?.trim() || product?.name || "",
+        sort: "name_asc",
+      });
+      const matchedInventoryRow = inventoryProbe.items.find((row) => row.product_id === id);
+      if (matchedInventoryRow) {
+        qtyOnHand = Number(matchedInventoryRow.qty_on_hand ?? 0);
+      }
+      if (qtyOnHand <= 0) {
+        const history = await fetchInventoryProductHistory(token, id, { skip: 0, limit: 1 });
+        qtyOnHand = Number(history.qty_on_hand ?? 0);
+      }
 
       if (qtyOnHand > 0) {
         setDeleteOptionsOpen(false);
@@ -3633,46 +3665,46 @@ export default function ProductsPage() {
 
       {editPriceWarningOpen && editId != null && (
         <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 px-4">
-          <div className="w-full max-w-2xl rounded-2xl border border-red-500/50 bg-slate-950 p-6 text-slate-100 shadow-2xl">
+          <div className="w-full max-w-2xl rounded-3xl border-2 border-rose-400 bg-slate-950 p-6 text-slate-100 shadow-[0_30px_80px_rgba(15,23,42,0.7)]">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-red-300">
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-rose-300">
                   Alerta de etiquetas e inventario
                 </p>
-                <h3 className="mt-1 text-lg font-semibold">
+                <h3 className="mt-2 text-2xl font-bold text-slate-50">
                   Cambiaste el precio con stock disponible
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={closeEditPriceWarning}
-                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-slate-500"
+                className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm font-semibold text-slate-200 hover:border-slate-500 hover:bg-slate-800"
               >
                 Cerrar
               </button>
             </div>
-            <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-50">
-              <p className="font-medium">
+            <div className="mt-5 rounded-2xl border border-rose-300/60 bg-rose-50 p-5 text-sm text-slate-800">
+              <p className="text-base font-semibold text-slate-950">
                 {editPriceWarningProduct?.name
                   ? `El producto “${editPriceWarningProduct.name}”`
                   : `El producto #${editId}`}
                 {" "}tiene {editPriceWarningQty.toLocaleString("es-CO")} unidad
                 {editPriceWarningQty === 1 ? "" : "es"} todavía en inventario.
               </p>
-              <p className="mt-2 text-red-100/90">
+              <p className="mt-3 leading-6 text-slate-700">
                 Si guardas este precio, las unidades ya existentes pueden quedar con
                 etiquetas antiguas. Debes revisar y reimprimir las etiquetas de ese stock
                 para evitar diferencias en caja e inventario.
               </p>
             </div>
             {editPriceWarningError ? (
-              <p className="mt-3 text-xs text-rose-300">{editPriceWarningError}</p>
+              <p className="mt-3 text-xs font-medium text-rose-300">{editPriceWarningError}</p>
             ) : null}
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={closeEditPriceWarning}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
+                className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:border-slate-500 hover:bg-slate-800"
               >
                 Cancelar
               </button>
@@ -3683,7 +3715,7 @@ export default function ProductsPage() {
                   void performEditSave();
                 }}
                 disabled={editPriceWarningLoading}
-                className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-xl bg-rose-500 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(244,63,94,0.35)] hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {editPriceWarningLoading ? (
                   <>
