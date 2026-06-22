@@ -3605,45 +3605,45 @@ export default function ProductsPage() {
 
       {deactivateStockWarningOpen && deleteTargetId != null && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 px-4">
-          <div className="w-full max-w-lg rounded-2xl border border-amber-500/40 bg-slate-950 p-6 text-slate-100 shadow-2xl">
+          <div className="w-full max-w-lg rounded-2xl border-2 border-amber-400 bg-white p-6 text-slate-900 shadow-[0_30px_80px_rgba(15,23,42,0.45)]">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-amber-300">
+                <p className="text-xs font-bold uppercase tracking-[0.28em] text-amber-600">
                   Alerta de inventario
                 </p>
-                <h3 className="mt-1 text-lg font-semibold">
+                <h3 className="mt-1 text-lg font-semibold text-slate-950">
                   El producto tiene stock positivo
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={closeDeactivateStockWarning}
-                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-slate-500"
+                className="rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400 hover:bg-slate-100"
               >
                 Cerrar
               </button>
             </div>
-            <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-50">
-              <p>
+            <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-slate-800">
+              <p className="text-base font-semibold text-slate-950">
                 {deactivateStockWarningProduct?.name
                   ? `El producto “${deactivateStockWarningProduct.name}”`
                   : `El producto #${deleteTargetId}`}
                 {" "}tiene {deactivateStockWarningQty.toLocaleString("es-CO")} unidad
                 {deactivateStockWarningQty === 1 ? "" : "es"} en inventario.
               </p>
-              <p className="mt-2 text-amber-100/90">
+              <p className="mt-3 leading-6 text-slate-700">
                 Si lo desactivas, seguirá existiendo stock asociado y no podrás venderlo
                 como producto activo. Verifica si antes debes ajustar o mover ese inventario.
               </p>
             </div>
             {deactivateStockWarningError ? (
-              <p className="mt-3 text-xs text-rose-300">{deactivateStockWarningError}</p>
+              <p className="mt-3 text-xs font-medium text-rose-600">{deactivateStockWarningError}</p>
             ) : null}
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={closeDeactivateStockWarning}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:border-slate-400 hover:bg-slate-50"
               >
                 Cancelar
               </button>
@@ -3665,7 +3665,7 @@ export default function ProductsPage() {
                   });
                 }}
                 disabled={deactivateStockWarningLoading}
-                className="inline-flex items-center gap-2 rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {deactivateStockWarningLoading ? (
                   <>
