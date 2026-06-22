@@ -5236,6 +5236,22 @@ useEffect(() => {
                   <div className="text-[11px] uppercase tracking-wide text-slate-500">
                     Detalle de recepción
                   </div>
+                  {selectedReceivingDetail?.lot && (
+                    <div className="rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 text-xs text-slate-200 space-y-1">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-400">Inicio de recepción:</span>
+                        <span className="text-right">{formatDateTime(selectedReceivingDetail.lot.created_at)}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-400">Cierre de recepción:</span>
+                        <span className="text-right">
+                          {selectedReceivingDetail.lot.closed_at
+                            ? formatDateTime(selectedReceivingDetail.lot.closed_at)
+                            : "Pendiente de cierre"}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   {selectedReceivingDetail?.lot?.purchase_type === "invoice" && (
                     <div className="rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 text-xs text-slate-200 space-y-1">
                       <div>

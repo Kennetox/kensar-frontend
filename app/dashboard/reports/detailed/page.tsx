@@ -2494,7 +2494,7 @@ const dateTimeFormatter = (iso: string) =>
       };
     }
     case "products-top": {
-      const productsTopSort = filterMeta?.productsTopSort ?? "value";
+      const productsTopSort = filterMeta?.productsTopSort ?? "units";
       const productsTopScope = filterMeta?.productsTopScope ?? "global";
       const productsTopCategoryMode =
         filterMeta?.productsTopCategoryMode ?? "group";
@@ -3725,7 +3725,7 @@ export default function ReportsPage() {
     null
   );
   const [productsTopSortModalOpen, setProductsTopSortModalOpen] = useState(false);
-  const [productsTopSortChoice, setProductsTopSortChoice] = useState<"value" | "units">("value");
+  const [productsTopSortChoice, setProductsTopSortChoice] = useState<"value" | "units">("units");
   const [productsTopLimitChoice, setProductsTopLimitChoice] = useState<10 | 20 | 50 | 100>(
     50
   );
@@ -4785,7 +4785,7 @@ export default function ReportsPage() {
       if (!productOptions.length || !groupOptions.length) {
         void loadProductLookupData();
       }
-      setProductsTopSortChoice(filterMeta.productsTopSort ?? "value");
+      setProductsTopSortChoice(filterMeta.productsTopSort ?? "units");
       const currentLimit = filterMeta.productsTopLimit;
       setProductsTopLimitChoice(
         currentLimit === 10 || currentLimit === 20 || currentLimit === 50 || currentLimit === 100
@@ -6105,6 +6105,7 @@ export default function ReportsPage() {
             <h3 className="text-lg font-semibold">Top productos vendidos</h3>
             <p className="mt-1 text-sm text-slate-300">
               Configura cómo quieres construir el ranking antes de generar el reporte.
+              Por defecto se ordena por cantidad vendida.
             </p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <button
