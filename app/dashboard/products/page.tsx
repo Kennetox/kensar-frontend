@@ -12,10 +12,7 @@ import React, {
 import Image from "next/image";
 import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
-import {
-  fetchInventoryProductHistory,
-  fetchInventoryProducts,
-} from "@/lib/api/inventory";
+import { fetchInventoryProductHistory } from "@/lib/api/inventory";
 import LoadingSpinner from "@/app/components/ui/LoadingSpinner";
 
 type Product = {
@@ -1414,6 +1411,14 @@ export default function ProductsPage() {
     setEditPriceWarningQty(0);
   }
 
+  async function getProductQtyOnHandForWarning(authToken: string, productId: number) {
+    const history = await fetchInventoryProductHistory(authToken, productId, {
+      skip: 0,
+      limit: 1,
+    });
+    return Number(history.qty_on_hand ?? 0);
+  }
+
   const productGroupPaths = useMemo(() => {
     const set = new Set<string>();
     products.forEach((p) => {
@@ -2386,42 +2391,22 @@ export default function ProductsPage() {
       originalPrice != null &&
       Math.abs(nextPrice - originalPrice) > 0.01;
 
-      if (priceChanged && token) {
-        try {
-          setError(null);
-          setEditPriceWarningError(null);
-          setEditPriceWarningLoading(true);
-          let qtyOnHand = 0;
-          const inventoryProbe = await fetchInventoryProducts(token, {
-            skip: 0,
-            limit: 200,
-            search:
-              products.find((item) => item.id === editId)?.sku?.trim() ||
-              products.find((item) => item.id === editId)?.name ||
-              "",
-            sort: "name_asc",
-          });
-          const matchedInventoryRow = inventoryProbe.items.find((row) => row.product_id === editId);
-          if (matchedInventoryRow) {
-            qtyOnHand = Number(matchedInventoryRow.qty_on_hand ?? 0);
-          }
-          if (qtyOnHand <= 0) {
-            const history = await fetchInventoryProductHistory(token, editId, {
-              skip: 0,
-              limit: 1,
-            });
-            qtyOnHand = Number(history.qty_on_hand ?? 0);
-          }
-          if (qtyOnHand > 0) {
-            setEditPriceWarningProduct(products.find((item) => item.id === editId) ?? null);
-            setEditPriceWarningQty(qtyOnHand);
-            setEditPriceWarningOpen(true);
-            return;
-          }
-        } catch (err: unknown) {
-          const message =
-            err instanceof Error
-              ? err.message
+    if (priceChanged && token) {
+      try {
+        setError(null);
+        setEditPriceWarningError(null);
+        setEditPriceWarningLoading(true);
+        const qtyOnHand = await getProductQtyOnHandForWarning(token, editId);
+        if (qtyOnHand > 0) {
+          setEditPriceWarningProduct(products.find((item) => item.id === editId) ?? null);
+          setEditPriceWarningQty(qtyOnHand);
+          setEditPriceWarningOpen(true);
+          return;
+        }
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error
+            ? err.message
             : "No se pudo verificar el stock antes de cambiar el precio.";
         setEditPriceWarningError(message);
         setError(message);
@@ -2569,21 +2554,7 @@ export default function ProductsPage() {
       setDeactivateStockWarningError(null);
       setDeactivateStockWarningLoading(true);
 
-      let qtyOnHand = 0;
-      const inventoryProbe = await fetchInventoryProducts(token, {
-        skip: 0,
-        limit: 200,
-        search: product?.sku?.trim() || product?.name || "",
-        sort: "name_asc",
-      });
-      const matchedInventoryRow = inventoryProbe.items.find((row) => row.product_id === id);
-      if (matchedInventoryRow) {
-        qtyOnHand = Number(matchedInventoryRow.qty_on_hand ?? 0);
-      }
-      if (qtyOnHand <= 0) {
-        const history = await fetchInventoryProductHistory(token, id, { skip: 0, limit: 1 });
-        qtyOnHand = Number(history.qty_on_hand ?? 0);
-      }
+      const qtyOnHand = await getProductQtyOnHandForWarning(token, id);
 
       if (qtyOnHand > 0) {
         setDeleteOptionsOpen(false);
