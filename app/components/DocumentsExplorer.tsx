@@ -199,6 +199,7 @@ type AbonoRecord = {
   status?: string | null;
   closure_id?: number | null;
   note?: string | null;
+  stage?: "initial" | "posterior";
 };
 
 type ClosureRecord = {
@@ -398,6 +399,7 @@ type DocumentRow = {
   detail: string;
   total: number;
   paymentMethod?: string;
+  paymentStage?: "initial" | "posterior";
   isSeparated?: boolean;
   initialPaymentMethod?: string | null;
   initialPaymentAmount?: number | null;
@@ -2658,6 +2660,61 @@ export default function DocumentsExplorer({
     const abonoDocs: DocumentRow[] = [];
     const appliedRangeFrom = appliedFilterFrom || "";
     const appliedRangeTo = appliedFilterTo || "";
+    salesList.forEach((sale) => {
+      if (!sale.is_separated) return;
+      const initialAmount = toNumber(sale.initial_payment_amount ?? 0);
+      if (initialAmount <= 0) return;
+      const saleDateKey = getBogotaDateKey(sale.created_at);
+      if (
+        saleDateKey &&
+        ((appliedRangeFrom && saleDateKey < appliedRangeFrom) ||
+          (appliedRangeTo && saleDateKey > appliedRangeTo))
+      ) {
+        return;
+      }
+      const initialMethod =
+        sale.initial_payment_method ??
+        sale.payments?.[0]?.method ??
+        sale.payment_method;
+      const initialRecord: AbonoRecord = {
+        id: sale.id,
+        order_id: sale.id,
+        sale_id: sale.id,
+        sale_document_number:
+          sale.document_number ?? `V-${sale.id.toString().padStart(5, "0")}`,
+        customer_name: sale.customer_name ?? null,
+        method: initialMethod ?? "separado",
+        amount: initialAmount,
+        paid_at: sale.created_at,
+        status: sale.status ?? null,
+        closure_id: sale.closure_id ?? null,
+        note: sale.notes ?? null,
+        stage: "initial",
+      };
+      abonoDocs.push({
+        id: `abono-initial-${sale.id}`,
+        type: "abono",
+        recordId: sale.id,
+        saleId: sale.id,
+        createdAt: sale.created_at,
+        documentNumber: `ABI-${sale.id.toString().padStart(6, "0")}`,
+        reference: sale.document_number
+          ? `Venta separada ${sale.document_number}`
+          : `Venta separada #${sale.id}`,
+        detail: sale.document_number
+          ? `Abono inicial ${sale.document_number}`
+          : "Abono inicial de separado",
+        total: initialAmount,
+        paymentMethod: initialMethod ?? undefined,
+        paymentStage: "initial",
+        customer: sale.customer_name ?? undefined,
+        pos: sale.pos_name ?? undefined,
+        vendor: sale.vendor_name ?? undefined,
+        status: sale.status ?? undefined,
+        closureId: sale.closure_id ?? null,
+        data: initialRecord,
+      });
+    });
     separatedOrdersList.forEach((order) => {
       const sale = salesById.get(order.sale_id);
       order.payments?.forEach((payment: SeparatedOrderPayment) => {
@@ -2683,6 +2740,7 @@ export default function DocumentsExplorer({
           status: payment.status ?? null,
           closure_id: payment.closure_id ?? null,
           note: payment.note ?? null,
+          stage: "posterior",
         };
         abonoDocs.push({
           id: `abono-${payment.id}`,
@@ -2695,10 +2753,11 @@ export default function DocumentsExplorer({
             ? `Separado ${order.sale_document_number}`
             : `Separado #${order.id}`,
           detail: order.sale_document_number
-            ? `Abono ${order.sale_document_number}`
-            : "Abono a separado",
+            ? `Abono posterior ${order.sale_document_number}`
+            : "Abono posterior a separado",
           total: amount,
           paymentMethod: payment.method,
+          paymentStage: "posterior",
           customer: order.customer_name ?? undefined,
           pos: sale?.pos_name ?? undefined,
           vendor: sale?.vendor_name ?? undefined,
@@ -3320,7 +3379,9 @@ const selectedDetails = selectedDoc?.data;
           : doc.type === "cambio"
           ? "Cambio"
           : doc.type === "abono"
-          ? "Abono"
+          ? doc.paymentStage === "initial"
+            ? "Abono inicial"
+            : "Abono"
           : doc.type === "recepcion"
           ? "Recepción"
           : doc.type === "movimiento_manual"
@@ -4720,7 +4781,9 @@ useEffect(() => {
                         : doc.type === "cambio"
                         ? "Cambio"
                         : doc.type === "abono"
-                        ? "Abono"
+                        ? doc.paymentStage === "initial"
+                          ? "Abono inicial"
+                          : "Abono"
                         : doc.type === "recepcion"
                         ? "Recepción"
                         : doc.type === "movimiento_manual"
@@ -4767,6 +4830,8 @@ useEffect(() => {
                       ? adjustedPaymentsForDoc.length > 1
                         ? "MIXTO"
                         : mapPaymentMethod(adjustedPaymentsForDoc[0].method)
+                      : doc.type === "abono" && doc.paymentStage === "initial"
+                      ? `Inicial: ${docInitialMethodLabel}`
                       : docInitialMethodLabel;
                     return (
                       <tr
@@ -4952,7 +5017,9 @@ useEffect(() => {
                       : selectedDoc.type === "cambio"
                       ? "Cambio"
                       : selectedDoc.type === "abono"
-                      ? "Abono"
+                      ? selectedDoc.paymentStage === "initial"
+                        ? "Abono inicial"
+                        : "Abono"
                       : selectedDoc.type === "recepcion"
                       ? "Recepción"
                       : selectedDoc.type === "movimiento_manual"
