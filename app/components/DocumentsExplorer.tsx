@@ -3524,6 +3524,8 @@ const selectedSaleDocument =
   );
   const selectedRelatedSaleResolved =
     selectedRelatedSaleDocument ?? selectedRelatedSaleFallback;
+  const selectedRelatedSaleLineDiscountTotal =
+    selectedRelatedSaleLines?.lineDiscountTotal ?? 0;
   useEffect(() => {
     if (!selectedDoc || selectedDoc.type !== "abono") {
       setSelectedRelatedSaleFallback(null);
@@ -5290,13 +5292,13 @@ useEffect(() => {
                         </div>
                       </div>
                     </div>
-                    {selectedRelatedSaleLines?.lineDiscountTotal > 0 && (
+                    {selectedRelatedSaleLineDiscountTotal > 0 && (
                       <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
                         <div className="text-[11px] uppercase tracking-wide text-amber-700">
                           Descuento aplicado
                         </div>
                         <div className="mt-1 text-sm font-semibold text-amber-900">
-                          -{formatMoney(selectedRelatedSaleLines.lineDiscountTotal)}
+                          -{formatMoney(selectedRelatedSaleLineDiscountTotal)}
                         </div>
                       </div>
                     )}
