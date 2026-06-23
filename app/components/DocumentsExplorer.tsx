@@ -3513,6 +3513,13 @@ const selectedRelatedSaleDocument = useMemo(() => {
   if (!relatedSaleId) return null;
   return sales.find((sale) => sale.id === relatedSaleId) ?? null;
 }, [sales, selectedDoc]);
+const selectedRelatedSaleLines = useMemo(
+  () =>
+    selectedRelatedSaleDocument
+      ? buildSaleLineBreakdown(selectedRelatedSaleDocument)
+      : null,
+  [selectedRelatedSaleDocument]
+);
 const hasSelectedSaleDocument = !!selectedSaleDocument;
 const selectedSaleDocumentId = selectedSaleDocument?.id ?? null;
 useEffect(() => {
@@ -5197,13 +5204,13 @@ useEffect(() => {
                   </div>
                 )}
                 {selectedDoc.type === "abono" && selectedRelatedSaleDocument && (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
-                    <div className="flex items-center justify-between gap-3">
+                  <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
                       <div>
-                        <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                        <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
                           Venta relacionada
                         </div>
-                        <div className="text-sm font-semibold text-slate-900">
+                        <div className="mt-1 text-lg font-semibold text-slate-900">
                           {selectedRelatedSaleDocument.document_number ??
                             `V-${selectedRelatedSaleDocument.id.toString().padStart(5, "0")}`}
                         </div>
@@ -5219,37 +5226,85 @@ useEffect(() => {
                           );
                           if (linkedSaleDoc) setSelectedDoc(linkedSaleDoc);
                         }}
-                        className="rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-50"
+                        className="rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
                       >
                         Ver venta
                       </button>
                     </div>
-                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
-                      <div className="flex justify-between gap-3">
-                        <span className="text-slate-500">Total</span>
-                        <span className="text-slate-900">
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                          Total
+                        </div>
+                        <div className="mt-1 text-base font-semibold text-slate-900">
                           {formatMoney(toNumber(selectedRelatedSaleDocument.total))}
-                        </span>
+                        </div>
                       </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-slate-500">Cliente</span>
-                        <span className="text-right text-slate-900">
+                      <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                          Cliente
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">
                           {selectedRelatedSaleDocument.customer_name ?? "Sin cliente"}
-                        </span>
+                        </div>
                       </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-slate-500">POS</span>
-                        <span className="text-right text-slate-900">
+                      <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                          POS
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">
                           {selectedRelatedSaleDocument.pos_name ?? "Sin POS"}
-                        </span>
+                        </div>
                       </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-slate-500">Vendedor</span>
-                        <span className="text-right text-slate-900">
+                      <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                          Vendedor
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">
                           {selectedRelatedSaleDocument.vendor_name ?? "Sin vendedor"}
-                        </span>
+                        </div>
                       </div>
                     </div>
+                    {selectedRelatedSaleLines &&
+                      selectedRelatedSaleLines.lines.length > 0 && (
+                        <div className="mt-4">
+                          <div className="mb-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                            Productos vendidos
+                          </div>
+                          <div className="overflow-hidden rounded-2xl border border-slate-200">
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-left text-[12px]">
+                                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                                  <tr>
+                                    <th className="px-3 py-2 font-normal">Producto</th>
+                                    <th className="px-3 py-2 font-normal">SKU</th>
+                                    <th className="px-3 py-2 font-normal text-right">Cant.</th>
+                                    <th className="px-3 py-2 font-normal text-right">P. unitario</th>
+                                    <th className="px-3 py-2 font-normal text-right">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {selectedRelatedSaleLines.lines.map((line) => (
+                                    <tr key={line.key} className="border-t border-slate-200 text-slate-800">
+                                      <td className="px-3 py-2 font-medium">{line.name}</td>
+                                      <td className="px-3 py-2 font-mono text-[11px] text-slate-500">
+                                        {line.sku ?? "—"}
+                                      </td>
+                                      <td className="px-3 py-2 text-right">{line.quantity}</td>
+                                      <td className="px-3 py-2 text-right">
+                                        {formatMoney(line.unitPrice)}
+                                      </td>
+                                      <td className="px-3 py-2 text-right font-semibold">
+                                        {formatMoney(line.total)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                   </div>
                 )}
                 {selectedDoc.type === "cierre" && selectedClosure?.closed_by_user_name && (
