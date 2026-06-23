@@ -1454,7 +1454,8 @@ export default function DocumentsExplorer({
       const needsSales =
         appliedFilterType === "all" ||
         appliedFilterType === "venta" ||
-        appliedFilterType === "anulacion";
+        appliedFilterType === "anulacion" ||
+        appliedFilterType === "abono";
       const needsWebOrders =
         appliedFilterType === "all" || appliedFilterType === "orden_web";
       const needsReturns =
