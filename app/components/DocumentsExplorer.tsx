@@ -3506,21 +3506,58 @@ const selectedSaleDocument =
   selectedDoc?.type === "venta"
     ? (selectedDoc.data as SaleRecord)
     : null;
-const selectedRelatedSaleDocument = useMemo(() => {
-  if (!selectedDoc || selectedDoc.type !== "abono") return null;
-  const relatedSaleId =
-    selectedDoc.saleId ?? (selectedDoc.data as AbonoRecord | undefined)?.sale_id ?? null;
-  if (!relatedSaleId) return null;
-  return sales.find((sale) => sale.id === relatedSaleId) ?? null;
-}, [sales, selectedDoc]);
-const selectedRelatedSaleLines = useMemo(
-  () =>
-    selectedRelatedSaleDocument
-      ? buildSaleLineBreakdown(selectedRelatedSaleDocument)
-      : null,
-  [selectedRelatedSaleDocument]
-);
-const hasSelectedSaleDocument = !!selectedSaleDocument;
+  const selectedRelatedSaleDocument = useMemo(() => {
+    if (!selectedDoc || selectedDoc.type !== "abono") return null;
+    const relatedSaleId =
+      selectedDoc.saleId ?? (selectedDoc.data as AbonoRecord | undefined)?.sale_id ?? null;
+    if (!relatedSaleId) return null;
+    return sales.find((sale) => sale.id === relatedSaleId) ?? null;
+  }, [sales, selectedDoc]);
+  const [selectedRelatedSaleFallback, setSelectedRelatedSaleFallback] =
+    useState<SaleRecord | null>(null);
+  const selectedRelatedSaleLines = useMemo(
+    () => {
+      const resolvedSale = selectedRelatedSaleDocument ?? selectedRelatedSaleFallback;
+      return resolvedSale ? buildSaleLineBreakdown(resolvedSale) : null;
+    },
+    [selectedRelatedSaleDocument, selectedRelatedSaleFallback]
+  );
+  const selectedRelatedSaleResolved =
+    selectedRelatedSaleDocument ?? selectedRelatedSaleFallback;
+  useEffect(() => {
+    if (!selectedDoc || selectedDoc.type !== "abono") {
+      setSelectedRelatedSaleFallback(null);
+      return;
+    }
+    const relatedSaleId =
+      selectedDoc.saleId ?? (selectedDoc.data as AbonoRecord | undefined)?.sale_id ?? null;
+    if (!relatedSaleId) {
+      setSelectedRelatedSaleFallback(null);
+      return;
+    }
+    if (selectedRelatedSaleDocument) {
+      setSelectedRelatedSaleFallback(null);
+      return;
+    }
+    let active = true;
+    const loadRelatedSale = async () => {
+      try {
+        const resolved = await fetchDocumentFromHistoryReference("sale", relatedSaleId);
+        if (!active || resolved.doc.type !== "venta") return;
+        setSelectedRelatedSaleFallback(resolved.doc.data as SaleRecord);
+      } catch (err) {
+        if (active) {
+          console.warn("No se pudo cargar la venta relacionada del abono", err);
+          setSelectedRelatedSaleFallback(null);
+        }
+      }
+    };
+    void loadRelatedSale();
+    return () => {
+      active = false;
+    };
+  }, [fetchDocumentFromHistoryReference, selectedDoc, selectedRelatedSaleDocument]);
+  const hasSelectedSaleDocument = !!selectedSaleDocument;
 const selectedSaleDocumentId = selectedSaleDocument?.id ?? null;
 useEffect(() => {
   if (!authHeaders || !selectedSaleDocumentId || selectedSaleDocumentId <= 0) {
@@ -5203,7 +5240,7 @@ useEffect(() => {
                     </span>
                   </div>
                 )}
-                {selectedDoc.type === "abono" && selectedRelatedSaleDocument && (
+                {selectedDoc.type === "abono" && selectedRelatedSaleResolved && (
                   <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
                     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
                       <div>
@@ -5211,25 +5248,13 @@ useEffect(() => {
                           Venta relacionada
                         </div>
                         <div className="mt-1 text-lg font-semibold text-slate-900">
-                          {selectedRelatedSaleDocument.document_number ??
-                            `V-${selectedRelatedSaleDocument.id.toString().padStart(5, "0")}`}
+                          {selectedRelatedSaleResolved.document_number ??
+                            `V-${selectedRelatedSaleResolved.id.toString().padStart(5, "0")}`}
                         </div>
                         <div className="text-[11px] text-slate-500">
-                          {formatDateTime(selectedRelatedSaleDocument.created_at)}
+                          {formatDateTime(selectedRelatedSaleResolved.created_at)}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const linkedSaleDoc = documents.find(
-                            (doc) => doc.id === `sale-${selectedRelatedSaleDocument.id}`
-                          );
-                          if (linkedSaleDoc) setSelectedDoc(linkedSaleDoc);
-                        }}
-                        className="rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100"
-                      >
-                        Ver venta
-                      </button>
                     </div>
                     <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-xl bg-slate-50 px-3 py-2">
@@ -5237,7 +5262,7 @@ useEffect(() => {
                           Total
                         </div>
                         <div className="mt-1 text-base font-semibold text-slate-900">
-                          {formatMoney(toNumber(selectedRelatedSaleDocument.total))}
+                          {formatMoney(toNumber(selectedRelatedSaleResolved.total))}
                         </div>
                       </div>
                       <div className="rounded-xl bg-slate-50 px-3 py-2">
@@ -5245,7 +5270,7 @@ useEffect(() => {
                           Cliente
                         </div>
                         <div className="mt-1 text-sm font-semibold text-slate-900">
-                          {selectedRelatedSaleDocument.customer_name ?? "Sin cliente"}
+                          {selectedRelatedSaleResolved.customer_name ?? "Sin cliente"}
                         </div>
                       </div>
                       <div className="rounded-xl bg-slate-50 px-3 py-2">
@@ -5253,7 +5278,7 @@ useEffect(() => {
                           POS
                         </div>
                         <div className="mt-1 text-sm font-semibold text-slate-900">
-                          {selectedRelatedSaleDocument.pos_name ?? "Sin POS"}
+                          {selectedRelatedSaleResolved.pos_name ?? "Sin POS"}
                         </div>
                       </div>
                       <div className="rounded-xl bg-slate-50 px-3 py-2">
@@ -5261,10 +5286,20 @@ useEffect(() => {
                           Vendedor
                         </div>
                         <div className="mt-1 text-sm font-semibold text-slate-900">
-                          {selectedRelatedSaleDocument.vendor_name ?? "Sin vendedor"}
+                          {selectedRelatedSaleResolved.vendor_name ?? "Sin vendedor"}
                         </div>
                       </div>
                     </div>
+                    {selectedRelatedSaleLines?.lineDiscountTotal > 0 && (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-amber-700">
+                          Descuento aplicado
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-amber-900">
+                          -{formatMoney(selectedRelatedSaleLines.lineDiscountTotal)}
+                        </div>
+                      </div>
+                    )}
                     {selectedRelatedSaleLines &&
                       selectedRelatedSaleLines.lines.length > 0 && (
                         <div className="mt-4">
@@ -5280,6 +5315,7 @@ useEffect(() => {
                                     <th className="px-3 py-2 font-normal">SKU</th>
                                     <th className="px-3 py-2 font-normal text-right">Cant.</th>
                                     <th className="px-3 py-2 font-normal text-right">P. unitario</th>
+                                    <th className="px-3 py-2 font-normal text-right">Desc.</th>
                                     <th className="px-3 py-2 font-normal text-right">Total</th>
                                   </tr>
                                 </thead>
@@ -5293,6 +5329,11 @@ useEffect(() => {
                                       <td className="px-3 py-2 text-right">{line.quantity}</td>
                                       <td className="px-3 py-2 text-right">
                                         {formatMoney(line.unitPrice)}
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-amber-700">
+                                        {line.discount > 0
+                                          ? `-${formatMoney(line.discount)}`
+                                          : "0"}
                                       </td>
                                       <td className="px-3 py-2 text-right font-semibold">
                                         {formatMoney(line.total)}
