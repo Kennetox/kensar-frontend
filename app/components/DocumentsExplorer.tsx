@@ -3506,6 +3506,13 @@ const selectedSaleDocument =
   selectedDoc?.type === "venta"
     ? (selectedDoc.data as SaleRecord)
     : null;
+const selectedRelatedSaleDocument = useMemo(() => {
+  if (!selectedDoc || selectedDoc.type !== "abono") return null;
+  const relatedSaleId =
+    selectedDoc.saleId ?? (selectedDoc.data as AbonoRecord | undefined)?.sale_id ?? null;
+  if (!relatedSaleId) return null;
+  return sales.find((sale) => sale.id === relatedSaleId) ?? null;
+}, [sales, selectedDoc]);
 const hasSelectedSaleDocument = !!selectedSaleDocument;
 const selectedSaleDocumentId = selectedSaleDocument?.id ?? null;
 useEffect(() => {
@@ -5187,6 +5194,62 @@ useEffect(() => {
                     <span className="text-right text-slate-100">
                       {selectedDoc.vendor}
                     </span>
+                  </div>
+                )}
+                {selectedDoc.type === "abono" && selectedRelatedSaleDocument && (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                          Venta relacionada
+                        </div>
+                        <div className="text-sm font-semibold text-slate-900">
+                          {selectedRelatedSaleDocument.document_number ??
+                            `V-${selectedRelatedSaleDocument.id.toString().padStart(5, "0")}`}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          {formatDateTime(selectedRelatedSaleDocument.created_at)}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const linkedSaleDoc = documents.find(
+                            (doc) => doc.id === `sale-${selectedRelatedSaleDocument.id}`
+                          );
+                          if (linkedSaleDoc) setSelectedDoc(linkedSaleDoc);
+                        }}
+                        className="rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-50"
+                      >
+                        Ver venta
+                      </button>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-500">Total</span>
+                        <span className="text-slate-900">
+                          {formatMoney(toNumber(selectedRelatedSaleDocument.total))}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-500">Cliente</span>
+                        <span className="text-right text-slate-900">
+                          {selectedRelatedSaleDocument.customer_name ?? "Sin cliente"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-500">POS</span>
+                        <span className="text-right text-slate-900">
+                          {selectedRelatedSaleDocument.pos_name ?? "Sin POS"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-500">Vendedor</span>
+                        <span className="text-right text-slate-900">
+                          {selectedRelatedSaleDocument.vendor_name ?? "Sin vendedor"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 )}
                 {selectedDoc.type === "cierre" && selectedClosure?.closed_by_user_name && (
