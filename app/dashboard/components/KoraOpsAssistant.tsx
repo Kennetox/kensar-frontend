@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import {
   fetchInventoryOverview,
@@ -4040,14 +4041,29 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
       const horizonDays = resolveRestockForecastHorizon(input);
       const data = await readRestockForecast(forecastMode, horizonDays);
       latestRestockReportRef.current = data;
+      const previewItems = data.items.slice(0, data.mode === "today" ? 5 : 4);
       const messageLines = [
         data.mode === "today" ? "Productos vendidos hoy que conviene reponer mañana." : data.headline,
         "",
         "Resumen:",
         ...data.summary_lines.slice(0, 3).map((line) => `- ${line}`),
-        "",
-        "Abre el reporte para ver el detalle completo, imprimirlo o guardarlo como PDF.",
       ];
+
+      if (previewItems.length) {
+        messageLines.push("", "Productos priorizados:");
+        previewItems.forEach((item, index) => {
+          const sku = item.sku ? `SKU ${item.sku}` : "sin SKU";
+          const coverage = item.coverage_days == null ? "sin cobertura clara" : `${item.coverage_days.toFixed(1)} días`;
+          messageLines.push(
+            `${index + 1}. ${item.product_name} (${sku}) - hoy ${item.units_today.toFixed(0)} u, stock ${item.qty_on_hand.toFixed(0)}, cobertura ${coverage}, sugerido ${item.suggested_qty.toFixed(0)}.`
+          );
+        });
+      }
+
+      messageLines.push(
+        "",
+        `Abre el reporte para ver el detalle completo, imprimirlo o guardarlo como PDF.${data.items.length > previewItems.length ? ` Hay ${data.items.length - previewItems.length} productos más en el reporte.` : ""}`
+      );
 
       const forecastActions: KoraAction[] = [
         {
@@ -4980,127 +4996,134 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
               ) : null}
             </article>
           ))}
-          {restockReport ? (
-            <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4">
-              <div className="flex h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-[0_24px_70px_-28px_rgba(2,6,23,0.55)]">
-                <div className="flex items-start justify-between gap-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-4 py-4">
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">Reporte de reposición</p>
-                    <h3 className="mt-1 text-xl font-bold text-slate-900">
-                      {restockReport.mode === "today"
-                        ? "Productos vendidos hoy que conviene reponer mañana"
-                        : "Productos con presión de reposición general"}
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-500">{restockReport.headline}</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void saveRestockReportPdf()}
-                      disabled={restockReportSaving}
-                      className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {restockReportSaving ? "Guardando..." : "Guardar como PDF"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={printRestockReport}
-                      className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                    >
-                      Imprimir
-                    </button>
-                    <button
-                      type="button"
-                      onClick={closeRestockReportModal}
-                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
-                    >
-                      Cerrar
-                    </button>
-                  </div>
-                </div>
+          {typeof document !== "undefined" && restockReport
+            ? createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 p-4">
+                  <section className="flex h-[92vh] w-full max-w-[1320px] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/70 p-6 text-slate-100 shadow-2xl space-y-6">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-emerald-400">
+                          Informe generado
+                        </p>
+                        <h2 className="text-2xl font-semibold text-slate-100">
+                          {restockReport.mode === "today"
+                            ? "Productos vendidos hoy que conviene reponer mañana"
+                            : "Productos con presión de reposición general"}
+                        </h2>
+                        <p className="text-sm text-slate-400 max-w-3xl">
+                          {restockReport.headline}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => void saveRestockReportPdf()}
+                          disabled={restockReportSaving}
+                          className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {restockReportSaving ? "Generando PDF..." : "Descargar PDF"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={printRestockReport}
+                          className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400"
+                        >
+                          Imprimir
+                        </button>
+                        <button
+                          type="button"
+                          onClick={closeRestockReportModal}
+                          className="px-3 py-1.5 rounded-md border border-rose-500/40 text-rose-200 hover:border-rose-400"
+                        >
+                          Cerrar pestaña
+                        </button>
+                      </div>
+                    </div>
 
-                <div className="grid gap-3 px-4 py-4 md:grid-cols-4">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Productos</p>
-                    <p className="mt-1 text-2xl font-black text-slate-900">{restockReport.items.length}</p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Críticos</p>
-                    <p className="mt-1 text-2xl font-black text-rose-600">
-                      {restockReport.items.filter((item) => item.urgency === "high").length}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">En vigilancia</p>
-                    <p className="mt-1 text-2xl font-black text-amber-600">
-                      {restockReport.items.filter((item) => item.urgency === "medium").length}
-                    </p>
-                  </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Bajos</p>
-                    <p className="mt-1 text-2xl font-black text-emerald-700">
-                      {restockReport.items.filter((item) => item.urgency === "low").length}
-                    </p>
-                  </div>
-                </div>
+                    <div className="grid gap-4 md:grid-cols-4">
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                        <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Productos</div>
+                        <div className="mt-1 text-2xl font-semibold text-slate-50">{restockReport.items.length}</div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                        <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Críticos</div>
+                        <div className="mt-1 text-2xl font-semibold text-rose-400">
+                          {restockReport.items.filter((item) => item.urgency === "high").length}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                        <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">En vigilancia</div>
+                        <div className="mt-1 text-2xl font-semibold text-amber-400">
+                          {restockReport.items.filter((item) => item.urgency === "medium").length}
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                        <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Bajos</div>
+                        <div className="mt-1 text-2xl font-semibold text-emerald-400">
+                          {restockReport.items.filter((item) => item.urgency === "low").length}
+                        </div>
+                      </div>
+                    </div>
 
-                <div className="flex-1 overflow-auto px-4 pb-4">
-                  <div className="mb-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-                    <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-slate-700">
-                      {restockReport.summary_lines.map((line, index) => (
-                        <li key={`${line}-${index}`}>{line}</li>
-                      ))}
-                    </ul>
-                  </div>
+                    <div className="space-y-4 overflow-auto pr-1">
+                      <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/5 p-4">
+                        <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-slate-300">
+                          {restockReport.summary_lines.map((line, index) => (
+                            <li key={`${line}-${index}`}>{line}</li>
+                          ))}
+                        </ul>
+                      </div>
 
-                  <div className="overflow-hidden rounded-2xl border border-slate-200">
-                    <table className="min-w-full border-collapse text-sm">
-                      <thead className="bg-slate-900 text-left text-[11px] uppercase tracking-[0.12em] text-white">
-                        <tr>
-                          <th className="px-3 py-3">SKU</th>
-                          <th className="px-3 py-3">Nombre</th>
-                          <th className="px-3 py-3 text-right">Stock</th>
-                          <th className="px-3 py-3 text-right">Hoy</th>
-                          <th className="px-3 py-3">Cobertura</th>
-                          <th className="px-3 py-3 text-right">Sugerido</th>
-                          <th className="px-3 py-3">Urgencia</th>
-                          <th className="px-3 py-3 text-right">Precio</th>
-                          <th className="px-3 py-3">Motivo</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white">
-                        {restockReport.items.map((item, index) => {
-                          const urgencyClass =
-                            item.urgency === "high"
-                              ? "text-rose-600"
-                              : item.urgency === "medium"
-                                ? "text-amber-600"
-                                : "text-emerald-700";
-                          return (
-                            <tr key={`${item.product_id}-${index}`} className="border-t border-slate-200">
-                              <td className="px-3 py-3 text-slate-600">{item.sku || "—"}</td>
-                              <td className="px-3 py-3 font-medium text-slate-900">{item.product_name}</td>
-                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.qty_on_hand).toFixed(0)}</td>
-                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
-                              <td className="px-3 py-3 text-slate-700">
-                                {item.coverage_days == null ? "—" : `${item.coverage_days.toFixed(1)} días`}
-                              </td>
-                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.suggested_qty).toFixed(0)}</td>
-                              <td className={["px-3 py-3 font-semibold", urgencyClass].join(" ")}>
-                                {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
-                              </td>
-                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatMoney(item.price)}</td>
-                              <td className="px-3 py-3 text-slate-600">{item.reason}</td>
+                      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/60 shadow-[0_12px_24px_-18px_rgba(2,6,23,0.8)]">
+                        <table className="min-w-full border-collapse text-sm">
+                          <thead className="bg-slate-900 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                            <tr>
+                              <th className="px-3 py-3">SKU</th>
+                              <th className="px-3 py-3">Nombre</th>
+                              <th className="px-3 py-3 text-right">Stock</th>
+                              <th className="px-3 py-3 text-right">Hoy</th>
+                              <th className="px-3 py-3">Cobertura</th>
+                              <th className="px-3 py-3 text-right">Sugerido</th>
+                              <th className="px-3 py-3">Urgencia</th>
+                              <th className="px-3 py-3 text-right">Precio</th>
+                              <th className="px-3 py-3">Motivo</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : null}
+                          </thead>
+                          <tbody className="bg-slate-950/40">
+                            {restockReport.items.map((item, index) => {
+                              const urgencyClass =
+                                item.urgency === "high"
+                                  ? "text-rose-600"
+                                  : item.urgency === "medium"
+                                    ? "text-amber-600"
+                                    : "text-emerald-700";
+                              return (
+                                <tr key={`${item.product_id}-${index}`} className="border-t border-slate-800">
+                                  <td className="px-3 py-3 text-slate-300">{item.sku || "—"}</td>
+                                  <td className="px-3 py-3 font-medium text-slate-100">{item.product_name}</td>
+                                  <td className="px-3 py-3 text-right tabular-nums text-slate-300">{Math.max(0, item.qty_on_hand).toFixed(0)}</td>
+                                  <td className="px-3 py-3 text-right tabular-nums text-slate-300">{Math.max(0, item.units_today).toFixed(0)}</td>
+                                  <td className="px-3 py-3 text-slate-300">
+                                    {item.coverage_days == null ? "—" : `${item.coverage_days.toFixed(1)} días`}
+                                  </td>
+                                  <td className="px-3 py-3 text-right tabular-nums text-slate-300">{Math.max(0, item.suggested_qty).toFixed(0)}</td>
+                                  <td className={["px-3 py-3 font-semibold", urgencyClass].join(" ")}>
+                                    {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
+                                  </td>
+                                  <td className="px-3 py-3 text-right tabular-nums text-slate-300">{formatMoney(item.price)}</td>
+                                  <td className="px-3 py-3 text-slate-400">{item.reason}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </section>
+                </div>,
+                document.body
+              )
+            : null}
           {busy ? <p className="text-xs font-semibold text-slate-500">KORA está consultando información...</p> : null}
           <div ref={endRef} />
         </div>
