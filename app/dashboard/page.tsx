@@ -781,7 +781,7 @@ export default function DashboardHomePage() {
     try {
       setLoading(true);
       if (!force) {
-        const cached = readDashboardCache<DashboardSummary>("summary:all");
+        const cached = readDashboardCache<DashboardSummary>("summary:metrik");
         if (cached) {
           setData(cached);
           setError(null);
@@ -789,7 +789,7 @@ export default function DashboardHomePage() {
         }
       }
       const apiBase = getApiBase();
-      const res = await fetch(`${apiBase}/dashboard/summary?source=all`, {
+      const res = await fetch(`${apiBase}/dashboard/summary?source=metrik`, {
         headers: authHeaders,
         credentials: "include",
       });
@@ -798,7 +798,7 @@ export default function DashboardHomePage() {
       }
       const json: DashboardSummary = await res.json();
       setData(json);
-      writeDashboardCache("summary:all", json);
+      writeDashboardCache("summary:metrik", json);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -952,7 +952,7 @@ export default function DashboardHomePage() {
       setYearTrendLoading(true);
       setYearTrendError(null);
       if (!force) {
-        const cached = readDashboardCache<SalesTrendPoint[]>(`yearly-sales:all:${selectedYear}`);
+        const cached = readDashboardCache<SalesTrendPoint[]>(`yearly-sales:metrik:${selectedYear}`);
         if (cached) {
           setYearTrend(cached);
           return;
@@ -960,7 +960,7 @@ export default function DashboardHomePage() {
       }
       const apiBase = getApiBase();
       const res = await fetch(
-        `${apiBase}/dashboard/monthly-sales?year=${selectedYear}&source=all`,
+        `${apiBase}/dashboard/monthly-sales?year=${selectedYear}&source=metrik`,
         {
           headers: authHeaders,
           credentials: "include",
@@ -996,7 +996,7 @@ export default function DashboardHomePage() {
         }
       );
       setYearTrend(normalized);
-      writeDashboardCache(`yearly-sales:all:${selectedYear}`, normalized);
+      writeDashboardCache(`yearly-sales:metrik:${selectedYear}`, normalized);
     } catch (err) {
       console.error(err);
       setYearTrendError(
