@@ -1499,7 +1499,12 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
       stock: Math.max(0, Number(item.qty_on_hand ?? 0)),
       price: Math.max(0, Number(item.price ?? 0)),
       units_today: Math.max(0, Number(item.units_today ?? 0)),
-      coverage_days: item.coverage_days == null ? "—" : `${item.coverage_days.toFixed(1)} días`,
+      coverage_days:
+        item.coverage_days == null
+          ? "—"
+          : item.coverage_days < 1
+            ? "< 1 día"
+            : `${Math.round(item.coverage_days)} días`,
       suggested_qty: Math.max(0, Number(item.suggested_qty ?? 0)),
       urgency: item.urgency,
       reason: item.reason,
@@ -1542,6 +1547,10 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Reporte de reposición KORA</title>
     <style>
+      @page {
+        size: A4 landscape;
+        margin: 10mm;
+      }
       :root { color-scheme: light; }
       * { box-sizing: border-box; }
       body {
@@ -1549,21 +1558,27 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         color: #0f172a;
         background: #f8fafc;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
       .sheet {
-        max-width: 1200px;
+        width: 100%;
         margin: 0 auto;
-        padding: 28px;
+        padding: 0;
         background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      }
+      .page {
+        border: 1px solid #dbe4f0;
+        border-radius: 20px;
+        overflow: hidden;
+        background: #fff;
       }
       .header {
         display: flex;
         justify-content: space-between;
         gap: 24px;
         align-items: flex-start;
-        padding: 18px 20px;
-        border: 1px solid #dbe4f0;
-        border-radius: 20px;
+        padding: 18px 20px 16px;
         background: linear-gradient(135deg, rgba(16,185,129,0.08), rgba(34,197,94,0.04));
       }
       .brand {
@@ -1601,6 +1616,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 12px;
         margin: 18px 0;
+        padding: 0 20px;
       }
       .card {
         border: 1px solid #dbe4f0;
@@ -1626,12 +1642,17 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
       }
       .summary li { margin-bottom: 4px; }
       .table-wrap {
+        margin: 0 20px 20px;
         border: 1px solid #dbe4f0;
         border-radius: 18px;
         overflow: hidden;
         background: #fff;
       }
-      table { width: 100%; border-collapse: collapse; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
       thead th {
         position: sticky;
         top: 0;
@@ -1642,29 +1663,44 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         letter-spacing: 0.05em;
         text-transform: uppercase;
         padding: 12px 10px;
+        border-bottom: 1px solid #0b1220;
       }
       tbody td {
         border-top: 1px solid #e2e8f0;
         padding: 10px;
         font-size: 12px;
         vertical-align: top;
+        overflow-wrap: anywhere;
       }
       td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
       tbody tr:nth-child(even) td { background: #f8fafc; }
       .footer {
-        margin-top: 14px;
+        margin: 0 20px 20px;
         font-size: 11px;
         color: #64748b;
       }
+      .sku { width: 7%; }
+      .name { width: 27%; }
+      .stock { width: 8%; }
+      .today { width: 7%; }
+      .coverage { width: 11%; }
+      .suggested { width: 8%; }
+      .urgency { width: 8%; }
+      .price { width: 9%; }
+      .reason { width: 25%; }
       @media print {
         body { background: #fff; }
+        .page { border: none; border-radius: 0; }
         .sheet { padding: 0; }
         .table-wrap, .header, .card { break-inside: avoid; }
+        thead { display: table-header-group; }
+        tr { break-inside: avoid; page-break-inside: avoid; }
       }
     </style>
   </head>
   <body>
     <div class="sheet">
+      <div class="page">
       <div class="header">
         <div class="brand">
           <h1>KORA</h1>
@@ -1687,15 +1723,15 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         <table>
           <thead>
             <tr>
-              <th>SKU</th>
-              <th>Nombre</th>
-              <th>Stock</th>
-              <th>Precio</th>
-              <th>Hoy</th>
-              <th>Cobertura</th>
-              <th>Sugerido</th>
-              <th>Urgencia</th>
-              <th>Motivo</th>
+              <th class="sku">SKU</th>
+              <th class="name">Nombre</th>
+              <th class="stock">Stock</th>
+              <th class="today">Hoy</th>
+              <th class="coverage">Cobertura</th>
+              <th class="suggested">Sugerido</th>
+              <th class="urgency">Urgencia</th>
+              <th class="price">Precio</th>
+              <th class="reason">Motivo</th>
             </tr>
           </thead>
           <tbody>
@@ -1704,6 +1740,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         </table>
       </div>
       <div class="footer">KORA puede ayudarte a revisar este documento, imprimirlo o guardarlo como PDF.</div>
+      </div>
     </div>
   </body>
 </html>`;
@@ -4053,9 +4090,14 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         messageLines.push("", "Productos priorizados:");
         previewItems.forEach((item, index) => {
           const sku = item.sku ? `SKU ${item.sku}` : "sin SKU";
-          const coverage = item.coverage_days == null ? "sin cobertura clara" : `${item.coverage_days.toFixed(1)} días`;
+          const coverage =
+            item.coverage_days == null
+              ? "sin cobertura clara"
+              : item.coverage_days < 1
+                ? "< 1 día"
+                : `${Math.round(item.coverage_days)} días`;
           messageLines.push(
-            `${index + 1}. ${item.product_name} (${sku}) - hoy ${item.units_today.toFixed(0)} u, stock ${item.qty_on_hand.toFixed(0)}, cobertura ${coverage}, sugerido ${item.suggested_qty.toFixed(0)}.`
+            `${index + 1}. ${item.product_name} (${sku}) - vendidas hoy: ${item.units_today.toFixed(0)} unidades, stock ${item.qty_on_hand.toFixed(0)}, cobertura ${coverage}, sugerido ${item.suggested_qty.toFixed(0)}.`
           );
         });
       }
@@ -4998,19 +5040,25 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
           ))}
           {typeof document !== "undefined" && restockReport
             ? createPortal(
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 p-4">
-                  <section className="flex h-[92vh] w-full max-w-[1320px] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/70 p-6 text-slate-100 shadow-2xl space-y-6">
+                <div
+                  className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/55 p-4"
+                  onClick={closeRestockReportModal}
+                >
+                  <section
+                    className="flex h-[92vh] w-full max-w-[1320px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl space-y-6"
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
-                        <p className="text-xs uppercase tracking-wide text-emerald-400">
+                        <p className="text-xs uppercase tracking-wide text-emerald-500">
                           Informe generado
                         </p>
-                        <h2 className="text-2xl font-semibold text-slate-100">
+                        <h2 className="text-2xl font-semibold text-slate-900">
                           {restockReport.mode === "today"
                             ? "Productos vendidos hoy que conviene reponer mañana"
                             : "Productos con presión de reposición general"}
                         </h2>
-                        <p className="text-sm text-slate-400 max-w-3xl">
+                        <p className="text-sm text-slate-500 max-w-3xl">
                           {restockReport.headline}
                         </p>
                       </div>
@@ -5019,21 +5067,21 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                           type="button"
                           onClick={() => void saveRestockReportPdf()}
                           disabled={restockReportSaving}
-                          className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1.5 rounded-md border border-slate-300 bg-slate-50 text-slate-700 hover:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {restockReportSaving ? "Generando PDF..." : "Descargar PDF"}
                         </button>
                         <button
                           type="button"
                           onClick={printRestockReport}
-                          className="px-3 py-1.5 rounded-md border border-slate-700 hover:border-emerald-400"
+                          className="px-3 py-1.5 rounded-md border border-slate-300 bg-slate-50 text-slate-700 hover:border-emerald-400"
                         >
                           Imprimir
                         </button>
                         <button
                           type="button"
                           onClick={closeRestockReportModal}
-                          className="px-3 py-1.5 rounded-md border border-rose-500/40 text-rose-200 hover:border-rose-400"
+                          className="px-3 py-1.5 rounded-md border border-rose-300 text-rose-600 hover:border-rose-400 hover:bg-rose-50"
                         >
                           Cerrar pestaña
                         </button>
@@ -5041,42 +5089,42 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-4">
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-                        <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Productos</div>
-                        <div className="mt-1 text-2xl font-semibold text-slate-50">{restockReport.items.length}</div>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Productos</div>
+                        <div className="mt-1 text-2xl font-semibold text-slate-900">{restockReport.items.length}</div>
                       </div>
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-                        <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Críticos</div>
-                        <div className="mt-1 text-2xl font-semibold text-rose-400">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Críticos</div>
+                        <div className="mt-1 text-2xl font-semibold text-rose-600">
                           {restockReport.items.filter((item) => item.urgency === "high").length}
                         </div>
                       </div>
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-                        <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">En vigilancia</div>
-                        <div className="mt-1 text-2xl font-semibold text-amber-400">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">En vigilancia</div>
+                        <div className="mt-1 text-2xl font-semibold text-amber-600">
                           {restockReport.items.filter((item) => item.urgency === "medium").length}
                         </div>
                       </div>
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
-                        <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">Bajos</div>
-                        <div className="mt-1 text-2xl font-semibold text-emerald-400">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Bajos</div>
+                        <div className="mt-1 text-2xl font-semibold text-emerald-600">
                           {restockReport.items.filter((item) => item.urgency === "low").length}
                         </div>
                       </div>
                     </div>
 
                     <div className="space-y-4 overflow-auto pr-1">
-                      <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/5 p-4">
-                        <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-slate-300">
+                      <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+                        <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-slate-700">
                           {restockReport.summary_lines.map((line, index) => (
                             <li key={`${line}-${index}`}>{line}</li>
                           ))}
                         </ul>
                       </div>
 
-                      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/60 shadow-[0_12px_24px_-18px_rgba(2,6,23,0.8)]">
+                      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_24px_-18px_rgba(2,6,23,0.16)]">
                         <table className="min-w-full border-collapse text-sm">
-                          <thead className="bg-slate-900 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                          <thead className="bg-slate-900 text-left text-[11px] uppercase tracking-wide text-slate-300">
                             <tr>
                               <th className="px-3 py-3">SKU</th>
                               <th className="px-3 py-3">Nombre</th>
@@ -5089,7 +5137,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                               <th className="px-3 py-3">Motivo</th>
                             </tr>
                           </thead>
-                          <tbody className="bg-slate-950/40">
+                          <tbody className="bg-white">
                             {restockReport.items.map((item, index) => {
                               const urgencyClass =
                                 item.urgency === "high"
@@ -5098,20 +5146,20 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                                     ? "text-amber-600"
                                     : "text-emerald-700";
                               return (
-                                <tr key={`${item.product_id}-${index}`} className="border-t border-slate-800">
-                                  <td className="px-3 py-3 text-slate-300">{item.sku || "—"}</td>
-                                  <td className="px-3 py-3 font-medium text-slate-100">{item.product_name}</td>
-                                  <td className="px-3 py-3 text-right tabular-nums text-slate-300">{Math.max(0, item.qty_on_hand).toFixed(0)}</td>
-                                  <td className="px-3 py-3 text-right tabular-nums text-slate-300">{Math.max(0, item.units_today).toFixed(0)}</td>
-                                  <td className="px-3 py-3 text-slate-300">
+                                <tr key={`${item.product_id}-${index}`} className="border-t border-slate-200">
+                                  <td className="px-3 py-3 text-slate-600">{item.sku || "—"}</td>
+                                  <td className="px-3 py-3 font-medium text-slate-900">{item.product_name}</td>
+                                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.qty_on_hand).toFixed(0)}</td>
+                                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
+                                  <td className="px-3 py-3 text-slate-700">
                                     {item.coverage_days == null ? "—" : `${item.coverage_days.toFixed(1)} días`}
                                   </td>
-                                  <td className="px-3 py-3 text-right tabular-nums text-slate-300">{Math.max(0, item.suggested_qty).toFixed(0)}</td>
-                                  <td className={["px-3 py-3 font-semibold", urgencyClass].join(" ")}>
-                                    {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
-                                  </td>
-                                  <td className="px-3 py-3 text-right tabular-nums text-slate-300">{formatMoney(item.price)}</td>
-                                  <td className="px-3 py-3 text-slate-400">{item.reason}</td>
+                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.suggested_qty).toFixed(0)}</td>
+                              <td className={["px-3 py-3 font-semibold", urgencyClass].join(" ")}>
+                                {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
+                              </td>
+                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatMoney(item.price)}</td>
+                                  <td className="px-3 py-3 text-slate-600">{item.reason}</td>
                                 </tr>
                               );
                             })}

@@ -5558,44 +5558,60 @@ const matchesStationLabel = useCallback(
     unitPrice: number,
     options?: { freeSaleReason?: string }
   ) {
-  if (shouldBlockSales) {
-    setClosureReminderOpen(true);
-    return;
-  }
-  setCart((prev: CartItem[]) => {
-    const reason = options?.freeSaleReason?.trim() ?? "";
-    const shouldCreateIndependentLine =
-      REQUIRE_FREE_SALE_REASON && isFreeSaleProduct(product) && reason.length > 0;
-    const existingIndex = prev.findIndex(
-      (item: CartItem) => item.id === product.id
-    );
-    if (existingIndex >= 0 && !shouldCreateIndependentLine) {
-      const updated = [...prev];
-      const current = updated[existingIndex];
-      updated[existingIndex] = {
-        ...current,
-        quantity: current.quantity + 1,
-      };
-      return updated;
+    if (shouldBlockSales) {
+      setClosureReminderOpen(true);
+      return;
     }
 
-    return [
-      ...prev,
-      {
-        id: shouldCreateIndependentLine
-          ? Date.now() + Math.floor(Math.random() * 1000)
-          : product.id,
-        product,
-        quantity: 1,
-        unitPrice,
-        lineDiscountValue: 0,
-        lineDiscountIsPercent: false,
-        lineDiscountPercent: 0,
-        freeSaleReason: reason || undefined,
-      },
-    ];
-  });
-}
+    setCart((prev: CartItem[]) => {
+      const reason = options?.freeSaleReason?.trim() ?? "";
+      const lineUnitPrice = Number(unitPrice || 0);
+      const baseProductPrice = Number(product.price || 0);
+      const priceMatchesBase = Math.abs(lineUnitPrice - baseProductPrice) < 0.0001;
+      const shouldForceIndependentLine =
+        Boolean(reason.length > 0) ||
+        Boolean(product.service) ||
+        Boolean(product.allow_price_change) ||
+        !priceMatchesBase;
+
+      const existingIndex = prev.findIndex((item: CartItem) => {
+        if (item.product.id !== product.id) return false;
+        if (shouldForceIndependentLine) return false;
+        return Math.abs(Number(item.unitPrice || 0) - lineUnitPrice) < 0.0001;
+      });
+
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        const current = updated[existingIndex];
+        updated[existingIndex] = {
+          ...current,
+          quantity: current.quantity + 1,
+        };
+        return updated;
+      }
+
+      let lineId = shouldForceIndependentLine
+        ? Date.now() * 1000 + Math.floor(Math.random() * 1000)
+        : product.id;
+      while (prev.some((item: CartItem) => item.id === lineId)) {
+        lineId += 1;
+      }
+
+      return [
+        ...prev,
+        {
+          id: lineId,
+          product,
+          quantity: 1,
+          unitPrice: lineUnitPrice,
+          lineDiscountValue: 0,
+          lineDiscountIsPercent: false,
+          lineDiscountPercent: 0,
+          freeSaleReason: reason || undefined,
+        },
+      ];
+    });
+  }
 
 
 

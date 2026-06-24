@@ -62,6 +62,7 @@ const tabs = [
 ] as const;
 const MOVEMENTS_ACTIVE_TAB_KEY = "metrik_movements_active_tab_v1";
 const RECEIVING_DRAFT_LOT_KEY = "metrik_receiving_draft_lot_id_v1";
+const RECOUNT_DRAFT_STORAGE_PREFIX = "metrik_recount_draft_v1";
 const ACTIVE_MOVEMENT_FORM_KEY = "metrik_active_movement_form_v1";
 const ACTIVE_MOVEMENT_FORM_TTL_MS = 1000 * 60 * 60 * 8;
 const INVENTORY_FILTERS_KEY = "metrik_movements_inventory_filters_v1";
@@ -277,6 +278,15 @@ export default function MovementsPage() {
   );
   const [probeStatus, setProbeStatus] = useState<AgentProbeStatus>("idle");
   const [probeMessage, setProbeMessage] = useState<string | null>(null);
+  const recountDraftStateRef = useRef<{
+    recountId: number | null;
+    countedDraft: Record<number, string>;
+    freeCountDraft: Record<number, string>;
+  }>({
+    recountId: null,
+    countedDraft: {},
+    freeCountDraft: {},
+  });
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
@@ -311,8 +321,59 @@ export default function MovementsPage() {
     setRecountFreeSearchApplied("");
     setRecountFreeSearchResults([]);
     setRecountFreeSearchError(null);
-    setRecountFreeCountDraft({});
+    if (!selectedRecountId || typeof window === "undefined") {
+      setRecountCountedDraft({});
+      setRecountFreeCountDraft({});
+      recountDraftStateRef.current = {
+        recountId: null,
+        countedDraft: {},
+        freeCountDraft: {},
+      };
+      return;
+    }
+
+    const persisted = readPersistedRecountDraft(selectedRecountId);
+    const nextCountedDraft = persisted?.countedDraft ?? {};
+    const nextFreeCountDraft = persisted?.freeCountDraft ?? {};
+    setRecountCountedDraft(nextCountedDraft);
+    setRecountFreeCountDraft(nextFreeCountDraft);
+    recountDraftStateRef.current = {
+      recountId: selectedRecountId,
+      countedDraft: nextCountedDraft,
+      freeCountDraft: nextFreeCountDraft,
+    };
   }, [selectedRecountId]);
+
+  useEffect(() => {
+    recountDraftStateRef.current = {
+      recountId: selectedRecountId,
+      countedDraft: recountCountedDraft,
+      freeCountDraft: recountFreeCountDraft,
+    };
+  }, [selectedRecountId, recountCountedDraft, recountFreeCountDraft]);
+
+  useEffect(() => {
+    if (!selectedRecountId || typeof window === "undefined") return;
+    persistRecountDraft(selectedRecountId, recountCountedDraft, recountFreeCountDraft);
+  }, [selectedRecountId, recountCountedDraft, recountFreeCountDraft]);
+
+  useEffect(() => {
+    const flushDraft = () => {
+      const snapshot = recountDraftStateRef.current;
+      if (!snapshot.recountId) return;
+      persistRecountDraft(
+        snapshot.recountId,
+        snapshot.countedDraft,
+        snapshot.freeCountDraft
+      );
+    };
+    window.addEventListener("pagehide", flushDraft);
+    window.addEventListener("beforeunload", flushDraft);
+    return () => {
+      window.removeEventListener("pagehide", flushDraft);
+      window.removeEventListener("beforeunload", flushDraft);
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeTabReady) return;
@@ -1106,7 +1167,10 @@ export default function MovementsPage() {
     }
   };
 
-  const submitRecountLine = async (productId: number): Promise<boolean> => {
+  const submitRecountLine = async (
+    productId: number,
+    draftOverride?: string | null
+  ): Promise<boolean> => {
     if (!token || !selectedRecountId) return false;
     if (
       !recountDetail ||
@@ -1116,9 +1180,9 @@ export default function MovementsPage() {
       setRecountFeedback("Este recuento ya no acepta edición.");
       return false;
     }
-    const draft = recountCountedDraft[productId];
-    const counted = Number(draft);
-    if (!Number.isFinite(counted) || counted < 0 || !Number.isInteger(counted)) {
+    const draft = draftOverride ?? recountCountedDraft[productId];
+    const counted = parseRecountCountDraft(draft);
+    if (counted == null) {
       setRecountFeedback("La cantidad contada debe ser un número entero (0 o mayor).");
       return false;
     }
@@ -1129,6 +1193,7 @@ export default function MovementsPage() {
         product_id: productId,
         counted_qty: counted,
       });
+      const savedCountText = String(savedLine.counted_qty ?? counted);
       setRecountDetail((prev) => {
         if (!prev) return prev;
         const updatedLine = {
@@ -1167,7 +1232,7 @@ export default function MovementsPage() {
           (acc, line) => acc + (Number(line.counted_qty ?? 0) - Number(line.system_qty)),
           0
         );
-        const totalLines = prev.recount.summary.total_lines;
+        const totalLines = nextLines.length;
         return {
           ...prev,
           recount: {
@@ -1185,6 +1250,10 @@ export default function MovementsPage() {
           lines: nextLines,
         };
       });
+      setRecountCountedDraft((prevDrafts) => ({
+        ...prevDrafts,
+        [productId]: savedCountText,
+      }));
       return true;
     } catch (err) {
       setRecountFeedback(err instanceof Error ? err.message : "No se pudo guardar la línea.");
@@ -1196,16 +1265,25 @@ export default function MovementsPage() {
 
   const addFreeRecountProduct = async (productId: number) => {
     const draft = recountFreeCountDraft[productId];
-    if (!draft) {
+    const counted = parseRecountCountDraft(draft);
+    if (counted == null) {
       setRecountFeedback("Indica cantidad contada (0 o mayor) para agregar al recuento.");
       return;
     }
-    setRecountCountedDraft((prev) => ({ ...prev, [productId]: draft }));
-    const saved = await submitRecountLine(productId);
+    const saved = await submitRecountLine(productId, String(counted));
     if (!saved) return;
     setRecountFreeCountDraft((prev) => ({ ...prev, [productId]: "" }));
     setRecountFeedback("Producto agregado al recuento.");
   };
+
+  useEffect(() => {
+    if (!selectedRecountId || !recountDetail) return;
+    if (!["applied", "cancelled"].includes(recountDetail.recount.status)) return;
+    if (typeof window === "undefined") return;
+    clearPersistedRecountDraft(selectedRecountId);
+    setRecountCountedDraft({});
+    setRecountFreeCountDraft({});
+  }, [selectedRecountId, recountDetail]);
 
   const printSelectedRecountSheet = async (
     mode: "differences" | "counted" | "all",
@@ -2836,11 +2914,20 @@ export default function MovementsPage() {
                       ) : (
                         <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-slate-200 bg-white">
                           <table className="w-full table-fixed">
+                            <colgroup>
+                              <col className="w-[38%]" />
+                              <col className="w-[10%]" />
+                              <col className="w-[12%]" />
+                              <col className="w-[14%]" />
+                              <col className="w-[14%]" />
+                              <col className="w-[12%]" />
+                            </colgroup>
                             <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.06em] text-slate-600">
                               <tr>
                                 <th className="px-2.5 py-2 text-left">Producto</th>
                                 <th className="px-2.5 py-2 text-left">SKU</th>
                                 <th className="px-2.5 py-2 text-right">Costo</th>
+                                <th className="px-2.5 py-2 text-right">Precio</th>
                                 <th className="px-2.5 py-2 text-right">Cantidad</th>
                                 <th className="px-2.5 py-2 text-right" />
                               </tr>
@@ -2848,7 +2935,7 @@ export default function MovementsPage() {
                             <tbody className="divide-y divide-slate-200 text-[12px]">
                               {recountFreeSearchResults.length === 0 ? (
                                 <tr>
-                                  <td colSpan={5} className="px-3 py-3 text-center text-xs text-slate-500">
+                                  <td colSpan={6} className="px-3 py-3 text-center text-xs text-slate-500">
                                     Sin resultados.
                                   </td>
                                 </tr>
@@ -2861,6 +2948,9 @@ export default function MovementsPage() {
                                     <td className="px-2.5 py-1.5 text-slate-600">{row.sku || "-"}</td>
                                     <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-700">
                                       {formatMoney(row.cost)}
+                                    </td>
+                                    <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-700">
+                                      {formatMoney(row.price)}
                                     </td>
                                     <td className="px-2.5 py-1.5 text-right">
                                       <input
@@ -2986,13 +3076,12 @@ export default function MovementsPage() {
                           <th className="px-2.5 py-2 text-right">Sistema</th>
                           <th className="px-2.5 py-2 text-right">Contado</th>
                           <th className="px-2.5 py-2 text-right">Dif.</th>
-                          <th className="px-2.5 py-2 text-right" />
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 text-[12px]">
                         {recountLinesVisible.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="px-3 py-5 text-center text-xs text-slate-500">
+                            <td colSpan={4} className="px-3 py-5 text-center text-xs text-slate-500">
                               No hay líneas para el filtro seleccionado.
                             </td>
                           </tr>
@@ -3060,18 +3149,6 @@ export default function MovementsPage() {
                                 }`}
                               >
                                 {diff == null ? "-" : formatQty(diff)}
-                              </td>
-                              <td className="px-2.5 py-1.5 text-right">
-                                <button
-                                  onClick={() => void submitRecountLine(line.product_id)}
-                                  disabled={
-                                    recountLineSavingId === line.product_id ||
-                                    ["applied", "cancelled"].includes(recountDetail.recount.status)
-                                  }
-                                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-                                >
-                                  {recountLineSavingId === line.product_id ? "Guardando..." : "Guardar"}
-                                </button>
                               </td>
                             </tr>
                           );
@@ -4068,6 +4145,90 @@ function formatQty(value: number, maxDigits = 2) {
   return new Intl.NumberFormat("es-CO", {
     maximumFractionDigits: maxDigits,
   }).format(value);
+}
+
+type PersistedRecountDraft = {
+  recountId: number;
+  countedDraft: Record<number, string>;
+  freeCountDraft: Record<number, string>;
+  savedAt: number;
+};
+
+function recountDraftStorageKey(recountId: number) {
+  return `${RECOUNT_DRAFT_STORAGE_PREFIX}:${recountId}`;
+}
+
+function normalizeDraftMap(
+  value: unknown
+): Record<number, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<number, string> = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = Number(rawKey);
+    if (!Number.isInteger(key) || key <= 0) continue;
+    if (typeof rawValue !== "string") continue;
+    const normalized = rawValue.trim();
+    if (normalized === "") continue;
+    result[key] = normalized.replace(/[^\d]/g, "");
+  }
+  return result;
+}
+
+function readPersistedRecountDraft(recountId: number): PersistedRecountDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(recountDraftStorageKey(recountId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersistedRecountDraft>;
+    if (parsed.recountId !== recountId) return null;
+    return {
+      recountId,
+      countedDraft: normalizeDraftMap(parsed.countedDraft),
+      freeCountDraft: normalizeDraftMap(parsed.freeCountDraft),
+      savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistRecountDraft(
+  recountId: number,
+  countedDraft: Record<number, string>,
+  freeCountDraft: Record<number, string>
+) {
+  if (typeof window === "undefined") return;
+  try {
+    const payload: PersistedRecountDraft = {
+      recountId,
+      countedDraft: normalizeDraftMap(countedDraft),
+      freeCountDraft: normalizeDraftMap(freeCountDraft),
+      savedAt: Date.now(),
+    };
+    window.localStorage.setItem(recountDraftStorageKey(recountId), JSON.stringify(payload));
+  } catch {
+    // Ignore storage failures; server save remains the source of truth.
+  }
+}
+
+function clearPersistedRecountDraft(recountId: number) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(recountDraftStorageKey(recountId));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function parseRecountCountDraft(raw: string | null | undefined): number | null {
+  if (raw == null) return null;
+  const trimmed = String(raw).trim();
+  if (trimmed === "") return null;
+  const counted = Number(trimmed);
+  if (!Number.isFinite(counted) || counted < 0 || !Number.isInteger(counted)) {
+    return null;
+  }
+  return counted;
 }
 
 function formatMoney(value: number) {
