@@ -3753,10 +3753,9 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
   function formatStockUnits(value: number) {
     const stock = Math.trunc(Number(value ?? 0));
     if (stock < 0) {
-      return `${stock} unidades (faltan ${Math.abs(stock)} para cubrirlo)`;
+      return `${stock} (faltan ${Math.abs(stock)} para cubrirlo)`;
     }
-    if (stock === 1) return "1 unidad";
-    return `${stock} unidades`;
+    return `${stock}`;
   }
 
   function formatCoverageDays(value: number | null | undefined) {
