@@ -22,17 +22,21 @@ import {
   fetchInventoryOverview,
   fetchInventoryProductHistory,
   fetchInventoryProducts,
+  getInventoryRecountDraft,
   getInventoryRecountDetail,
   listInventoryRecounts,
   fetchReceivingDocuments,
   fetchReceivingLots,
   fetchReceivingLotDetail,
   fetchReceivingProductGroups,
+  deleteInventoryRecountDraft,
   upsertInventoryRecountLine,
+  upsertInventoryRecountDraft,
   type InventoryMovementReason,
   type InventoryMovementRecord,
   type InventoryLatestEntryRecord,
   type InventoryOverview,
+  type InventoryRecountDraftState,
   type InventoryRecountDetail,
   type InventoryRecountRecord,
   type InventoryProductHistory,
@@ -155,7 +159,7 @@ const manualKindLabel: Record<Exclude<ManualMovementKind, "entrada_manual">, str
 };
 
 export default function MovementsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -280,13 +284,18 @@ export default function MovementsPage() {
   const [probeMessage, setProbeMessage] = useState<string | null>(null);
   const recountDraftStateRef = useRef<{
     recountId: number | null;
+    userId: number | null;
     countedDraft: Record<number, string>;
     freeCountDraft: Record<number, string>;
   }>({
     recountId: null,
+    userId: null,
     countedDraft: {},
     freeCountDraft: {},
   });
+  const recountDraftHydratingRef = useRef(false);
+  const recountDraftAutosaveTimerRef = useRef<number | null>(null);
+  const recountDraftLastSyncedRef = useRef<string>("");
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
@@ -322,46 +331,143 @@ export default function MovementsPage() {
     setRecountFreeSearchResults([]);
     setRecountFreeSearchError(null);
     if (!selectedRecountId || typeof window === "undefined") {
+      recountDraftHydratingRef.current = false;
       setRecountCountedDraft({});
       setRecountFreeCountDraft({});
       recountDraftStateRef.current = {
         recountId: null,
+        userId: user?.id ?? null,
         countedDraft: {},
         freeCountDraft: {},
       };
       return;
     }
+    if (!token) return;
 
-    const persisted = readPersistedRecountDraft(selectedRecountId);
-    const nextCountedDraft = persisted?.countedDraft ?? {};
-    const nextFreeCountDraft = persisted?.freeCountDraft ?? {};
-    setRecountCountedDraft(nextCountedDraft);
-    setRecountFreeCountDraft(nextFreeCountDraft);
-    recountDraftStateRef.current = {
-      recountId: selectedRecountId,
-      countedDraft: nextCountedDraft,
-      freeCountDraft: nextFreeCountDraft,
+    let cancelled = false;
+    const currentUserId = user?.id ?? null;
+    recountDraftHydratingRef.current = true;
+    const loadDraft = async () => {
+      const localDraft = readPersistedRecountDraft(currentUserId, selectedRecountId);
+      let backendDraft: InventoryRecountDraftState | null = null;
+      try {
+        backendDraft = await getInventoryRecountDraft(token, selectedRecountId);
+      } catch {
+        backendDraft = null;
+      }
+
+      if (cancelled) return;
+
+      const normalizedBackend = normalizeDraftState(backendDraft);
+      const normalizedLocal = normalizeDraftState(localDraft);
+      const source =
+        normalizedBackend.savedAtMs >= normalizedLocal.savedAtMs
+          ? normalizedBackend
+          : normalizedLocal;
+      const nextCountedDraft = source.countedDraft;
+      const nextFreeCountDraft = source.freeCountDraft;
+
+      setRecountCountedDraft(nextCountedDraft);
+      setRecountFreeCountDraft(nextFreeCountDraft);
+      recountDraftStateRef.current = {
+        recountId: selectedRecountId,
+        userId: currentUserId,
+        countedDraft: nextCountedDraft,
+        freeCountDraft: nextFreeCountDraft,
+      };
+
+      if (normalizedBackend.savedAtMs >= normalizedLocal.savedAtMs) {
+        persistRecountDraftLocal(
+          currentUserId,
+          selectedRecountId,
+          nextCountedDraft,
+          nextFreeCountDraft
+        );
+        recountDraftLastSyncedRef.current = serializeRecountDraftPayload(
+          currentUserId,
+          selectedRecountId,
+          nextCountedDraft,
+          nextFreeCountDraft
+        );
+      } else {
+        recountDraftLastSyncedRef.current = "";
+      }
+      recountDraftHydratingRef.current = false;
     };
-  }, [selectedRecountId]);
+
+    void loadDraft();
+
+    return () => {
+      cancelled = true;
+      recountDraftHydratingRef.current = false;
+    };
+  }, [selectedRecountId, token, user?.id]);
 
   useEffect(() => {
     recountDraftStateRef.current = {
       recountId: selectedRecountId,
+      userId: user?.id ?? null,
       countedDraft: recountCountedDraft,
       freeCountDraft: recountFreeCountDraft,
     };
-  }, [selectedRecountId, recountCountedDraft, recountFreeCountDraft]);
+  }, [selectedRecountId, user?.id, recountCountedDraft, recountFreeCountDraft]);
 
   useEffect(() => {
     if (!selectedRecountId || typeof window === "undefined") return;
-    persistRecountDraft(selectedRecountId, recountCountedDraft, recountFreeCountDraft);
-  }, [selectedRecountId, recountCountedDraft, recountFreeCountDraft]);
+    const currentUserId = user?.id ?? null;
+    if (recountDraftHydratingRef.current) return;
+    persistRecountDraftLocal(currentUserId, selectedRecountId, recountCountedDraft, recountFreeCountDraft);
+
+    if (!token || !currentUserId || !recountDetail) return;
+    if (recountDetail.recount.id !== selectedRecountId) return;
+    if (!["draft", "counting", "closed"].includes(recountDetail.recount.status)) return;
+
+    const payloadKey = serializeRecountDraftPayload(
+      currentUserId,
+      selectedRecountId,
+      recountCountedDraft,
+      recountFreeCountDraft
+    );
+    if (payloadKey === recountDraftLastSyncedRef.current) return;
+
+    if (recountDraftAutosaveTimerRef.current != null) {
+      window.clearTimeout(recountDraftAutosaveTimerRef.current);
+    }
+
+    recountDraftAutosaveTimerRef.current = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const saved = await upsertInventoryRecountDraft(token, selectedRecountId, {
+            counted_draft: recountCountedDraft,
+            free_count_draft: recountFreeCountDraft,
+          });
+          recountDraftLastSyncedRef.current = payloadKey;
+          persistRecountDraftLocal(
+            currentUserId,
+            selectedRecountId,
+            saved.counted_draft,
+            saved.free_count_draft
+          );
+        } catch {
+          // Keep the local backup; retry on the next change.
+        }
+      })();
+    }, 1200);
+
+    return () => {
+      if (recountDraftAutosaveTimerRef.current != null) {
+        window.clearTimeout(recountDraftAutosaveTimerRef.current);
+        recountDraftAutosaveTimerRef.current = null;
+      }
+    };
+  }, [selectedRecountId, recountCountedDraft, recountFreeCountDraft, token, user?.id, recountDetail]);
 
   useEffect(() => {
     const flushDraft = () => {
       const snapshot = recountDraftStateRef.current;
       if (!snapshot.recountId) return;
-      persistRecountDraft(
+      persistRecountDraftLocal(
+        snapshot.userId,
         snapshot.recountId,
         snapshot.countedDraft,
         snapshot.freeCountDraft
@@ -1278,12 +1384,20 @@ export default function MovementsPage() {
 
   useEffect(() => {
     if (!selectedRecountId || !recountDetail) return;
+    if (recountDetail.recount.id !== selectedRecountId) return;
     if (!["applied", "cancelled"].includes(recountDetail.recount.status)) return;
     if (typeof window === "undefined") return;
-    clearPersistedRecountDraft(selectedRecountId);
+    if (!token) return;
+    if (recountDraftAutosaveTimerRef.current != null) {
+      window.clearTimeout(recountDraftAutosaveTimerRef.current);
+      recountDraftAutosaveTimerRef.current = null;
+    }
+    void deleteInventoryRecountDraft(token, selectedRecountId).catch(() => undefined);
+    clearPersistedRecountDraft(user?.id ?? null, selectedRecountId);
     setRecountCountedDraft({});
     setRecountFreeCountDraft({});
-  }, [selectedRecountId, recountDetail]);
+    recountDraftLastSyncedRef.current = "";
+  }, [selectedRecountId, recountDetail, token, user?.id]);
 
   const printSelectedRecountSheet = async (
     mode: "differences" | "counted" | "all",
@@ -3089,9 +3203,19 @@ export default function MovementsPage() {
                           const visibleIndex = recountLinesVisible.findIndex(
                             (candidate) => candidate.product_id === line.product_id
                           );
+                          const isEditable = !["applied", "cancelled"].includes(
+                            recountDetail.recount.status
+                          );
                           const draft = recountCountedDraft[line.product_id] ?? "";
                           const counted = draft === "" ? null : Number(draft);
-                          const diff = counted == null || Number.isNaN(counted) ? null : counted - line.system_qty;
+                          const effectiveCounted =
+                            isEditable ? counted : line.counted_qty ?? null;
+                          const diff =
+                            isEditable
+                              ? counted == null || Number.isNaN(counted)
+                                ? null
+                                : counted - line.system_qty
+                              : line.diff_qty ?? null;
                           return (
                             <tr key={line.id} className="odd:bg-white even:bg-slate-50">
                               <td className="px-2.5 py-1.5">
@@ -3102,40 +3226,45 @@ export default function MovementsPage() {
                                 {formatQty(line.system_qty)}
                               </td>
                               <td className="px-2.5 py-1.5 text-right">
-                                <input
-                                  ref={(node) => {
-                                    recountInputRefs.current[line.product_id] = node;
-                                  }}
-                                  value={draft}
-                                  onChange={(e) =>
-                                    setRecountCountedDraft((prev) => ({
-                                      ...prev,
-                                      [line.product_id]: e.target.value.replace(/[^\d]/g, ""),
-                                    }))
-                                  }
-                                  onKeyDown={(event) => {
-                                    if (event.key !== "Enter") return;
-                                    event.preventDefault();
-                                    const nextLine = recountLinesVisible[visibleIndex + 1];
-                                    void (async () => {
-                                      const saved = await submitRecountLine(line.product_id);
-                                      if (saved && nextLine) {
-                                        const nextInput =
-                                          recountInputRefs.current[nextLine.product_id];
-                                        nextInput?.focus();
-                                        nextInput?.select();
-                                      }
-                                    })();
-                                  }}
-                                  onFocus={(event) => {
-                                    event.currentTarget.select();
-                                  }}
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  disabled={["applied", "cancelled"].includes(recountDetail.recount.status)}
-                                  className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-[12px] tabular-nums text-slate-900"
-                                />
+                                {isEditable ? (
+                                  <input
+                                    ref={(node) => {
+                                      recountInputRefs.current[line.product_id] = node;
+                                    }}
+                                    value={draft}
+                                    onChange={(e) =>
+                                      setRecountCountedDraft((prev) => ({
+                                        ...prev,
+                                        [line.product_id]: e.target.value.replace(/[^\d]/g, ""),
+                                      }))
+                                    }
+                                    onKeyDown={(event) => {
+                                      if (event.key !== "Enter") return;
+                                      event.preventDefault();
+                                      const nextLine = recountLinesVisible[visibleIndex + 1];
+                                      void (async () => {
+                                        const saved = await submitRecountLine(line.product_id);
+                                        if (saved && nextLine) {
+                                          const nextInput =
+                                            recountInputRefs.current[nextLine.product_id];
+                                          nextInput?.focus();
+                                          nextInput?.select();
+                                        }
+                                      })();
+                                    }}
+                                    onFocus={(event) => {
+                                      event.currentTarget.select();
+                                    }}
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-[12px] tabular-nums text-slate-900"
+                                  />
+                                ) : (
+                                  <span className="inline-block min-w-20 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-right tabular-nums text-slate-900">
+                                    {effectiveCounted == null ? "-" : formatQty(effectiveCounted)}
+                                  </span>
+                                )}
                               </td>
                               <td
                                 className={`px-2.5 py-1.5 text-right tabular-nums ${
@@ -4149,18 +4278,26 @@ function formatQty(value: number, maxDigits = 2) {
 
 type PersistedRecountDraft = {
   recountId: number;
+  userId: number | null;
   countedDraft: Record<number, string>;
   freeCountDraft: Record<number, string>;
-  savedAt: number;
+  savedAtMs: number;
 };
 
-function recountDraftStorageKey(recountId: number) {
-  return `${RECOUNT_DRAFT_STORAGE_PREFIX}:${recountId}`;
+type DraftStateInput = {
+  countedDraft?: Record<number, string>;
+  freeCountDraft?: Record<number, string>;
+  counted_draft?: Record<number, string>;
+  free_count_draft?: Record<number, string>;
+  saved_at_ms?: number;
+  savedAtMs?: number;
+};
+
+function recountDraftStorageKey(userId: number | null, recountId: number) {
+  return `${RECOUNT_DRAFT_STORAGE_PREFIX}:${userId ?? "anon"}:${recountId}`;
 }
 
-function normalizeDraftMap(
-  value: unknown
-): Record<number, string> {
+function normalizeDraftMap(value: unknown): Record<number, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result: Record<number, string> = {};
   for (const [rawKey, rawValue] of Object.entries(value)) {
@@ -4171,28 +4308,67 @@ function normalizeDraftMap(
     if (normalized === "") continue;
     result[key] = normalized.replace(/[^\d]/g, "");
   }
-  return result;
+  return Object.fromEntries(
+    Object.entries(result)
+      .sort(([left], [right]) => Number(left) - Number(right))
+      .map(([key, entry]) => [Number(key), entry])
+  ) as Record<number, string>;
 }
 
-function readPersistedRecountDraft(recountId: number): PersistedRecountDraft | null {
+function normalizeDraftState(source: DraftStateInput | null | undefined): {
+  countedDraft: Record<number, string>;
+  freeCountDraft: Record<number, string>;
+  savedAtMs: number;
+} {
+  if (!source) {
+    return { countedDraft: {}, freeCountDraft: {}, savedAtMs: 0 };
+  }
+  return {
+    countedDraft: normalizeDraftMap(source.countedDraft ?? source.counted_draft),
+    freeCountDraft: normalizeDraftMap(source.freeCountDraft ?? source.free_count_draft),
+    savedAtMs: Number(source.savedAtMs ?? source.saved_at_ms ?? 0),
+  };
+}
+
+function serializeRecountDraftPayload(
+  userId: number | null,
+  recountId: number,
+  countedDraft: Record<number, string>,
+  freeCountDraft: Record<number, string>
+) {
+  return JSON.stringify({
+    userId,
+    recountId,
+    countedDraft: normalizeDraftMap(countedDraft),
+    freeCountDraft: normalizeDraftMap(freeCountDraft),
+  });
+}
+
+function readPersistedRecountDraft(
+  userId: number | null,
+  recountId: number
+): PersistedRecountDraft | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(recountDraftStorageKey(recountId));
+    const raw = window.localStorage.getItem(recountDraftStorageKey(userId, recountId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersistedRecountDraft>;
     if (parsed.recountId !== recountId) return null;
+    if ((parsed.userId ?? null) !== (userId ?? null)) return null;
     return {
       recountId,
+      userId,
       countedDraft: normalizeDraftMap(parsed.countedDraft),
       freeCountDraft: normalizeDraftMap(parsed.freeCountDraft),
-      savedAt: typeof parsed.savedAt === "number" ? parsed.savedAt : Date.now(),
+      savedAtMs: Number(parsed.savedAtMs ?? Date.now()),
     };
   } catch {
     return null;
   }
 }
 
-function persistRecountDraft(
+function persistRecountDraftLocal(
+  userId: number | null,
   recountId: number,
   countedDraft: Record<number, string>,
   freeCountDraft: Record<number, string>
@@ -4201,20 +4377,24 @@ function persistRecountDraft(
   try {
     const payload: PersistedRecountDraft = {
       recountId,
+      userId,
       countedDraft: normalizeDraftMap(countedDraft),
       freeCountDraft: normalizeDraftMap(freeCountDraft),
-      savedAt: Date.now(),
+      savedAtMs: Date.now(),
     };
-    window.localStorage.setItem(recountDraftStorageKey(recountId), JSON.stringify(payload));
+    window.localStorage.setItem(
+      recountDraftStorageKey(userId, recountId),
+      JSON.stringify(payload)
+    );
   } catch {
     // Ignore storage failures; server save remains the source of truth.
   }
 }
 
-function clearPersistedRecountDraft(recountId: number) {
+function clearPersistedRecountDraft(userId: number | null, recountId: number) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(recountDraftStorageKey(recountId));
+    window.localStorage.removeItem(recountDraftStorageKey(userId, recountId));
   } catch {
     // Ignore storage failures.
   }

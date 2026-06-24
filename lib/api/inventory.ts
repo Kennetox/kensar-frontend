@@ -374,6 +374,13 @@ export type InventoryRecountDetail = {
   lines: InventoryRecountLine[];
 };
 
+export type InventoryRecountDraftState = {
+  recount_id: number;
+  counted_draft: Record<number, string>;
+  free_count_draft: Record<number, string>;
+  saved_at_ms: number;
+};
+
 export async function fetchInventoryLatestEntries(
   token: string,
   options?: { source?: "all" | "app" | "manual"; limit?: number }
@@ -497,6 +504,61 @@ export async function upsertInventoryRecountLine(
     throw new Error(detail?.detail ?? `Error ${res.status}`);
   }
   return (await res.json()) as InventoryRecountLine;
+}
+
+export async function getInventoryRecountDraft(
+  token: string,
+  recountId: number
+): Promise<InventoryRecountDraftState> {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/inventory/recounts/${recountId}/draft`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(apiErrorMessage(detail, res.status));
+  }
+  return (await res.json()) as InventoryRecountDraftState;
+}
+
+export async function upsertInventoryRecountDraft(
+  token: string,
+  recountId: number,
+  payload: {
+    counted_draft?: Record<number, string>;
+    free_count_draft?: Record<number, string>;
+  }
+): Promise<InventoryRecountDraftState> {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/inventory/recounts/${recountId}/draft`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(apiErrorMessage(detail, res.status));
+  }
+  return (await res.json()) as InventoryRecountDraftState;
+}
+
+export async function deleteInventoryRecountDraft(
+  token: string,
+  recountId: number
+): Promise<InventoryRecountDraftState> {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/inventory/recounts/${recountId}/draft`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(apiErrorMessage(detail, res.status));
+  }
+  return (await res.json()) as InventoryRecountDraftState;
 }
 
 export async function closeInventoryRecount(
