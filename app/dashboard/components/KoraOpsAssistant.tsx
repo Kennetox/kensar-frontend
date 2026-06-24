@@ -3759,6 +3759,13 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     return `${stock} unidades`;
   }
 
+  function formatCoverageDays(value: number | null | undefined) {
+    if (value == null) return "—";
+    if (!Number.isFinite(value)) return "sin consumo reciente";
+    if (value < 1) return "< 1 día";
+    return `${Math.round(value)} días`;
+  }
+
   async function answerProductStockLookup(input: string) {
     if (!ensureToken()) return;
     const directCode = extractProductCode(input);
@@ -4091,6 +4098,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
       pushMessage(
         "kora",
         `Recomendación de reposición para ${product.product_name}${product.sku ? ` (SKU ${product.sku})` : ""}:\n- Stock actual: ${stock}\n- Ventas 30 días: ${formatMoney(sales30d)} COP\n- Tickets 30 días: ${tickets30d}\n- Unidades estimadas 30 días: ${units30d}\n- Cobertura estimada: ${Number.isFinite(coverageDays) ? `${coverageDays.toFixed(1)} días` : "sin consumo reciente"}\n\nConclusión KORA: ${recommendation}\nMotivo: ${reason}`,
+        `Recomendación de reposición para ${product.product_name}${product.sku ? ` (SKU ${product.sku})` : ""}:\n- Stock actual: ${formatStockUnits(stock)}\n- Ventas 30 días: ${formatMoney(sales30d)} COP\n- Tickets 30 días: ${tickets30d}\n- Unidades estimadas 30 días: ${units30d}\n- Cobertura estimada: ${Number.isFinite(coverageDays) ? formatCoverageDays(coverageDays) : "sin consumo reciente"}\n\nConclusión KORA: ${recommendation}\nMotivo: ${reason}`,
         PRODUCT_ACTIONS
       );
       lastEntityRef.current = {
@@ -4135,14 +4143,9 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         messageLines.push("", "Productos priorizados:");
         previewItems.forEach((item, index) => {
           const sku = item.sku ? `SKU ${item.sku}` : "sin SKU";
-          const coverage =
-            item.coverage_days == null
-              ? "sin cobertura clara"
-              : item.coverage_days < 1
-                ? "< 1 día"
-                : `${Math.round(item.coverage_days)} días`;
+          const coverage = formatCoverageDays(item.coverage_days);
           messageLines.push(
-            `${index + 1}. ${item.product_name} (${sku}) - vendidas hoy: ${item.units_today.toFixed(0)} unidades, stock ${item.qty_on_hand.toFixed(0)}, cobertura ${coverage}, sugerido ${item.suggested_qty.toFixed(0)}.`
+            `${index + 1}. ${item.product_name} (${sku}) - vendidas hoy: ${item.units_today.toFixed(0)} unidades, stock ${formatStockUnits(item.qty_on_hand)}, cobertura ${coverage}, sugerido ${item.suggested_qty.toFixed(0)}.`
           );
         });
       }
@@ -5217,10 +5220,10 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                                 <tr key={`${item.product_id}-${index}`} className="border-t border-slate-200">
                                   <td className="px-3 py-3 text-slate-600">{item.sku || "—"}</td>
                                   <td className="px-3 py-3 font-medium text-slate-900">{item.product_name}</td>
-                                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Number(item.qty_on_hand).toFixed(0)}</td>
+                                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatStockUnits(item.qty_on_hand)}</td>
                                   <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
                                   <td className="px-3 py-3 text-slate-700">
-                                    {item.coverage_days == null ? "—" : `${item.coverage_days.toFixed(1)} días`}
+                                    {formatCoverageDays(item.coverage_days)}
                                   </td>
                               <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.suggested_qty).toFixed(0)}</td>
                               <td className={["px-3 py-3 font-semibold", urgencyClass].join(" ")}>
