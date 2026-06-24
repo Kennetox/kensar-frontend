@@ -1687,7 +1687,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
           <thead>
             <tr>
               <th>SKU</th>
-              <th>Producto</th>
+              <th>Nombre</th>
               <th>Stock</th>
               <th>Precio</th>
               <th>Hoy</th>
@@ -4040,30 +4040,14 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
       const horizonDays = resolveRestockForecastHorizon(input);
       const data = await readRestockForecast(forecastMode, horizonDays);
       latestRestockReportRef.current = data;
-      const topItems = data.items.slice(0, data.mode === "today" ? 8 : 5);
       const messageLines = [
-        data.mode === "today" ? "Productos vendidos hoy que conviene reponer mañana:" : data.headline,
+        data.mode === "today" ? "Productos vendidos hoy que conviene reponer mañana." : data.headline,
         "",
-        ...data.summary_lines.slice(0, 3),
+        "Resumen:",
+        ...data.summary_lines.slice(0, 3).map((line) => `- ${line}`),
+        "",
+        "Abre el reporte para ver el detalle completo, imprimirlo o guardarlo como PDF.",
       ];
-      if (topItems.length) {
-        messageLines.push("", "Productos priorizados:");
-        topItems.forEach((item, index) => {
-          const coverage = item.coverage_days == null ? "sin cobertura clara" : `${item.coverage_days.toFixed(1)} días`;
-          const sku = item.sku ? ` · SKU ${item.sku}` : "";
-          const thresholdLabel =
-            item.threshold_source === "inferred"
-              ? "aprendido"
-              : item.threshold_source === "mixed"
-                ? "mixto"
-                : "configurado";
-          messageLines.push(
-            `${index + 1}. ${item.product_name}${sku} - hoy ${item.units_today.toFixed(0)} u, stock ${item.qty_on_hand.toFixed(0)}, punto de aviso ${item.effective_threshold} (${thresholdLabel}), cobertura ${coverage}, sugerido ${item.suggested_qty}. ${item.reason}`
-          );
-        });
-      } else {
-        messageLines.push("", data.mode === "today" ? "No veo productos vendidos hoy que ya ameriten reposición mañana." : "No veo urgencias claras en el horizonte consultado.");
-      }
 
       const forecastActions: KoraAction[] = [
         {
@@ -4071,22 +4055,9 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
           label: "Ver reporte",
           intent: "restock_report_modal",
         },
-        ...topItems.map((item, index) => ({
-          id: `restock-forecast-${item.product_id}-${index}`,
-          label: `Revisar ${item.product_name}`,
-          intent: "product_restock_advice" as const,
-          inputOverride: `¿Debemos pedir más de ${item.product_name}${item.sku ? ` SKU ${item.sku}` : ""}?`,
-        })),
-        ...data.recommended_actions.slice(0, 2),
       ];
 
       pushMessage("kora", messageLines.join("\n"), forecastActions);
-      if (topItems[0]) {
-        lastEntityRef.current = {
-          ...lastEntityRef.current,
-          productTerm: topItems[0].sku || topItems[0].product_name,
-        };
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "No fue posible construir el pronóstico de reposición.";
       pushMessage("kora", `No pude hacer el pronóstico de reposición ahora. ${message}`, PRODUCT_ACTIONS);
@@ -5011,7 +4982,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
           ))}
           {restockReport ? (
             <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4">
-              <div className="w-full max-w-5xl overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-[0_24px_70px_-28px_rgba(2,6,23,0.55)]">
+              <div className="flex h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-[0_24px_70px_-28px_rgba(2,6,23,0.55)]">
                 <div className="flex items-start justify-between gap-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-4 py-4">
                   <div>
                     <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">Reporte de reposición</p>
@@ -5073,9 +5044,9 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                   </div>
                 </div>
 
-                <div className="max-h-[56vh] overflow-auto px-4 pb-4">
+                <div className="flex-1 overflow-auto px-4 pb-4">
                   <div className="mb-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-                    <ul className="space-y-1 text-sm leading-relaxed text-slate-700">
+                    <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-slate-700">
                       {restockReport.summary_lines.map((line, index) => (
                         <li key={`${line}-${index}`}>{line}</li>
                       ))}
@@ -5087,14 +5058,14 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                       <thead className="bg-slate-900 text-left text-[11px] uppercase tracking-[0.12em] text-white">
                         <tr>
                           <th className="px-3 py-3">SKU</th>
-                          <th className="px-3 py-3">Producto</th>
-              <th className="px-3 py-3 text-right">Stock</th>
-              <th className="px-3 py-3 text-right">Hoy</th>
-              <th className="px-3 py-3">Cobertura</th>
-              <th className="px-3 py-3 text-right">Sugerido</th>
-              <th className="px-3 py-3">Urgencia</th>
-              <th className="px-3 py-3 text-right">Precio</th>
-              <th className="px-3 py-3">Motivo</th>
+                          <th className="px-3 py-3">Nombre</th>
+                          <th className="px-3 py-3 text-right">Stock</th>
+                          <th className="px-3 py-3 text-right">Hoy</th>
+                          <th className="px-3 py-3">Cobertura</th>
+                          <th className="px-3 py-3 text-right">Sugerido</th>
+                          <th className="px-3 py-3">Urgencia</th>
+                          <th className="px-3 py-3 text-right">Precio</th>
+                          <th className="px-3 py-3">Motivo</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white">

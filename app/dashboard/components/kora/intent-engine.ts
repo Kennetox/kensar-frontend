@@ -149,6 +149,33 @@ function isOpinionQuestion(text: string) {
   ]);
 }
 
+function isRestockFromSoldHistory(text: string) {
+  return (
+    hasPhrase(text, [
+      "de lo que hemos vendido hasta ahora",
+      "de lo que hemos vendido",
+      "de lo vendido hasta ahora",
+      "de lo vendido",
+      "de lo que se ha vendido",
+      "de lo que se vendio",
+      "de lo que se vendió",
+      "de lo que vendimos",
+      "lo que hemos vendido hasta ahora",
+      "lo que hemos vendido",
+      "lo vendido hasta ahora",
+      "lo vendido",
+      "segun lo vendido",
+      "segun las ventas de hoy",
+      "segun ventas de hoy",
+      "en base a lo vendido",
+      "en base a las ventas",
+      "en base a ventas",
+      "de acuerdo a lo vendido",
+      "de acuerdo con lo vendido",
+    ]) || (text.includes("reponer") && text.includes("vend"))
+  );
+}
+
 export function detectIntent(input: string, resolveModuleFromQuery: ResolveModuleFromQuery): QueryIntent {
   const text = normalizeQuery(input);
   const tokens = tokenizeQuery(input);
@@ -332,6 +359,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
     ]) ||
     ((text.includes("pedir") || text.includes("comprar") || text.includes("reponer")) &&
       (text.includes("mas") || text.includes("más") || text.includes("stock")));
+  const asksRestockFromSoldHistory = isRestockFromSoldHistory(text);
   const restockNeedSignal =
     hasTokenStartingWith(tokens, ["necesit", "falt", "repon", "ped", "compr", "acab", "agot", "termin", "qued"]) ||
     hasPhrase(text, [
@@ -354,6 +382,12 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
       "que se agoto hoy",
       "que se termino",
       "que se termino hoy",
+      "que deberiamos reponer de lo que hemos vendido hasta ahora",
+      "que deberiamos reponer de lo que hemos vendido",
+      "que deberiamos reponer de lo vendido hasta ahora",
+      "que deberiamos reponer de lo vendido",
+      "que deberiamos pedir de lo que hemos vendido hasta ahora",
+      "que deberiamos pedir de lo que hemos vendido",
     ]);
   const restockTimeToday =
     hasPhrase(text, ["hoy", "de hoy", "para hoy", "esta manana", "esta mañana", "hoy mismo", "durante el dia", "durante el día"]) ||
@@ -410,6 +444,12 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
       "que se agoto hoy",
       "que se agotó hoy",
       "que se termino hoy",
+      "que deberiamos reponer de lo que hemos vendido hasta ahora",
+      "que deberiamos reponer de lo que hemos vendido",
+      "que deberiamos reponer de lo vendido hasta ahora",
+      "que deberiamos reponer de lo vendido",
+      "que deberiamos pedir de lo que hemos vendido hasta ahora",
+      "que deberiamos pedir de lo que hemos vendido",
       "vendidos hoy",
       "vendido hoy",
       "lo de hoy",
@@ -425,6 +465,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
       "para manana",
       "para mañana",
     ]) ||
+    asksRestockFromSoldHistory ||
     (restockNeedSignal && (restockTimeToday || restockTimeTomorrow));
   const asksRestockForecastGeneral =
     hasPhrase(text, [
@@ -446,6 +487,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
       "que productos faltan",
       "que necesitamos",
     ]) ||
+    (asksRestockFromSoldHistory && !restockTimeTomorrow) ||
     (restockNeedSignal &&
       !restockTimeToday &&
       !restockTimeTomorrow &&
@@ -624,6 +666,9 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   if (hasSalesVerb && hasDate) {
     return "sales_specific_date";
   }
+  if (asksRestockFromSoldHistory) {
+    return "product_restock_today";
+  }
   if ((hasProductNoun || hasCodeNoun) && (hasGroupNoun || hasBelongVerb)) {
     return "product_group_lookup";
   }
@@ -650,6 +695,10 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   }
   if (text.includes("separado") || (hasPendingToken && !text.includes("pago web"))) return "separated_pending";
   if (hasSalesVerb || hasTicketToken || hasTodayToken || hasMonthToken) {
+    if (asksRestockFromSoldHistory) return "product_restock_today";
+    if (asksRestockForecastToday) return "product_restock_today";
+    if (asksRestockForecastGeneral) return "product_restock_general";
+    if (asksInventoryLow) return "inventory_low";
     if (hasTicketToken) return "sales_tickets";
     if (hasTodayToken) return "sales_today";
     if (hasMonthToken) return "sales_month";
@@ -670,6 +719,7 @@ export function resolveIntentWithContext(
   resolveModuleFromQuery: ResolveModuleFromQuery
 ): QueryIntent {
   const text = normalizeQuery(input);
+  const asksRestockFromSoldHistory = isRestockFromSoldHistory(text);
   const isCasualCheckIn = isCasualCheckInText(text);
   const asksAnySales =
     text.includes("venta") ||
@@ -866,6 +916,10 @@ export function resolveIntentWithContext(
     return "module_guide";
   }
 
+  if (lastTopic === "sales" && asksRestockFromSoldHistory) {
+    return "product_restock_today";
+  }
+
   if (lastTopic === "sales") {
     if (asksBestSalesMonth) return "sales_best_month";
     if (asksBestSalesDay) return "sales_best_day";
@@ -904,6 +958,7 @@ export function resolveIntentWithContext(
       text.includes("que se agotó") ||
       text.includes("que se termino") ||
       text.includes("que se terminó");
+    const asksRestockFromSoldHistory = isRestockFromSoldHistory(text);
     const asksRestockForecastToday =
       hasPhrase(text, [
         "reporte diario de reposicion",
@@ -949,6 +1004,7 @@ export function resolveIntentWithContext(
         "para manana",
         "para mañana",
       ]) ||
+      asksRestockFromSoldHistory ||
       (restockNeedSignal && (restockTimeToday || restockTimeTomorrow));
     const asksRestockForecastGeneral =
       hasPhrase(text, [
@@ -970,6 +1026,7 @@ export function resolveIntentWithContext(
         "que productos faltan",
         "que necesitamos",
       ]) ||
+      (asksRestockFromSoldHistory && !restockTimeTomorrow) ||
       (restockNeedSignal &&
         !restockTimeToday &&
         !restockTimeTomorrow &&
@@ -987,7 +1044,7 @@ export function resolveIntentWithContext(
     const asksRestockForecastAmbiguous = asksRestockForecastToday || asksRestockForecastGeneral || asksInventoryLow || restockNeedSignal;
     const asksRestockFromInventoryContext = restockNeedSignal || asksRestockForecastToday || asksRestockForecastGeneral;
     if (asksRestockFromInventoryContext) {
-      if (restockTimeToday || restockTimeTomorrow || asksRestockForecastToday) return "product_restock_today";
+      if (restockTimeToday || restockTimeTomorrow || asksRestockForecastToday || asksRestockFromSoldHistory) return "product_restock_today";
       if (asksInventoryLow) return "inventory_low";
       if (asksRestockForecastGeneral) return "product_restock_general";
       return "unknown";
@@ -1067,6 +1124,7 @@ export function buildIntentCandidates(input: string, resolveModuleFromQuery: Res
   const hasGroup = hasTokenStartingWith(tokens, ["grupo", "categori", "pertenec"]);
   const hasLast = hasPhrase(text, ["ultima vez", "última vez", "ultimo", "último"]);
   const asksHow = hasTokenStartingWith(tokens, ["como", "cómo"]) || hasPhrase(text, ["de que forma", "de qué forma"]);
+  const asksRestockFromSoldHistory = isRestockFromSoldHistory(text);
   const asksCurrentModuleContext =
     hasPhrase(text, [
       "que estoy viendo",
@@ -1206,6 +1264,7 @@ export function buildIntentCandidates(input: string, resolveModuleFromQuery: Res
       "para manana",
       "para mañana",
     ]) ||
+    asksRestockFromSoldHistory ||
     (restockNeedSignal && (restockTimeToday || restockTimeTomorrow));
   const asksRestockForecastGeneral =
     hasPhrase(text, [
@@ -1227,6 +1286,7 @@ export function buildIntentCandidates(input: string, resolveModuleFromQuery: Res
       "que productos faltan",
       "que necesitamos",
     ]) ||
+    (asksRestockFromSoldHistory && !restockTimeTomorrow) ||
     (restockNeedSignal &&
       !restockTimeToday &&
       !restockTimeTomorrow &&

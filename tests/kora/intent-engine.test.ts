@@ -135,6 +135,10 @@ test("detectIntent product restock today with natural phrasing", () => {
   assertIntent("que necesitamos para mañana?", "product_restock_today");
 });
 
+test("detectIntent product restock today from sold history", () => {
+  assertIntent("que deberiamos reponer de lo que hemos vendido hasta ahora", "product_restock_today");
+});
+
 test("detectIntent product restock today when something finished today", () => {
   assertIntent("que se ha acabado hoy?", "product_restock_today");
 });
@@ -224,6 +228,16 @@ test("resolveIntentWithContext inventory follow-up restock today natural phrasin
   const topic: KoraTopic = "inventory";
   const entity: KoraEntityContext = { productTerm: "cable" };
   const got = resolveIntentWithContext("que necesitamos para mañana?", topic, entity, resolveModuleFromQuery);
+  assert.equal(got, "product_restock_today");
+});
+
+test("resolveIntentWithContext sales follow-up restock from sold history", () => {
+  const got = resolveIntentWithContext(
+    "que deberiamos reponer de lo que hemos vendido hasta ahora",
+    "sales",
+    {},
+    resolveModuleFromQuery
+  );
   assert.equal(got, "product_restock_today");
 });
 
