@@ -3,14 +3,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Inter, Manrope } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useAuth, LOGOUT_REASON_KEY } from "../providers/AuthProvider";
 import AnimatedBackground from "../components/landing/AnimatedBackground";
 import RevealOnScroll from "../components/landing/RevealOnScroll";
-
-const inter = Inter({ subsets: ["latin"] });
-const manrope = Manrope({ subsets: ["latin"] });
 
 const highlights = [
   {
@@ -106,7 +102,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className={`${inter.className} min-h-screen bg-transparent text-[#0F172A]`}>
+    <main className="min-h-screen bg-transparent text-[#0F172A]">
       <div className="relative min-h-screen overflow-hidden landing-tint-surface">
         <AnimatedBackground />
         <div className="relative mx-auto w-full max-w-[1080px] px-4 pb-12 pt-6 sm:px-6 lg:px-8">
@@ -138,7 +134,7 @@ export default function LoginPage() {
             <ul className="mt-5 space-y-3">
               {highlights.map((item) => (
                 <li key={item.title} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className={`${manrope.className} text-sm font-semibold text-slate-900`}>{item.title}</p>
+                  <p className="text-sm font-semibold text-slate-900">{item.title}</p>
                   <p className="mt-1 text-xs leading-relaxed text-slate-600">{item.description}</p>
                 </li>
               ))}

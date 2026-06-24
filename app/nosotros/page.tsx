@@ -1,9 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { Inter } from "next/font/google";
 import LandingNavbar from "../components/landing/LandingNavbar";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Nosotros",
@@ -15,7 +12,7 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <main className={`${inter.className} min-h-screen bg-[#F1F5F9] text-[#0F172A]`}>
+    <main className="min-h-screen bg-[#F1F5F9] text-[#0F172A]">
       <div className="mx-auto w-full max-w-[1180px] px-4 pb-14 pt-5 sm:px-6 lg:px-8">
         <LandingNavbar className="mb-8" />
 

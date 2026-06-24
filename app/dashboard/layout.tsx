@@ -777,7 +777,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   }
 
   const displayName = profile?.name?.trim() || user?.name || "Usuario";
-  const displayRole = profile?.role ?? user?.role ?? "";
+  const displayRole: DashboardRole | "" = isDashboardRole(profile?.role)
+    ? profile.role
+    : isDashboardRole(user?.role)
+      ? user.role
+      : "";
   const isKoraEnabled = true;
   const avatarUrl = profile?.avatar_url ?? "";
   const resolvedAvatarUrl = avatarUrl.startsWith("/")

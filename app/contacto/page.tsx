@@ -1,11 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Inter, Manrope } from "next/font/google";
 import LandingNavbar from "../components/landing/LandingNavbar";
 import ContactHelpForm from "./ContactHelpForm";
-
-const inter = Inter({ subsets: ["latin"] });
-const manrope = Manrope({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Contacto",
@@ -24,7 +20,7 @@ export default function ContactPage() {
   const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(CONTACT_MESSAGE)}`;
 
   return (
-    <main className={`${inter.className} min-h-screen bg-[#F1F5F9] text-[#0F172A]`}>
+    <main className="min-h-screen bg-[#F1F5F9] text-[#0F172A]">
       <div className="mx-auto w-full max-w-[1180px] px-4 pb-14 pt-5 sm:px-6 lg:px-8">
         <LandingNavbar className="mb-8" />
 
@@ -51,7 +47,7 @@ export default function ContactPage() {
             </div>
 
             <div className="mt-6 rounded-2xl bg-gradient-to-r from-[#22C55E] to-[#2563EB] p-[1px]">
-              <div className={`${manrope.className} rounded-2xl bg-white px-5 py-4 text-sm text-slate-600`}>
+              <div className="rounded-2xl bg-white px-5 py-4 text-sm text-slate-600">
                 Respondemos solicitudes comerciales y de soporte en horario laboral.
               </div>
             </div>
