@@ -39,6 +39,9 @@ export type QueryIntent =
   | "product_price_lookup"
   | "product_group_lookup"
   | "product_restock_advice"
+  | "product_restock_general"
+  | "product_restock_today"
+  | "restock_report_modal"
   | "last_sale_product"
   | "customer_lookup"
   | "customer_sales_lookup"
@@ -107,6 +110,45 @@ function detectTaskSignal(text: string) {
   );
 }
 
+function isCasualCheckInText(text: string) {
+  return hasPhrase(text, [
+    "como estas",
+    "cómo estás",
+    "como andas",
+    "cómo andas",
+    "como vas",
+    "cómo vas",
+    "como te sientes",
+    "cómo te sientes",
+    "estas bien",
+    "estás bien",
+    "te sientes bien",
+    "todo bien",
+    "todo va bien",
+    "que tal",
+    "qué tal",
+    "que tal estas",
+    "qué tal estás",
+    "como va tu dia",
+    "cómo va tu día",
+    "como va tu dia hoy",
+    "cómo va tu día hoy",
+  ]);
+}
+
+function isOpinionQuestion(text: string) {
+  return hasPhrase(text, [
+    "que opinas",
+    "qué opinas",
+    "que piensas",
+    "qué piensas",
+    "que crees",
+    "qué crees",
+    "como lo ves",
+    "cómo lo ves",
+  ]);
+}
+
 export function detectIntent(input: string, resolveModuleFromQuery: ResolveModuleFromQuery): QueryIntent {
   const text = normalizeQuery(input);
   const tokens = tokenizeQuery(input);
@@ -172,6 +214,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
     "que fue",
     "qué fue",
   ]) && hasTokenStartingWith(tokens, ["produc", "cual", "cuál", "que", "qué"]);
+  const isCasualCheckIn = isCasualCheckInText(text);
   const asksPreviousOne =
     hasPhrase(text, ["antes de este", "antes de ese", "el anterior", "la anterior", "y antes", "y el anterior"]) ||
     (tokens.includes("antes") && (tokens.includes("este") || tokens.includes("ese") || tokens.includes("anterior")));
@@ -289,11 +332,142 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
     ]) ||
     ((text.includes("pedir") || text.includes("comprar") || text.includes("reponer")) &&
       (text.includes("mas") || text.includes("más") || text.includes("stock")));
+  const restockNeedSignal =
+    hasTokenStartingWith(tokens, ["necesit", "falt", "repon", "ped", "compr", "acab", "agot", "termin", "qued"]) ||
+    hasPhrase(text, [
+      "que necesitamos",
+      "que necesitamos para manana",
+      "que necesitamos para mañana",
+      "que hace falta",
+      "que hay que reponer",
+      "que hay que pedir",
+      "que hay que comprar",
+      "que se acabo",
+      "que se acabo hoy",
+      "que se acabo para manana",
+      "que se acabo para mañana",
+      "que se ha acabado",
+      "que se ha acabado hoy",
+      "que se ha acabado para manana",
+      "que se ha acabado para mañana",
+      "que se agoto",
+      "que se agoto hoy",
+      "que se termino",
+      "que se termino hoy",
+    ]);
+  const restockTimeToday =
+    hasPhrase(text, ["hoy", "de hoy", "para hoy", "esta manana", "esta mañana", "hoy mismo", "durante el dia", "durante el día"]) ||
+    text.includes("hoy");
+  const restockTimeTomorrow =
+    hasPhrase(text, [
+      "manana",
+      "mañana",
+      "para manana",
+      "para mañana",
+      "de manana",
+      "de mañana",
+      "mañana mismo",
+      "manana mismo",
+      "para el dia siguiente",
+      "para el día siguiente",
+    ]) ||
+    text.includes("manana") ||
+    text.includes("mañana");
+  const asksRestockForecastToday =
+    hasPhrase(text, [
+      "reporte diario de reposicion",
+      "reporte diario de reposición",
+      "reporte de reposicion de hoy",
+      "reporte de reposición de hoy",
+      "reporte de repuestos de manana",
+      "reporte de repuestos de mañana",
+      "reporte diario de repuestos",
+      "que necesitamos manana",
+      "que necesitamos para manana",
+      "que necesitamos para mañana",
+      "dime que productos necesitamos manana",
+      "dime que productos necesitamos para manana",
+      "que productos necesitamos manana",
+      "que productos necesitamos para manana",
+      "que necesitamos manana",
+      "que hay que reponer manana",
+      "que hay que reponer para manana",
+      "que hay que reponer para mañana",
+      "que productos crees que necesitaremos para manana",
+      "que productos crees que necesitaremos para mañana",
+      "que deberiamos pedir para manana",
+      "que deberiamos pedir para mañana",
+      "que conviene reponer para manana",
+      "que conviene reponer para mañana",
+      "que comprar para manana",
+      "que comprar para mañana",
+      "que se vendio hoy",
+      "que se acabo hoy",
+      "que se ha acabado hoy",
+      "que se acabo",
+      "que se ha acabado",
+      "que se acabó hoy",
+      "que se agoto hoy",
+      "que se agotó hoy",
+      "que se termino hoy",
+      "vendidos hoy",
+      "vendido hoy",
+      "lo de hoy",
+      "lo vendido hoy",
+      "productos vendidos hoy",
+      "que salio hoy",
+      "que deberiamos reponer manana",
+      "que deberiamos reponer para mañana",
+      "que conviene reponer manana",
+      "que conviene reponer para mañana",
+      "que falta para manana",
+      "que falta para mañana",
+      "para manana",
+      "para mañana",
+    ]) ||
+    (restockNeedSignal && (restockTimeToday || restockTimeTomorrow));
+  const asksRestockForecastGeneral =
+    hasPhrase(text, [
+      "bajo stock",
+      "stock bajo",
+      "cerca del minimo",
+      "cerca del mínimo",
+      "inventario bajo",
+      "que falta reponer",
+      "que falta",
+      "que hace falta reponer",
+      "que se acabo",
+      "que se esta acabando",
+      "que se está acabando",
+      "que se ha acabado",
+      "productos por acabarse",
+      "productos por reponer",
+      "reponer en general",
+      "que productos faltan",
+      "que necesitamos",
+    ]) ||
+    (restockNeedSignal &&
+      !restockTimeToday &&
+      !restockTimeTomorrow &&
+      (text.includes("general") || text.includes("bajo") || text.includes("minimo") || text.includes("mínimo") || text.includes("stock")));
+  const asksInventoryLow =
+    hasPhrase(text, [
+      "stock bajo",
+      "bajo stock",
+      "inventario bajo",
+      "productos bajos",
+      "cerca del minimo",
+      "cerca del mínimo",
+    ]) ||
+    (restockNeedSignal && !restockTimeToday && !restockTimeTomorrow && text.includes("stock") && (text.includes("bajo") || text.includes("minimo") || text.includes("mínimo")));
   const hasMonthNameReference = /(?:^|\s)(ene(?:ro)?|feb(?:rero)?|mar(?:zo)?|abr(?:il)?|may(?:o)?|jun(?:io)?|jul(?:io)?|ago(?:sto)?|sep(?:tiembre)?|set(?:iembre)?|oct(?:ubre)?|nov(?:iembre)?|dic(?:iembre)?)(?:\s|$)/.test(text);
   const asksSalesReading =
     hasPhrase(text, [
       "lectura del dia",
       "lectura de hoy",
+      "reporte diario",
+      "cierre del dia",
+      "cierre del día",
       "lectura kora",
       "como va el dia",
       "cómo va el día",
@@ -342,12 +516,16 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
       hasSalesVerb &&
       (text.includes("mas") || text.includes("más") || text.includes("mejor")));
 
-  if (hasPhrase(text, ["hola", "buenos dias", "buenas tardes", "buenas noches"])) return "greeting";
+  if (hasPhrase(text, ["hola", "buenos dias", "buenas tardes", "buenas noches"]) || isCasualCheckIn) return "greeting";
   if (
     hasPhrase(text, [
       "ayuda",
       "que haces",
       "que puedes",
+      "que opinas",
+      "qué opinas",
+      "que piensas",
+      "qué piensas",
       "como funciona",
       "cómo funciona",
       "quien eres",
@@ -365,6 +543,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
       "de donde saliste",
       "de dónde saliste",
     ])
+    || isOpinionQuestion(text)
   ) {
     return "help";
   }
@@ -373,6 +552,9 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   if (asksCustomerLookup) return "customer_lookup";
   if (asksLastCreatedProduct) return "last_created_product";
   if (asksHowCreateEmployee) return "how_create_hr_employee";
+  if (asksRestockForecastToday) return "product_restock_today";
+  if (asksInventoryLow) return "inventory_low";
+  if (asksRestockForecastGeneral) return "product_restock_general";
   if (asksProductPrice) return "product_price_lookup";
   if (asksRestockAdvice && hasProductNoun) return "product_restock_advice";
   if (asksTopProductsRanking) {
@@ -389,8 +571,20 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   if (asksModuleTask) return "module_playbook_task";
   if (
     hasModule &&
-    (asksHow ||
-      hasPhrase(text, ["para que sirve", "para qué sirve", "como usar", "cómo usar", "como entro", "cómo entro", "donde esta", "dónde está"]))
+    hasPhrase(text, [
+      "para que sirve",
+      "para qué sirve",
+      "como usar",
+      "cómo usar",
+      "como entro",
+      "cómo entro",
+      "donde esta",
+      "dónde está",
+      "que puedo hacer aqui",
+      "qué puedo hacer aquí",
+      "paso a paso",
+      "ayuda con",
+    ])
   ) {
     return "module_guide";
   }
@@ -476,6 +670,7 @@ export function resolveIntentWithContext(
   resolveModuleFromQuery: ResolveModuleFromQuery
 ): QueryIntent {
   const text = normalizeQuery(input);
+  const isCasualCheckIn = isCasualCheckInText(text);
   const asksAnySales =
     text.includes("venta") ||
     text.includes("ventas") ||
@@ -555,6 +750,59 @@ export function resolveIntentWithContext(
     hasCustomerReference &&
     (text.includes("venta") || text.includes("ventas") || text.includes("vendio") || text.includes("vendió"));
   if (asksSalesForCurrentCustomer) return "customer_sales_lookup";
+  const restockNeedSignal =
+    hasTokenStartingWith(tokenizeQuery(input), ["necesit", "falt", "repon", "ped", "compr", "acab", "agot", "termin", "qued"]) ||
+    hasPhrase(text, [
+      "que necesitamos",
+      "que necesitamos para manana",
+      "que necesitamos para mañana",
+      "que hace falta",
+      "que hay que reponer",
+      "que hay que pedir",
+      "que hay que comprar",
+      "que se acabo",
+      "que se acabo hoy",
+      "que se acabo para manana",
+      "que se acabo para mañana",
+      "que se ha acabado",
+      "que se ha acabado hoy",
+      "que se ha acabado para manana",
+      "que se ha acabado para mañana",
+      "que se agoto",
+      "que se agoto hoy",
+      "que se termino",
+      "que se termino hoy",
+    ]);
+  const restockTimeToday =
+    hasPhrase(text, ["hoy", "de hoy", "para hoy", "esta manana", "esta mañana", "hoy mismo", "durante el dia", "durante el día"]) ||
+    text.includes("hoy");
+  const restockTimeTomorrow =
+    hasPhrase(text, [
+      "manana",
+      "mañana",
+      "para manana",
+      "para mañana",
+      "de manana",
+      "de mañana",
+      "mañana mismo",
+      "manana mismo",
+      "para el dia siguiente",
+      "para el día siguiente",
+    ]) ||
+    text.includes("manana") ||
+    text.includes("mañana");
+  const asksRestockForecastFollowUp =
+    restockTimeTomorrow ||
+    text.includes("proximos dias") ||
+    text.includes("próximos días") ||
+    text.includes("para mañana") ||
+    text.includes("para manana") ||
+    (restockNeedSignal && restockTimeToday);
+  if (lastTopic === "inventory" && asksRestockForecastFollowUp) {
+    return restockTimeToday || restockTimeTomorrow || text.includes("vend") || text.includes("sal")
+      ? "product_restock_today"
+      : "product_restock_general";
+  }
   const asksRestockForCurrentProduct =
     !!lastEntity.productTerm &&
     (text.includes("pedir") || text.includes("comprar") || text.includes("reponer")) &&
@@ -573,6 +821,9 @@ export function resolveIntentWithContext(
   ) {
     return "top_products_current_month";
   }
+
+  if (isCasualCheckIn) return "greeting";
+  if (isOpinionQuestion(text)) return "help";
 
   const direct = detectIntent(input, resolveModuleFromQuery);
   if (direct !== "unknown") return direct;
@@ -608,10 +859,10 @@ export function resolveIntentWithContext(
     return "module_playbook_task";
   }
 
-  if (moduleFromQuery && (text.includes("como") || text.includes("cómo") || text.includes("sirve") || text.includes("usar"))) {
+  if (moduleFromQuery && (text.includes("como usar") || text.includes("cómo usar") || text.includes("sirve") || text.includes("para que sirve") || text.includes("para qué sirve"))) {
     return "module_guide";
   }
-  if (!moduleFromQuery && lastEntity.moduleKey && (text.includes("como") || text.includes("cómo") || text.includes("sirve") || text.includes("usar"))) {
+  if (!moduleFromQuery && lastEntity.moduleKey && (text.includes("como usar") || text.includes("cómo usar") || text.includes("sirve") || text.includes("para que sirve") || text.includes("para qué sirve"))) {
     return "module_guide";
   }
 
@@ -637,6 +888,115 @@ export function resolveIntentWithContext(
   if (lastTopic === "inventory") {
     if (text.includes("ultimo") && text.includes("creado") && text.includes("producto")) return "last_created_product";
     if (/^\d+$/.test(text)) return "product_by_code";
+    const restockNeedSignal =
+      text.includes("reponer") ||
+      text.includes("pedir") ||
+      text.includes("comprar") ||
+      text.includes("necesitamos") ||
+      text.includes("que necesitamos") ||
+      text.includes("que hay que reponer") ||
+      text.includes("que hay que pedir") ||
+      text.includes("que hay que comprar") ||
+      text.includes("que se acabo") ||
+      text.includes("que se acabó") ||
+      text.includes("que se ha acabado") ||
+      text.includes("que se agoto") ||
+      text.includes("que se agotó") ||
+      text.includes("que se termino") ||
+      text.includes("que se terminó");
+    const asksRestockForecastToday =
+      hasPhrase(text, [
+        "reporte diario de reposicion",
+        "reporte diario de reposición",
+        "reporte de reposicion de hoy",
+        "reporte de reposición de hoy",
+        "que necesitamos manana",
+        "que necesitamos para manana",
+        "que necesitamos para mañana",
+        "que productos necesitamos manana",
+        "que productos necesitamos para manana",
+        "que productos necesitamos para mañana",
+        "que hay que reponer manana",
+        "que hay que reponer para manana",
+        "que hay que reponer para mañana",
+        "que productos crees que necesitaremos para manana",
+        "que productos crees que necesitaremos para mañana",
+        "que deberiamos pedir para manana",
+        "que deberiamos pedir para mañana",
+        "que conviene reponer para manana",
+        "que conviene reponer para mañana",
+        "que comprar para manana",
+        "que comprar para mañana",
+        "que se vendio hoy",
+        "que se acabo hoy",
+        "que se ha acabado hoy",
+        "que se agoto hoy",
+        "que se agotó hoy",
+        "que se termino hoy",
+        "que se terminó hoy",
+        "vendidos hoy",
+        "vendido hoy",
+        "lo de hoy",
+        "lo vendido hoy",
+        "productos vendidos hoy",
+        "que salio hoy",
+        "que deberiamos reponer manana",
+        "que deberiamos reponer para mañana",
+        "que conviene reponer manana",
+        "que conviene reponer para mañana",
+        "que falta para manana",
+        "que falta para mañana",
+        "para manana",
+        "para mañana",
+      ]) ||
+      (restockNeedSignal && (restockTimeToday || restockTimeTomorrow));
+    const asksRestockForecastGeneral =
+      hasPhrase(text, [
+        "bajo stock",
+        "stock bajo",
+        "cerca del minimo",
+        "cerca del mínimo",
+        "inventario bajo",
+        "que falta reponer",
+        "que falta",
+        "que hace falta reponer",
+        "que se acabo",
+        "que se esta acabando",
+        "que se está acabando",
+        "que se ha acabado",
+        "productos por acabarse",
+        "productos por reponer",
+        "reponer en general",
+        "que productos faltan",
+        "que necesitamos",
+      ]) ||
+      (restockNeedSignal &&
+        !restockTimeToday &&
+        !restockTimeTomorrow &&
+        (text.includes("general") || text.includes("bajo") || text.includes("minimo") || text.includes("mínimo") || text.includes("stock")));
+    const asksInventoryLow =
+      hasPhrase(text, [
+        "stock bajo",
+        "bajo stock",
+        "inventario bajo",
+        "productos bajos",
+        "cerca del minimo",
+        "cerca del mínimo",
+      ]) ||
+      (text.includes("stock") && (text.includes("bajo") || text.includes("minimo") || text.includes("mínimo")));
+    const asksRestockForecastAmbiguous = asksRestockForecastToday || asksRestockForecastGeneral || asksInventoryLow || restockNeedSignal;
+    const asksRestockFromInventoryContext = restockNeedSignal || asksRestockForecastToday || asksRestockForecastGeneral;
+    if (asksRestockFromInventoryContext) {
+      if (restockTimeToday || restockTimeTomorrow || asksRestockForecastToday) return "product_restock_today";
+      if (asksInventoryLow) return "inventory_low";
+      if (asksRestockForecastGeneral) return "product_restock_general";
+      return "unknown";
+    }
+    if (asksRestockForecastToday) return "product_restock_today";
+    if (asksRestockForecastGeneral) return "product_restock_general";
+    if (restockNeedSignal && (restockTimeToday || restockTimeTomorrow)) {
+      return "product_restock_today";
+    }
     const asksStockForCurrentProduct =
       !!lastEntity.productTerm &&
       (text.includes("cuanto tenemos") ||
@@ -649,14 +1009,19 @@ export function resolveIntentWithContext(
         text.includes("unidades") ||
         text.includes("stock"));
     if (asksStockForCurrentProduct) return "product_by_code";
-    if (!!lastEntity.productTerm && (text.includes("pedir") || text.includes("comprar") || text.includes("reponer"))) {
-      return "product_restock_advice";
-    }
     if ((text.includes("precio") || text.includes("valor") || text.includes("cuanto") || text.includes("cuánto")) && !!lastEntity.productTerm) {
       return "product_price_lookup";
     }
     if (text.includes("grupo")) return "product_group_lookup";
-    if (text.includes("producto") || text.includes("sku") || text.includes("codigo") || text.includes("código")) return "product_by_code";
+    if (
+      text.includes("producto") ||
+      text.includes("productos") ||
+      text.includes("sku") ||
+      text.includes("codigo") ||
+      text.includes("código")
+    ) {
+      return asksRestockFromInventoryContext || asksRestockForecastAmbiguous ? "unknown" : "product_by_code";
+    }
     if (text.includes("critico")) return "inventory_critical";
     if (text.includes("bajo")) return "inventory_low";
     if (text.includes("inventario") || text.includes("stock")) return "inventory_overview";
@@ -751,11 +1116,134 @@ export function buildIntentCandidates(input: string, resolveModuleFromQuery: Res
       text.includes("del cliente") ||
       /\b(que|qué)\s+ventas?\s+(tiene|tienen|tuvo)\s+/.test(text));
   const hasMethodExplicit = !!resolvePaymentMethodFromQuery(text);
+  const restockNeedSignal =
+    hasTokenStartingWith(tokens, ["necesit", "falt", "repon", "ped", "compr", "acab", "agot", "termin", "qued"]) ||
+    hasPhrase(text, [
+      "que necesitamos",
+      "que necesitamos para manana",
+      "que necesitamos para mañana",
+      "que hace falta",
+      "que hay que reponer",
+      "que hay que pedir",
+      "que hay que comprar",
+      "que se acabo",
+      "que se acabo hoy",
+      "que se acabo para manana",
+      "que se acabo para mañana",
+      "que se ha acabado",
+      "que se ha acabado hoy",
+      "que se ha acabado para manana",
+      "que se ha acabado para mañana",
+      "que se agoto",
+      "que se agoto hoy",
+      "que se termino",
+      "que se termino hoy",
+    ]);
+  const restockTimeToday =
+    hasPhrase(text, ["hoy", "de hoy", "para hoy", "esta manana", "esta mañana", "hoy mismo", "durante el dia", "durante el día"]) ||
+    text.includes("hoy");
+  const restockTimeTomorrow =
+    hasPhrase(text, [
+      "manana",
+      "mañana",
+      "para manana",
+      "para mañana",
+      "de manana",
+      "de mañana",
+      "mañana mismo",
+      "manana mismo",
+      "para el dia siguiente",
+      "para el día siguiente",
+    ]) ||
+    text.includes("manana") ||
+    text.includes("mañana");
+  const asksRestockForecastToday =
+    hasPhrase(text, [
+      "reporte diario de reposicion",
+      "reporte diario de reposición",
+      "reporte de reposicion de hoy",
+      "reporte de reposición de hoy",
+      "reporte de repuestos de manana",
+      "reporte de repuestos de mañana",
+      "reporte diario de repuestos",
+      "que necesitamos manana",
+      "que necesitamos para manana",
+      "que necesitamos para mañana",
+      "dime que productos necesitamos manana",
+      "dime que productos necesitamos para manana",
+      "que productos necesitamos manana",
+      "que productos necesitamos para manana",
+      "que productos crees que necesitaremos para manana",
+      "que productos crees que necesitaremos para mañana",
+      "que deberiamos pedir para manana",
+      "que deberiamos pedir para mañana",
+      "que conviene reponer para manana",
+      "que conviene reponer para mañana",
+      "que comprar para manana",
+      "que comprar para mañana",
+      "que se vendio hoy",
+      "que se acabo hoy",
+      "que se ha acabado hoy",
+      "que se acabo",
+      "que se ha acabado",
+      "que se acabó hoy",
+      "que se agoto hoy",
+      "que se agotó hoy",
+      "que se termino hoy",
+      "vendidos hoy",
+      "vendido hoy",
+      "lo de hoy",
+      "lo vendido hoy",
+      "productos vendidos hoy",
+      "que salio hoy",
+      "que deberiamos reponer manana",
+      "que deberiamos reponer para mañana",
+      "que conviene reponer manana",
+      "que conviene reponer para mañana",
+      "que falta para manana",
+      "que falta para mañana",
+      "para manana",
+      "para manana",
+      "para mañana",
+    ]) ||
+    (restockNeedSignal && (restockTimeToday || restockTimeTomorrow));
+  const asksRestockForecastGeneral =
+    hasPhrase(text, [
+      "bajo stock",
+      "stock bajo",
+      "cerca del minimo",
+      "cerca del mínimo",
+      "inventario bajo",
+      "que falta reponer",
+      "que falta",
+      "que hace falta reponer",
+      "que se esta acabando",
+      "que se está acabando",
+      "que se acabo",
+      "que se ha acabado",
+      "productos por acabarse",
+      "productos por reponer",
+      "reponer en general",
+      "que productos faltan",
+      "que necesitamos",
+    ]) ||
+    (restockNeedSignal &&
+      !restockTimeToday &&
+      !restockTimeTomorrow &&
+      (text.includes("general") || text.includes("bajo") || text.includes("minimo") || text.includes("mínimo") || text.includes("stock")));
+  const asksRestockForecastAmbiguous =
+    restockNeedSignal &&
+    !asksRestockForecastToday &&
+    !asksRestockForecastGeneral &&
+    (text.includes("stock") || text.includes("producto") || text.includes("productos"));
   const hasMonthNameReference = /(?:^|\s)(ene(?:ro)?|feb(?:rero)?|mar(?:zo)?|abr(?:il)?|may(?:o)?|jun(?:io)?|jul(?:io)?|ago(?:sto)?|sep(?:tiembre)?|set(?:iembre)?|oct(?:ubre)?|nov(?:iembre)?|dic(?:iembre)?)(?:\s|$)/.test(text);
   const asksSalesReading =
     hasPhrase(text, [
       "lectura del dia",
       "lectura de hoy",
+      "reporte diario",
+      "cierre del dia",
+      "cierre del día",
       "lectura kora",
       "como va el dia",
       "cómo va el día",
@@ -826,6 +1314,12 @@ export function buildIntentCandidates(input: string, resolveModuleFromQuery: Res
   if (hasSales && hasYear && hasIncrease && hasMethod) push("sales_method_year_comparison", 90);
   if (hasProduct && hasGroup) push("product_group_lookup", 84);
   if (hasProduct && (text.includes("pedir") || text.includes("comprar") || text.includes("reponer"))) push("product_restock_advice", 88);
+  if (asksRestockForecastToday) push("product_restock_today", 96);
+  if (asksRestockForecastGeneral) push("product_restock_general", 96);
+  if (asksRestockForecastAmbiguous) {
+    push("product_restock_general", 90);
+    push("product_restock_today", 89);
+  }
   if (hasPrice && hasProduct) push("product_price_lookup", 86);
   if (hasProduct && hasTokenStartingWith(tokens, ["cual", "cuál", "dime", "muestr", "busc", "info", "detalle"])) push("product_by_code", 78);
   if (hasLast && hasSales) push("last_sale_product", 86);

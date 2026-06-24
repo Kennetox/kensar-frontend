@@ -27,6 +27,18 @@ test("detectIntent greeting", () => {
   assertIntent("hola kora", "greeting");
 });
 
+test("detectIntent casual check-in", () => {
+  assertIntent("hola como estas?", "greeting");
+});
+
+test("detectIntent emotional check-in", () => {
+  assertIntent("como te sientes?", "greeting");
+});
+
+test("detectIntent opinion question", () => {
+  assertIntent("que opinas de eso?", "help");
+});
+
 test("detectIntent current module context", () => {
   assertIntent("que estoy viendo?", "current_module_context");
 });
@@ -111,6 +123,26 @@ test("detectIntent product restock advice", () => {
   assertIntent("debemos pedir mas del producto 100045", "product_restock_advice");
 });
 
+test("detectIntent product restock today", () => {
+  assertIntent("que productos crees que necesitaremos para mañana", "product_restock_today");
+});
+
+test("detectIntent product restock today with direct phrasing", () => {
+  assertIntent("dime que productos necesitamos mañana", "product_restock_today");
+});
+
+test("detectIntent product restock today with natural phrasing", () => {
+  assertIntent("que necesitamos para mañana?", "product_restock_today");
+});
+
+test("detectIntent product restock today when something finished today", () => {
+  assertIntent("que se ha acabado hoy?", "product_restock_today");
+});
+
+test("detectIntent daily restock report", () => {
+  assertIntent("reporte diario de reposición", "product_restock_today");
+});
+
 test("detectIntent inventory critical", () => {
   assertIntent("inventario critico", "inventory_critical");
 });
@@ -172,6 +204,27 @@ test("resolveIntentWithContext inventory follow-up stock count", () => {
   const entity: KoraEntityContext = { productTerm: "cable" };
   const got = resolveIntentWithContext("cuantos tenemos?", topic, entity, resolveModuleFromQuery);
   assert.equal(got, "product_by_code");
+});
+
+test("resolveIntentWithContext inventory follow-up restock today", () => {
+  const topic: KoraTopic = "inventory";
+  const entity: KoraEntityContext = { productTerm: "cable" };
+  const got = resolveIntentWithContext("y para mañana?", topic, entity, resolveModuleFromQuery);
+  assert.equal(got, "product_restock_today");
+});
+
+test("resolveIntentWithContext inventory follow-up restock general", () => {
+  const topic: KoraTopic = "inventory";
+  const entity: KoraEntityContext = { productTerm: "cable" };
+  const got = resolveIntentWithContext("y que falta reponer?", topic, entity, resolveModuleFromQuery);
+  assert.equal(got, "product_restock_general");
+});
+
+test("resolveIntentWithContext inventory follow-up restock today natural phrasing", () => {
+  const topic: KoraTopic = "inventory";
+  const entity: KoraEntityContext = { productTerm: "cable" };
+  const got = resolveIntentWithContext("que necesitamos para mañana?", topic, entity, resolveModuleFromQuery);
+  assert.equal(got, "product_restock_today");
 });
 
 test("resolveIntentWithContext customer sales follow-up", () => {
@@ -260,4 +313,18 @@ test("buildIntentCandidates orders by score", () => {
   const got = buildIntentCandidates("incremento de ventas por addi del año anterior a este", resolveModuleFromQuery);
   assert.ok(got.length > 0);
   assert.equal(got[0]?.intent, "sales_method_year_comparison");
+});
+
+test("buildIntentCandidates separates restock intents", () => {
+  const today = buildIntentCandidates("que productos crees que necesitaremos para mañana", resolveModuleFromQuery);
+  assert.equal(today[0]?.intent, "product_restock_today");
+  const general = buildIntentCandidates("que falta reponer por bajo stock", resolveModuleFromQuery);
+  assert.equal(general[0]?.intent, "product_restock_general");
+});
+
+test("buildIntentCandidates covers natural restock phrasing", () => {
+  const today = buildIntentCandidates("que necesitamos para mañana?", resolveModuleFromQuery);
+  assert.equal(today[0]?.intent, "product_restock_today");
+  const finishedToday = buildIntentCandidates("que se ha acabado hoy?", resolveModuleFromQuery);
+  assert.equal(finishedToday[0]?.intent, "product_restock_today");
 });

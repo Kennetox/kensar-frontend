@@ -473,6 +473,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, tenant, token, loading, logout } = useAuth();
   const posPreview = searchParams.get("posPreview") === "1";
+  const openKora = searchParams.get("openKora") === "1";
   const [navOpen, setNavOpen] = useState(false);
   const [roleModules, setRoleModules] = useState(defaultRolePermissions);
   const [rolePermissionsReady, setRolePermissionsReady] = useState(false);
@@ -777,7 +778,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const displayName = profile?.name?.trim() || user?.name || "Usuario";
   const displayRole = profile?.role ?? user?.role ?? "";
-  const isKoraEnabled = !posPreview;
+  const isKoraEnabled = true;
   const avatarUrl = profile?.avatar_url ?? "";
   const resolvedAvatarUrl = avatarUrl.startsWith("/")
     ? `${getApiBase()}${avatarUrl}`
@@ -1118,7 +1119,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
             children
           )}
         </main>
-        <KoraOpsAssistant enabled={isKoraEnabled} userName={displayName} token={token} />
+        <KoraOpsAssistant
+          enabled={isKoraEnabled}
+          userName={displayName}
+          token={token}
+          userRole={displayRole}
+          initialOpen={openKora}
+        />
       </div>
     </div>
   );

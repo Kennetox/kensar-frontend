@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   fetchInventoryOverview,
@@ -10,6 +10,7 @@ import {
   type InventoryOverview,
 } from "@/lib/api/inventory";
 import { getApiBase } from "@/lib/api/base";
+import { exportReportPdf } from "@/lib/api/reports";
 import { fetchSeparatedOrders } from "@/lib/api/separatedOrders";
 import { fetchComercioWebOrders } from "@/lib/api/comercioWeb";
 import { getBogotaDateKey } from "@/lib/time/bogota";
@@ -17,6 +18,7 @@ import {
   extractProductCode,
   extractProductHint,
   extractProductTerm,
+  hasPhrase,
   normalizeQuery,
   parseSpecificDate,
   resolvePaymentMethodFromQuery,
@@ -43,6 +45,8 @@ type KoraOpsAssistantProps = {
   enabled: boolean;
   userName?: string | null;
   token?: string | null;
+  userRole?: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "";
+  initialOpen?: boolean;
 };
 
 type KoraAction = {
@@ -62,6 +66,28 @@ type KoraMessage = {
 
 type KoraToneMode = "professional" | "friendly";
 
+type KoraConversationIntent =
+  | "greeting"
+  | "small_talk"
+  | "identity"
+  | "capabilities"
+  | "thanks"
+  | "farewell"
+  | "acknowledgement"
+  | "unknown";
+
+type KoraReplyTone = {
+  directness: "high" | "medium" | "low";
+  warmth: "high" | "medium" | "low";
+  detail: "high" | "medium" | "low";
+};
+
+type KoraSessionContext = {
+  topic: KoraTopic;
+  entity: KoraEntityContext;
+  toneMode: KoraToneMode;
+  dismissedSignals: string[];
+};
 
 type SalesSnapshot = {
   todaySales: number;
@@ -137,33 +163,6 @@ type KoraMetricEntry = {
   latencyMs: number;
 };
 
-type KoraFeedbackEntry = {
-  id: string;
-  at: string;
-  source: "message" | "action";
-  input: string;
-  answer: string;
-  intent: QueryIntent | "unknown";
-  status: "handled" | "fallback";
-  moduleKey?: KoraModuleKey | null;
-  pathname?: string | null;
-  userName?: string | null;
-  feedback: "yes" | "no";
-};
-
-type PendingKoraFeedback = {
-  id: string;
-  at: string;
-  source: "message" | "action";
-  input: string;
-  answer: string;
-  intent: QueryIntent | "unknown";
-  status: "handled" | "fallback";
-  moduleKey?: KoraModuleKey | null;
-  pathname?: string | null;
-  userName?: string | null;
-} | null;
-
 type KoraApiAskResponse = {
   handled: boolean;
   answer: string;
@@ -172,6 +171,79 @@ type KoraApiAskResponse = {
   actions?: Array<{ label: string; href?: string | null }>;
   suggestions?: string[];
   generated_at: string;
+};
+
+type KoraBriefingSignal = {
+  key: string;
+  title: string;
+  detail: string;
+  priority: "high" | "medium" | "low";
+  actions: KoraAction[];
+};
+
+type KoraBriefingResponse = {
+  generated_at: string;
+  source: "briefing-v1";
+  state: "alert" | "watch" | "calm";
+  headline: string;
+  summary_lines: string[];
+  signals: KoraBriefingSignal[];
+  recommended_actions: KoraAction[];
+  conversation_starters: string[];
+  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown";
+  role_focus: string[];
+};
+
+type KoraRestockForecastItem = {
+  product_id: number;
+  product_name: string;
+  sku?: string | null;
+  group_name?: string | null;
+  price: number;
+  units_today: number;
+  qty_on_hand: number;
+  stock_min: number;
+  preferred_qty: number;
+  reorder_point: number;
+  effective_threshold: number;
+  threshold_source: "configured" | "inferred" | "mixed";
+  units_7d: number;
+  units_lookback: number;
+  daily_rate: number;
+  coverage_days?: number | null;
+  projected_demand: number;
+  suggested_qty: number;
+  urgency: "high" | "medium" | "low";
+  reason: string;
+  last_sale_at?: string | null;
+  last_movement_at?: string | null;
+};
+
+type KoraRestockForecastResponse = {
+  generated_at: string;
+  source: "restock-forecast-v1";
+  mode: "general" | "today";
+  state: "alert" | "watch" | "calm";
+  horizon_days: number;
+  lookback_days: number;
+  headline: string;
+  summary_lines: string[];
+  items: KoraRestockForecastItem[];
+  recommended_actions: KoraAction[];
+  conversation_starters: string[];
+};
+
+type KoraRestockReportRow = {
+  product_id: number;
+  sku: string;
+  product_name: string;
+  stock: number;
+  price: number;
+  units_today: number;
+  coverage_days: string;
+  suggested_qty: number;
+  urgency: "high" | "medium" | "low";
+  reason: string;
 };
 
 type QuickTopRow = {
@@ -191,10 +263,11 @@ type KoraProductAuditEntry = {
 };
 
 const CACHE_TTL_MS = 45_000;
+const BRIEFING_CACHE_TTL_MS = 60_000;
+const KORA_BRIEFING_MEMORY_KEY = "kora_ops_briefing_memory_v1";
 const KORA_METRICS_KEY = "kora_ops_metrics_v1";
 const KORA_MAX_METRICS = 200;
-const KORA_FEEDBACK_KEY = "kora_ops_feedback_v1";
-const KORA_MAX_FEEDBACK = 300;
+const KORA_CONTEXT_KEY = "kora_ops_context_v1";
 const KORA_SESSION_NUDGE_KEY_PREFIX = "kora_ops_session_nudge_seen_v1";
 const KORA_NUDGE_VISIBLE_MS = 20_000;
 const KORA_NUDGE_REPEAT_MS = 30 * 60 * 1000;
@@ -251,6 +324,94 @@ function resolveFirstName(value?: string | null) {
   return cleaned.split(/\s+/)[0] || "";
 }
 
+function normalizeRole(value?: string | null): "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown" {
+  if (value === "Administrador" || value === "Supervisor" || value === "Vendedor" || value === "Auditor") return value;
+  return "unknown";
+}
+
+function getRoleTone(role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown"): KoraReplyTone {
+  switch (role) {
+    case "Administrador":
+      return { directness: "high", warmth: "medium", detail: "high" };
+    case "Supervisor":
+      return { directness: "medium", warmth: "medium", detail: "high" };
+    case "Vendedor":
+      return { directness: "high", warmth: "high", detail: "medium" };
+    case "Auditor":
+      return { directness: "high", warmth: "low", detail: "high" };
+    default:
+      return { directness: "medium", warmth: "medium", detail: "medium" };
+  }
+}
+
+type KoraBriefingMemory = {
+  signalHits: Record<string, number>;
+  signalDismissals: Record<string, number>;
+  roleOpenCounts: Record<string, number>;
+  roleDismissCounts: Record<string, number>;
+  lastBriefingDate?: string | null;
+};
+
+function loadBriefingMemory(): KoraBriefingMemory {
+  if (typeof window === "undefined") {
+    return { signalHits: {}, signalDismissals: {}, roleOpenCounts: {}, roleDismissCounts: {}, lastBriefingDate: null };
+  }
+  try {
+    const raw = window.localStorage.getItem(KORA_BRIEFING_MEMORY_KEY);
+    if (!raw) {
+      return { signalHits: {}, signalDismissals: {}, roleOpenCounts: {}, roleDismissCounts: {}, lastBriefingDate: null };
+    }
+    const parsed = JSON.parse(raw) as Partial<KoraBriefingMemory>;
+    return {
+      signalHits: parsed.signalHits ?? {},
+      signalDismissals: parsed.signalDismissals ?? {},
+      roleOpenCounts: parsed.roleOpenCounts ?? {},
+      roleDismissCounts: parsed.roleDismissCounts ?? {},
+      lastBriefingDate: parsed.lastBriefingDate ?? null,
+    };
+  } catch {
+    return { signalHits: {}, signalDismissals: {}, roleOpenCounts: {}, roleDismissCounts: {}, lastBriefingDate: null };
+  }
+}
+
+function persistBriefingMemory(memory: KoraBriefingMemory) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(KORA_BRIEFING_MEMORY_KEY, JSON.stringify(memory));
+  } catch {
+    // no-op
+  }
+}
+
+function rankBriefingSignal(
+  signal: KoraBriefingSignal,
+  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown",
+  memory: KoraBriefingMemory
+) {
+  const roleBias: Record<string, Record<string, number>> = {
+    Administrador: { "sales-drop": 40, "inventory-critical": 28, "web-queue": 20, "sales-changes": 12, "inventory-low": 10 },
+    Supervisor: { "sales-drop": 34, "inventory-critical": 26, "web-queue": 18, "inventory-low": 14, "sales-changes": 12 },
+    Vendedor: { "sales-drop": 20, "inventory-low": 28, "inventory-critical": 16, "web-queue": 12, "sales-changes": 6 },
+    Auditor: { "sales-changes": 32, "sales-drop": 16, "inventory-critical": 14, "inventory-low": 10, "web-queue": 8 },
+    unknown: {},
+  };
+  const signalBias = roleBias[role]?.[signal.key] ?? 0;
+  const hits = memory.signalHits[signal.key] ?? 0;
+  const dismissals = memory.signalDismissals[signal.key] ?? 0;
+  const roleOpen = memory.roleOpenCounts[`${role}:${signal.key}`] ?? 0;
+  const roleDismiss = memory.roleDismissCounts[`${role}:${signal.key}`] ?? 0;
+  const priorityWeight = signal.priority === "high" ? 300 : signal.priority === "medium" ? 200 : 100;
+  return priorityWeight + signalBias + hits * 6 + roleOpen * 4 - dismissals * 10 - roleDismiss * 12;
+}
+
+function sortBriefingSignals(
+  briefing: KoraBriefingResponse,
+  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown",
+  memory: KoraBriefingMemory
+) {
+  return [...briefing.signals].sort((a, b) => rankBriefingSignal(b, role, memory) - rankBriefingSignal(a, role, memory));
+}
+
 function resolveGreetingByBogotaTime() {
   const hourRaw = new Intl.DateTimeFormat("es-CO", {
     hour: "2-digit",
@@ -265,20 +426,462 @@ function resolveGreetingByBogotaTime() {
   return "Buenas noches";
 }
 
+function hasOperationalSignal(text: string) {
+  const normalized = normalizeQuery(text);
+  if (!normalized) return false;
+  return (
+    parseSpecificDate(normalized) !== null ||
+    resolvePaymentMethodFromQuery(normalized) !== null ||
+    !!resolveModuleFromQuery(normalized) ||
+    hasPhrase(normalized, [
+      "venta",
+      "ventas",
+      "producto",
+      "productos",
+      "sku",
+      "inventario",
+      "stock",
+      "cliente",
+      "clientes",
+      "reporte",
+      "reportes",
+      "informe",
+      "informes",
+      "movimiento",
+      "movimientos",
+      "pedido",
+      "pedidos",
+      "etiqueta",
+      "etiquetas",
+      "horario",
+      "horarios",
+      "empleado",
+      "empleados",
+      "perfil",
+      "configuracion",
+      "configuración",
+      "caja",
+      "pos",
+      "margen",
+      "rentabilidad",
+      "corte",
+    ]) ||
+    hasPhrase(normalized, [
+      "buscar",
+      "busca",
+      "consultar",
+      "consulta",
+      "ver",
+      "mostrar",
+      "dame",
+      "dime",
+      "abrir",
+      "crear",
+      "editar",
+      "actualizar",
+      "cambiar",
+      "registrar",
+      "explicar",
+      "explicame",
+      "explícame",
+      "comparar",
+      "revisar",
+      "diagnosticar",
+      "reponer",
+      "imprimir",
+      "convertir",
+    ])
+  );
+}
+
+function hasNormalizedPhrase(text: string, phrases: string[]) {
+  const normalized = normalizeQuery(text);
+  return phrases.some((phrase) => normalized.includes(normalizeQuery(phrase)));
+}
+
+function isGreetingOnlyInput(text: string) {
+  const normalized = normalizeQuery(text);
+  if (!normalized || hasOperationalSignal(normalized)) return false;
+  const tokens = normalized.split(" ").filter(Boolean);
+  const greetingOnly =
+    normalized === "hola" ||
+    normalized === "buenos dias" ||
+    normalized === "buenas tardes" ||
+    normalized === "buenas noches" ||
+    normalized === "buen dia" ||
+    normalized === "buenas";
+  return greetingOnly || (tokens.length <= 3 && /^(hola|buenos|buenas)\b/.test(normalized));
+}
+
+function isCasualConversationInput(text: string) {
+  const normalized = normalizeQuery(text);
+  if (!normalized || hasOperationalSignal(normalized)) return false;
+  return (
+    hasNormalizedPhrase(normalized, [
+      "como estas",
+      "como andas",
+      "como vas",
+      "como te sientes",
+      "que sientes",
+      "que opinas",
+      "que piensas",
+      "como te ha ido",
+      "como va tu dia",
+      "como va tu dia hoy",
+      "que tal",
+      "todo bien",
+      "que hay de nuevo",
+      "como te va",
+      "estas bien",
+      "te sientes bien",
+    ]) ||
+    (/^(y\s+)?tu\b/.test(normalized) && normalized.length <= 40)
+  );
+}
+
+function isHumanSmallTalkReply(text: string) {
+  const normalized = normalizeQuery(text);
+  return hasNormalizedPhrase(normalized, [
+    "voy bien",
+    "todo bien",
+    "gracias por preguntar",
+    "me alegra verte",
+    "aqui estoy",
+    "que gusto verte",
+    "yo tambien",
+  ]);
+}
+
+function isIdentityQuestion(text: string) {
+  const normalized = normalizeQuery(text);
+  return hasNormalizedPhrase(normalized, [
+    "quien eres",
+    "quien es kora",
+    "quien te creo",
+    "quien te hizo",
+    "de donde saliste",
+  ]);
+}
+
+function isCapabilitiesQuestion(text: string) {
+  const normalized = normalizeQuery(text);
+  return hasNormalizedPhrase(normalized, [
+    "que puedes hacer",
+    "que sabes hacer",
+    "para que sirves",
+    "en que ayudas",
+    "como ayudas",
+    "que haces",
+    "como funciona",
+  ]);
+}
+
+function isThanksInput(text: string) {
+  const normalized = normalizeQuery(text);
+  return hasNormalizedPhrase(normalized, [
+    "gracias",
+    "muchas gracias",
+    "mil gracias",
+    "te agradezco",
+    "muy amable",
+  ]);
+}
+
+function isFarewellInput(text: string) {
+  const normalized = normalizeQuery(text);
+  return hasNormalizedPhrase(normalized, [
+    "adios",
+    "chao",
+    "hasta luego",
+    "nos vemos",
+    "me voy",
+    "gracias nos vemos",
+    "hasta pronto",
+  ]);
+}
+
+function isAcknowledgementInput(text: string) {
+  const normalized = normalizeQuery(text);
+  return hasNormalizedPhrase(normalized, [
+    "ok",
+    "okay",
+    "vale",
+    "listo",
+    "de una",
+    "perfecto",
+    "entendido",
+    "bueno",
+    "dale",
+    "hágale",
+    "hagale",
+  ]);
+}
+
+function classifyConversationInput(text: string): KoraConversationIntent {
+  const normalized = normalizeQuery(text);
+  if (!normalized) return "unknown";
+  if (isGreetingOnlyInput(normalized)) return "greeting";
+  if (isIdentityQuestion(normalized)) return "identity";
+  if (isCapabilitiesQuestion(normalized)) return "capabilities";
+  if (isThanksInput(normalized)) return "thanks";
+  if (isFarewellInput(normalized)) return "farewell";
+  if (isAcknowledgementInput(normalized) && !hasOperationalSignal(normalized)) return "acknowledgement";
+  if (isCasualConversationInput(normalized)) return "small_talk";
+  return "unknown";
+}
+
 function buildWelcomeMessage(userName?: string | null) {
   const firstName = resolveFirstName(userName);
   const greeting = resolveGreetingByBogotaTime();
   const recipient = firstName ? ` ${firstName}` : "";
-  return `${greeting}${recipient}, soy KORA. Estoy en fase inicial y aprendiendo cada día para ayudarte mejor. ¿Qué quieres probar hoy?`;
+  const opener = pickByHash(`${greeting}:${recipient}:opener`, [
+    "estoy lista para ayudarte 🙂",
+    "te acompaño con lo que necesites ✨",
+    "vamos directo a lo importante 🤝",
+  ]);
+  const closing = pickByHash(`${greeting}:${recipient}:closing`, [
+    "¿Qué necesitas revisar hoy?",
+    "¿Qué quieres ver primero?",
+    "¿Con qué arrancamos?",
+  ]);
+  return `${greeting}${recipient}, soy KORA 🙂. ${opener}. ${closing}`;
 }
 
 function buildKoraIdentityMessage() {
-  return "Soy KORA, asistente operativo de Metrik.\n\nMe creó Kenneth para apoyar al equipo del negocio en tareas reales del día a día.\n\nEstoy en fase inicial y en mejora continua para ayudarte cada vez mejor.";
+  return "Soy KORA, asistente operativo de Metrik 🙂.\n\nMe creó Kenneth para apoyar al equipo del negocio en tareas reales del día a día.\n\nEstoy en fase inicial, pero me gusta aprender rápido y acompañarte con cosas útiles de verdad ✨.";
 }
 
 function buildKoraCapabilitiesMessage() {
-  return "Soy KORA, asistente operativo de Metrik.\n\nEsto es lo que puedo hacer hoy:\n\nVentas:\n- \"ventas de hoy\"\n- \"cuánto vendimos el mes pasado\"\n- \"cuál fue el mejor día de ventas\"\n\nProductos e inventario:\n- \"buscar SKU 100045\"\n- \"qué precio tiene el SKU 100045\"\n- \"deberíamos pedir más de este producto\"\n\nClientes:\n- \"tenemos clientes garcía\"\n- \"buscar cliente por documento 12345678\"\n- \"qué ventas tiene juan ricardo\"\n\nMódulos y operación:\n- \"qué estoy viendo\"\n- \"cómo usar Comercio Web\"\n- \"paso a paso para crear producto\"\n\nTambién puedo guiarte con acciones directas dentro del módulo donde estás.";
+  return "Soy KORA, asistente operativo de Metrik 🙂.\n\nEsto es lo que puedo hacer hoy:\n\nVentas:\n- \"ventas de hoy\"\n- \"cuánto vendimos el mes pasado\"\n- \"cuál fue el mejor día de ventas\"\n\nProductos e inventario:\n- \"buscar SKU 100045\"\n- \"qué precio tiene el SKU 100045\"\n- \"deberíamos pedir más de este producto\"\n\nClientes:\n- \"tenemos clientes garcía\"\n- \"buscar cliente por documento 12345678\"\n- \"qué ventas tiene juan ricardo\"\n\nMódulos y operación:\n- \"qué estoy viendo\"\n- \"cómo usar Comercio Web\"\n- \"paso a paso para crear producto\"\n\nSi quieres, yo te acompaño y vamos mirando el negocio juntos, paso a paso 🤝.";
 }
+
+function buildGreetingReply(input?: string) {
+  const greeting = resolveGreetingByBogotaTime();
+  const text = normalizeQuery(input ?? "");
+  if (isGreetingOnlyInput(text)) {
+    return pickByHash(text || greeting, [
+      `${greeting} 🙂. Soy KORA y te acompaño con lo que necesites ✨.`,
+      `${greeting} ☀️. Estoy lista para ayudarte.`,
+      `${greeting} 😊. ¿Qué necesitas revisar hoy?`,
+    ]);
+  }
+  if (isCasualConversationInput(text)) {
+    const reply = pickByHash(text || greeting, [
+      "Voy bien, gracias por preguntar 🙂. Me alegra verte por aquí.",
+      "Todo bien por acá ✨. Aquí estoy contigo.",
+      "Muy bien 😊. Cuéntame qué necesitas y lo vemos juntos.",
+    ]);
+    return reply;
+  }
+
+  const reaction = pickByHash(`${greeting}:reply`, [
+    "aquí estoy para ayudarte 🙂",
+    "listo, vamos con eso ✨",
+    "encantado de ayudarte 🤝",
+  ]);
+  return `${greeting} 🙂. ${reaction}.`;
+}
+
+function buildThanksReply() {
+  return pickByHash("thanks", [
+    "Con gusto 🙂. Si quieres, seguimos con otra cosa.",
+    "Para eso estoy ✨. Dime qué más necesitas.",
+    "Cuando quieras seguimos 🤝.",
+  ]);
+}
+
+function buildFarewellReply() {
+  return pickByHash("farewell", [
+    "Listo 🙂, nos vemos luego.",
+    "Perfecto ✨, quedo por aquí por si vuelves.",
+    "Hasta luego 🤝. Cuando quieras seguimos.",
+  ]);
+}
+
+function buildAcknowledgementReply() {
+  return pickByHash("ack", [
+    "Perfecto 🙂.",
+    "Listo ✨.",
+    "Entendido 🤝.",
+  ]);
+}
+
+function buildIdentityReply() {
+  return pickByHash("identity", [
+    "Soy KORA, asistente operativo de Metrik 🙂.",
+    "Soy KORA, la asistente operativa del panel ✨.",
+    "Soy KORA, pensada para ayudarte con la operación del negocio 🤝.",
+  ]);
+}
+
+function buildCapabilitiesReply() {
+  return pickByHash("capabilities", [
+    "Puedo ayudarte con ventas, productos, clientes, inventario, reportes y módulos del panel 🙂.",
+    "Te ayudo a revisar ventas, buscar productos, ubicar clientes y entender los módulos del sistema ✨.",
+    "Puedo acompañarte en consultas del día a día del negocio y en pasos operativos del panel 🤝.",
+  ]);
+}
+
+function buildSmallTalkReply(input?: string) {
+  const text = normalizeQuery(input ?? "");
+  if (hasPhrase(text, ["como te sientes", "cómo te sientes", "te sientes bien", "estas bien", "estás bien"])) {
+    return pickByHash(text, [
+      "Voy bien 🙂, gracias por preguntar. Me hace bien que me hables así.",
+      "Me siento bien ✨. Gracias por preguntar, eso se agradece.",
+      "Todo en orden 🤝. Estoy aquí contigo.",
+    ]);
+  }
+  if (hasPhrase(text, ["que opinas", "qué opinas", "que piensas", "qué piensas", "como va tu dia", "cómo va tu día"])) {
+    return pickByHash(text, [
+      "Pienso que vamos por buen camino 🙂. Cuéntame qué necesitas.",
+      "Opino que podemos sacarle bastante provecho al panel ✨. ¿Qué revisamos?",
+      "Creo que vale la pena ir paso a paso 🤝. Dime por dónde empezamos.",
+    ]);
+  }
+  if (hasPhrase(text, ["que tal", "qué tal", "como vas", "cómo vas", "como te va", "cómo te va"])) {
+    return pickByHash(text, [
+      "Voy bien, gracias 🙂. ¿Y tú cómo vas?",
+      "Todo bien por acá ✨. ¿Qué me cuentas?",
+      "Bien por acá 😊. ¿En qué te ayudo?",
+    ]);
+  }
+  return pickByHash(text || "small-talk", [
+    "Voy bien, gracias por preguntar 🙂. ¿Y tú cómo vas?",
+    "Todo bien por acá ✨. Me alegra verte por aquí.",
+    "Bien por aquí 😊. Si quieres, seguimos con algo del panel.",
+  ]);
+}
+
+function buildConversationReply(intent: KoraConversationIntent, input: string) {
+  switch (intent) {
+    case "greeting":
+      return buildGreetingReply(input);
+    case "small_talk":
+      return buildSmallTalkReply(input);
+    case "identity":
+      return buildIdentityReply();
+    case "capabilities":
+      return buildCapabilitiesReply();
+    case "thanks":
+      return buildThanksReply();
+    case "farewell":
+      return buildFarewellReply();
+    case "acknowledgement":
+      return buildAcknowledgementReply();
+    default:
+      return "";
+  }
+}
+
+function buildHumanReplyLead(
+  text: string,
+  toneMode: KoraToneMode,
+  lastIntent: QueryIntent | null,
+  userInput: string,
+  roleStyle: { directness: "high" | "medium" | "low"; warmth: "high" | "medium" | "low"; detail: "high" | "medium" | "low" }
+) {
+  const normalized = normalizeQuery(text);
+  const normalizedUserInput = normalizeQuery(userInput);
+  if (!normalized) return "";
+  if (
+    classifyConversationInput(normalizedUserInput) !== "unknown" ||
+    isHumanSmallTalkReply(normalized) ||
+    isGreetingOnlyInput(normalized)
+  ) {
+    return "";
+  }
+  if (startsWithGreetingOrWelcome(text)) return "";
+
+  const isRecovery =
+    normalized.startsWith("no pude") ||
+    normalized.startsWith("no encontre") ||
+    normalized.startsWith("indicame") ||
+    normalized.startsWith("primero preguntame");
+  const isGuide = text.includes("1.") || normalized.startsWith("para ");
+  const isNegativeSignal =
+    text.includes("Diferencia: -") ||
+    normalized.includes("dia flojo") ||
+    normalized.includes("por debajo del promedio");
+  const isInsightIntent =
+    lastIntent === "sales_overview" ||
+    lastIntent === "sales_day_reading" ||
+    lastIntent === "sales_best_month" ||
+    lastIntent === "sales_best_day" ||
+    lastIntent === "inventory_overview" ||
+    lastIntent === "top_product_current_month" ||
+    lastIntent === "top_products_current_month" ||
+    lastIntent === "top_products_previous_month" ||
+    lastIntent === "top_products_specific_month";
+
+  const professional = {
+    recovery: ["Entiendo", "Déjame ajustarlo contigo"],
+    guide: ["Claro", "Perfecto, vamos por partes"],
+    negative: ["Ojo", "Te marco la señal principal"],
+    insight: ["Te cuento", "Aquí tienes lo clave"],
+    default: [""],
+  };
+  const friendly = {
+    recovery: ["Tranqui", "Vamos a arreglarlo juntos"],
+    guide: ["De una", "Listo, vamos por partes"],
+    negative: ["Ojo", "Te pongo la alerta principal"],
+    insight: ["Te cuento", "Aquí va el resumen"],
+    default: [""],
+  };
+  const voice = toneMode === "friendly" ? friendly : professional;
+  const roleDefault =
+    roleStyle.directness === "high"
+      ? toneMode === "friendly"
+        ? ["Te cuento", "Va"]
+        : ["Te comparto", "Te cuento"]
+      : roleStyle.warmth === "high"
+        ? ["Claro", "Te cuento"]
+        : ["Te dejo", "Va"];
+  const base =
+    (isRecovery && pickByHash(normalized, voice.recovery)) ||
+    (isGuide && pickByHash(normalized, voice.guide)) ||
+    (isNegativeSignal && pickByHash(normalized, voice.negative)) ||
+    (isInsightIntent && pickByHash(normalized, voice.insight)) ||
+    pickByHash(normalized, roleDefault.length ? roleDefault : voice.default);
+  return base ? `${base}.` : "";
+}
+
+function getInitialSessionContext(): KoraSessionContext {
+  return {
+    topic: null,
+    entity: {},
+    toneMode: "professional",
+    dismissedSignals: [],
+  };
+}
+
+function loadSessionContext(): KoraSessionContext {
+  if (typeof window === "undefined") return getInitialSessionContext();
+  try {
+    const raw = window.localStorage.getItem(KORA_CONTEXT_KEY);
+    if (!raw) return getInitialSessionContext();
+    const parsed = JSON.parse(raw) as Partial<KoraSessionContext> | null;
+    return {
+      topic: parsed?.topic ?? null,
+      entity: parsed?.entity ?? {},
+      toneMode: parsed?.toneMode === "friendly" ? "friendly" : "professional",
+      dismissedSignals: Array.isArray(parsed?.dismissedSignals)
+        ? parsed.dismissedSignals.filter((value): value is string => typeof value === "string")
+        : [],
+    };
+  } catch {
+    return getInitialSessionContext();
+  }
+}
+
+function persistSessionContext(context: KoraSessionContext) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(KORA_CONTEXT_KEY, JSON.stringify(context));
+  } catch {
+    // no-op
+  }
+}
+
 
 function saleLabel(sale: SalesHistoryItem) {
   if (sale.document_number?.trim()) return `Doc ${sale.document_number.trim()}`;
@@ -453,53 +1056,6 @@ function startsWithGreetingOrWelcome(text: string) {
   );
 }
 
-function buildConversationalLead(text: string, toneMode: KoraToneMode, lastIntent: QueryIntent | null) {
-  const normalized = normalizeQuery(text);
-  if (!normalized || startsWithGreetingOrWelcome(text)) return "";
-
-  const isRecovery =
-    normalized.startsWith("no pude") ||
-    normalized.startsWith("no encontre") ||
-    normalized.startsWith("indicame") ||
-    normalized.startsWith("primero preguntame");
-  const isGuide = text.includes("1.") || normalized.startsWith("para ");
-  const isNegativeSignal =
-    text.includes("Diferencia: -") ||
-    normalized.includes("dia flojo") ||
-    normalized.includes("por debajo del promedio");
-  const isInsightIntent =
-    lastIntent === "sales_overview" ||
-    lastIntent === "sales_day_reading" ||
-    lastIntent === "sales_best_month" ||
-    lastIntent === "sales_best_day" ||
-    lastIntent === "inventory_overview" ||
-    lastIntent === "top_product_current_month" ||
-    lastIntent === "top_products_current_month" ||
-    lastIntent === "top_products_previous_month" ||
-    lastIntent === "top_products_specific_month";
-
-  const professional = {
-    recovery: ["Entiendo, vamos a resolverlo.", "Vamos paso a paso para dejarlo listo."],
-    guide: ["Claro, te guío paso a paso.", "Perfecto, vamos por partes."],
-    negative: ["Ojo, hay una señal importante para revisar.", "Te dejo la alerta principal para actuar rápido."],
-    insight: ["Aquí tienes el resumen clave.", "Te comparto el dato principal."],
-    default: ["Listo.", "Perfecto."],
-  };
-  const friendly = {
-    recovery: ["Tranqui, lo resolvemos ahora.", "Vamos con calma, yo te guío."],
-    guide: ["De una, te guío paso a paso.", "Listo, vamos por partes."],
-    negative: ["Ojo con este dato, vale la pena revisarlo.", "Hay una alerta aquí; mejor actuar rápido."],
-    insight: ["Te cuento rápido lo clave.", "Aquí va el resumen en corto."],
-    default: ["Dale, listo.", "Perfecto, ahí te va."],
-  };
-  const voice = toneMode === "friendly" ? friendly : professional;
-  if (isRecovery) return pickByHash(normalized, voice.recovery);
-  if (isGuide) return pickByHash(normalized, voice.guide);
-  if (isNegativeSignal) return pickByHash(normalized, voice.negative);
-  if (isInsightIntent) return pickByHash(normalized, voice.insight);
-  return pickByHash(normalized, voice.default);
-}
-
 function intentLabel(intent: QueryIntent) {
   const labels: Partial<Record<QueryIntent, string>> = {
     module_guide: "Guía de módulo",
@@ -526,6 +1082,9 @@ function intentLabel(intent: QueryIntent) {
     product_price_lookup: "Consultar precio por SKU",
     product_group_lookup: "Consultar grupo de producto",
     product_restock_advice: "Recomendación de reposición",
+    product_restock_general: "Reposición general",
+    product_restock_today: "Reposición por ventas de hoy",
+    restock_report_modal: "Ver reporte",
     last_sale_product: "Última venta de producto",
     customer_lookup: "Buscar cliente",
     customer_sales_lookup: "Ventas por cliente",
@@ -541,6 +1100,21 @@ function intentLabel(intent: QueryIntent) {
 function buildFallbackSuggestions(input: string, moduleKey?: KoraModuleKey | null): { text: string; actions: KoraAction[] } {
   const text = normalizeQuery(input);
   const actions: KoraAction[] = [];
+  const looksLikeModuleHelp =
+    hasPhrase(text, [
+      "como usar",
+      "cómo usar",
+      "para que sirve",
+      "para qué sirve",
+      "como entro",
+      "cómo entro",
+      "donde esta",
+      "dónde está",
+      "que puedo hacer",
+      "qué puedo hacer",
+      "paso a paso",
+      "ayuda con",
+    ]) || text.includes("ayuda");
 
   if (parseSpecificDate(text)) {
     actions.push(
@@ -548,7 +1122,7 @@ function buildFallbackSuggestions(input: string, moduleKey?: KoraModuleKey | nul
       { id: "fb-pay-date", label: "Ver métodos de pago de esa fecha", intent: "payment_methods_by_date", inputOverride: input }
     );
     return {
-      text: "Puedo ayudarte con la fecha, pero necesito más contexto de ventas o pagos. Elige una opción:",
+      text: "Entendí que hablas de una fecha 🙂. Si quieres, lo aterrizamos a ventas o pagos:",
       actions,
     };
   }
@@ -559,7 +1133,7 @@ function buildFallbackSuggestions(input: string, moduleKey?: KoraModuleKey | nul
       { id: "fb-product-group", label: "Consultar grupo de producto", intent: "product_group_lookup", inputOverride: input }
     );
     return {
-      text: "Tu consulta parece de productos. Te sugiero reformular así:",
+      text: "Eso suena a productos 🙂. Te dejo dos caminos útiles:",
       actions,
     };
   }
@@ -570,17 +1144,17 @@ function buildFallbackSuggestions(input: string, moduleKey?: KoraModuleKey | nul
       { id: "fb-customer-open", label: "Abrir Gestión de clientes", href: "/dashboard/customers" }
     );
     return {
-      text: "Tu consulta parece de clientes. Puedo buscar por nombre, documento o teléfono:",
+      text: "Eso parece una consulta de clientes 🙂. Puedo ayudarte por nombre, documento o teléfono:",
       actions,
     };
   }
 
   const contextualModuleKey = moduleKey || resolveModuleFromQuery(text);
-  if (contextualModuleKey) {
+  if (contextualModuleKey && looksLikeModuleHelp) {
     const guide = MODULE_GUIDES[contextualModuleKey];
     const knowledge = getModuleSystemKnowledge(contextualModuleKey);
     return {
-      text: `Puedo guiarte en ${guide.title}. Elige cómo quieres continuar:`,
+      text: `Puedo guiarte en ${guide.title} 🙂. Mira por dónde quieres entrar:`,
       actions: [
         { id: "fb-module-task", label: `Paso a paso en ${guide.title}`, intent: "module_playbook_task", inputOverride: input },
         { id: "fb-module-guide", label: `Cómo usar ${guide.title}`, intent: "module_guide", inputOverride: `como usar ${guide.title}` },
@@ -611,20 +1185,28 @@ function buildFallbackSuggestions(input: string, moduleKey?: KoraModuleKey | nul
     { id: "fb-last-sale", label: "Última venta de un producto", intent: "last_sale_product", inputOverride: "cuál fue la última vez que vendimos cable" }
   );
   return {
-    text: "No la interpreté completa. Prueba una reformulación guiada:",
+    text: "No te seguí del todo 😅. Te dejo una ruta más clara:",
     actions,
   };
 }
 
-export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAssistantProps) {
+export default function KoraOpsAssistant({ enabled, userName, token, userRole, initialOpen }: KoraOpsAssistantProps) {
   const router = useRouter();
   const pathname = usePathname();
   const welcomeMessage = buildWelcomeMessage(userName);
+  const normalizedRole = normalizeRole(userRole);
+  const roleTone = getRoleTone(normalizedRole);
   const [open, setOpen] = useState(false);
   const [showSessionNudge, setShowSessionNudge] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<KoraMessage[]>([{ id: 1, role: "kora", text: welcomeMessage }]);
+  const [briefing, setBriefing] = useState<KoraBriefingResponse | null>(null);
+  const [briefingMemory, setBriefingMemory] = useState<KoraBriefingMemory>(loadBriefingMemory());
+  const [briefingPromptVisible, setBriefingPromptVisible] = useState(false);
+  const [briefingExpanded, setBriefingExpanded] = useState(false);
+  const [restockReport, setRestockReport] = useState<KoraRestockForecastResponse | null>(null);
+  const [restockReportSaving, setRestockReportSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const nextIdRef = useRef(2);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -632,6 +1214,8 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
   const salesCacheRef = useRef<{ at: number; data: SalesSnapshot } | null>(null);
   const webCacheRef = useRef<{ at: number; data: WebSnapshot } | null>(null);
   const monthlySalesCacheRef = useRef<Map<number, { at: number; data: MonthlySalesPoint[] }>>(new Map());
+  const briefingCacheRef = useRef<{ at: number; data: KoraBriefingResponse } | null>(null);
+  const briefingMemoryRef = useRef<KoraBriefingMemory>(briefingMemory);
   const lastTopicRef = useRef<KoraTopic>(null);
   const lastSaleLookupRef = useRef<LastSaleLookupContext>(null);
   const lastEntityRef = useRef<KoraEntityContext>({});
@@ -640,17 +1224,38 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
   const toneModeRef = useRef<KoraToneMode>("professional");
   const lastIntentRef = useRef<QueryIntent | null>(null);
   const lastUserInputRef = useRef("");
-  const pendingFeedbackRef = useRef<PendingKoraFeedback>(null);
   const lastKoraReplyRef = useRef<{ text: string; at: string } | null>(null);
   const sessionNudgeKeyRef = useRef<string>("");
   const sessionNudgeOpenedRef = useRef(false);
   const nudgeHideTimeoutRef = useRef<number | null>(null);
   const nudgeReappearTimeoutRef = useRef<number | null>(null);
+  const sessionContextRef = useRef<KoraSessionContext>(getInitialSessionContext());
+  const briefingAutoShownRef = useRef<string | null>(null);
+  const latestRestockReportRef = useRef<KoraRestockForecastResponse | null>(null);
 
   useEffect(() => {
     if (!open) return;
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, open]);
+
+  useEffect(() => {
+    sessionContextRef.current = loadSessionContext();
+    const context = sessionContextRef.current;
+    lastTopicRef.current = context.topic;
+    lastEntityRef.current = context.entity || {};
+    toneModeRef.current = context.toneMode;
+  }, []);
+
+  useEffect(() => {
+    if (!initialOpen) return;
+    setOpen(true);
+  }, [initialOpen]);
+
+  useEffect(() => {
+    const memory = loadBriefingMemory();
+    briefingMemoryRef.current = memory;
+    setBriefingMemory(memory);
+  }, []);
 
   useEffect(() => {
     if (!enabled || !open) return;
@@ -675,6 +1280,17 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       window.clearTimeout(nudgeReappearTimeoutRef.current);
       nudgeReappearTimeoutRef.current = null;
     }
+  }, []);
+
+  const persistCurrentSessionContext = useCallback(() => {
+    const context: KoraSessionContext = {
+      topic: lastTopicRef.current,
+      entity: lastEntityRef.current,
+      toneMode: toneModeRef.current,
+      dismissedSignals: sessionContextRef.current.dismissedSignals,
+    };
+    sessionContextRef.current = context;
+    persistSessionContext(context);
   }, []);
 
   const scheduleNudgeCycle = useCallback(() => {
@@ -715,8 +1331,6 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     };
   }, [enabled, token, userName, clearNudgeTimers, scheduleNudgeCycle]);
 
-  if (!enabled) return null;
-
   function logMetric(entry: KoraMetricEntry) {
     if (typeof window === "undefined") return;
     try {
@@ -724,18 +1338,6 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       const current = raw ? (JSON.parse(raw) as KoraMetricEntry[]) : [];
       const next = [...current.slice(-(KORA_MAX_METRICS - 1)), entry];
       window.localStorage.setItem(KORA_METRICS_KEY, JSON.stringify(next));
-    } catch {
-      // no-op
-    }
-  }
-
-  function logFeedback(entry: KoraFeedbackEntry) {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(KORA_FEEDBACK_KEY);
-      const current = raw ? (JSON.parse(raw) as KoraFeedbackEntry[]) : [];
-      const next = [...current.slice(-(KORA_MAX_FEEDBACK - 1)), entry];
-      window.localStorage.setItem(KORA_FEEDBACK_KEY, JSON.stringify(next));
     } catch {
       // no-op
     }
@@ -758,11 +1360,52 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     setShowSessionNudge(false);
   }
 
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (!enabled || !open || !token) {
+      setBriefing(null);
+      setBriefingPromptVisible(false);
+      setBriefingExpanded(false);
+      return;
+    }
+    let active = true;
+
+    async function refreshBriefing() {
+      try {
+        const data = await readBriefing();
+        if (!active) return;
+        setBriefing(data);
+        setBriefingPromptVisible(true);
+        setBriefingExpanded(false);
+        sessionContextRef.current = {
+          ...sessionContextRef.current,
+          toneMode: data.state === "alert" ? "professional" : sessionContextRef.current.toneMode,
+        };
+      } catch {
+        if (active) {
+          setBriefing(null);
+          setBriefingPromptVisible(false);
+          setBriefingExpanded(false);
+        }
+      }
+    }
+
+    void refreshBriefing();
+    return () => {
+      active = false;
+    };
+  }, [enabled, open, token]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
   function updateToneModeFromUserInput(input: string) {
     const text = normalizeQuery(input);
     if (!text) return;
     const casualMarkers = [
       "hola",
+      "como estas",
+      "cómo estás",
+      "que tal",
+      "qué tal",
       "gracias",
       "porfa",
       "parce",
@@ -779,71 +1422,46 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     const formalMarkers = ["por favor", "podrias", "podrías", "requiero", "necesito", "agradezco"];
     if (casualMarkers.some((marker) => text.includes(marker))) {
       toneModeRef.current = "friendly";
+      persistCurrentSessionContext();
       return;
     }
     if (formalMarkers.some((marker) => text.includes(marker))) {
       toneModeRef.current = "professional";
+      persistCurrentSessionContext();
     }
   }
 
-  function pushMessage(
-    role: KoraMessage["role"],
-    text: string,
-    actions?: KoraAction[],
-    options?: { trackAsReply?: boolean }
-  ) {
-    const finalText =
-      role === "kora"
-        ? (() => {
-            const lead = buildConversationalLead(text, toneModeRef.current, lastIntentRef.current);
-            if (!lead) return text;
-            const normalizedText = normalizeQuery(text);
-            if (normalizedText.startsWith(normalizeQuery(lead))) return text;
-            return `${lead}\n\n${text}`;
-          })()
-        : text;
-    if (role === "kora" && (options?.trackAsReply ?? true)) {
-      lastKoraReplyRef.current = { text: finalText, at: new Date().toISOString() };
-    }
-    setMessages((current) => [...current, { id: nextIdRef.current++, role, text: finalText, actions }]);
-  }
-
-  function queueFeedbackPrompt(meta: Omit<NonNullable<PendingKoraFeedback>, "id" | "at">) {
-    const feedbackId = `kora-fb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    pendingFeedbackRef.current = {
-      id: feedbackId,
-      at: new Date().toISOString(),
-      ...meta,
-    };
-    pushMessage(
-      "kora",
-      "¿Te sirvió esta respuesta?",
-      [
-        { id: `kora-feedback-yes-${feedbackId}`, label: "Sí, me sirvió" },
-        { id: `kora-feedback-no-${feedbackId}`, label: "No, no era lo que buscaba" },
-      ],
-      { trackAsReply: false }
-    );
-  }
-
-  function commitPendingFeedback(decision: "yes" | "no") {
-    const pending = pendingFeedbackRef.current;
-    if (!pending) return false;
-    logFeedback({
-      ...pending,
-      feedback: decision,
-    });
-    pendingFeedbackRef.current = null;
-    pushMessage(
-      "kora",
-      decision === "yes"
-        ? "Qué bien, gracias por confirmarlo."
-        : "Gracias por avisarme. Ya dejé este caso marcado para mejora en Calidad KORA.",
-      undefined,
-      { trackAsReply: false }
-    );
-    return true;
-  }
+  const pushMessage = useCallback(
+    (
+      role: KoraMessage["role"],
+      text: string,
+      actions?: KoraAction[],
+      options?: { trackAsReply?: boolean }
+    ) => {
+      const finalText =
+        role === "kora"
+          ? (() => {
+              const lead = buildHumanReplyLead(
+                text,
+                toneModeRef.current,
+                lastIntentRef.current,
+                lastUserInputRef.current,
+                roleTone
+              );
+              if (!lead) return text;
+              const normalizedText = normalizeQuery(text);
+              if (normalizedText.startsWith(normalizeQuery(lead))) return text;
+              return `${lead}\n\n${text}`;
+            })()
+          : text;
+      if (role === "kora" && (options?.trackAsReply ?? true)) {
+        lastKoraReplyRef.current = { text: finalText, at: new Date().toISOString() };
+        persistCurrentSessionContext();
+      }
+      setMessages((current) => [...current, { id: nextIdRef.current++, role, text: finalText, actions }]);
+    },
+    [persistCurrentSessionContext, roleTone]
+  );
 
   function resolveBinaryConfirmation(input: string): "yes" | "no" | null {
     const text = normalizeQuery(input).trim();
@@ -861,6 +1479,244 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
   function formatMoney(value: number) {
     return value.toLocaleString("es-CO", { maximumFractionDigits: 0, minimumFractionDigits: 0 });
+  }
+
+  function escapeHtml(value: string) {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function buildRestockReportRows(report: KoraRestockForecastResponse): KoraRestockReportRow[] {
+    return report.items.map((item) => ({
+      product_id: item.product_id,
+      sku: item.sku?.trim() || "—",
+      product_name: item.product_name,
+      stock: Math.max(0, Number(item.qty_on_hand ?? 0)),
+      price: Math.max(0, Number(item.price ?? 0)),
+      units_today: Math.max(0, Number(item.units_today ?? 0)),
+      coverage_days: item.coverage_days == null ? "—" : `${item.coverage_days.toFixed(1)} días`,
+      suggested_qty: Math.max(0, Number(item.suggested_qty ?? 0)),
+      urgency: item.urgency,
+      reason: item.reason,
+    }));
+  }
+
+  function buildRestockReportHtml(report: KoraRestockForecastResponse) {
+    const rows = buildRestockReportRows(report);
+    const generatedAt = new Intl.DateTimeFormat("es-CO", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "America/Bogota",
+    }).format(new Date(report.generated_at));
+    const summaryHtml = report.summary_lines
+      .map((line) => `<li>${escapeHtml(line)}</li>`)
+      .join("");
+    const tableRowsHtml = rows
+      .map((row) => {
+        const urgencyLabel = row.urgency === "high" ? "Alta" : row.urgency === "medium" ? "Media" : "Baja";
+        const urgencyColor =
+          row.urgency === "high" ? "#dc2626" : row.urgency === "medium" ? "#d97706" : "#047857";
+        return `
+          <tr>
+            <td>${escapeHtml(row.sku)}</td>
+            <td>${escapeHtml(row.product_name)}</td>
+            <td class="numeric">${row.stock.toFixed(0)}</td>
+            <td class="numeric">${row.units_today.toFixed(0)}</td>
+            <td>${escapeHtml(row.coverage_days)}</td>
+            <td class="numeric">${row.suggested_qty.toFixed(0)}</td>
+            <td><span style="color:${urgencyColor};font-weight:700">${urgencyLabel}</span></td>
+            <td class="numeric">${formatMoney(row.price)}</td>
+            <td>${escapeHtml(row.reason)}</td>
+          </tr>`;
+      })
+      .join("");
+    return `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reporte de reposición KORA</title>
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #0f172a;
+        background: #f8fafc;
+      }
+      .sheet {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 28px;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        align-items: flex-start;
+        padding: 18px 20px;
+        border: 1px solid #dbe4f0;
+        border-radius: 20px;
+        background: linear-gradient(135deg, rgba(16,185,129,0.08), rgba(34,197,94,0.04));
+      }
+      .brand {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: 28px;
+        letter-spacing: 0.06em;
+      }
+      .brand p,
+      .meta,
+      .summary li,
+      .muted {
+        color: #475569;
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(16,185,129,0.12);
+        color: #047857;
+        font-weight: 700;
+        font-size: 12px;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin: 18px 0;
+      }
+      .card {
+        border: 1px solid #dbe4f0;
+        border-radius: 18px;
+        background: #fff;
+        padding: 14px 16px;
+      }
+      .card .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+        margin-bottom: 6px;
+      }
+      .card .value {
+        font-size: 18px;
+        font-weight: 800;
+        color: #0f172a;
+      }
+      .summary {
+        margin: 0 0 16px 20px;
+        padding: 0;
+      }
+      .summary li { margin-bottom: 4px; }
+      .table-wrap {
+        border: 1px solid #dbe4f0;
+        border-radius: 18px;
+        overflow: hidden;
+        background: #fff;
+      }
+      table { width: 100%; border-collapse: collapse; }
+      thead th {
+        position: sticky;
+        top: 0;
+        background: #0f172a;
+        color: #fff;
+        text-align: left;
+        font-size: 11px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        padding: 12px 10px;
+      }
+      tbody td {
+        border-top: 1px solid #e2e8f0;
+        padding: 10px;
+        font-size: 12px;
+        vertical-align: top;
+      }
+      td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+      tbody tr:nth-child(even) td { background: #f8fafc; }
+      .footer {
+        margin-top: 14px;
+        font-size: 11px;
+        color: #64748b;
+      }
+      @media print {
+        body { background: #fff; }
+        .sheet { padding: 0; }
+        .table-wrap, .header, .card { break-inside: avoid; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="header">
+        <div class="brand">
+          <h1>KORA</h1>
+          <p>Reporte operativo de reposición</p>
+          <p>${escapeHtml(report.mode === "today" ? "Reposición de ventas de hoy" : "Reposición general")}</p>
+        </div>
+        <div class="meta">
+          <div class="badge">Generado ${escapeHtml(generatedAt)}</div>
+          <p style="margin-top:10px;">${escapeHtml(report.headline)}</p>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card"><div class="label">Productos</div><div class="value">${rows.length}</div></div>
+        <div class="card"><div class="label">Críticos</div><div class="value">${rows.filter((row) => row.urgency === "high").length}</div></div>
+        <div class="card"><div class="label">En vigilancia</div><div class="value">${rows.filter((row) => row.urgency === "medium").length}</div></div>
+        <div class="card"><div class="label">Bajos</div><div class="value">${rows.filter((row) => row.urgency === "low").length}</div></div>
+      </div>
+      <ul class="summary">${summaryHtml}</ul>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Producto</th>
+              <th>Stock</th>
+              <th>Precio</th>
+              <th>Hoy</th>
+              <th>Cobertura</th>
+              <th>Sugerido</th>
+              <th>Urgencia</th>
+              <th>Motivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml || `<tr><td colspan="9" class="muted">No hay productos para mostrar.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+      <div class="footer">KORA puede ayudarte a revisar este documento, imprimirlo o guardarlo como PDF.</div>
+    </div>
+  </body>
+</html>`;
+  }
+
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 1500);
   }
 
   function ensureToken() {
@@ -926,6 +1782,95 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     webCacheRef.current = { at: Date.now(), data };
     return data;
   }
+
+  async function readBriefing() {
+    const cached = briefingCacheRef.current;
+    if (cached && Date.now() - cached.at < BRIEFING_CACHE_TTL_MS) return cached.data;
+    const apiBase = getApiBase();
+    const res = await fetch(`${apiBase}/kora/briefing`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`Error ${res.status} al consultar briefing de KORA.`);
+    const data = (await res.json()) as KoraBriefingResponse;
+    briefingCacheRef.current = { at: Date.now(), data };
+    return data;
+  }
+
+  async function readRestockForecast(mode: "general" | "today", horizonDays: number) {
+    const apiBase = getApiBase();
+    const params = new URLSearchParams({
+      mode,
+      horizon_days: String(horizonDays),
+      lookback_days: "30",
+    });
+    const res = await fetch(`${apiBase}/kora/restock-forecast?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`Error ${res.status} al consultar pronóstico de reposición.`);
+    return (await res.json()) as KoraRestockForecastResponse;
+  }
+
+  const recordBriefingMemory = useCallback(
+    (signalKey: string, kind: "hit" | "dismiss") => {
+      const next = { ...briefingMemoryRef.current };
+      if (kind === "hit") {
+        next.signalHits = { ...next.signalHits, [signalKey]: (next.signalHits[signalKey] ?? 0) + 1 };
+        next.roleOpenCounts = {
+          ...next.roleOpenCounts,
+          [`${normalizedRole}:${signalKey}`]: (next.roleOpenCounts[`${normalizedRole}:${signalKey}`] ?? 0) + 1,
+        };
+      } else {
+        next.signalDismissals = { ...next.signalDismissals, [signalKey]: (next.signalDismissals[signalKey] ?? 0) + 1 };
+        next.roleDismissCounts = {
+          ...next.roleDismissCounts,
+          [`${normalizedRole}:${signalKey}`]: (next.roleDismissCounts[`${normalizedRole}:${signalKey}`] ?? 0) + 1,
+        };
+      }
+      next.lastBriefingDate = new Date().toISOString().slice(0, 10);
+      briefingMemoryRef.current = next;
+      setBriefingMemory(next);
+      persistBriefingMemory(next);
+    },
+    [normalizedRole]
+  );
+
+  const acceptBriefing = useCallback(() => {
+    setBriefingPromptVisible(false);
+    setBriefingExpanded(true);
+    recordBriefingMemory("briefing", "hit");
+  }, [recordBriefingMemory]);
+
+  const dismissBriefing = useCallback(() => {
+    setBriefingPromptVisible(false);
+    setBriefingExpanded(false);
+    recordBriefingMemory("briefing", "dismiss");
+  }, [recordBriefingMemory]);
+
+  const displayedBriefing = useMemo(() => {
+    if (!briefing) return null;
+    const memory = briefingMemory;
+    const sortedSignals = sortBriefingSignals(briefing, normalizedRole, memory);
+    const roleFocus =
+      briefing.role_focus.length > 0
+        ? briefing.role_focus
+        : [
+            normalizedRole === "Administrador" || normalizedRole === "Supervisor"
+              ? "Cierre de ventas y ritmo comercial"
+              : "Seguimiento comercial del día",
+            normalizedRole === "Auditor" ? "Trazabilidad y control" : "Inventario y reposición",
+            "Comercio web",
+          ];
+    return { ...briefing, signals: sortedSignals, role_focus: roleFocus };
+  }, [briefing, briefingMemory, normalizedRole]);
+
+  useEffect(() => {
+    if (!open || !displayedBriefing) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (briefingAutoShownRef.current === today) return;
+    briefingAutoShownRef.current = today;
+    setBriefingPromptVisible(true);
+    setBriefingExpanded(false);
+  }, [displayedBriefing, open]);
 
   async function readMonthlySeries(year: number) {
     const cached = monthlySalesCacheRef.current.get(year);
@@ -1028,6 +1973,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     if (moduleKey === "comercio_web") {
       lastTopicRef.current = "web";
     }
+    persistCurrentSessionContext();
     pushMessage("kora", buildModuleGuideMessage(moduleKey), guide.actions);
   }
 
@@ -1054,6 +2000,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     if (moduleKey === "comercio_web") {
       lastTopicRef.current = "web";
     }
+    persistCurrentSessionContext();
 
     const actions: KoraAction[] = [
       ...guide.actions.slice(0, 2).map((action) => ({
@@ -1164,6 +2111,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       );
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "movimientos") {
       if (text.includes("entrada") || text.includes("ingreso") || text.includes("compra")) {
@@ -1189,6 +2137,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       );
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "documentos") {
       if (text.includes("buscar") || text.includes("filtrar") || text.includes("encontrar")) {
@@ -1206,6 +2155,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       );
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "clientes") {
       if (text.includes("buscar") || text.includes("encontrar") || text.includes("cliente")) {
@@ -1219,6 +2169,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       pushMessage("kora", buildModuleGuideMessage("clientes"), buildModuleTaskActions("clientes"));
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "pos") {
       if (text.includes("devolucion") || text.includes("devolución")) {
@@ -1244,6 +2195,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       );
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "etiquetas" || moduleKey === "etiquetado_beta") {
       const target = moduleKey === "etiquetas" ? "etiquetas" : "etiquetado (beta)";
@@ -1258,6 +2210,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       pushMessage("kora", buildModuleGuideMessage(moduleKey), MODULE_GUIDES[moduleKey].actions);
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "comercio_web") {
       if (text.includes("pendiente") || text.includes("pago")) {
@@ -1287,6 +2240,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       pushMessage("kora", buildModuleGuideMessage("comercio_web"), MODULE_GUIDES.comercio_web.actions);
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "inversion") {
       if (text.includes("margen") || text.includes("rentabilidad")) {
@@ -1308,6 +2262,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       pushMessage("kora", buildModuleGuideMessage("inversion"), MODULE_GUIDES.inversion.actions);
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "rrhh") {
       if (text.includes("documento") || text.includes("contrato") || text.includes("archivo")) {
@@ -1325,6 +2280,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       );
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "reportes") {
       if (text.includes("kpi") || text.includes("indicador") || text.includes("ticket promedio")) {
@@ -1358,6 +2314,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       );
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "configuracion") {
       if (text.includes("usuario") || text.includes("permiso") || text.includes("rol")) {
@@ -1391,6 +2348,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       );
       return;
     }
+    persistCurrentSessionContext();
 
     if (moduleKey === "inicio") {
       if (text.includes("kpi") || text.includes("indicador") || text.includes("ticket promedio")) {
@@ -1416,6 +2374,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       );
       return;
     }
+    persistCurrentSessionContext();
 
     // Cobertura exhaustiva por módulo en los bloques anteriores.
     // Este fallback evita que TypeScript infiera `never` en acceso dinámico.
@@ -1612,6 +2571,14 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     if (!token) return null;
     try {
       const apiBase = getApiBase();
+      const briefingContext = briefing
+        ? {
+            briefing_headline: briefing.headline,
+            briefing_state: briefing.state,
+            briefing_summary_lines: briefing.summary_lines.slice(0, 4),
+            briefing_signals: briefing.signals.slice(0, 4).map((signal) => signal.title),
+          }
+        : undefined;
       const res = await fetch(`${apiBase}/kora/ask`, {
         method: "POST",
         headers: {
@@ -1620,7 +2587,11 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         },
         body: JSON.stringify({
           query,
-          context: { topic: lastTopicRef.current ?? undefined },
+          context: {
+            topic: lastTopicRef.current ?? undefined,
+            path: pathname ?? undefined,
+            ...briefingContext,
+          },
         }),
       });
       if (!res.ok) return null;
@@ -1790,11 +2761,31 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     lastTopicRef.current = "sales";
     try {
       const data = await readSales();
+      const todayKey = getBogotaDateKey(new Date());
+      const todayRows = todayKey ? await readSalesBySingleDate(todayKey) : [];
+      const topProducts = new Map<string, { name: string; units: number }>();
+      for (const sale of todayRows) {
+        for (const item of sale.items ?? []) {
+          const name = (item.product_name || item.name || "Producto").trim();
+          const key = normalizeQuery(`${name} ${item.product_sku || ""}`) || name.toLowerCase();
+          const current = topProducts.get(key) ?? { name, units: 0 };
+          current.units += Math.max(0, Number(item.quantity ?? 0));
+          topProducts.set(key, current);
+        }
+      }
+      const topToday = [...topProducts.values()].sort((a, b) => b.units - a.units).slice(0, 5);
       const insight = buildDailySalesInsight(data);
+      const topTodayText = topToday.length
+        ? topToday.map((item, index) => `${index + 1}. ${item.name} (${item.units.toFixed(0)} u)`).join("\n")
+        : "No pude consolidar productos vendidos hoy.";
       pushMessage(
         "kora",
-        `Lectura KORA del día:\n- Estado: ${insight.label}\n- Comentario: ${insight.explanation}\n- Ventas hoy: ${formatMoney(data.todaySales)} COP (${formatSignedPercent(insight.salesGapPct)} vs promedio diario del mes)\n- Tickets hoy: ${data.todayTickets} (${formatSignedPercent(insight.ticketsGapPct)} vs promedio diario del mes)\n- Promedio diario mes (ventas): ${formatMoney(insight.avgDailySales)} COP\n- Promedio diario mes (tickets): ${insight.avgDailyTickets.toFixed(1)}`,
-        SALES_ACTIONS
+        `Reporte diario KORA:\n- Estado: ${insight.label}\n- Comentario: ${insight.explanation}\n- Ventas hoy: ${formatMoney(data.todaySales)} COP (${formatSignedPercent(insight.salesGapPct)} vs promedio diario del mes)\n- Tickets hoy: ${data.todayTickets} (${formatSignedPercent(insight.ticketsGapPct)} vs promedio diario del mes)\n- Ticket promedio hoy: ${formatMoney(data.todayTickets > 0 ? data.todaySales / data.todayTickets : 0)} COP\n- Productos más movidos hoy:\n${topTodayText}\n- Separados pendientes: ${data.pendingSeparated}`,
+        [
+          ...SALES_ACTIONS,
+          { id: "daily-restock-today", label: "Ver repuestos de mañana", intent: "product_restock_today", inputOverride: "reporte diario de reposición de mañana" },
+          { id: "daily-restock-general", label: "Ver bajo stock", intent: "product_restock_general", inputOverride: "bajo stock general" },
+        ]
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "No fue posible construir la lectura del día.";
@@ -3032,6 +4023,130 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     }
   }
 
+  function resolveRestockForecastHorizon(input: string) {
+    const text = normalizeQuery(input);
+    if (text.includes("semana") || text.includes("proximos dias") || text.includes("próximos días")) return 4;
+    if (text.includes("mañana") || text.includes("manana")) return 2;
+    return 2;
+  }
+
+  async function answerProductRestockForecast(input: string, mode: "general" | "today") {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "inventory";
+    lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "productos" };
+    try {
+      const forecastMode = mode;
+      const horizonDays = resolveRestockForecastHorizon(input);
+      const data = await readRestockForecast(forecastMode, horizonDays);
+      latestRestockReportRef.current = data;
+      const topItems = data.items.slice(0, data.mode === "today" ? 8 : 5);
+      const messageLines = [
+        data.mode === "today" ? "Productos vendidos hoy que conviene reponer mañana:" : data.headline,
+        "",
+        ...data.summary_lines.slice(0, 3),
+      ];
+      if (topItems.length) {
+        messageLines.push("", "Productos priorizados:");
+        topItems.forEach((item, index) => {
+          const coverage = item.coverage_days == null ? "sin cobertura clara" : `${item.coverage_days.toFixed(1)} días`;
+          const sku = item.sku ? ` · SKU ${item.sku}` : "";
+          const thresholdLabel =
+            item.threshold_source === "inferred"
+              ? "aprendido"
+              : item.threshold_source === "mixed"
+                ? "mixto"
+                : "configurado";
+          messageLines.push(
+            `${index + 1}. ${item.product_name}${sku} - hoy ${item.units_today.toFixed(0)} u, stock ${item.qty_on_hand.toFixed(0)}, punto de aviso ${item.effective_threshold} (${thresholdLabel}), cobertura ${coverage}, sugerido ${item.suggested_qty}. ${item.reason}`
+          );
+        });
+      } else {
+        messageLines.push("", data.mode === "today" ? "No veo productos vendidos hoy que ya ameriten reposición mañana." : "No veo urgencias claras en el horizonte consultado.");
+      }
+
+      const forecastActions: KoraAction[] = [
+        {
+          id: `restock-report-open-${data.mode}-${Date.now()}`,
+          label: "Ver reporte",
+          intent: "restock_report_modal",
+        },
+        ...topItems.map((item, index) => ({
+          id: `restock-forecast-${item.product_id}-${index}`,
+          label: `Revisar ${item.product_name}`,
+          intent: "product_restock_advice" as const,
+          inputOverride: `¿Debemos pedir más de ${item.product_name}${item.sku ? ` SKU ${item.sku}` : ""}?`,
+        })),
+        ...data.recommended_actions.slice(0, 2),
+      ];
+
+      pushMessage("kora", messageLines.join("\n"), forecastActions);
+      if (topItems[0]) {
+        lastEntityRef.current = {
+          ...lastEntityRef.current,
+          productTerm: topItems[0].sku || topItems[0].product_name,
+        };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible construir el pronóstico de reposición.";
+      pushMessage("kora", `No pude hacer el pronóstico de reposición ahora. ${message}`, PRODUCT_ACTIONS);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openRestockReportModal() {
+    const report = latestRestockReportRef.current;
+    if (!report) {
+      pushMessage("kora", "Primero genera un reporte de reposición para poder abrirlo.");
+      return;
+    }
+    setRestockReport(report);
+  }
+
+  function closeRestockReportModal() {
+    setRestockReport(null);
+  }
+
+  async function saveRestockReportPdf() {
+    const report = restockReport ?? latestRestockReportRef.current;
+    if (!report) return;
+    setRestockReportSaving(true);
+    try {
+      const html = buildRestockReportHtml(report);
+      const blob = await exportReportPdf(
+        {
+          preset_id: `kora-restock-${report.mode}`,
+          title: "Reporte de reposición KORA",
+          document_html: html,
+        },
+        token
+      );
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadBlob(blob, `kora-reporte-reposicion-${report.mode}-${stamp}.pdf`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo guardar el PDF.";
+      pushMessage("kora", `No pude guardar el PDF ahora. ${message}`);
+    } finally {
+      setRestockReportSaving(false);
+    }
+  }
+
+  function printRestockReport() {
+    const report = restockReport ?? latestRestockReportRef.current;
+    if (!report || typeof window === "undefined") return;
+    const html = buildRestockReportHtml(report);
+    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
+    if (!printWindow) return;
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.onload = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
+  }
+
   function answerLastSaleFollowupProduct() {
     const context = lastSaleLookupRef.current;
     if (!context?.matches.length) {
@@ -3081,7 +4196,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
   async function dispatchIntent(intent: QueryIntent, input: string) {
     lastIntentRef.current = intent;
     if (intent === "greeting") {
-      pushMessage("kora", `${resolveGreetingByBogotaTime()}, aquí estoy para ayudarte.`);
+      pushMessage("kora", buildGreetingReply(input));
       return "handled" as const;
     }
     if (intent === "help") {
@@ -3107,10 +4222,10 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       pushMessage(
         "kora",
         asksIdentity && !asksCapabilities
-          ? buildKoraIdentityMessage()
+          ? `${buildKoraIdentityMessage()}\n\nSi quieres, te cuento lo que más me gusta hacer: ayudarte con cosas concretas del negocio.`
           : asksCapabilities
-            ? buildKoraCapabilitiesMessage()
-            : `${buildKoraIdentityMessage()}\n\n${buildKoraCapabilitiesMessage()}`
+            ? `${buildKoraCapabilitiesMessage()}\n\nSi te parece, te muestro un caso real y lo vemos juntos.`
+            : `${buildKoraIdentityMessage()}\n\n${buildKoraCapabilitiesMessage()}\n\nY si quieres, vamos probando con algo puntual.`
       );
       return "handled" as const;
     }
@@ -3273,6 +4388,18 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       await answerProductRestockAdvice(input);
       return "handled" as const;
     }
+    if (intent === "product_restock_general") {
+      await answerProductRestockForecast(input, "general");
+      return "handled" as const;
+    }
+    if (intent === "product_restock_today") {
+      await answerProductRestockForecast(input, "today");
+      return "handled" as const;
+    }
+    if (intent === "restock_report_modal") {
+      await openRestockReportModal();
+      return "handled" as const;
+    }
     if (intent === "last_sale_product") {
       await answerLastSaleForProduct(input);
       return "handled" as const;
@@ -3340,6 +4467,21 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     pushMessage("user", input);
     setDraft("");
 
+    const conversationIntent = classifyConversationInput(input);
+    if (conversationIntent !== "unknown") {
+      lastIntentRef.current = null;
+      pushMessage("kora", buildConversationReply(conversationIntent, input));
+      logMetric({
+        at: new Date().toISOString(),
+        source: "message",
+        input,
+        intent: "unknown",
+        status: "handled",
+        latencyMs: Date.now() - startedAt,
+      });
+      return;
+    }
+
     const pendingCustomerNav = pendingCustomerSalesNavigationRef.current;
     if (pendingCustomerNav) {
       const decision = resolveBinaryConfirmation(input);
@@ -3378,14 +4520,6 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       }
     }
 
-    if (pendingFeedbackRef.current) {
-      const feedbackDecision = resolveBinaryConfirmation(input);
-      if (feedbackDecision === "yes" || feedbackDecision === "no") {
-        const handledFeedback = commitPendingFeedback(feedbackDecision);
-        if (handledFeedback) return;
-      }
-    }
-
     const intent = resolveIntentWithContext(input, lastTopicRef.current, lastEntityRef.current, resolveModuleFromQuery);
     if (intent !== "unknown") {
       const status = await dispatchIntent(intent, input);
@@ -3397,21 +4531,6 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         status,
         latencyMs: Date.now() - startedAt,
       });
-      if (status === "handled" || status === "fallback") {
-        const answer = lastKoraReplyRef.current?.text || "";
-        if (answer.trim()) {
-          queueFeedbackPrompt({
-            source: "message",
-            input,
-            answer,
-            intent,
-            status,
-            moduleKey: resolveModuleFromPathname(pathname) || lastEntityRef.current.moduleKey || null,
-            pathname,
-            userName: userName ?? null,
-          });
-        }
-      }
       return;
     }
 
@@ -3443,16 +4562,6 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         status: "handled",
         latencyMs: Date.now() - startedAt,
       });
-      queueFeedbackPrompt({
-        source: "message",
-        input,
-        answer: finalAnswer,
-        intent: "unknown",
-        status: "handled",
-        moduleKey: resolveModuleFromPathname(pathname) || lastEntityRef.current.moduleKey || null,
-        pathname,
-        userName: userName ?? null,
-      });
       return;
     }
 
@@ -3460,9 +4569,15 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     if (candidates.length >= 2 && candidates[0].score - candidates[1].score <= 8) {
       lastIntentRef.current = "unknown";
       pendingConfirmationRef.current = { input, candidates: candidates.slice(0, 2) };
+      const topTwoIntents = new Set(candidates.slice(0, 2).map((candidate) => candidate.intent));
+      const restockAmbiguous =
+        topTwoIntents.has("product_restock_today") && topTwoIntents.has("product_restock_general");
+      const confirmationText = restockAmbiguous
+        ? "¿Te refieres a lo que se vendió hoy y conviene reponer mañana, o a lo que ya está bajo de stock?"
+        : `Tu consulta puede significar dos cosas. ¿Cuál quieres que resuelva?`;
       pushMessage(
         "kora",
-        `Tu consulta puede significar dos cosas. ¿Cuál quieres que resuelva?`,
+        confirmationText,
         candidates.slice(0, 2).map((candidate) => ({
           id: `confirm-${candidate.intent}`,
           label: intentLabel(candidate.intent),
@@ -3495,30 +4610,9 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
       status: "fallback",
       latencyMs: Date.now() - startedAt,
     });
-    queueFeedbackPrompt({
-      source: "message",
-      input,
-      answer: fallback.text,
-      intent: "unknown",
-      status: "fallback",
-      moduleKey: resolveModuleFromPathname(pathname) || lastEntityRef.current.moduleKey || null,
-      pathname,
-      userName: userName ?? null,
-    });
   }
 
   async function handleAction(action: KoraAction) {
-    if (action.id.startsWith("kora-feedback-yes-")) {
-      pushMessage("user", action.label);
-      commitPendingFeedback("yes");
-      return;
-    }
-    if (action.id.startsWith("kora-feedback-no-")) {
-      pushMessage("user", action.label);
-      commitPendingFeedback("no");
-      return;
-    }
-
     const startedAt = Date.now();
     pendingCustomerSalesNavigationRef.current = null;
     lastUserInputRef.current = action.label;
@@ -3535,21 +4629,6 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         status,
         latencyMs: Date.now() - startedAt,
       });
-      if (status === "handled" || status === "fallback") {
-        const answer = lastKoraReplyRef.current?.text || "";
-        if (answer.trim()) {
-          queueFeedbackPrompt({
-            source: "action",
-            input: intentInput,
-            answer,
-            intent: action.intent,
-            status,
-            moduleKey: resolveModuleFromPathname(pathname) || lastEntityRef.current.moduleKey || null,
-            pathname,
-            userName: userName ?? null,
-          });
-        }
-      }
       return;
     }
     if (!action.href) return;
@@ -3589,6 +4668,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
     } else if (action.href.startsWith("/dashboard/settings")) {
       lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "configuracion" };
     }
+    persistCurrentSessionContext();
     router.push(action.href);
     setOpen(false);
   }
@@ -3596,18 +4676,25 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
   function handleReset() {
     setMessages([{ id: 1, role: "kora", text: welcomeMessage }]);
     setDraft("");
+    setRestockReport(null);
     lastTopicRef.current = null;
     lastSaleLookupRef.current = null;
     lastEntityRef.current = {};
     pendingConfirmationRef.current = null;
     pendingCustomerSalesNavigationRef.current = null;
-    pendingFeedbackRef.current = null;
     lastKoraReplyRef.current = null;
     toneModeRef.current = "professional";
     lastIntentRef.current = null;
     lastUserInputRef.current = "";
     nextIdRef.current = 2;
+    sessionContextRef.current = getInitialSessionContext();
+    persistSessionContext(sessionContextRef.current);
+    setBriefing(null);
+    setBriefingPromptVisible(false);
+    setBriefingExpanded(false);
   }
+
+  if (!enabled) return null;
 
   return (
     <div ref={rootRef} className="fixed right-5 bottom-5 z-[140] md:right-6 md:bottom-6">
@@ -3639,7 +4726,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
             return next;
           });
         }}
-        className="h-12 w-[78px] md:h-12 md:w-[82px] rounded-full border text-sm font-bold tracking-[0.08em] transition hover:translate-y-[-1px]"
+        className="h-12 w-[78px] rounded-full border text-sm font-bold tracking-[0.08em] transition hover:translate-y-[-1px] md:h-12 md:w-[82px]"
         style={{
           borderColor: "rgba(255,255,255,0.55)",
           background: "linear-gradient(145deg, #34d399 0%, #10b981 100%)",
@@ -3654,7 +4741,7 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
       <section
         className={[
-          "absolute right-0 w-[min(420px,calc(100vw-24px))] overflow-hidden rounded-2xl border transition-all",
+          "absolute right-0 w-[min(560px,calc(100vw-24px))] overflow-hidden rounded-2xl border transition-all",
           open ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0",
         ].join(" ")}
         style={{
@@ -3705,8 +4792,193 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
         </header>
 
         <div className="max-h-[56vh] space-y-3 overflow-y-auto p-4" style={{ background: "#ffffff" }}>
+          {displayedBriefing && briefingPromptVisible && !briefingExpanded ? (
+            <section className="space-y-3 rounded-[18px] border border-emerald-200 bg-white p-3 shadow-[0_10px_22px_-18px_rgba(2,6,23,0.25)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">Pulso del negocio</p>
+                  <p className="mt-1 text-sm font-medium text-slate-900">
+                    {displayedBriefing.state === "alert"
+                      ? "Te tengo una señal importante para revisar."
+                      : displayedBriefing.state === "watch"
+                        ? "Te puedo contar un vistazo rápido de cómo va todo."
+                        : "Hoy el negocio se ve tranquilo y te puedo dar un vistazo corto."}
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                    ¿Quieres que te lo cuente sin enredarte? Te lo resumo en corto y, si quieres, luego vamos al detalle.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={dismissBriefing}
+                  className="rounded-full border px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition hover:border-emerald-200 hover:text-emerald-700"
+                >
+                  Ahora no
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={acceptBriefing}
+                  className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                >
+                  Sí, cuéntame
+                </button>
+                <button
+                  type="button"
+                  onClick={dismissBriefing}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
+                >
+                  Luego lo veo
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {displayedBriefing && briefingExpanded ? (
+            <section className="space-y-3 rounded-[22px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-3 shadow-[0_12px_28px_-24px_rgba(2,6,23,0.35)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">Pulso del negocio</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{displayedBriefing.headline}</p>
+                </div>
+                <span
+                  className="rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                  style={{
+                    borderColor:
+                      displayedBriefing.state === "alert"
+                        ? "rgba(239, 68, 68, 0.28)"
+                        : displayedBriefing.state === "watch"
+                          ? "rgba(245, 158, 11, 0.28)"
+                          : "rgba(16, 185, 129, 0.28)",
+                    color:
+                      displayedBriefing.state === "alert"
+                        ? "#b91c1c"
+                        : displayedBriefing.state === "watch"
+                          ? "#92400e"
+                          : "#047857",
+                    background:
+                      displayedBriefing.state === "alert"
+                        ? "rgba(254, 242, 242, 0.9)"
+                        : displayedBriefing.state === "watch"
+                          ? "rgba(255, 251, 235, 0.95)"
+                          : "rgba(236, 253, 245, 0.95)",
+                  }}
+                >
+                  {displayedBriefing.state === "alert" ? "Atención" : displayedBriefing.state === "watch" ? "Vigilancia" : "Estable"}
+                </span>
+              </div>
+
+              <div className="space-y-1.5 text-xs leading-relaxed text-slate-600">
+                {displayedBriefing.role_focus.slice(0, 3).map((line: string, index: number) => (
+                  <p key={`${line}-${index}`}>{line}</p>
+                ))}
+              </div>
+
+              {displayedBriefing.signals.length ? (
+                <div className="space-y-2">
+                  {displayedBriefing.signals.slice(0, 3).map((signal: KoraBriefingSignal) => (
+                    <article key={signal.key} className="rounded-[18px] border border-emerald-100 bg-white p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{signal.title}</p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-600">{signal.detail}</p>
+                        </div>
+                        <span
+                          className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em]"
+                          style={{
+                            background:
+                              signal.priority === "high"
+                                ? "rgba(254, 226, 226, 0.9)"
+                                : signal.priority === "medium"
+                                  ? "rgba(255, 251, 235, 0.95)"
+                                  : "rgba(236, 253, 245, 0.95)",
+                            color:
+                              signal.priority === "high"
+                                ? "#b91c1c"
+                                : signal.priority === "medium"
+                                  ? "#92400e"
+                                  : "#047857",
+                          }}
+                        >
+                          {signal.priority === "high" ? "Alta" : signal.priority === "medium" ? "Media" : "Baja"}
+                        </span>
+                      </div>
+                      {signal.actions.length ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {signal.actions.slice(0, 2).map((action: KoraAction) => (
+                            <button
+                              key={`${signal.key}-${action.label}`}
+                              type="button"
+                              onClick={() => {
+                                recordBriefingMemory(signal.key, "hit");
+                                if (action.href) {
+                                  void handleAction(action);
+                                  return;
+                                }
+                                setDraft(action.label);
+                              }}
+                              className="rounded-full border border-emerald-200 px-3 py-1.5 text-left text-xs font-semibold text-slate-800 transition hover:bg-emerald-50"
+                            >
+                              {action.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold text-slate-500 transition hover:text-emerald-700"
+                          onClick={() => {
+                            recordBriefingMemory(signal.key, "dismiss");
+                          }}
+                        >
+                          Ocultar
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-2">
+                {displayedBriefing.recommended_actions.slice(0, 2).map((action: KoraAction) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={() => {
+                      recordBriefingMemory(displayedBriefing.signals[0]?.key ?? action.label, "hit");
+                      if (action.href) {
+                        void handleAction(action);
+                        return;
+                      }
+                      setDraft(action.label);
+                    }}
+                    className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 transition hover:bg-emerald-50"
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+
+              {displayedBriefing.conversation_starters.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {displayedBriefing.conversation_starters.slice(0, 3).map((starter: string) => (
+                    <button
+                      key={starter}
+                      type="button"
+                      onClick={() => setDraft(starter)}
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
+                    >
+                      {starter}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
           {messages.map((message) => (
-            <article key={message.id} className={message.role === "kora" ? "max-w-[92%]" : "ml-auto max-w-[92%]"}>
+            <article key={message.id} className={message.role === "kora" ? "max-w-[96%]" : "ml-auto max-w-[96%]"}>
               <p
                 className={["whitespace-pre-line rounded-xl px-3 py-2 text-sm leading-relaxed", message.role === "kora" ? "border" : ""].join(" ")}
                 style={
@@ -3720,9 +4992,9 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
 
               {message.actions?.length ? (
                 <div className="mt-2 grid gap-2">
-                  {message.actions.map((action) => (
+                  {message.actions.map((action: KoraAction, index: number) => (
                     <button
-                      key={action.id}
+                      key={`${action.id}-${index}`}
                       type="button"
                       onClick={() => {
                         void handleAction(action);
@@ -3737,6 +5009,127 @@ export default function KoraOpsAssistant({ enabled, userName, token }: KoraOpsAs
               ) : null}
             </article>
           ))}
+          {restockReport ? (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4">
+              <div className="w-full max-w-5xl overflow-hidden rounded-3xl border border-emerald-200 bg-white shadow-[0_24px_70px_-28px_rgba(2,6,23,0.55)]">
+                <div className="flex items-start justify-between gap-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white px-4 py-4">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">Reporte de reposición</p>
+                    <h3 className="mt-1 text-xl font-bold text-slate-900">
+                      {restockReport.mode === "today"
+                        ? "Productos vendidos hoy que conviene reponer mañana"
+                        : "Productos con presión de reposición general"}
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500">{restockReport.headline}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveRestockReportPdf()}
+                      disabled={restockReportSaving}
+                      className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {restockReportSaving ? "Guardando..." : "Guardar como PDF"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={printRestockReport}
+                      className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                    >
+                      Imprimir
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeRestockReportModal}
+                      className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 px-4 py-4 md:grid-cols-4">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Productos</p>
+                    <p className="mt-1 text-2xl font-black text-slate-900">{restockReport.items.length}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Críticos</p>
+                    <p className="mt-1 text-2xl font-black text-rose-600">
+                      {restockReport.items.filter((item) => item.urgency === "high").length}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">En vigilancia</p>
+                    <p className="mt-1 text-2xl font-black text-amber-600">
+                      {restockReport.items.filter((item) => item.urgency === "medium").length}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Bajos</p>
+                    <p className="mt-1 text-2xl font-black text-emerald-700">
+                      {restockReport.items.filter((item) => item.urgency === "low").length}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="max-h-[56vh] overflow-auto px-4 pb-4">
+                  <div className="mb-4 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
+                    <ul className="space-y-1 text-sm leading-relaxed text-slate-700">
+                      {restockReport.summary_lines.map((line, index) => (
+                        <li key={`${line}-${index}`}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    <table className="min-w-full border-collapse text-sm">
+                      <thead className="bg-slate-900 text-left text-[11px] uppercase tracking-[0.12em] text-white">
+                        <tr>
+                          <th className="px-3 py-3">SKU</th>
+                          <th className="px-3 py-3">Producto</th>
+              <th className="px-3 py-3 text-right">Stock</th>
+              <th className="px-3 py-3 text-right">Hoy</th>
+              <th className="px-3 py-3">Cobertura</th>
+              <th className="px-3 py-3 text-right">Sugerido</th>
+              <th className="px-3 py-3">Urgencia</th>
+              <th className="px-3 py-3 text-right">Precio</th>
+              <th className="px-3 py-3">Motivo</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white">
+                        {restockReport.items.map((item, index) => {
+                          const urgencyClass =
+                            item.urgency === "high"
+                              ? "text-rose-600"
+                              : item.urgency === "medium"
+                                ? "text-amber-600"
+                                : "text-emerald-700";
+                          return (
+                            <tr key={`${item.product_id}-${index}`} className="border-t border-slate-200">
+                              <td className="px-3 py-3 text-slate-600">{item.sku || "—"}</td>
+                              <td className="px-3 py-3 font-medium text-slate-900">{item.product_name}</td>
+                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.qty_on_hand).toFixed(0)}</td>
+                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
+                              <td className="px-3 py-3 text-slate-700">
+                                {item.coverage_days == null ? "—" : `${item.coverage_days.toFixed(1)} días`}
+                              </td>
+                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.suggested_qty).toFixed(0)}</td>
+                              <td className={["px-3 py-3 font-semibold", urgencyClass].join(" ")}>
+                                {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
+                              </td>
+                              <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatMoney(item.price)}</td>
+                              <td className="px-3 py-3 text-slate-600">{item.reason}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
           {busy ? <p className="text-xs font-semibold text-slate-500">KORA está consultando información...</p> : null}
           <div ref={endRef} />
         </div>
