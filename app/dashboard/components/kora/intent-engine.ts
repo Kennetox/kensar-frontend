@@ -36,6 +36,7 @@ export type QueryIntent =
   | "sales_previous_month"
   | "sales_specific_date"
   | "product_by_code"
+  | "product_stock_lookup"
   | "product_price_lookup"
   | "product_group_lookup"
   | "product_restock_advice"
@@ -176,6 +177,34 @@ function isRestockFromSoldHistory(text: string) {
   );
 }
 
+function isStockLookupQuery(text: string, tokens: string[]) {
+  const hasStockNoun =
+    hasTokenStartingWith(tokens, ["stock", "cantid", "unid", "qued", "falt", "dispon", "exist", "inventari"]) ||
+    hasPhrase(text, [
+      "cuantos hay",
+      "cuántos hay",
+      "cuanto hay",
+      "cuánto hay",
+      "cuanta cantidad",
+      "cuánta cantidad",
+      "stock del producto",
+      "stock de este producto",
+      "stock de ese producto",
+      "stock tiene",
+      "cuanto stock",
+      "cuánto stock",
+      "cuantos en stock",
+      "cuántos en stock",
+      "cantidad del producto",
+      "cuanta cantidad tiene",
+      "cuánta cantidad tiene",
+    ]);
+  const hasProductReference =
+    hasTokenStartingWith(tokens, ["produc", "articul", "item", "sku", "codig", "codigo"]) ||
+    /\b\d{1,9}\b/.test(text);
+  return hasStockNoun && hasProductReference;
+}
+
 export function detectIntent(input: string, resolveModuleFromQuery: ResolveModuleFromQuery): QueryIntent {
   const text = normalizeQuery(input);
   const tokens = tokenizeQuery(input);
@@ -246,8 +275,22 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
     hasPhrase(text, ["antes de este", "antes de ese", "el anterior", "la anterior", "y antes", "y el anterior"]) ||
     (tokens.includes("antes") && (tokens.includes("este") || tokens.includes("ese") || tokens.includes("anterior")));
   const asksProductPrice =
-    hasPhrase(text, ["que precio tiene", "qué precio tiene", "cual es el precio", "cuál es el precio", "precio de ese", "precio del producto"]) ||
-    (hasTokenStartingWith(tokens, ["preci", "valor", "cuanto", "cuánto"]) && hasProductNoun);
+    hasPhrase(text, [
+      "que precio tiene",
+      "qué precio tiene",
+      "cual es el precio",
+      "cuál es el precio",
+      "precio de ese",
+      "precio del producto",
+      "que costo tiene",
+      "qué costo tiene",
+      "cual es el costo",
+      "cuál es el costo",
+      "que coste tiene",
+      "qué coste tiene",
+    ]) ||
+    (hasTokenStartingWith(tokens, ["preci", "valor", "cuanto", "cuánto", "costo", "coste"]) && hasProductNoun);
+  const asksProductStock = isStockLookupQuery(text, tokens);
   const asksLastCreatedProduct =
     hasPhrase(text, ["ultimo producto creado", "último producto creado", "producto mas reciente", "producto más reciente", "ultimo item creado", "último ítem creado"]) ||
     ((text.includes("ultimo") || text.includes("último")) && text.includes("producto") && hasTokenStartingWith(tokens, ["cread", "registr", "agreg"]));
@@ -594,6 +637,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   if (asksCustomerLookup) return "customer_lookup";
   if (asksLastCreatedProduct) return "last_created_product";
   if (asksHowCreateEmployee) return "how_create_hr_employee";
+  if (asksProductStock) return "product_stock_lookup";
   if (asksRestockForecastToday) return "product_restock_today";
   if (asksInventoryLow) return "inventory_low";
   if (asksRestockForecastGeneral) return "product_restock_general";
@@ -672,10 +716,17 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   if ((hasProductNoun || hasCodeNoun) && (hasGroupNoun || hasBelongVerb)) {
     return "product_group_lookup";
   }
+  if ((hasProductNoun || hasCodeNoun) && isStockLookupQuery(text, tokens)) {
+    return "product_stock_lookup";
+  }
   if (asksRestockAdvice && (hasProductNoun || hasCodeNoun)) {
     return "product_restock_advice";
   }
-  if ((hasProductNoun || hasCodeNoun) && (hasPhrase(text, ["cual es", "cuál es", "info", "detalle"]) || hasTokenStartingWith(tokens, ["mostr", "dime", "busc"]))) {
+  if (
+    (hasProductNoun || hasCodeNoun) &&
+    (hasPhrase(text, ["cual es", "cuál es", "info", "detalle", "a que producto pertenece", "a qué producto pertenece", "de que producto es", "de qué producto es"]) ||
+      hasTokenStartingWith(tokens, ["mostr", "dime", "busc", "pertenec"]))
+  ) {
     return "product_by_code";
   }
   if (hasLastToken && hasSalesVerb) {
@@ -941,6 +992,7 @@ export function resolveIntentWithContext(
 
   if (lastTopic === "inventory") {
     if (text.includes("ultimo") && text.includes("creado") && text.includes("producto")) return "last_created_product";
+    if (isStockLookupQuery(text, tokenizeQuery(input))) return "product_stock_lookup";
     if (/^\d+$/.test(text)) return "product_by_code";
     const restockNeedSignal =
       text.includes("reponer") ||
@@ -1062,14 +1114,26 @@ export function resolveIntentWithContext(
         text.includes("cuanto hay") ||
         text.includes("cuantos hay") ||
         text.includes("cuántos hay") ||
+        text.includes("cuanto stock") ||
+        text.includes("cuánto stock") ||
         text.includes("cantidad") ||
         text.includes("unidades") ||
-        text.includes("stock"));
-    if (asksStockForCurrentProduct) return "product_by_code";
-    if ((text.includes("precio") || text.includes("valor") || text.includes("cuanto") || text.includes("cuánto")) && !!lastEntity.productTerm) {
+        text.includes("stock") ||
+        text.includes("costo") ||
+        text.includes("coste"));
+    if (asksStockForCurrentProduct) return "product_stock_lookup";
+    if (
+      (text.includes("precio") ||
+        text.includes("valor") ||
+        text.includes("cuanto") ||
+        text.includes("cuánto") ||
+        text.includes("costo") ||
+        text.includes("coste")) &&
+      !!lastEntity.productTerm
+    ) {
       return "product_price_lookup";
     }
-    if (text.includes("grupo")) return "product_group_lookup";
+    if (text.includes("grupo") || text.includes("pertenece")) return "product_group_lookup";
     if (
       text.includes("producto") ||
       text.includes("productos") ||
@@ -1085,6 +1149,12 @@ export function resolveIntentWithContext(
     if (
       hasPhrase(text, ["cual producto es", "cuál producto es", "que producto es", "qué producto es", "cual es", "cuál es"]) &&
       !!lastEntity.productTerm
+    ) {
+      return "product_by_code";
+    }
+    if (
+      !!lastEntity.productTerm &&
+      hasPhrase(text, ["a que producto pertenece", "a qué producto pertenece", "de que producto es", "de qué producto es"])
     ) {
       return "product_by_code";
     }
@@ -1373,6 +1443,7 @@ export function buildIntentCandidates(input: string, resolveModuleFromQuery: Res
   if (hasSales && hasMonth && hasIncrease && hasMethod) push("sales_method_month_comparison", 90);
   if (hasSales && hasYear && hasIncrease && hasMethod) push("sales_method_year_comparison", 90);
   if (hasProduct && hasGroup) push("product_group_lookup", 84);
+  if (hasProduct && isStockLookupQuery(text, tokens)) push("product_stock_lookup", 92);
   if (hasProduct && (text.includes("pedir") || text.includes("comprar") || text.includes("reponer"))) push("product_restock_advice", 88);
   if (asksRestockForecastToday) push("product_restock_today", 96);
   if (asksRestockForecastGeneral) push("product_restock_general", 96);

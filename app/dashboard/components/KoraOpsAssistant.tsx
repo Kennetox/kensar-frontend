@@ -1496,7 +1496,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
       product_id: item.product_id,
       sku: item.sku?.trim() || "—",
       product_name: item.product_name,
-      stock: Math.max(0, Number(item.qty_on_hand ?? 0)),
+      stock: Number(item.qty_on_hand ?? 0),
       price: Math.max(0, Number(item.price ?? 0)),
       units_today: Math.max(0, Number(item.units_today ?? 0)),
       coverage_days:
@@ -1548,8 +1548,8 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     <title>Reporte de reposición KORA</title>
     <style>
       @page {
-        size: A4 landscape;
-        margin: 10mm;
+        size: A4 portrait;
+        margin: 12mm;
       }
       :root { color-scheme: light; }
       * { box-sizing: border-box; }
@@ -1568,6 +1568,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
       }
       .page {
+        width: 100%;
         border: 1px solid #dbe4f0;
         border-radius: 20px;
         overflow: hidden;
@@ -1576,7 +1577,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
       .header {
         display: flex;
         justify-content: space-between;
-        gap: 24px;
+        gap: 18px;
         align-items: flex-start;
         padding: 18px 20px 16px;
         background: linear-gradient(135deg, rgba(16,185,129,0.08), rgba(34,197,94,0.04));
@@ -1613,7 +1614,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
       }
       .cards {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
         margin: 18px 0;
         padding: 0 20px;
@@ -1680,14 +1681,14 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         color: #64748b;
       }
       .sku { width: 7%; }
-      .name { width: 27%; }
+      .name { width: 25%; }
       .stock { width: 8%; }
-      .today { width: 7%; }
+      .today { width: 9%; }
       .coverage { width: 11%; }
       .suggested { width: 8%; }
-      .urgency { width: 8%; }
-      .price { width: 9%; }
-      .reason { width: 25%; }
+      .urgency { width: 9%; }
+      .price { width: 10%; }
+      .reason { width: 23%; }
       @media print {
         body { background: #fff; }
         .page { border: none; border-radius: 0; }
@@ -3749,6 +3750,50 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     }
   }
 
+  function formatStockUnits(value: number) {
+    const stock = Math.trunc(Number(value ?? 0));
+    if (stock < 0) {
+      return `${stock} unidades (faltan ${Math.abs(stock)} para cubrirlo)`;
+    }
+    if (stock === 1) return "1 unidad";
+    return `${stock} unidades`;
+  }
+
+  async function answerProductStockLookup(input: string) {
+    if (!ensureToken()) return;
+    const directCode = extractProductCode(input);
+    const extractedTerm = extractProductTerm(input);
+    const genericStockTerms = new Set(["stock", "cantidad", "unidades", "cantidad de stock"]);
+    const safeTerm = extractedTerm && !genericStockTerms.has(normalizeQuery(extractedTerm)) ? extractedTerm : "";
+    const code = directCode || safeTerm || (lastEntityRef.current.productTerm ?? "");
+    if (!code) {
+      pushMessage("kora", "Dime el SKU o el nombre del producto. Ejemplo: ¿cuánto stock tiene el SKU 235?");
+      return;
+    }
+    setBusy(true);
+    lastTopicRef.current = "inventory";
+    lastEntityRef.current = { ...lastEntityRef.current, productTerm: code || null, moduleKey: "productos" };
+    try {
+      const product = await findProductRecord(code);
+      if (!product) {
+        pushMessage("kora", `No encontré un producto con SKU/código ${code}.`, PRODUCT_ACTIONS);
+        return;
+      }
+      const stockText = formatStockUnits(Number(product.qty_on_hand ?? 0));
+      pushMessage(
+        "kora",
+        `Stock consultado:\n- Nombre: ${product.product_name}\n- SKU: ${product.sku ?? "Sin SKU"}\n- Stock actual: ${stockText}`,
+        PRODUCT_ACTIONS
+      );
+      lastEntityRef.current = { ...lastEntityRef.current, productTerm: product.sku || product.product_name, moduleKey: "productos" };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible consultar el stock del producto.";
+      pushMessage("kora", `No pude consultar ese stock ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function answerProductGroup(input: string) {
     if (!ensureToken()) return;
     const codeOrTerm = extractProductCode(input) || extractProductTerm(input) || (lastEntityRef.current.productTerm ?? "");
@@ -4023,7 +4068,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         if (rows.length < limit) break;
       }
 
-      const stock = Math.max(0, Number(product.qty_on_hand ?? 0));
+      const stock = Number(product.qty_on_hand ?? 0);
       const dailyUnits = units30d / 30;
       const coverageDays = dailyUnits > 0 ? stock / dailyUnits : Number.POSITIVE_INFINITY;
       let recommendation = "No priorizar reposición por ahora.";
@@ -4165,15 +4210,34 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     const report = restockReport ?? latestRestockReportRef.current;
     if (!report || typeof window === "undefined") return;
     const html = buildRestockReportHtml(report);
-    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
-    if (!printWindow) return;
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.onload = () => {
-      printWindow.focus();
-      printWindow.print();
+    const printFrame = document.createElement("iframe");
+    printFrame.style.position = "fixed";
+    printFrame.style.right = "0";
+    printFrame.style.bottom = "0";
+    printFrame.style.width = "0";
+    printFrame.style.height = "0";
+    printFrame.style.border = "0";
+    printFrame.setAttribute("aria-hidden", "true");
+    document.body.appendChild(printFrame);
+
+    const cleanup = () => {
+      window.setTimeout(() => {
+        printFrame.remove();
+      }, 1000);
     };
+
+    printFrame.onload = () => {
+      const frameWindow = printFrame.contentWindow;
+      if (!frameWindow) {
+        cleanup();
+        return;
+      }
+      frameWindow.focus();
+      frameWindow.print();
+      cleanup();
+    };
+
+    printFrame.srcdoc = html;
   }
 
   function answerLastSaleFollowupProduct() {
@@ -4403,6 +4467,10 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     }
     if (intent === "product_by_code") {
       await answerProductByCode(input);
+      return "handled" as const;
+    }
+    if (intent === "product_stock_lookup") {
+      await answerProductStockLookup(input);
       return "handled" as const;
     }
     if (intent === "product_price_lookup") {
@@ -5149,7 +5217,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                                 <tr key={`${item.product_id}-${index}`} className="border-t border-slate-200">
                                   <td className="px-3 py-3 text-slate-600">{item.sku || "—"}</td>
                                   <td className="px-3 py-3 font-medium text-slate-900">{item.product_name}</td>
-                                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.qty_on_hand).toFixed(0)}</td>
+                                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Number(item.qty_on_hand).toFixed(0)}</td>
                                   <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
                                   <td className="px-3 py-3 text-slate-700">
                                     {item.coverage_days == null ? "—" : `${item.coverage_days.toFixed(1)} días`}

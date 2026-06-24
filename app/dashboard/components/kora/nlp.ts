@@ -197,6 +197,14 @@ export function extractProductCode(input: string) {
     return trailingNumber[1].trim();
   }
 
+  if (
+    trailingNumber?.[1] &&
+    /\b(stock|cantidad|unidades?|hay|queda|quedan|tiene|tienen|disponible|disponibles)\b/i.test(raw) &&
+    !/\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/.test(raw)
+  ) {
+    return trailingNumber[1].trim();
+  }
+
   const inQuotes = raw.match(/["“]([^"”]{2,})["”]/);
   if (inQuotes?.[1]) return inQuotes[1].trim();
   return "";
