@@ -1291,10 +1291,7 @@ export default function PagoMultiplePage() {
                 label: getMethodLabel(p.method, paymentCatalog),
                 amount: p.amount,
               }));
-      const ticketTotal =
-        typeof saleResponse?.total === "number"
-          ? saleResponse.total
-          : saleTotalForSummary;
+      const ticketTotal = saleTotalForSummary;
       const ticketChangeAmount =
         typeof saleResponse?.change_amount === "number"
           ? saleResponse.change_amount
