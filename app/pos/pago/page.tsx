@@ -219,6 +219,7 @@ export default function PagoPage() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
+  const [isConfirmingSale, setIsConfirmingSale] = useState(false);
   const apiBase = useMemo(() => getApiBase(), []);
   const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
@@ -253,6 +254,31 @@ export default function PagoPage() {
       showToast(message);
     },
     [showToast]
+  );
+  const fetchWithTimeout = useCallback(
+    async (
+      input: RequestInfo | URL,
+      init: RequestInit | undefined,
+      timeoutMs: number,
+      label: string
+    ) => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(input, {
+          ...init,
+          signal: controller.signal,
+        });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          throw new Error(`La ${label} tardó demasiado. Intenta de nuevo.`);
+        }
+        throw err;
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    },
+    []
   );
   const parseEmails = (value: string) =>
     value
@@ -747,6 +773,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   }
 
   async function handleConfirm() {
+    if (isConfirmingSale) return;
+    setIsConfirmingSale(true);
     try {
       setError(null);
       setMessage(null);
@@ -842,23 +870,28 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           setErrorWithToast("Necesitas conexión para reservar el número de venta.");
           throw new Error("Necesitas conexión para reservar el número de venta.");
         }
-        const reservationRes = await fetch(`${apiBase}/pos/sales/reserve-number`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+        const reservationRes = await fetchWithTimeout(
+          `${apiBase}/pos/sales/reserve-number`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              pos_name: resolvedPosName,
+              station_id: activeStationId,
+              vendor_name: user?.name ?? null,
+              min_sale_number:
+                typeof saleNumber === "number" && saleNumber > 0
+                  ? saleNumber
+                  : null,
+            }),
           },
-          credentials: "include",
-          body: JSON.stringify({
-            pos_name: resolvedPosName,
-            station_id: activeStationId,
-            vendor_name: user?.name ?? null,
-            min_sale_number:
-              typeof saleNumber === "number" && saleNumber > 0
-                ? saleNumber
-                : null,
-          }),
-        });
+          20000,
+          "reserva"
+        );
         if (!reservationRes.ok) {
           const data = await reservationRes.json().catch(() => null);
           const detail =
@@ -1021,15 +1054,20 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       let res: Response;
       try {
         const payloadToSend = buildPayload();
-        res = await fetch(`${apiBase}${endpoint}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+        res = await fetchWithTimeout(
+          `${apiBase}${endpoint}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+            body: JSON.stringify(payloadToSend),
           },
-          credentials: "include",
-          body: JSON.stringify(payloadToSend),
-        });
+          45000,
+          "confirmación de la venta"
+        );
       } catch (err) {
         console.error(err);
         const browserOffline =
@@ -1066,15 +1104,20 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           await reserveIfNeeded(true);
           const retryInvalidReservationPayload = buildPayload();
           try {
-            res = await fetch(`${apiBase}${endpoint}`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
+            res = await fetchWithTimeout(
+              `${apiBase}${endpoint}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                credentials: "include",
+                body: JSON.stringify(retryInvalidReservationPayload),
               },
-              credentials: "include",
-              body: JSON.stringify(retryInvalidReservationPayload),
-            });
+              45000,
+              "confirmación de la venta"
+            );
           } catch (err) {
             console.error(err);
             const browserOffline =
@@ -1117,15 +1160,20 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           }
           const retryPayload = buildPayload();
           try {
-            res = await fetch(`${apiBase}${endpoint}`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
+            res = await fetchWithTimeout(
+              `${apiBase}${endpoint}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                credentials: "include",
+                body: JSON.stringify(retryPayload),
               },
-              credentials: "include",
-              body: JSON.stringify(retryPayload),
-            });
+              45000,
+              "confirmación de la venta"
+            );
           } catch (err) {
             console.error(err);
             const browserOffline =
@@ -1390,6 +1438,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           : "Error al registrar la venta.";
       setErrorWithToast(msg);
       setMessage(null);
+    } finally {
+      setIsConfirmingSale(false);
     }
   }
 
@@ -2132,9 +2182,9 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
               type="button"
               onClick={handleConfirm}
               className="w-full h-[89.2px] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-lg font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
-              disabled={confirmDisabled}
+              disabled={confirmDisabled || isConfirmingSale}
             >
-              Confirmar pago
+              {isConfirmingSale ? "Procesando..." : "Confirmar pago"}
             </button>
           </footer>
         </section>
