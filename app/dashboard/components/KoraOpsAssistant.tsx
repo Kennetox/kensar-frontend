@@ -3834,15 +3834,32 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     if (!ensureToken()) return;
     const directCode = extractProductCode(input);
     const extractedTerm = extractProductTerm(input);
-    const genericPriceTerms = new Set(["precio", "valor", "costo", "coste"]);
+    const contextTerm = (lastEntityRef.current.productTerm ?? "").trim();
+    const genericPriceTerms = new Set([
+      "precio",
+      "valor",
+      "costo",
+      "coste",
+      "precio tiene",
+      "que precio tiene",
+      "qué precio tiene",
+      "cual es el precio",
+      "cuál es el precio",
+      "precio del producto",
+      "precio de ese",
+    ]);
     const safeTerm = extractedTerm && !genericPriceTerms.has(normalizeQuery(extractedTerm)) ? extractedTerm : "";
-    const code = directCode || safeTerm || (lastEntityRef.current.productTerm ?? "");
+    const code = directCode || contextTerm || safeTerm;
     if (!code) {
-      pushMessage("kora", "Indícame el SKU para consultar precio. Ejemplo: SKU 100045.");
+      pushMessage(
+        "kora",
+        "Indícame el SKU o dime primero qué producto quieres revisar 🙂. Ejemplo: SKU 100045."
+      );
       return;
     }
     setBusy(true);
     lastTopicRef.current = "inventory";
+    lastEntityRef.current = { ...lastEntityRef.current, productTerm: code || null, moduleKey: "productos" };
     try {
       const product = await findProductRecord(code);
       if (!product) {

@@ -181,10 +181,18 @@ function isStockLookupQuery(text: string, tokens: string[]) {
   const hasStockNoun =
     hasTokenStartingWith(tokens, ["stock", "cantid", "unid", "qued", "falt", "dispon", "exist", "inventari"]) ||
     hasPhrase(text, [
+      "stock del",
+      "stock de",
       "cuantos hay",
       "cuántos hay",
       "cuanto hay",
       "cuánto hay",
+      "stock del sku",
+      "stock del codigo",
+      "stock del código",
+      "stock del producto",
+      "stock del numero",
+      "stock del número",
       "cuanta cantidad",
       "cuánta cantidad",
       "stock del producto",
@@ -198,6 +206,10 @@ function isStockLookupQuery(text: string, tokens: string[]) {
       "cantidad del producto",
       "cuanta cantidad tiene",
       "cuánta cantidad tiene",
+      "cuanto tiene",
+      "cuánto tiene",
+      "que stock tiene",
+      "qué stock tiene",
     ]);
   const hasProductReference =
     hasTokenStartingWith(tokens, ["produc", "articul", "item", "sku", "codig", "codigo"]) ||

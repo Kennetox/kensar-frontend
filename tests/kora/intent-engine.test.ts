@@ -127,6 +127,14 @@ test("detectIntent product restock today", () => {
   assertIntent("que productos crees que necesitaremos para mañana", "product_restock_today");
 });
 
+test("detectIntent stock by sku", () => {
+  assertIntent("stock del sku 1539", "product_stock_lookup");
+});
+
+test("detectIntent stock by code", () => {
+  assertIntent("stock del 1539", "product_stock_lookup");
+});
+
 test("detectIntent product restock today with direct phrasing", () => {
   assertIntent("dime que productos necesitamos mañana", "product_restock_today");
 });
@@ -207,7 +215,7 @@ test("resolveIntentWithContext inventory follow-up stock count", () => {
   const topic: KoraTopic = "inventory";
   const entity: KoraEntityContext = { productTerm: "cable" };
   const got = resolveIntentWithContext("cuantos tenemos?", topic, entity, resolveModuleFromQuery);
-  assert.equal(got, "product_by_code");
+  assert.equal(got, "product_stock_lookup");
 });
 
 test("resolveIntentWithContext inventory follow-up restock today", () => {

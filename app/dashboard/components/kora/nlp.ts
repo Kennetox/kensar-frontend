@@ -199,6 +199,14 @@ export function extractProductCode(input: string) {
 
   if (
     trailingNumber?.[1] &&
+    /\b(stock|cantidad|unidades?|sku|codigo|código|id|numero|número|codigo del|código del|stock del|stock de|producto|articulo|artículo|precio|valor|costo|coste|grupo|categoria|categoría|pertenece)\b/i.test(raw) &&
+    !/\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/.test(raw)
+  ) {
+    return trailingNumber[1].trim();
+  }
+
+  if (
+    trailingNumber?.[1] &&
     /\b(stock|cantidad|unidades?|hay|queda|quedan|tiene|tienen|disponible|disponibles)\b/i.test(raw) &&
     !/\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/.test(raw)
   ) {

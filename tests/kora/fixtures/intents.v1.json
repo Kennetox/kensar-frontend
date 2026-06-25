@@ -44,6 +44,8 @@
 
   { "kind": "direct", "input": "que precio tiene sku 100045", "expected": "product_price_lookup" },
   { "kind": "direct", "input": "deberiamos pedir mas del producto 100045", "expected": "product_restock_advice" },
+  { "kind": "direct", "input": "stock del sku 1539", "expected": "product_stock_lookup" },
+  { "kind": "direct", "input": "stock del 1539", "expected": "product_stock_lookup" },
   { "kind": "direct", "input": "ultima vez que vendimos cable", "expected": "last_sale_product" },
   { "kind": "direct", "input": "cual producto fue", "expected": "last_sale_followup_product" },
   { "kind": "direct", "input": "y antes de ese", "expected": "last_sale_followup_previous" },
@@ -130,7 +132,8 @@
   { "kind": "context", "input": "crear empleado", "lastTopic": "inventory", "lastEntity": {}, "expected": "how_create_hr_employee" },
 
   { "kind": "context", "input": "y sku", "lastTopic": "inventory", "lastEntity": {}, "expected": "product_by_code" },
-  { "kind": "context", "input": "cuantos tenemos?", "lastTopic": "inventory", "lastEntity": { "productTerm": "1000" }, "expected": "product_by_code" },
+  { "kind": "context", "input": "cuantos tenemos?", "lastTopic": "inventory", "lastEntity": { "productTerm": "1000" }, "expected": "product_stock_lookup" },
+  { "kind": "context", "input": "que precio tiene?", "lastTopic": "inventory", "lastEntity": { "productTerm": "cable" }, "expected": "product_price_lookup" },
   { "kind": "context", "input": "deberiamos pedir mas?", "lastTopic": "inventory", "lastEntity": { "productTerm": "1000" }, "expected": "product_restock_advice" },
   { "kind": "context", "input": "cuales han sido las ventas de este producto?", "lastTopic": "inventory", "lastEntity": { "productTerm": "1000" }, "expected": "last_sale_product" },
   { "kind": "context", "input": "y producto", "lastTopic": "inventory", "lastEntity": {}, "expected": "product_by_code" },
