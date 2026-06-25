@@ -7007,6 +7007,9 @@ const matchesStationLabel = useCallback(
                         <div className="font-semibold text-base text-slate-50">
                           {formatMoney(lineTotal)}
                         </div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          {item.product.sku?.trim() || "Sin código"}
+                        </div>
                         {hasDiscount && (
                           <div className="text-sm text-emerald-400">
                             Descuento -{formatMoney(item.lineDiscountValue)}
