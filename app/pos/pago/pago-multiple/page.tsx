@@ -866,6 +866,8 @@ export default function PagoMultiplePage() {
         total: number;
         paid_amount: number;
         change_amount: number;
+        cart_discount_value?: number;
+        cart_discount_percent?: number;
         items: {
           product_id: number;
           quantity: number;
@@ -907,6 +909,8 @@ export default function PagoMultiplePage() {
         total: totalToPay,
         paid_amount: totalPaidNow,
         change_amount,
+        cart_discount_value: cartDiscountValue,
+        cart_discount_percent: cartDiscountPercent,
         items: saleItemsPayload,
         payments: normalizedPayments,
         notes: combinedSaleNotes || undefined,

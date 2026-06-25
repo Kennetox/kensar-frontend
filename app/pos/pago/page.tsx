@@ -947,6 +947,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         surcharge_label?: string;
         paid_amount: number;
         change_amount: number;
+        cart_discount_value?: number;
+        cart_discount_percent?: number;
         items: {
           product_id: number;
           quantity: number;
@@ -973,6 +975,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         total: totalToPay,
         paid_amount,
         change_amount,
+        cart_discount_value: cartDiscountValue,
+        cart_discount_percent: cartDiscountPercent,
         items: saleItemsPayload,
         notes: combinedSaleNotes || undefined,
         pos_name: resolvedPosName,
