@@ -138,9 +138,13 @@ type InstrumentBindingConfig = {
   productSku: string;
   productName: string;
   productSlug: string;
+  productPrice: number | null;
+  productComparePrice: number | null;
   serviceId: string;
   serviceSku: string;
   serviceName: string;
+  servicePrice: number | null;
+  serviceComparePrice: number | null;
 };
 
 type InstrumentVariantKey =
@@ -409,27 +413,39 @@ const DEFAULT_PERSONALIZATION_BINDINGS: Record<
     productSku: "",
     productName: "",
     productSlug: "",
+    productPrice: null,
+    productComparePrice: null,
     serviceId: "",
     serviceSku: "",
     serviceName: "",
+    servicePrice: null,
+    serviceComparePrice: null,
   },
   guiro: {
     productId: "",
     productSku: "",
     productName: "",
     productSlug: "",
+    productPrice: null,
+    productComparePrice: null,
     serviceId: "",
     serviceSku: "",
     serviceName: "",
+    servicePrice: null,
+    serviceComparePrice: null,
   },
   maraca: {
     productId: "",
     productSku: "",
     productName: "",
     productSlug: "",
+    productPrice: null,
+    productComparePrice: null,
     serviceId: "",
     serviceSku: "",
     serviceName: "",
+    servicePrice: null,
+    serviceComparePrice: null,
   },
 };
 
@@ -624,6 +640,15 @@ const COMBO_BADGE_SWATCHES = ["#ef4444", "#f97316", "#f59e0b", "#22c55e", "#0ea5
 function normalizeHexColor(value: string | null | undefined): string {
   const trimmed = (value || "").trim();
   return /^#([0-9a-fA-F]{6})$/.test(trimmed) ? trimmed : DEFAULT_COMBO_BADGE_COLOR;
+}
+
+function normalizePriceValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function formatCopInputValue(value: string): string {
@@ -2327,9 +2352,17 @@ export default function ComercioWebPage() {
               productSku: typeof row.product_sku === "string" ? row.product_sku : "",
               productName: typeof row.product_name === "string" ? row.product_name : "",
               productSlug: typeof row.product_slug === "string" ? row.product_slug : "",
+              productPrice: normalizePriceValue((row as Record<string, unknown>).product_price),
+              productComparePrice: normalizePriceValue(
+                (row as Record<string, unknown>).product_compare_price
+              ),
               serviceId: typeof row.service_id === "string" ? row.service_id : "",
               serviceSku: typeof row.service_sku === "string" ? row.service_sku : "",
               serviceName: typeof row.service_name === "string" ? row.service_name : "",
+              servicePrice: normalizePriceValue((row as Record<string, unknown>).service_price),
+              serviceComparePrice: normalizePriceValue(
+                (row as Record<string, unknown>).service_compare_price
+              ),
             };
           });
           setPersonalizationVariantBindings(next);
@@ -2875,6 +2908,8 @@ export default function ComercioWebPage() {
             productId: String(product.id),
             productName: (product.web_name || product.name || "").trim(),
             productSlug: (product.web_slug || "").trim(),
+            productPrice: normalizePriceValue(product.price),
+            productComparePrice: normalizePriceValue(product.web_compare_price),
           },
         }));
       } else {
@@ -2885,6 +2920,8 @@ export default function ComercioWebPage() {
             serviceSku: (product.sku || "").trim(),
             serviceId: String(product.id),
             serviceName: (product.web_name || product.name || "").trim(),
+            servicePrice: normalizePriceValue(product.price),
+            serviceComparePrice: normalizePriceValue(product.web_compare_price),
           },
         }));
       }
@@ -2907,14 +2944,16 @@ export default function ComercioWebPage() {
       if (!product) return;
       setPersonalizationVariantBindings((current) => ({
         ...current,
-        [variant]: {
-          ...current[variant],
-          productSku: (product.sku || "").trim(),
-          productId: String(product.id),
-          productName: (product.web_name || product.name || "").trim(),
-          productSlug: (product.web_slug || "").trim(),
-        },
-      }));
+          [variant]: {
+            ...current[variant],
+            productSku: (product.sku || "").trim(),
+            productId: String(product.id),
+            productName: (product.web_name || product.name || "").trim(),
+            productSlug: (product.web_slug || "").trim(),
+            productPrice: normalizePriceValue(product.price),
+            productComparePrice: normalizePriceValue(product.web_compare_price),
+          },
+        }));
     },
     [findCatalogProductBySku]
   );
@@ -2925,13 +2964,15 @@ export default function ComercioWebPage() {
       if (!product) return;
       setPersonalizationVariantBindings((current) => ({
         ...current,
-        [variant]: {
-          ...current[variant],
-          serviceSku: (product.sku || "").trim(),
-          serviceId: String(product.id),
-          serviceName: (product.web_name || product.name || "").trim(),
-        },
-      }));
+          [variant]: {
+            ...current[variant],
+            serviceSku: (product.sku || "").trim(),
+            serviceId: String(product.id),
+            serviceName: (product.web_name || product.name || "").trim(),
+            servicePrice: normalizePriceValue(product.price),
+            serviceComparePrice: normalizePriceValue(product.web_compare_price),
+          },
+        }));
     },
     [findCatalogProductBySku]
   );
@@ -2947,6 +2988,8 @@ export default function ComercioWebPage() {
           productId: "",
           productName: "",
           productSlug: "",
+          productPrice: null,
+          productComparePrice: null,
         },
       }));
     },
@@ -2963,6 +3006,8 @@ export default function ComercioWebPage() {
           ...current[variant],
           serviceId: "",
           serviceName: "",
+          servicePrice: null,
+          serviceComparePrice: null,
         },
       }));
     },
@@ -12287,6 +12332,24 @@ export default function ComercioWebPage() {
                               />
                             </label>
                           </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                              Precio actual:{" "}
+                              <strong className="text-slate-900">
+                                {formatMoney(personalizationVariantBindings[key].productPrice || 0)}
+                              </strong>
+                            </span>
+                            {typeof personalizationVariantBindings[key].productComparePrice === "number" &&
+                            personalizationVariantBindings[key].productComparePrice >
+                              (personalizationVariantBindings[key].productPrice || 0) ? (
+                              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                                Precio anterior:{" "}
+                                <strong className="text-slate-900">
+                                  {formatMoney(personalizationVariantBindings[key].productComparePrice || 0)}
+                                </strong>
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                         <div>
                           <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -12360,6 +12423,24 @@ export default function ComercioWebPage() {
                                 className="w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-600"
                               />
                             </label>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                              Precio actual:{" "}
+                              <strong className="text-slate-900">
+                                {formatMoney(personalizationVariantBindings[key].servicePrice || 0)}
+                              </strong>
+                            </span>
+                            {typeof personalizationVariantBindings[key].serviceComparePrice === "number" &&
+                            personalizationVariantBindings[key].serviceComparePrice >
+                              (personalizationVariantBindings[key].servicePrice || 0) ? (
+                              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">
+                                Precio anterior:{" "}
+                                <strong className="text-slate-900">
+                                  {formatMoney(personalizationVariantBindings[key].serviceComparePrice || 0)}
+                                </strong>
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                       </div>
