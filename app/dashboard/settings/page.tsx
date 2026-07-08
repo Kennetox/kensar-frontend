@@ -3041,6 +3041,7 @@ export default function SettingsPage() {
             value={form.ticketFooter ?? ""}
             onChange={(e) => updateForm("ticketFooter", e.target.value)}
             rows={3}
+            style={{ textAlign: previewFooterAlign }}
             className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
           />
         </div>
