@@ -83,6 +83,7 @@ type SettingsFormState = {
   theme: ThemeOption;
   colorAccent: string;
   ticketFooter: string;
+  ticketFooterAlign: TicketFooterAlign;
   autoCloseTickets: boolean;
   lowStockAlert: boolean;
   requireSellerPin: boolean;
@@ -119,6 +120,7 @@ const defaultForm: SettingsFormState = {
   theme: "light",
   colorAccent: "#0A84FF",
   ticketFooter: "",
+  ticketFooterAlign: "center",
   autoCloseTickets: false,
   lowStockAlert: true,
   requireSellerPin: false,
@@ -158,6 +160,8 @@ function toSlug(value: string): string {
 const previewTicketNumber = 42;
 const CONTROL_PENDING_LOOKBACK_DAYS = 30;
 const BG_STORAGE_KEY = "kensar_bg_style";
+const TICKET_FOOTER_MARKER_RE =
+  /^\s*\[\[align=(left|center|right)\]\]\s*\n?/i;
 const roleOrder: PosUserRecord["role"][] = [
   "Administrador",
   "Supervisor",
@@ -167,9 +171,36 @@ const roleOrder: PosUserRecord["role"][] = [
 const SCHEDULE_MODULE_ENABLED = true;
 
 type BackgroundStyle = "clean" | "soft" | "pattern";
+type TicketFooterAlign = "left" | "center" | "right";
 
 const isBackgroundStyle = (value: string | null): value is BackgroundStyle =>
   value === "clean" || value === "soft" || value === "pattern";
+
+const isTicketFooterAlign = (
+  value: string | null
+): value is TicketFooterAlign =>
+  value === "left" || value === "center" || value === "right";
+
+function parseTicketFooter(value?: string | null): {
+  text: string;
+  align: TicketFooterAlign;
+} {
+  const raw = (value ?? "").replace(/\r\n/g, "\n");
+  const match = raw.match(TICKET_FOOTER_MARKER_RE);
+  const align = isTicketFooterAlign(match?.[1] ?? null)
+    ? (match?.[1] as TicketFooterAlign)
+    : "center";
+  return {
+    text: raw.replace(TICKET_FOOTER_MARKER_RE, ""),
+    align,
+  };
+}
+
+function encodeTicketFooter(text: string, align: TicketFooterAlign): string {
+  const normalized = text.replace(/\r\n/g, "\n");
+  if (align === "center") return normalized;
+  return `[[align=${align}]]\n${normalized}`;
+}
 
 const getDefaultBgStyle = (theme: ThemeOption): BackgroundStyle => {
   if (theme === "light") return "soft";
@@ -495,6 +526,7 @@ const normalizeBooleanMap = (value?: Record<string, unknown> | null) => {
 function mapFromApi(payload: PosSettingsPayload): SettingsFormState {
   const joinList = (items?: string[] | null) =>
     Array.isArray(items) && items.length > 0 ? items.join("\n") : "";
+  const footer = parseTicketFooter(payload.ticket_footer);
   return {
     companyName: safeString(payload.company_name, ""),
     taxId: safeString(payload.tax_id, ""),
@@ -507,7 +539,8 @@ function mapFromApi(payload: PosSettingsPayload): SettingsFormState {
     ),
     theme: payload.theme_mode ?? "dark",
     colorAccent: safeString(payload.accent_color, "#10b981"),
-    ticketFooter: safeString(payload.ticket_footer, ""),
+    ticketFooter: footer.text,
+    ticketFooterAlign: footer.align,
     autoCloseTickets: Boolean(payload.auto_close_ticket),
     lowStockAlert: Boolean(payload.low_stock_alert),
     requireSellerPin: Boolean(payload.require_seller_pin),
@@ -574,7 +607,7 @@ function mapToApi(form: SettingsFormState): PosSettingsPayload {
     logoUrl: normalizedLogoUrl,
     theme_mode: form.theme,
     accent_color: form.colorAccent,
-    ticket_footer: form.ticketFooter,
+    ticket_footer: encodeTicketFooter(form.ticketFooter, form.ticketFooterAlign),
     auto_close_ticket: form.autoCloseTickets,
     low_stock_alert: form.lowStockAlert,
     require_seller_pin: form.requireSellerPin,
@@ -2229,6 +2262,7 @@ export default function SettingsPage() {
   }, [form.theme]);
 
   const previewFooter = form.ticketFooter ?? "";
+  const previewFooterAlign = form.ticketFooterAlign;
 
   const updateForm = <K extends keyof SettingsFormState>(
     key: K,
@@ -2981,6 +3015,28 @@ export default function SettingsPage() {
               Se imprime al final de cada recibo.
             </p>
           </div>
+          <div className="flex flex-wrap gap-2 text-[11px]">
+            {(
+              [
+                { id: "left", label: "Izquierda" },
+                { id: "center", label: "Centrado" },
+                { id: "right", label: "Derecha" },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => updateForm("ticketFooterAlign", option.id)}
+                className={`rounded-full border px-3 py-1.5 font-medium transition ${
+                  previewFooterAlign === option.id
+                    ? "border-emerald-400 bg-emerald-500/15 text-emerald-200"
+                    : "border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <textarea
             value={form.ticketFooter ?? ""}
             onChange={(e) => updateForm("ticketFooter", e.target.value)}
@@ -3099,7 +3155,10 @@ export default function SettingsPage() {
             <p className={`${themePreview.text} opacity-70`}>
               {form.companyName}
             </p>
-            <p className={`${themePreview.text} opacity-60`}>
+            <p
+              className={`${themePreview.text} opacity-60`}
+              style={{ textAlign: previewFooterAlign }}
+            >
               {previewFooter.slice(0, 70)}...
             </p>
           </div>

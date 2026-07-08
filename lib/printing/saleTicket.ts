@@ -253,6 +253,24 @@ const FALLBACK_COMPANY = {
   footer: "Gracias por tu compra.",
 };
 
+const TICKET_FOOTER_MARKER_RE =
+  /^\s*\[\[align=(left|center|right)\]\]\s*\n?/i;
+
+type TicketFooterAlign = "left" | "center" | "right";
+
+function parseTicketFooter(value?: string | null): {
+  text: string;
+  align: TicketFooterAlign;
+} {
+  const raw = (value ?? "").replace(/\r\n/g, "\n");
+  const match = raw.match(TICKET_FOOTER_MARKER_RE);
+  const align = (match?.[1] as TicketFooterAlign | undefined) ?? "center";
+  return {
+    text: raw.replace(TICKET_FOOTER_MARKER_RE, ""),
+    align,
+  };
+}
+
 const getUploadsBase = (): string => {
   const explicit = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (explicit) {
@@ -391,7 +409,9 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
   const address = settings?.address?.trim() || FALLBACK_COMPANY.address;
   const phone = settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
   const email = settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
-  const footer = settings?.ticket_footer?.trim() || FALLBACK_COMPANY.footer;
+  const footerMeta = parseTicketFooter(settings?.ticket_footer);
+  const footer = footerMeta.text.trim() || FALLBACK_COMPANY.footer;
+  const footerAlign = footerMeta.align;
   const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
 
   const itemsRows = options.items.length
@@ -490,7 +510,7 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
             : ""}
           ${options.notes ? `<div class="section muted">Notas: ${escapeHtml(options.notes)}</div>` : ""}
           <div class="line"></div>
-          <div class="muted" style="text-align:center;">${escapeHtml(footer)}</div>
+          <div class="muted" style="text-align:${footerAlign};">${escapeHtml(footer)}</div>
         </div>
       </body>
     </html>
@@ -505,7 +525,9 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
   const address = settings?.address?.trim() || FALLBACK_COMPANY.address;
   const phone = settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
   const email = settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
-  const footer = settings?.ticket_footer?.trim() || FALLBACK_COMPANY.footer;
+  const footerMeta = parseTicketFooter(settings?.ticket_footer);
+  const footer = footerMeta.text.trim() || FALLBACK_COMPANY.footer;
+  const footerAlign = footerMeta.align;
   const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
 
   const returnedRows = options.itemsReturned.length
@@ -635,7 +657,7 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
             : ""}
           ${options.notes ? `<div class="section muted">Notas: ${escapeHtml(options.notes)}</div>` : ""}
           <div class="line"></div>
-          <div class="muted" style="text-align:center;">${escapeHtml(footer)}</div>
+          <div class="muted" style="text-align:${footerAlign};">${escapeHtml(footer)}</div>
         </div>
       </body>
     </html>
@@ -650,7 +672,9 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
   const address = settings?.address?.trim() || FALLBACK_COMPANY.address;
   const phone = settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
   const email = settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
-  const footer = settings?.ticket_footer?.trim() || FALLBACK_COMPANY.footer;
+  const footerMeta = parseTicketFooter(settings?.ticket_footer);
+  const footer = footerMeta.text.trim() || FALLBACK_COMPANY.footer;
+  const footerAlign = footerMeta.align;
   const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
 
   const paymentRows = options.payments.length
@@ -1118,7 +1142,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
 
         <div class="barcode">${barcodeSvg}</div>
 
-        <div class="footer">
+        <div class="footer" style="text-align:${footerAlign};">
           ${footer
             .split("\n")
             .map((line) => `<div>${escapeHtml(line)}</div>`)
@@ -1137,7 +1161,9 @@ export function renderSaleInvoice(options: SaleTicketOptions): string {
   const address = settings?.address?.trim() || FALLBACK_COMPANY.address;
   const phone = settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
   const email = settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
-  const footer = settings?.ticket_footer?.trim() || FALLBACK_COMPANY.footer;
+  const footerMeta = parseTicketFooter(settings?.ticket_footer);
+  const footer = footerMeta.text.trim() || FALLBACK_COMPANY.footer;
+  const footerAlign = footerMeta.align;
   const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
 
   const paymentTotal =
@@ -1469,7 +1495,7 @@ export function renderSaleInvoice(options: SaleTicketOptions): string {
           </tbody>
         </table>
 
-        <div class="footer-note">
+        <div class="footer-note" style="text-align:${footerAlign};">
           ${footer
             .split("\n")
             .map((line) => `<div>${escapeHtml(line)}</div>`)
