@@ -1411,7 +1411,6 @@ export default function AbonosPage() {
                 type="button"
                 onClick={() => {
                   void handlePrintTicket();
-                  setSuccessModalOpen(false);
                 }}
                 className="px-6 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-base font-semibold"
               >
