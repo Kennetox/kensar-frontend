@@ -1377,9 +1377,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
       timeStyle: "short",
       timeZone: "America/Bogota",
     }).format(new Date(report.generated_at));
-    const summaryHtml = report.summary_lines
-      .map((line) => `<li>${escapeHtml(line)}</li>`)
-      .join("");
     const tableRowsHtml = rows
       .map((row) => {
         const urgencyLabel = row.urgency === "high" ? "Alta" : row.urgency === "medium" ? "Media" : "Baja";
@@ -1496,11 +1493,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         font-weight: 800;
         color: #0f172a;
       }
-      .summary {
-        margin: 0 0 16px 20px;
-        padding: 0;
-      }
-      .summary li { margin-bottom: 4px; }
       .table-wrap {
         margin: 0 20px 20px;
         border: 1px solid #dbe4f0;
@@ -1578,7 +1570,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         <div class="card"><div class="label">En vigilancia</div><div class="value">${rows.filter((row) => row.urgency === "medium").length}</div></div>
         <div class="card"><div class="label">Bajos</div><div class="value">${rows.filter((row) => row.urgency === "low").length}</div></div>
       </div>
-      <ul class="summary">${summaryHtml}</ul>
       <div class="table-wrap">
         <table>
           <thead>
@@ -1591,11 +1582,10 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
               <th class="suggested">Sugerido</th>
               <th class="urgency">Urgencia</th>
               <th class="price">Precio</th>
-              <th class="reason">Motivo</th>
             </tr>
           </thead>
           <tbody>
-            ${tableRowsHtml || `<tr><td colspan="9" class="muted">No hay productos para mostrar.</td></tr>`}
+            ${tableRowsHtml || `<tr><td colspan="8" class="muted">No hay productos para mostrar.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -4800,14 +4790,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                     </div>
 
                     <div className="space-y-4 overflow-auto pr-1">
-                      <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4">
-                        <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-slate-700">
-                          {restockReport.summary_lines.map((line, index) => (
-                            <li key={`${line}-${index}`}>{line}</li>
-                          ))}
-                        </ul>
-                      </div>
-
                       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_24px_-18px_rgba(2,6,23,0.16)]">
                         <table className="min-w-full border-collapse text-sm">
                           <thead className="bg-slate-900 text-left text-[11px] uppercase tracking-wide text-slate-300">
@@ -4820,7 +4802,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                               <th className="px-3 py-3 text-right">Sugerido</th>
                               <th className="px-3 py-3">Urgencia</th>
                               <th className="px-3 py-3 text-right">Precio</th>
-                              <th className="px-3 py-3">Motivo</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white">
@@ -4835,7 +4816,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                                 <tr key={`${item.product_id}-${index}`} className="border-t border-slate-200">
                                   <td className="px-3 py-3 text-slate-600">{item.sku || "—"}</td>
                                   <td className="px-3 py-3 font-medium text-slate-900">{item.product_name}</td>
-                                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatStockUnits(item.qty_on_hand)}</td>
+                                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.round(item.qty_on_hand).toFixed(0)}</td>
                                   <td className="px-3 py-3 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
                                   <td className="px-3 py-3 text-slate-700">
                                     {formatCoverageDays(item.coverage_days)}
@@ -4845,7 +4826,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                                 {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
                               </td>
                               <td className="px-3 py-3 text-right tabular-nums text-slate-700">{formatMoney(item.price)}</td>
-                                  <td className="px-3 py-3 text-slate-600">{item.reason}</td>
                                 </tr>
                               );
                             })}
