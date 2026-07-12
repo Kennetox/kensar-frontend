@@ -17,6 +17,7 @@ import {
   exportInventoryProductsPdf,
   fetchInventoryLatestEntries,
   fetchInventoryMovements,
+  fetchInventoryStockTrend,
   fetchManualMovementDocumentDetail,
   fetchManualMovementDocuments,
   fetchInventoryOverview,
@@ -34,6 +35,7 @@ import {
   upsertInventoryRecountDraft,
   type InventoryMovementReason,
   type InventoryMovementRecord,
+  type InventoryStockTrendPoint,
   type InventoryLatestEntryRecord,
   type InventoryOverview,
   type InventoryRecountDraftState,
@@ -174,6 +176,9 @@ export default function MovementsPage() {
   const [recentMovements, setRecentMovements] = useState<InventoryMovementRecord[]>([]);
   const [recentMovementsLoading, setRecentMovementsLoading] = useState(false);
   const [recentMovementsError, setRecentMovementsError] = useState<string | null>(null);
+  const [stockTrend, setStockTrend] = useState<InventoryStockTrendPoint[]>([]);
+  const [stockTrendLoading, setStockTrendLoading] = useState(false);
+  const [stockTrendError, setStockTrendError] = useState<string | null>(null);
   const [latestEntries, setLatestEntries] = useState<InventoryLatestEntryRecord[]>([]);
   const [latestEntriesLoading, setLatestEntriesLoading] = useState(false);
   const [latestEntriesError, setLatestEntriesError] = useState<string | null>(null);
@@ -693,6 +698,21 @@ export default function MovementsPage() {
       })
       .finally(() => {
         if (!cancelled) setLatestEntriesLoading(false);
+      });
+
+    setStockTrendLoading(true);
+    setStockTrendError(null);
+    fetchInventoryStockTrend(token, 7)
+      .then((rows) => {
+        if (!cancelled) setStockTrend(rows);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setStockTrend([]);
+        setStockTrendError(err instanceof Error ? err.message : "Error");
+      })
+      .finally(() => {
+        if (!cancelled) setStockTrendLoading(false);
       });
     return () => {
       cancelled = true;
@@ -2086,6 +2106,36 @@ export default function MovementsPage() {
                   ))
                 )}
               </div>
+            </div>
+          </div>
+
+          <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">Comportamiento reciente del stock</h2>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  Cierre diario de los últimos 7 días · valor calculado con precios de venta actuales
+                </p>
+              </div>
+              <div className="flex items-center gap-3 text-[11px] font-medium text-slate-600">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-sky-500" /> Unidades
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" /> Valor de venta
+                </span>
+              </div>
+            </div>
+            <div className="mt-3">
+              {stockTrendLoading ? (
+                <div className="h-48 animate-pulse rounded-lg bg-slate-100" />
+              ) : stockTrendError ? (
+                <div className="flex h-48 items-center justify-center text-sm text-rose-600">{stockTrendError}</div>
+              ) : stockTrend.length === 0 ? (
+                <div className="flex h-48 items-center justify-center text-sm text-slate-500">Sin datos de stock.</div>
+              ) : (
+                <StockTrendChart points={stockTrend} />
+              )}
             </div>
           </div>
         </section>
@@ -4409,6 +4459,133 @@ function parseRecountCountDraft(raw: string | null | undefined): number | null {
     return null;
   }
   return counted;
+}
+
+function StockTrendChart({ points }: { points: InventoryStockTrendPoint[] }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const width = 900;
+  const height = 200;
+  const left = 56;
+  const right = 76;
+  const top = 18;
+  const bottom = 34;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const units = points.map((point) => Number(point.stock_units || 0));
+  const values = points.map((point) => Number(point.stock_sale_value || 0));
+  const unitMin = Math.min(...units);
+  const unitMax = Math.max(...units);
+  const valueMin = Math.min(...values);
+  const valueMax = Math.max(...values);
+  const xAt = (index: number) =>
+    left + (points.length === 1 ? plotWidth / 2 : (index / (points.length - 1)) * plotWidth);
+  const yAt = (value: number, min: number, max: number) =>
+    max === min ? top + plotHeight / 2 : top + ((max - value) / (max - min)) * plotHeight;
+  const unitCoordinates = points.map((point, index) => ({
+    x: xAt(index),
+    y: yAt(point.stock_units, unitMin, unitMax),
+  }));
+  const valueCoordinates = points.map((point, index) => ({
+    x: xAt(index),
+    y: yAt(point.stock_sale_value, valueMin, valueMax),
+  }));
+  const unitLine = unitCoordinates.map(({ x, y }) => `${x},${y}`).join(" ");
+  const valueLine = valueCoordinates.map(({ x, y }) => `${x},${y}`).join(" ");
+  const selectedIndex = hoveredIndex ?? points.length - 1;
+  const selected = points[selectedIndex];
+  const selectedX = xAt(selectedIndex);
+  const tooltipWidth = 190;
+  const tooltipX = Math.min(Math.max(selectedX - tooltipWidth / 2, left), width - right - tooltipWidth);
+
+  return (
+    <div className="w-full" onMouseLeave={() => setHoveredIndex(null)}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-48 w-full overflow-visible"
+        role="img"
+        aria-label="Gráfica del stock total en unidades y valor de venta durante los últimos siete días"
+      >
+        {[0, 0.5, 1].map((ratio) => {
+          const y = top + ratio * plotHeight;
+          return (
+            <line
+              key={ratio}
+              x1={left}
+              x2={width - right}
+              y1={y}
+              y2={y}
+              stroke="#e2e8f0"
+              strokeDasharray="4 5"
+            />
+          );
+        })}
+
+        <text x={left - 8} y={top + 4} textAnchor="end" className="fill-slate-400 text-[10px]">
+          {formatCompactNumber(unitMax)}
+        </text>
+        <text x={left - 8} y={top + plotHeight + 4} textAnchor="end" className="fill-slate-400 text-[10px]">
+          {formatCompactNumber(unitMin)}
+        </text>
+        <text x={width - right + 8} y={top + 4} className="fill-slate-400 text-[10px]">
+          {formatCompactMoney(valueMax)}
+        </text>
+        <text x={width - right + 8} y={top + plotHeight + 4} className="fill-slate-400 text-[10px]">
+          {formatCompactMoney(valueMin)}
+        </text>
+
+        <polyline points={unitLine} fill="none" stroke="#0ea5e9" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={valueLine} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+
+        {hoveredIndex != null ? (
+          <line x1={selectedX} x2={selectedX} y1={top} y2={top + plotHeight} stroke="#94a3b8" strokeDasharray="3 4" />
+        ) : null}
+
+        {points.map((point, index) => (
+          <g key={point.date}>
+            <circle cx={unitCoordinates[index].x} cy={unitCoordinates[index].y} r="3.5" fill="white" stroke="#0ea5e9" strokeWidth="2" />
+            <circle cx={valueCoordinates[index].x} cy={valueCoordinates[index].y} r="3.5" fill="white" stroke="#10b981" strokeWidth="2" />
+            <circle
+              cx={xAt(index)}
+              cy={top + plotHeight / 2}
+              r={plotWidth / Math.max(points.length - 1, 1) / 2}
+              fill="transparent"
+              onMouseEnter={() => setHoveredIndex(index)}
+            />
+            <text x={xAt(index)} y={height - 8} textAnchor="middle" className="fill-slate-500 text-[10px]">
+              {formatTrendDate(point.date)}
+            </text>
+          </g>
+        ))}
+
+        <g pointerEvents="none">
+          <rect x={tooltipX} y={24} width={tooltipWidth} height="48" rx="8" fill="#0f172a" opacity="0.94" />
+          <text x={tooltipX + 10} y={43} className="fill-slate-300 text-[10px]">
+            {formatTrendDate(selected.date, true)}
+          </text>
+          <text x={tooltipX + 10} y={61} className="fill-white text-[11px] font-semibold">
+            {formatQty(selected.stock_units)} uds · {formatMoney(selected.stock_sale_value)}
+          </text>
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+function formatTrendDate(value: string, long = false) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, Math.max(0, month - 1), day);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("es-CO", long
+    ? { weekday: "short", day: "numeric", month: "short" }
+    : { day: "numeric", month: "short" });
+}
+
+function formatCompactNumber(value: number) {
+  return new Intl.NumberFormat("es-CO", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+function formatCompactMoney(value: number) {
+  return `$${new Intl.NumberFormat("es-CO", { notation: "compact", maximumFractionDigits: 1 }).format(value)}`;
 }
 
 function formatMoney(value: number) {

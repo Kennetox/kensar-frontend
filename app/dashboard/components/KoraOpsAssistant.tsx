@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -174,27 +174,6 @@ type KoraApiAskResponse = {
   generated_at: string;
 };
 
-type KoraBriefingSignal = {
-  key: string;
-  title: string;
-  detail: string;
-  priority: "high" | "medium" | "low";
-  actions: KoraAction[];
-};
-
-type KoraBriefingResponse = {
-  generated_at: string;
-  source: "briefing-v1";
-  state: "alert" | "watch" | "calm";
-  headline: string;
-  summary_lines: string[];
-  signals: KoraBriefingSignal[];
-  recommended_actions: KoraAction[];
-  conversation_starters: string[];
-  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown";
-  role_focus: string[];
-};
-
 type KoraRestockForecastItem = {
   product_id: number;
   product_name: string;
@@ -264,8 +243,6 @@ type KoraProductAuditEntry = {
 };
 
 const CACHE_TTL_MS = 45_000;
-const BRIEFING_CACHE_TTL_MS = 60_000;
-const KORA_BRIEFING_MEMORY_KEY = "kora_ops_briefing_memory_v1";
 const KORA_METRICS_KEY = "kora_ops_metrics_v1";
 const KORA_MAX_METRICS = 200;
 const KORA_CONTEXT_KEY = "kora_ops_context_v1";
@@ -343,74 +320,6 @@ function getRoleTone(role: "Administrador" | "Supervisor" | "Vendedor" | "Audito
     default:
       return { directness: "medium", warmth: "medium", detail: "medium" };
   }
-}
-
-type KoraBriefingMemory = {
-  signalHits: Record<string, number>;
-  signalDismissals: Record<string, number>;
-  roleOpenCounts: Record<string, number>;
-  roleDismissCounts: Record<string, number>;
-  lastBriefingDate?: string | null;
-};
-
-function loadBriefingMemory(): KoraBriefingMemory {
-  if (typeof window === "undefined") {
-    return { signalHits: {}, signalDismissals: {}, roleOpenCounts: {}, roleDismissCounts: {}, lastBriefingDate: null };
-  }
-  try {
-    const raw = window.localStorage.getItem(KORA_BRIEFING_MEMORY_KEY);
-    if (!raw) {
-      return { signalHits: {}, signalDismissals: {}, roleOpenCounts: {}, roleDismissCounts: {}, lastBriefingDate: null };
-    }
-    const parsed = JSON.parse(raw) as Partial<KoraBriefingMemory>;
-    return {
-      signalHits: parsed.signalHits ?? {},
-      signalDismissals: parsed.signalDismissals ?? {},
-      roleOpenCounts: parsed.roleOpenCounts ?? {},
-      roleDismissCounts: parsed.roleDismissCounts ?? {},
-      lastBriefingDate: parsed.lastBriefingDate ?? null,
-    };
-  } catch {
-    return { signalHits: {}, signalDismissals: {}, roleOpenCounts: {}, roleDismissCounts: {}, lastBriefingDate: null };
-  }
-}
-
-function persistBriefingMemory(memory: KoraBriefingMemory) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(KORA_BRIEFING_MEMORY_KEY, JSON.stringify(memory));
-  } catch {
-    // no-op
-  }
-}
-
-function rankBriefingSignal(
-  signal: KoraBriefingSignal,
-  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown",
-  memory: KoraBriefingMemory
-) {
-  const roleBias: Record<string, Record<string, number>> = {
-    Administrador: { "sales-drop": 40, "inventory-critical": 28, "web-queue": 20, "sales-changes": 12, "inventory-low": 10 },
-    Supervisor: { "sales-drop": 34, "inventory-critical": 26, "web-queue": 18, "inventory-low": 14, "sales-changes": 12 },
-    Vendedor: { "sales-drop": 20, "inventory-low": 28, "inventory-critical": 16, "web-queue": 12, "sales-changes": 6 },
-    Auditor: { "sales-changes": 32, "sales-drop": 16, "inventory-critical": 14, "inventory-low": 10, "web-queue": 8 },
-    unknown: {},
-  };
-  const signalBias = roleBias[role]?.[signal.key] ?? 0;
-  const hits = memory.signalHits[signal.key] ?? 0;
-  const dismissals = memory.signalDismissals[signal.key] ?? 0;
-  const roleOpen = memory.roleOpenCounts[`${role}:${signal.key}`] ?? 0;
-  const roleDismiss = memory.roleDismissCounts[`${role}:${signal.key}`] ?? 0;
-  const priorityWeight = signal.priority === "high" ? 300 : signal.priority === "medium" ? 200 : 100;
-  return priorityWeight + signalBias + hits * 6 + roleOpen * 4 - dismissals * 10 - roleDismiss * 12;
-}
-
-function sortBriefingSignals(
-  briefing: KoraBriefingResponse,
-  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown",
-  memory: KoraBriefingMemory
-) {
-  return [...briefing.signals].sort((a, b) => rankBriefingSignal(b, role, memory) - rankBriefingSignal(a, role, memory));
 }
 
 function resolveGreetingByBogotaTime() {
@@ -1202,10 +1111,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<KoraMessage[]>([{ id: 1, role: "kora", text: welcomeMessage }]);
-  const [briefing, setBriefing] = useState<KoraBriefingResponse | null>(null);
-  const [briefingMemory, setBriefingMemory] = useState<KoraBriefingMemory>(loadBriefingMemory());
-  const [briefingPromptVisible, setBriefingPromptVisible] = useState(false);
-  const [briefingExpanded, setBriefingExpanded] = useState(false);
   const [restockReport, setRestockReport] = useState<KoraRestockForecastResponse | null>(null);
   const [restockReportSaving, setRestockReportSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -1215,8 +1120,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
   const salesCacheRef = useRef<{ at: number; data: SalesSnapshot } | null>(null);
   const webCacheRef = useRef<{ at: number; data: WebSnapshot } | null>(null);
   const monthlySalesCacheRef = useRef<Map<number, { at: number; data: MonthlySalesPoint[] }>>(new Map());
-  const briefingCacheRef = useRef<{ at: number; data: KoraBriefingResponse } | null>(null);
-  const briefingMemoryRef = useRef<KoraBriefingMemory>(briefingMemory);
   const lastTopicRef = useRef<KoraTopic>(null);
   const lastSaleLookupRef = useRef<LastSaleLookupContext>(null);
   const lastEntityRef = useRef<KoraEntityContext>({});
@@ -1231,7 +1134,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
   const nudgeHideTimeoutRef = useRef<number | null>(null);
   const nudgeReappearTimeoutRef = useRef<number | null>(null);
   const sessionContextRef = useRef<KoraSessionContext>(getInitialSessionContext());
-  const briefingAutoShownRef = useRef<string | null>(null);
   const latestRestockReportRef = useRef<KoraRestockForecastResponse | null>(null);
 
   useEffect(() => {
@@ -1251,12 +1153,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     if (!initialOpen) return;
     setOpen(true);
   }, [initialOpen]);
-
-  useEffect(() => {
-    const memory = loadBriefingMemory();
-    briefingMemoryRef.current = memory;
-    setBriefingMemory(memory);
-  }, []);
 
   useEffect(() => {
     if (!enabled || !open) return;
@@ -1360,43 +1256,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     clearNudgeTimers();
     setShowSessionNudge(false);
   }
-
-  /* eslint-disable react-hooks/exhaustive-deps */
-  useEffect(() => {
-    if (!enabled || !open || !token) {
-      setBriefing(null);
-      setBriefingPromptVisible(false);
-      setBriefingExpanded(false);
-      return;
-    }
-    let active = true;
-
-    async function refreshBriefing() {
-      try {
-        const data = await readBriefing();
-        if (!active) return;
-        setBriefing(data);
-        setBriefingPromptVisible(true);
-        setBriefingExpanded(false);
-        sessionContextRef.current = {
-          ...sessionContextRef.current,
-          toneMode: data.state === "alert" ? "professional" : sessionContextRef.current.toneMode,
-        };
-      } catch {
-        if (active) {
-          setBriefing(null);
-          setBriefingPromptVisible(false);
-          setBriefingExpanded(false);
-        }
-      }
-    }
-
-    void refreshBriefing();
-    return () => {
-      active = false;
-    };
-  }, [enabled, open, token]);
-  /* eslint-enable react-hooks/exhaustive-deps */
 
   function updateToneModeFromUserInput(input: string) {
     const text = normalizeQuery(input);
@@ -1822,19 +1681,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     return data;
   }
 
-  async function readBriefing() {
-    const cached = briefingCacheRef.current;
-    if (cached && Date.now() - cached.at < BRIEFING_CACHE_TTL_MS) return cached.data;
-    const apiBase = getApiBase();
-    const res = await fetch(`${apiBase}/kora/briefing`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error(`Error ${res.status} al consultar briefing de KORA.`);
-    const data = (await res.json()) as KoraBriefingResponse;
-    briefingCacheRef.current = { at: Date.now(), data };
-    return data;
-  }
-
   async function readRestockForecast(mode: "general" | "today", horizonDays: number) {
     const apiBase = getApiBase();
     const params = new URLSearchParams({
@@ -1848,68 +1694,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     if (!res.ok) throw new Error(`Error ${res.status} al consultar pronóstico de reposición.`);
     return (await res.json()) as KoraRestockForecastResponse;
   }
-
-  const recordBriefingMemory = useCallback(
-    (signalKey: string, kind: "hit" | "dismiss") => {
-      const next = { ...briefingMemoryRef.current };
-      if (kind === "hit") {
-        next.signalHits = { ...next.signalHits, [signalKey]: (next.signalHits[signalKey] ?? 0) + 1 };
-        next.roleOpenCounts = {
-          ...next.roleOpenCounts,
-          [`${normalizedRole}:${signalKey}`]: (next.roleOpenCounts[`${normalizedRole}:${signalKey}`] ?? 0) + 1,
-        };
-      } else {
-        next.signalDismissals = { ...next.signalDismissals, [signalKey]: (next.signalDismissals[signalKey] ?? 0) + 1 };
-        next.roleDismissCounts = {
-          ...next.roleDismissCounts,
-          [`${normalizedRole}:${signalKey}`]: (next.roleDismissCounts[`${normalizedRole}:${signalKey}`] ?? 0) + 1,
-        };
-      }
-      next.lastBriefingDate = new Date().toISOString().slice(0, 10);
-      briefingMemoryRef.current = next;
-      setBriefingMemory(next);
-      persistBriefingMemory(next);
-    },
-    [normalizedRole]
-  );
-
-  const acceptBriefing = useCallback(() => {
-    setBriefingPromptVisible(false);
-    setBriefingExpanded(true);
-    recordBriefingMemory("briefing", "hit");
-  }, [recordBriefingMemory]);
-
-  const dismissBriefing = useCallback(() => {
-    setBriefingPromptVisible(false);
-    setBriefingExpanded(false);
-    recordBriefingMemory("briefing", "dismiss");
-  }, [recordBriefingMemory]);
-
-  const displayedBriefing = useMemo(() => {
-    if (!briefing) return null;
-    const memory = briefingMemory;
-    const sortedSignals = sortBriefingSignals(briefing, normalizedRole, memory);
-    const roleFocus =
-      briefing.role_focus.length > 0
-        ? briefing.role_focus
-        : [
-            normalizedRole === "Administrador" || normalizedRole === "Supervisor"
-              ? "Cierre de ventas y ritmo comercial"
-              : "Seguimiento comercial del día",
-            normalizedRole === "Auditor" ? "Trazabilidad y control" : "Inventario y reposición",
-            "Comercio web",
-          ];
-    return { ...briefing, signals: sortedSignals, role_focus: roleFocus };
-  }, [briefing, briefingMemory, normalizedRole]);
-
-  useEffect(() => {
-    if (!open || !displayedBriefing) return;
-    const today = new Date().toISOString().slice(0, 10);
-    if (briefingAutoShownRef.current === today) return;
-    briefingAutoShownRef.current = today;
-    setBriefingPromptVisible(true);
-    setBriefingExpanded(false);
-  }, [displayedBriefing, open]);
 
   async function readMonthlySeries(year: number) {
     const cached = monthlySalesCacheRef.current.get(year);
@@ -2610,14 +2394,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     if (!token) return null;
     try {
       const apiBase = getApiBase();
-      const briefingContext = briefing
-        ? {
-            briefing_headline: briefing.headline,
-            briefing_state: briefing.state,
-            briefing_summary_lines: briefing.summary_lines.slice(0, 4),
-            briefing_signals: briefing.signals.slice(0, 4).map((signal) => signal.title),
-          }
-        : undefined;
       const res = await fetch(`${apiBase}/kora/ask`, {
         method: "POST",
         headers: {
@@ -2629,7 +2405,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
           context: {
             topic: lastTopicRef.current ?? undefined,
             path: pathname ?? undefined,
-            ...briefingContext,
           },
         }),
       });
@@ -4881,14 +4656,24 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
             <button
               type="button"
               onClick={handleReset}
-              className="rounded-md border px-2.5 py-1 text-[11px] font-semibold"
+              className="flex h-7 w-7 items-center justify-center rounded-md border"
               style={{
                 borderColor: "rgba(255,255,255,0.48)",
                 background: "rgba(255,255,255,0.16)",
                 color: "#ffffff",
               }}
+              aria-label="Reiniciar conversación"
+              title="Reiniciar conversación"
             >
-              Reiniciar
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="h-4 w-4">
+                <path
+                  d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </button>
             <button
               type="button"
@@ -4907,191 +4692,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
         </header>
 
         <div className="max-h-[56vh] space-y-3 overflow-y-auto p-4" style={{ background: "#ffffff" }}>
-          {displayedBriefing && briefingPromptVisible && !briefingExpanded ? (
-            <section className="space-y-3 rounded-[18px] border border-emerald-200 bg-white p-3 shadow-[0_10px_22px_-18px_rgba(2,6,23,0.25)]">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">Pulso del negocio</p>
-                  <p className="mt-1 text-sm font-medium text-slate-900">
-                    {displayedBriefing.state === "alert"
-                      ? "Te tengo una señal importante para revisar."
-                      : displayedBriefing.state === "watch"
-                        ? "Te puedo contar un vistazo rápido de cómo va todo."
-                        : "Hoy el negocio se ve tranquilo y te puedo dar un vistazo corto."}
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                    ¿Quieres que te lo cuente sin enredarte? Te lo resumo en corto y, si quieres, luego vamos al detalle.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={dismissBriefing}
-                  className="rounded-full border px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition hover:border-emerald-200 hover:text-emerald-700"
-                >
-                  Ahora no
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={acceptBriefing}
-                  className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                >
-                  Sí, cuéntame
-                </button>
-                <button
-                  type="button"
-                  onClick={dismissBriefing}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
-                >
-                  Luego lo veo
-                </button>
-              </div>
-            </section>
-          ) : null}
-
-          {displayedBriefing && briefingExpanded ? (
-            <section className="space-y-3 rounded-[22px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-3 shadow-[0_12px_28px_-24px_rgba(2,6,23,0.35)]">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">Pulso del negocio</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{displayedBriefing.headline}</p>
-                </div>
-                <span
-                  className="rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
-                  style={{
-                    borderColor:
-                      displayedBriefing.state === "alert"
-                        ? "rgba(239, 68, 68, 0.28)"
-                        : displayedBriefing.state === "watch"
-                          ? "rgba(245, 158, 11, 0.28)"
-                          : "rgba(16, 185, 129, 0.28)",
-                    color:
-                      displayedBriefing.state === "alert"
-                        ? "#b91c1c"
-                        : displayedBriefing.state === "watch"
-                          ? "#92400e"
-                          : "#047857",
-                    background:
-                      displayedBriefing.state === "alert"
-                        ? "rgba(254, 242, 242, 0.9)"
-                        : displayedBriefing.state === "watch"
-                          ? "rgba(255, 251, 235, 0.95)"
-                          : "rgba(236, 253, 245, 0.95)",
-                  }}
-                >
-                  {displayedBriefing.state === "alert" ? "Atención" : displayedBriefing.state === "watch" ? "Vigilancia" : "Estable"}
-                </span>
-              </div>
-
-              <div className="space-y-1.5 text-xs leading-relaxed text-slate-600">
-                {displayedBriefing.role_focus.slice(0, 3).map((line: string, index: number) => (
-                  <p key={`${line}-${index}`}>{line}</p>
-                ))}
-              </div>
-
-              {displayedBriefing.signals.length ? (
-                <div className="space-y-2">
-                  {displayedBriefing.signals.slice(0, 3).map((signal: KoraBriefingSignal) => (
-                    <article key={signal.key} className="rounded-[18px] border border-emerald-100 bg-white p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">{signal.title}</p>
-                          <p className="mt-1 text-xs leading-relaxed text-slate-600">{signal.detail}</p>
-                        </div>
-                        <span
-                          className="rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em]"
-                          style={{
-                            background:
-                              signal.priority === "high"
-                                ? "rgba(254, 226, 226, 0.9)"
-                                : signal.priority === "medium"
-                                  ? "rgba(255, 251, 235, 0.95)"
-                                  : "rgba(236, 253, 245, 0.95)",
-                            color:
-                              signal.priority === "high"
-                                ? "#b91c1c"
-                                : signal.priority === "medium"
-                                  ? "#92400e"
-                                  : "#047857",
-                          }}
-                        >
-                          {signal.priority === "high" ? "Alta" : signal.priority === "medium" ? "Media" : "Baja"}
-                        </span>
-                      </div>
-                      {signal.actions.length ? (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {signal.actions.slice(0, 2).map((action: KoraAction) => (
-                            <button
-                              key={`${signal.key}-${action.label}`}
-                              type="button"
-                              onClick={() => {
-                                recordBriefingMemory(signal.key, "hit");
-                                if (action.href) {
-                                  void handleAction(action);
-                                  return;
-                                }
-                                setDraft(action.label);
-                              }}
-                              className="rounded-full border border-emerald-200 px-3 py-1.5 text-left text-xs font-semibold text-slate-800 transition hover:bg-emerald-50"
-                            >
-                              {action.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="mt-2 flex justify-end">
-                        <button
-                          type="button"
-                          className="text-[11px] font-semibold text-slate-500 transition hover:text-emerald-700"
-                          onClick={() => {
-                            recordBriefingMemory(signal.key, "dismiss");
-                          }}
-                        >
-                          Ocultar
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-
-              <div className="flex flex-wrap gap-2">
-                {displayedBriefing.recommended_actions.slice(0, 2).map((action: KoraAction) => (
-                  <button
-                    key={action.label}
-                    type="button"
-                    onClick={() => {
-                      recordBriefingMemory(displayedBriefing.signals[0]?.key ?? action.label, "hit");
-                      if (action.href) {
-                        void handleAction(action);
-                        return;
-                      }
-                      setDraft(action.label);
-                    }}
-                    className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 transition hover:bg-emerald-50"
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-
-              {displayedBriefing.conversation_starters.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {displayedBriefing.conversation_starters.slice(0, 3).map((starter: string) => (
-                    <button
-                      key={starter}
-                      type="button"
-                      onClick={() => setDraft(starter)}
-                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-left text-xs font-medium text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
-                    >
-                      {starter}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </section>
-          ) : null}
           {messages.map((message) => (
             <article key={message.id} className={message.role === "kora" ? "max-w-[96%]" : "ml-auto max-w-[96%]"}>
               <p

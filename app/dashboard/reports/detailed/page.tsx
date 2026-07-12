@@ -109,6 +109,10 @@ type ReportSale = {
   paid_amount?: number;
   payment_method?: string;
   payments?: Array<{ method?: string | null; amount?: number | null }>;
+  is_separated?: boolean;
+  initial_payment_method?: string | null;
+  initial_payment_amount?: number | null;
+  balance?: number | null;
   pos_name?: string | null;
   vendor_name?: string | null;
   customer_name?: string | null;
@@ -1856,25 +1860,65 @@ function buildReportResult(
     };
 
     sales.forEach((sale) => {
-      const payments = sale.payments;
-      if (Array.isArray(payments) && payments.length > 1) {
-        const sumPayments = payments.reduce(
-          (sum, payment) => sum + (payment.amount ?? 0),
+      const payments = Array.isArray(sale.payments) ? sale.payments : [];
+      const paymentEntries = payments
+        .map((payment) => ({
+          method:
+            payment.method ??
+            sale.initial_payment_method ??
+            sale.payment_method ??
+            "Sin método",
+          amount: Math.max(Number(payment.amount ?? 0), 0),
+        }))
+        .filter((entry) => entry.amount > 0);
+
+      if (sale.is_separated) {
+        const collectedFromPayments = paymentEntries.reduce(
+          (sum, payment) => sum + payment.amount,
+          0
+        );
+        const fallbackCollected = Math.max(
+          Number(
+            sale.initial_payment_amount ?? sale.paid_amount ?? 0
+          ),
+          0
+        );
+        const collectedAmount =
+          collectedFromPayments > 0 ? collectedFromPayments : fallbackCollected;
+
+        if (paymentEntries.length > 0) {
+          paymentEntries.forEach((payment) => {
+            combineSale(payment.method, payment.amount);
+          });
+        } else if (collectedAmount > 0) {
+          combineSale(
+            sale.initial_payment_method ?? sale.payment_method ?? "Sin método",
+            collectedAmount
+          );
+        }
+        return;
+      }
+
+      if (paymentEntries.length > 1) {
+        const sumPayments = paymentEntries.reduce(
+          (sum, payment) => sum + payment.amount,
           0
         );
         const saleTotal = sale.total ?? sale.paid_amount ?? sumPayments;
-        payments.forEach((payment) => {
-          const rawAmount = payment.amount ?? 0;
+        paymentEntries.forEach((payment) => {
           const value =
             sumPayments > 0
-              ? (rawAmount / sumPayments) * saleTotal
-              : saleTotal / payments.length;
-          combineSale(payment.method ?? sale.payment_method ?? "Sin método", value);
+              ? (payment.amount / sumPayments) * saleTotal
+              : saleTotal / paymentEntries.length;
+          combineSale(payment.method, value);
         });
       } else {
         combineSale(
-          sale.payment_method ?? payments?.[0]?.method ?? "Sin método",
-          sale.total ?? sale.paid_amount ?? payments?.[0]?.amount ?? 0
+          sale.payment_method ??
+            paymentEntries[0]?.method ??
+            sale.initial_payment_method ??
+            "Sin método",
+          sale.total ?? sale.paid_amount ?? paymentEntries[0]?.amount ?? 0
         );
       }
     });
@@ -2231,7 +2275,52 @@ const dateTimeFormatter = (iso: string) =>
       };
     }
     case "payment-methods": {
-      const rows = aggregateByPaymentMethod()
+      const aggregatedRows = aggregateByPaymentMethod();
+      const collectedTotal = aggregatedRows.reduce(
+        (sum, [, entry]) => sum + entry.total,
+        0
+      );
+      const separatedPendingTotal = sales.reduce((sum, sale) => {
+        if (!sale.is_separated) return sum;
+        const collectedFromPayments = (Array.isArray(sale.payments)
+          ? sale.payments
+          : []
+        ).reduce(
+          (paymentSum, payment) =>
+            paymentSum + Math.max(Number(payment.amount ?? 0), 0),
+          0
+        );
+        const collectedAmount = Math.max(
+          collectedFromPayments,
+          Number(sale.initial_payment_amount ?? sale.paid_amount ?? 0)
+        );
+        const totalAmount = Math.max(Number(sale.total ?? 0), 0);
+        const pendingAmount = sale.balance != null
+          ? Math.max(Number(sale.balance ?? 0), 0)
+          : Math.max(totalAmount - collectedAmount, 0);
+        return sum + pendingAmount;
+      }, 0);
+      const separatedPendingTickets = sales.reduce((count, sale) => {
+        if (!sale.is_separated) return count;
+        const collectedFromPayments = (Array.isArray(sale.payments)
+          ? sale.payments
+          : []
+        ).reduce(
+          (paymentSum, payment) =>
+            paymentSum + Math.max(Number(payment.amount ?? 0), 0),
+          0
+        );
+        const collectedAmount = Math.max(
+          collectedFromPayments,
+          Number(sale.initial_payment_amount ?? sale.paid_amount ?? 0)
+        );
+        const totalAmount = Math.max(Number(sale.total ?? 0), 0);
+        const pendingAmount = sale.balance != null
+          ? Math.max(Number(sale.balance ?? 0), 0)
+          : Math.max(totalAmount - collectedAmount, 0);
+        return pendingAmount > 0 ? count + 1 : count;
+      }, 0);
+      const rows = aggregatedRows
         .sort((a, b) => b[1].total - a[1].total)
         .map(([method, entry]) => {
           const resolvedLabel =
@@ -2242,23 +2331,43 @@ const dateTimeFormatter = (iso: string) =>
             resolvedLabel,
             formatMoney(entry.total),
             entry.count.toString(),
-            totalNet > 0
-              ? `${((entry.total / totalNet) * 100).toFixed(1)}%`
+            collectedTotal > 0
+              ? `${((entry.total / collectedTotal) * 100).toFixed(1)}%`
               : "0%",
           ];
         });
+      if (separatedPendingTotal > 0) {
+        rows.push([
+          "Separados pendientes",
+          formatMoney(separatedPendingTotal),
+          separatedPendingTickets.toString(),
+          "—",
+        ]);
+      }
       const dominant = rows[0]?.[0] ?? "—";
       return {
         summary: [
-          { label: "Métodos activos", value: rows.length.toString() },
-          { label: "Ventas netas", value: formatMoney(totalNet) },
+          { label: "Métodos activos", value: aggregatedRows.length.toString() },
+          { label: "Ventas cobradas", value: formatMoney(collectedTotal) },
           { label: "Método dominante", value: dominant },
+          ...(separatedPendingTotal > 0
+            ? [
+                {
+                  label: "Separados pendientes",
+                  value: formatMoney(separatedPendingTotal),
+                },
+              ]
+            : []),
         ],
         table: {
           columns: ["Método", "Ventas", "Tickets", "Participación"],
           rows,
         },
         surchargeTotal: totalSurcharge,
+        note:
+          separatedPendingTotal > 0
+            ? "Los separados pendientes se muestran aparte para no inflar los métodos de pago. Solo los abonos registrados se consideran dinero cobrado en el período."
+            : undefined,
       };
     }
     case "client-segmentation": {

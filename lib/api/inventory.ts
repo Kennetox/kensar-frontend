@@ -48,6 +48,12 @@ export type InventoryMovementRecord = {
   sale_seller_name?: string | null;
 };
 
+export type InventoryStockTrendPoint = {
+  date: string;
+  stock_units: number;
+  stock_sale_value: number;
+};
+
 export type InventoryStatusRow = {
   product_id: number;
   product_name: string;
@@ -286,6 +292,21 @@ export async function fetchInventoryMovements(
     throw new Error(detail?.detail ?? `Error ${res.status}`);
   }
   return (await res.json()) as InventoryMovementRecord[];
+}
+
+export async function fetchInventoryStockTrend(
+  token: string,
+  days = 7
+): Promise<InventoryStockTrendPoint[]> {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/inventory/stock-trend?days=${days}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(apiErrorMessage(detail, res.status));
+  }
+  return (await res.json()) as InventoryStockTrendPoint[];
 }
 
 export type InventoryLatestEntryRecord = {
