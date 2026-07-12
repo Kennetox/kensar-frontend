@@ -4507,7 +4507,10 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     pendingCustomerSalesNavigationRef.current = null;
     lastUserInputRef.current = action.label;
     updateToneModeFromUserInput(action.label);
-    pushMessage("user", action.label);
+    const shouldEchoAsUserMessage = action.intent !== "restock_report_modal";
+    if (shouldEchoAsUserMessage) {
+      pushMessage("user", action.label);
+    }
     if (action.intent) {
       const intentInput = action.inputOverride || action.label;
       const status = await dispatchIntent(action.intent, intentInput);
