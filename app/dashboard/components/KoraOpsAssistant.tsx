@@ -4579,9 +4579,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     nextIdRef.current = 2;
     sessionContextRef.current = getInitialSessionContext();
     persistSessionContext(sessionContextRef.current);
-    setBriefing(null);
-    setBriefingPromptVisible(false);
-    setBriefingExpanded(false);
   }
 
   if (!enabled) return null;
