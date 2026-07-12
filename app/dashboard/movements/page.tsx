@@ -4491,7 +4491,7 @@ function StockTrendChart({ points }: { points: InventoryStockTrendPoint[] }) {
   }));
   const unitLine = unitCoordinates.map(({ x, y }) => `${x},${y}`).join(" ");
   const valueLine = valueCoordinates.map(({ x, y }) => `${x},${y}`).join(" ");
-  const selectedIndex = hoveredIndex ?? points.length - 1;
+  const selectedIndex = hoveredIndex ?? 0;
   const selected = points[selectedIndex];
   const selectedX = xAt(selectedIndex);
   const tooltipWidth = 190;
@@ -4557,15 +4557,17 @@ function StockTrendChart({ points }: { points: InventoryStockTrendPoint[] }) {
           </g>
         ))}
 
-        <g pointerEvents="none">
-          <rect x={tooltipX} y={24} width={tooltipWidth} height="48" rx="8" fill="#0f172a" opacity="0.94" />
-          <text x={tooltipX + 10} y={43} className="fill-slate-300 text-[10px]">
-            {formatTrendDate(selected.date, true)}
-          </text>
-          <text x={tooltipX + 10} y={61} className="fill-white text-[11px] font-semibold">
-            {formatQty(selected.stock_units)} uds · {formatMoney(selected.stock_sale_value)}
-          </text>
-        </g>
+        {hoveredIndex != null ? (
+          <g pointerEvents="none">
+            <rect x={tooltipX} y={24} width={tooltipWidth} height="48" rx="8" fill="#0f172a" opacity="0.94" />
+            <text x={tooltipX + 10} y={43} className="fill-slate-300 text-[10px]">
+              {formatTrendDate(selected.date, true)}
+            </text>
+            <text x={tooltipX + 10} y={61} className="fill-white text-[11px] font-semibold">
+              {formatQty(selected.stock_units)} uds · {formatMoney(selected.stock_sale_value)}
+            </text>
+          </g>
+        ) : null}
       </svg>
     </div>
   );
