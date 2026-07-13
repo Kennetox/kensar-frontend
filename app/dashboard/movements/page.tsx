@@ -174,6 +174,8 @@ export default function MovementsPage() {
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [, setOverviewError] = useState<string | null>(null);
   const [recentMovements, setRecentMovements] = useState<InventoryMovementRecord[]>([]);
+  const [movementsModalRows, setMovementsModalRows] = useState<InventoryMovementRecord[]>([]);
+  const [movementsModalOpen, setMovementsModalOpen] = useState(false);
   const [recentMovementsLoading, setRecentMovementsLoading] = useState(false);
   const [recentMovementsError, setRecentMovementsError] = useState<string | null>(null);
   const [stockTrend, setStockTrend] = useState<InventoryStockTrendPoint[]>([]);
@@ -185,6 +187,10 @@ export default function MovementsPage() {
   const [latestEntriesFilter, setLatestEntriesFilter] = useState<
     "all" | "app" | "manual"
   >("all");
+  const latestEntriesCacheRef = useRef<{
+    refreshNonce: number;
+    rows: Partial<Record<"all" | "app" | "manual", InventoryLatestEntryRecord[]>>;
+  }>({ refreshNonce: 0, rows: {} });
   const [showInventorySaleValue, setShowInventorySaleValue] = useState(false);
   const [openingFormKind, setOpeningFormKind] = useState<ManualMovementKind | null>(null);
 
@@ -639,6 +645,15 @@ export default function MovementsPage() {
   useEffect(() => clearToastTimers, []);
 
   useEffect(() => {
+    if (!movementsModalOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMovementsModalOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [movementsModalOpen]);
+
+  useEffect(() => {
     if (!token) return;
     let cancelled = false;
     setOverviewLoading(true);
@@ -670,34 +685,16 @@ export default function MovementsPage() {
           (a, b) => parseMovementDateMs(b.created_at) - parseMovementDateMs(a.created_at)
         );
         setRecentMovements(normalized.slice(0, 8));
+        setMovementsModalRows(normalized.slice(0, 100));
       })
       .catch((err) => {
         if (cancelled) return;
         setRecentMovements([]);
+        setMovementsModalRows([]);
         setRecentMovementsError(err instanceof Error ? err.message : "Error");
       })
       .finally(() => {
         if (!cancelled) setRecentMovementsLoading(false);
-      });
-
-    setLatestEntriesLoading(true);
-    setLatestEntriesError(null);
-    fetchInventoryLatestEntries(token, {
-      source: "all",
-      limit: 48,
-    })
-      .then((rows) => {
-        if (cancelled) return;
-        setLatestEntries(rows);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setLatestEntries([]);
-          setLatestEntriesError(err instanceof Error ? err.message : "Error");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLatestEntriesLoading(false);
       });
 
     setStockTrendLoading(true);
@@ -718,6 +715,48 @@ export default function MovementsPage() {
       cancelled = true;
     };
   }, [token, activeTab, refreshNonce]);
+
+  useEffect(() => {
+    if (!token || activeTab !== "summary") return;
+    let cancelled = false;
+    const cache = latestEntriesCacheRef.current;
+    if (cache.refreshNonce !== refreshNonce) {
+      cache.refreshNonce = refreshNonce;
+      cache.rows = {};
+    }
+
+    const cachedRows = cache.rows[latestEntriesFilter];
+    if (cachedRows) {
+      setLatestEntries(cachedRows);
+      setLatestEntriesError(null);
+      setLatestEntriesLoading(false);
+      return;
+    }
+
+    setLatestEntriesLoading(true);
+    setLatestEntriesError(null);
+    fetchInventoryLatestEntries(token, {
+      source: latestEntriesFilter,
+      limit: 8,
+    })
+      .then((rows) => {
+        if (cancelled) return;
+        latestEntriesCacheRef.current.rows[latestEntriesFilter] = rows;
+        setLatestEntries(rows);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLatestEntries([]);
+        setLatestEntriesError(err instanceof Error ? err.message : "Error");
+      })
+      .finally(() => {
+        if (!cancelled) setLatestEntriesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, activeTab, latestEntriesFilter, refreshNonce]);
 
   useEffect(() => {
     if (!token) return;
@@ -1960,7 +1999,16 @@ export default function MovementsPage() {
 
           <div className="grid min-w-0 gap-3.5 lg:grid-cols-2">
             <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900">Movimientos recientes</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-slate-900">Movimientos recientes</h2>
+                <button
+                  type="button"
+                  onClick={() => setMovementsModalOpen(true)}
+                  className="cursor-pointer text-xs font-medium text-emerald-700 underline-offset-2 hover:text-emerald-800 hover:underline"
+                >
+                  Ver movimientos
+                </button>
+              </div>
               <div className="mt-3 space-y-2">
                 {overviewLoading ? (
                   <div className="space-y-2">
@@ -2075,7 +2123,11 @@ export default function MovementsPage() {
                 ) : latestEntriesError ? (
                   <p className="text-sm text-rose-600">{latestEntriesError}</p>
                 ) : latestEntriesVisible.length === 0 ? (
-                  <p className="text-sm text-slate-500">No hay entradas recientes.</p>
+                  <p className="text-sm text-slate-500">
+                    {latestEntriesFilter === "all"
+                      ? "No hay entradas de stock registradas."
+                      : "No hay entradas registradas para esta fuente."}
+                  </p>
                 ) : (
                   latestEntriesVisible.map((row) => (
                     <div
@@ -3637,6 +3689,92 @@ export default function MovementsPage() {
         </section>
       ) : null}
 
+      {movementsModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setMovementsModalOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="movements-history-title"
+            className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 id="movements-history-title" className="text-base font-semibold text-slate-900">
+                  Últimos 100 movimientos
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Historial reciente de ventas, entradas, ajustes, recuentos, pérdidas y transferencias.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMovementsModalOpen(false)}
+                className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto">
+              {recentMovementsLoading ? (
+                <div className="px-5 py-10 text-center text-sm text-slate-500">Cargando movimientos...</div>
+              ) : recentMovementsError ? (
+                <div className="px-5 py-10 text-center text-sm text-rose-600">{recentMovementsError}</div>
+              ) : movementsModalRows.length === 0 ? (
+                <div className="px-5 py-10 text-center text-sm text-slate-500">No hay movimientos registrados.</div>
+              ) : (
+                <table className="w-full min-w-[900px] border-collapse text-left">
+                  <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-[0.08em] text-slate-600 shadow-[0_1px_0_#e2e8f0]">
+                    <tr>
+                      <th className="px-4 py-2.5 font-semibold">Fecha</th>
+                      <th className="px-4 py-2.5 font-semibold">Producto</th>
+                      <th className="px-4 py-2.5 font-semibold">SKU</th>
+                      <th className="px-4 py-2.5 font-semibold">Tipo</th>
+                      <th className="px-4 py-2.5 text-right font-semibold">Cantidad</th>
+                      <th className="px-4 py-2.5 font-semibold">Detalle</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-xs text-slate-700">
+                    {movementsModalRows.map((row) => (
+                      <tr key={row.id} className="hover:bg-slate-50/80">
+                        <td className="whitespace-nowrap px-4 py-2.5 text-slate-500">{formatDate(row.created_at)}</td>
+                        <td className="max-w-[320px] px-4 py-2.5 font-medium text-slate-900">
+                          <span className="block truncate" title={row.product_name}>{row.product_name}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-2.5">{row.sku || "-"}</td>
+                        <td className="whitespace-nowrap px-4 py-2.5">
+                          {reasonLabel[row.reason as InventoryMovementReason] ?? row.reason}
+                        </td>
+                        <td
+                          className={`whitespace-nowrap px-4 py-2.5 text-right font-semibold tabular-nums ${
+                            row.qty_delta < 0 ? "text-rose-700" : "text-emerald-700"
+                          }`}
+                        >
+                          {row.qty_delta > 0 ? "+" : ""}{formatQty(row.qty_delta)}
+                        </td>
+                        <td className="max-w-[300px] px-4 py-2.5 text-slate-500">
+                          <span className="block truncate" title={movementDetailLabel(row)}>
+                            {movementDetailLabel(row)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="border-t border-slate-200 bg-slate-50 px-5 py-2 text-right text-[11px] text-slate-500">
+              {movementsModalRows.length} movimientos mostrados
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {recountPrintModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
@@ -4292,6 +4430,21 @@ function resolveEntrySourceLabel(movement: InventoryLatestEntryRecord) {
   }
   if (movement.reason === "purchase") return "Recepción app";
   return "Entrada";
+}
+
+function movementDetailLabel(movement: InventoryMovementRecord) {
+  const details: string[] = [];
+  if (movement.sale_pos_name) details.push(`POS: ${movement.sale_pos_name}`);
+  if (movement.sale_seller_name) details.push(`Vendedor: ${movement.sale_seller_name}`);
+  if (movement.notes?.trim()) details.push(movement.notes.trim());
+  if (details.length === 0 && movement.reference_type) {
+    details.push(
+      movement.reference_id != null
+        ? `${movement.reference_type} #${movement.reference_id}`
+        : movement.reference_type
+    );
+  }
+  return details.join(" · ") || "-";
 }
 
 function mapHistoryReferenceToDocumentsType(referenceType?: string | null) {
