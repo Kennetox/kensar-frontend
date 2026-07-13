@@ -3728,13 +3728,14 @@ export default function MovementsPage() {
               ) : movementsModalRows.length === 0 ? (
                 <div className="px-5 py-10 text-center text-sm text-slate-500">No hay movimientos registrados.</div>
               ) : (
-                <table className="w-full min-w-[900px] border-collapse text-left">
+                <table className="w-full min-w-[1020px] border-collapse text-left">
                   <thead className="sticky top-0 z-10 bg-slate-50 text-[11px] uppercase tracking-[0.08em] text-slate-600 shadow-[0_1px_0_#e2e8f0]">
                     <tr>
                       <th className="px-4 py-2.5 font-semibold">Fecha</th>
                       <th className="px-4 py-2.5 font-semibold">Producto</th>
                       <th className="px-4 py-2.5 font-semibold">SKU</th>
                       <th className="px-4 py-2.5 font-semibold">Tipo</th>
+                      <th className="px-4 py-2.5 font-semibold">Documento</th>
                       <th className="px-4 py-2.5 text-right font-semibold">Cantidad</th>
                       <th className="px-4 py-2.5 font-semibold">Detalle</th>
                     </tr>
@@ -3749,6 +3750,9 @@ export default function MovementsPage() {
                         <td className="whitespace-nowrap px-4 py-2.5">{row.sku || "-"}</td>
                         <td className="whitespace-nowrap px-4 py-2.5">
                           {reasonLabel[row.reason as InventoryMovementReason] ?? row.reason}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-2.5 font-medium text-slate-700">
+                          {row.reference_label || "-"}
                         </td>
                         <td
                           className={`whitespace-nowrap px-4 py-2.5 text-right font-semibold tabular-nums ${

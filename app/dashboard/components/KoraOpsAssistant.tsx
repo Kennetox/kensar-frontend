@@ -1101,6 +1101,7 @@ function buildFallbackSuggestions(input: string, moduleKey?: KoraModuleKey | nul
 }
 
 export default function KoraOpsAssistant({ enabled, userName, token, userRole, initialOpen }: KoraOpsAssistantProps) {
+  const SHOW_RESTOCK_DEBUG = true; // Temporal: quitar cuando afinemos el reporte.
   const router = useRouter();
   const pathname = usePathname();
   const welcomeMessage = buildWelcomeMessage(userName);
@@ -4576,6 +4577,16 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
 
   if (!enabled) return null;
 
+  const RESTOCK_DEBUG_TARGET_SKU = "907";
+  const restockDebugItems = SHOW_RESTOCK_DEBUG && restockReport
+    ? (() => {
+        const targetItem = restockReport.items.find((item) => item.sku === RESTOCK_DEBUG_TARGET_SKU) ?? null;
+        const remainingItems = restockReport.items.filter((item) => item.sku !== RESTOCK_DEBUG_TARGET_SKU);
+        const previewItems = remainingItems.slice(0, targetItem ? 4 : 5);
+        return targetItem ? [targetItem, ...previewItems] : previewItems;
+      })()
+    : [];
+
   return (
     <div ref={rootRef} className="fixed right-5 bottom-5 z-[140] md:right-6 md:bottom-6">
       {KORA_SESSION_NUDGE_ENABLED && showSessionNudge && !open ? (
@@ -4788,6 +4799,69 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                         </div>
                       </div>
                     </div>
+
+                    {SHOW_RESTOCK_DEBUG ? (
+                      <section className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                              Diagnóstico temporal
+                            </div>
+                            <p className="text-sm text-slate-600">
+                              Revisa aquí los campos que KORA está usando para justificar cada fila.
+                            </p>
+                          </div>
+                          <div className="text-xs font-medium text-amber-700">
+                            {restockReport.items.length} filas
+                          </div>
+                        </div>
+                        <div className="mt-3 overflow-auto rounded-xl border border-amber-200 bg-white">
+                          <table className="min-w-full border-collapse text-xs">
+                            <thead className="bg-amber-100 text-left uppercase tracking-wide text-amber-900">
+                              <tr>
+                                <th className="px-3 py-2">SKU</th>
+                                <th className="px-3 py-2 text-right">Stock</th>
+                                <th className="px-3 py-2 text-right">Hoy</th>
+                                <th className="px-3 py-2 text-right">30d</th>
+                                <th className="px-3 py-2 text-right">Rate</th>
+                                <th className="px-3 py-2">Cobertura</th>
+                                <th className="px-3 py-2 text-right">Umbral</th>
+                                <th className="px-3 py-2">Fuente</th>
+                                <th className="px-3 py-2">Urgencia</th>
+                                <th className="px-3 py-2">Motivo</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {restockDebugItems.map((item) => {
+                                const isTarget = item.sku === RESTOCK_DEBUG_TARGET_SKU;
+                                return (
+                                <tr
+                                  key={`debug-${item.product_id}`}
+                                  className={["border-t border-amber-100 align-top", isTarget ? "bg-amber-100/70" : ""].join(" ")}
+                                >
+                                  <td className="px-3 py-2 font-medium text-slate-800">
+                                    {item.sku || "—"}
+                                    {isTarget ? " · objetivo" : ""}
+                                  </td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.round(item.qty_on_hand).toFixed(0)}</td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.max(0, item.units_lookback).toFixed(0)}</td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{item.daily_rate.toFixed(2)}</td>
+                                  <td className="px-3 py-2 text-slate-700">{formatCoverageDays(item.coverage_days)}</td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{item.effective_threshold.toFixed(0)}</td>
+                                  <td className="px-3 py-2 text-slate-700">{item.threshold_source}</td>
+                                  <td className="px-3 py-2 font-semibold text-slate-700">
+                                    {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
+                                  </td>
+                                  <td className="px-3 py-2 text-slate-600">{item.reason}</td>
+                                </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </section>
+                    ) : null}
 
                     <div className="space-y-4 overflow-auto pr-1">
                       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_24px_-18px_rgba(2,6,23,0.16)]">

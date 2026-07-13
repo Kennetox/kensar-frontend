@@ -46,6 +46,7 @@ export type InventoryMovementRecord = {
   created_by_user_id?: number | null;
   sale_pos_name?: string | null;
   sale_seller_name?: string | null;
+  reference_label?: string | null;
 };
 
 export type InventoryStockTrendPoint = {
