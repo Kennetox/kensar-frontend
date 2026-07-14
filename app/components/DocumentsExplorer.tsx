@@ -36,8 +36,10 @@ import {
   type ComercioWebOrder,
 } from "@/lib/api/comercioWeb";
 import {
+  fetchManualMovementDocumentDetail,
   getInventoryRecountDetail,
   type InventoryRecountDetail,
+  type ManualMovementDocumentDetail,
 } from "@/lib/api/inventory";
 import {
   buildBogotaDateFromKey,
@@ -1075,18 +1077,9 @@ export default function DocumentsExplorer({
       }
 
       if (isManualMovement) {
-        const res = await fetch(
-          `${apiBase}/manual-movements/documents/${referenceId}`,
-          {
-            headers: authHeaders,
-            credentials: "include",
-          }
-        );
-        if (res.status === 401) handle401();
-        if (!res.ok) {
-          throw new Error(`No se pudo cargar el movimiento manual (${res.status}).`);
-        }
-        const doc = (await res.json()) as ManualMovementDocumentRecord;
+        if (!token) throw new Error("Sin sesión activa");
+        const detail = await fetchManualMovementDocumentDetail(token, referenceId);
+        const doc = detail.document;
         const manualMovementKindLabel: Record<
           ManualMovementDocumentRecord["kind"],
           string
@@ -1116,6 +1109,7 @@ export default function DocumentsExplorer({
             closureId: null,
             data: doc,
           },
+          manualMovementDetail: detail,
         } as const;
       }
 
@@ -1197,12 +1191,15 @@ export default function DocumentsExplorer({
     useState<ReceivingLotDetailRecord | null>(null);
   const [selectedRecountDetail, setSelectedRecountDetail] =
     useState<InventoryRecountDetail | null>(null);
+  const [selectedManualMovementDetail, setSelectedManualMovementDetail] =
+    useState<ManualMovementDocumentDetail | null>(null);
   const [loadingReceivingDetail, setLoadingReceivingDetail] = useState(false);
   const [loadingRecountDetail, setLoadingRecountDetail] = useState(false);
   const [receivingDetailError, setReceivingDetailError] = useState<string | null>(
     null
   );
   const [recountDetailError, setRecountDetailError] = useState<string | null>(null);
+  const [manualMovementDetailError, setManualMovementDetailError] = useState<string | null>(null);
 
   const [filterType, setFilterType] = useState("all");
   const [filterFrom, setFilterFrom] = useState(today);
@@ -1269,6 +1266,10 @@ export default function DocumentsExplorer({
       if (doc.type === "abono" || doc.id.startsWith("legacy-")) {
         return;
       }
+      if (doc.type === "movimiento_manual") {
+        setSelectedManualMovementDetail(null);
+        setManualMovementDetailError(null);
+      }
       setLoading(true);
       try {
         if (doc.type === "venta") {
@@ -1291,6 +1292,9 @@ export default function DocumentsExplorer({
         if (doc.type === "movimiento_manual") {
           const result = await fetchDocumentFromHistoryReference("ajuste", doc.recordId);
           setSelectedDoc(result.doc as DocumentRow);
+          if ("manualMovementDetail" in result) {
+            setSelectedManualMovementDetail(result.manualMovementDetail ?? null);
+          }
           return;
         }
         const apiBase = getApiBase();
@@ -1314,7 +1318,11 @@ export default function DocumentsExplorer({
           current?.id === doc.id ? { ...current, data, isSummary: false } : current
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "No se pudo cargar el detalle.");
+        const message = err instanceof Error ? err.message : "No se pudo cargar el detalle.";
+        if (doc.type === "movimiento_manual") {
+          setManualMovementDetailError(message);
+        }
+        setError(message);
       } finally {
         setLoading(false);
       }
@@ -3068,6 +3076,21 @@ const selectedDetails = selectedDoc?.data;
     (selectedDoc?.type === "recepcion"
       ? (selectedDetails as ReceivingDocumentRecord | null)?.notes?.trim()
       : "");
+  const selectedManualMovementDocument =
+    selectedManualMovementDetail?.document ??
+    (selectedDoc?.type === "movimiento_manual"
+      ? (selectedDetails as ManualMovementDocumentRecord | null)
+      : null);
+  const selectedManualMovementDirection =
+    selectedManualMovementDocument?.kind === "ajuste"
+      ? String(selectedManualMovementDocument.header?.adjust_direction ?? "in").toLowerCase() === "out"
+        ? "Salida"
+        : "Entrada"
+      : selectedManualMovementDocument?.kind === "salida_manual" ||
+        selectedManualMovementDocument?.kind === "venta_manual" ||
+        selectedManualMovementDocument?.kind === "perdida_dano"
+      ? "Salida"
+      : null;
   const selectedSupportFileUrl =
     selectedReceivingLotId && hasSelectedSupportFile
       ? `${getApiBase()}/receiving/lots/${selectedReceivingLotId}/support-file`
@@ -5355,6 +5378,131 @@ useEffect(() => {
                   ) : (
                     <div className="text-xs text-slate-500">
                       Este documento no tiene líneas registradas.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedDoc.type === "movimiento_manual" && (
+                <div className="space-y-3">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Detalle del movimiento de stock
+                  </div>
+                  {manualMovementDetailError ? (
+                    <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {manualMovementDetailError}
+                    </div>
+                  ) : selectedManualMovementDetail ? (
+                    <>
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        {[
+                          {
+                            label: "Líneas",
+                            value: formatQty(selectedManualMovementDetail.document.lines_count),
+                          },
+                          {
+                            label: "Unidades",
+                            value: formatQty(selectedManualMovementDetail.document.units_total),
+                          },
+                          {
+                            label: "Dirección",
+                            value: selectedManualMovementDirection ?? "Informativa",
+                          },
+                          {
+                            label: "Origen",
+                            value: selectedManualMovementDetail.document.origin_name || "Metrik web",
+                          },
+                        ].map((card) => (
+                          <div
+                            key={card.label}
+                            className="rounded-2xl border border-slate-800/60 bg-slate-950/30 p-3"
+                          >
+                            <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                              {card.label}
+                            </div>
+                            <div className="mt-1 text-base font-semibold text-slate-100">
+                              {card.value}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {selectedManualMovementDetail.document.notes ? (
+                        <div className="rounded-xl border border-slate-800/60 bg-slate-950/30 p-3 text-xs text-slate-200">
+                          <span className="text-slate-400">Observación:</span>{" "}
+                          {selectedManualMovementDetail.document.notes}
+                        </div>
+                      ) : null}
+
+                      {selectedManualMovementDetail.lines.length > 0 ? (
+                        <div className="overflow-hidden rounded-2xl border border-slate-800/60">
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full text-left text-[12px]">
+                              <thead className="bg-slate-950 text-[11px] uppercase tracking-wide text-slate-400">
+                                <tr>
+                                  <th className="px-3 py-2 font-normal">Producto</th>
+                                  <th className="px-3 py-2 font-normal">SKU</th>
+                                  <th className="px-3 py-2 font-normal">Código barras</th>
+                                  <th className="px-3 py-2 font-normal text-right">Cantidad</th>
+                                  <th className="px-3 py-2 font-normal text-right">Costo</th>
+                                  <th className="px-3 py-2 font-normal text-right">Precio</th>
+                                  <th className="px-3 py-2 font-normal">Notas</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedManualMovementDetail.lines.map((line) => {
+                                  const isOut = selectedManualMovementDirection === "Salida";
+                                  const signedQty = isOut ? -Math.abs(line.qty) : Math.abs(line.qty);
+                                  return (
+                                    <tr
+                                      key={line.id}
+                                      className="border-t border-slate-800/40 text-slate-100"
+                                    >
+                                      <td className="px-3 py-2 font-medium">
+                                        {line.product_name_snapshot}
+                                      </td>
+                                      <td className="px-3 py-2 font-mono text-slate-300">
+                                        {line.sku_snapshot || "—"}
+                                      </td>
+                                      <td className="px-3 py-2 font-mono text-slate-300">
+                                        {line.barcode_snapshot || "—"}
+                                      </td>
+                                      <td
+                                        className={`px-3 py-2 text-right font-mono font-semibold ${
+                                          signedQty < 0 ? "text-rose-300" : "text-emerald-300"
+                                        }`}
+                                      >
+                                        {signedQty > 0 ? "+" : ""}{formatQty(signedQty)}
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-slate-200">
+                                        {line.unit_cost_snapshot == null
+                                          ? "—"
+                                          : `$ ${formatMoney(line.unit_cost_snapshot)}`}
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-slate-200">
+                                        {line.unit_price_snapshot == null
+                                          ? "—"
+                                          : `$ ${formatMoney(line.unit_price_snapshot)}`}
+                                      </td>
+                                      <td className="px-3 py-2 text-slate-300">
+                                        {line.notes || "—"}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-500">
+                          Este documento no tiene productos registrados.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-xs text-slate-500">
+                      Cargando líneas del movimiento…
                     </div>
                   )}
                 </div>
