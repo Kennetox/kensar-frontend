@@ -33,7 +33,6 @@ import {
   type SeparatedOrderPayment,
 } from "@/lib/api/separatedOrders";
 import {
-  fetchComercioWebOrders,
   type ComercioWebOrder,
 } from "@/lib/api/comercioWeb";
 import {
@@ -47,10 +46,12 @@ import {
   parseDateInput,
 } from "@/lib/time/bogota";
 import LoadingSpinner from "./ui/LoadingSpinner";
+import {
+  searchDocuments,
+  type DocumentSearchItem,
+} from "@/lib/api/documents";
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
-const DOCUMENTS_CACHE_PREFIX = "kensar_documents_cache:v3:";
-const DOCUMENTS_CACHE_TTL_MS = 2 * 60 * 1000;
 const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
 
 function sanitizeSaleNotesForDisplay(notes?: string | null): string {
@@ -414,6 +415,8 @@ type DocumentRow = {
   status?: string;
   paymentStatus?: string;
   closureId?: number | null;
+  isSummary?: boolean;
+  sourceSystem?: string;
   data:
     | SaleRecord
     | ComercioWebOrder
@@ -425,6 +428,70 @@ type DocumentRow = {
     | ManualMovementDocumentRecord
     | InventoryRecountDocumentRecord;
 };
+
+function mapSearchItemToDocument(item: DocumentSearchItem): DocumentRow {
+  const common = {
+    id: item.record_id,
+    created_at: item.occurred_at,
+    document_number: item.document_number,
+    status: item.status ?? undefined,
+  };
+  let data: DocumentRow["data"];
+  if (item.type === "venta") {
+    data = {
+      ...common,
+      total: item.total,
+      payment_method: item.payment_method ?? undefined,
+      customer_name: item.customer,
+      pos_name: item.pos,
+      vendor_name: item.vendor,
+      closure_id: item.closure_id,
+      is_separated: item.is_separated,
+      items: [],
+      payments: [],
+    } as SaleRecord;
+  } else if (item.type === "abono") {
+    data = {
+      id: item.record_id,
+      order_id: item.record_id,
+      sale_id: item.sale_id ?? 0,
+      sale_document_number: item.reference,
+      customer_name: item.customer,
+      method: item.payment_method ?? "",
+      amount: item.total,
+      paid_at: item.occurred_at,
+      status: item.status,
+      closure_id: item.closure_id,
+      stage: item.payment_stage ?? undefined,
+    } as AbonoRecord;
+  } else {
+    data = common as unknown as DocumentRow["data"];
+  }
+  return {
+    id: item.id,
+    type: item.type,
+    recordId: item.record_id,
+    saleId: item.sale_id ?? undefined,
+    createdAt: item.occurred_at,
+    documentNumber: item.document_number,
+    reference: item.reference,
+    detail: item.detail,
+    total: item.total,
+    paymentMethod: item.payment_method ?? undefined,
+    paymentStage: item.payment_stage ?? undefined,
+    isSeparated: item.is_separated,
+    customer: item.customer ?? undefined,
+    pos: item.pos ?? undefined,
+    vendor: item.vendor ?? undefined,
+    status: item.status ?? undefined,
+    paymentStatus: item.payment_status ?? undefined,
+    closureId: item.closure_id ?? undefined,
+    isSummary: true,
+    sourceSystem: item.source_system,
+    isAnnulation: item.status === "voided",
+    data,
+  };
+}
 
 type SummaryCard = {
   label: string;
@@ -453,20 +520,6 @@ type LocalAdjustmentPatch = {
   paymentDelta: number;
   payload: Record<string, unknown>;
   reason: string;
-};
-
-type DocumentsCachePayload = {
-  savedAt: number;
-  sales: SaleRecord[];
-  webOrders: ComercioWebOrder[];
-  returns: ReturnRecord[];
-  changes: ChangeRecord[];
-  closures: ClosureRecord[];
-  receivingDocs: ReceivingDocumentRecord[];
-  manualMovementDocs: ManualMovementDocumentRecord[];
-  recountDocs: InventoryRecountDocumentRecord[];
-  separatedOrders: SeparatedOrder[];
-  saleAdjustmentsById: Record<number, DocumentAdjustmentRecord[]>;
 };
 
 function formatMoney(value: number | string | undefined | null): string {
@@ -1120,15 +1173,18 @@ export default function DocumentsExplorer({
     [roleModules, user?.role]
   );
   const today = getBogotaDateKey();
-  const [sales, setSales] = useState<SaleRecord[]>([]);
-  const [webOrders, setWebOrders] = useState<ComercioWebOrder[]>([]);
-  const [returns, setReturns] = useState<ReturnRecord[]>([]);
-  const [changes, setChanges] = useState<ChangeRecord[]>([]);
-  const [closures, setClosures] = useState<ClosureRecord[]>([]);
-  const [receivingDocs, setReceivingDocs] = useState<ReceivingDocumentRecord[]>([]);
-  const [manualMovementDocs, setManualMovementDocs] = useState<ManualMovementDocumentRecord[]>([]);
-  const [recountDocs, setRecountDocs] = useState<InventoryRecountDocumentRecord[]>([]);
-  const [separatedOrders, setSeparatedOrders] = useState<SeparatedOrder[]>([]);
+  const [sales] = useState<SaleRecord[]>([]);
+  const [webOrders] = useState<ComercioWebOrder[]>([]);
+  const [returns] = useState<ReturnRecord[]>([]);
+  const [changes] = useState<ChangeRecord[]>([]);
+  const [closures] = useState<ClosureRecord[]>([]);
+  const [receivingDocs] = useState<ReceivingDocumentRecord[]>([]);
+  const [manualMovementDocs] = useState<ManualMovementDocumentRecord[]>([]);
+  const [recountDocs] = useState<InventoryRecountDocumentRecord[]>([]);
+  const [separatedOrders] = useState<SeparatedOrder[]>([]);
+  const [searchRows, setSearchRows] = useState<DocumentRow[] | null>(null);
+  const [searchSkip, setSearchSkip] = useState(0);
+  const [searchHasMore, setSearchHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1172,9 +1228,7 @@ export default function DocumentsExplorer({
     referenceId: number;
   } | null>(null);
   const [suppressBulkLoad, setSuppressBulkLoad] = useState(false);
-  const [persistedSelectedId, setPersistedSelectedId] = useState<string | null>(
-    null
-  );
+  const [, setPersistedSelectedId] = useState<string | null>(null);
   const [voidTarget, setVoidTarget] = useState<DocumentRow | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
@@ -1205,6 +1259,68 @@ export default function DocumentsExplorer({
   const documentRowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
   const fastOpenInProgressRef = useRef(false);
   const fastOpenHandledRef = useRef(false);
+
+  const openDocumentDetail = useCallback(
+    async (doc: DocumentRow) => {
+      setSelectedDoc(doc);
+      setDocumentDetailOpen(true);
+      setDetailExpanded(true);
+      if (searchRows === null || !authHeaders) return;
+      if (doc.type === "abono" || doc.id.startsWith("legacy-")) {
+        return;
+      }
+      setLoading(true);
+      try {
+        if (doc.type === "venta") {
+          const result = await fetchDocumentFromHistoryReference("sale", doc.recordId);
+          setSelectedDoc(result.doc as DocumentRow);
+          return;
+        }
+        if (doc.type === "recepcion") {
+          const result = await fetchDocumentFromHistoryReference("receiving_lot", doc.recordId);
+          setSelectedDoc(result.doc as DocumentRow);
+          if ("receivingDetail" in result) setSelectedReceivingDetail(result.receivingDetail ?? null);
+          return;
+        }
+        if (doc.type === "recuento") {
+          const result = await fetchDocumentFromHistoryReference("recount", doc.recordId);
+          setSelectedDoc(result.doc as DocumentRow);
+          if ("recountDetail" in result) setSelectedRecountDetail(result.recountDetail ?? null);
+          return;
+        }
+        if (doc.type === "movimiento_manual") {
+          const result = await fetchDocumentFromHistoryReference("ajuste", doc.recordId);
+          setSelectedDoc(result.doc as DocumentRow);
+          return;
+        }
+        const apiBase = getApiBase();
+        const path = doc.type === "orden_web"
+          ? `/comercio-web/orders/${doc.recordId}`
+          : doc.type === "devolucion"
+          ? `/pos/returns/${doc.recordId}`
+          : doc.type === "cambio"
+          ? `/pos/changes/${doc.recordId}`
+          : doc.type === "cierre"
+          ? `/pos/closures/${doc.recordId}`
+          : null;
+        if (!path) return;
+        const res = await fetch(`${apiBase}${path}`, {
+          headers: authHeaders,
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error(`No se pudo cargar el detalle (${res.status}).`);
+        const data = await res.json();
+        setSelectedDoc((current) =>
+          current?.id === doc.id ? { ...current, data, isSummary: false } : current
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "No se pudo cargar el detalle.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [authHeaders, fetchDocumentFromHistoryReference, searchRows]
+  );
 
   const applyLocalAdjustmentPatch = useCallback(
     (patch: LocalAdjustmentPatch) => {
@@ -1260,12 +1376,10 @@ export default function DocumentsExplorer({
           total: nextSaleTotals.netTotal,
           data: updatedSale,
         };
-        setSales((prev) =>
-          prev.map((sale) =>
-            sale.id === updatedSale.id
-              ? updatedSale
-              : sale
-          )
+        setSearchRows((prev) =>
+          prev?.map((doc) =>
+            doc.id === adjustTarget.id ? nextSelectedDoc : doc
+          ) ?? prev
         );
         setSelectedDoc((prev) => {
           if (prev?.id !== adjustTarget.id) return prev;
@@ -1347,6 +1461,7 @@ export default function DocumentsExplorer({
   };
 
   const clearAllFilters = useCallback(() => {
+    setSearchSkip(0);
     setFilterType("all");
     setFilterFrom(today);
     setFilterTo(today);
@@ -1371,6 +1486,7 @@ export default function DocumentsExplorer({
   }, [today]);
 
   const applyFiltersAndSearch = useCallback(() => {
+    setSearchSkip(0);
     setAppliedFilterType(filterType);
     setAppliedFilterFrom(filterFrom);
     setAppliedFilterTo(filterTo);
@@ -1428,411 +1544,48 @@ export default function DocumentsExplorer({
       }
       setError(null);
       if (!authHeaders || !token) throw new Error("Sin sesión activa");
-      const apiBase = getApiBase();
-      const PAGE_SIZE = 200;
-      const force = options?.force === true;
-      const fromKey = appliedFilterFrom || "";
-      const toKey = appliedFilterTo || "";
-      const cacheKey = `${DOCUMENTS_CACHE_PREFIX}${appliedFilterType}:${fromKey}:${toKey}`;
-      const buildRangeParams = () => {
-        const params = new URLSearchParams();
-        if (fromKey) {
-          const start = buildBogotaDateFromKey(fromKey);
-          params.set("date_from", start.toISOString());
-          params.set("paid_from", start.toISOString());
-        }
-        if (toKey) {
-          const endExclusive = buildBogotaDateFromKey(toKey);
-          endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
-          params.set("date_to", endExclusive.toISOString());
-          params.set("paid_to", endExclusive.toISOString());
-        }
-        return params;
-      };
-      // Avoid loading full sales datasets for views that can be rendered
-      // directly from their own sources (web orders / separated payments).
-      const needsSales =
-        appliedFilterType === "all" ||
-        appliedFilterType === "venta" ||
-        appliedFilterType === "anulacion" ||
-        appliedFilterType === "abono";
-      const needsWebOrders =
-        appliedFilterType === "all" || appliedFilterType === "orden_web";
-      const needsReturns =
-        appliedFilterType === "all" ||
-        appliedFilterType === "devolucion" ||
-        appliedFilterType === "anulacion";
-      const needsChanges = appliedFilterType === "all" || appliedFilterType === "cambio";
-      const needsClosures = appliedFilterType === "all" || appliedFilterType === "cierre";
-      const needsSeparatedOrders =
-        appliedFilterType === "all" || appliedFilterType === "abono";
-      const needsReceiving =
-        appliedFilterType === "all" || appliedFilterType === "recepcion";
-      const needsManualMovements =
-        appliedFilterType === "all" ||
-        appliedFilterType === "movimiento_manual" ||
-        appliedFilterType === "mov_salida_manual" ||
-        appliedFilterType === "mov_venta_manual" ||
-        appliedFilterType === "mov_ajuste" ||
-        appliedFilterType === "mov_perdida_dano";
-      const needsRecounts =
-        appliedFilterType === "all" || appliedFilterType === "recuento";
-
-      const applyLoadedState = (payload: DocumentsCachePayload) => {
-        setSales(payload.sales);
-        setWebOrders(payload.webOrders ?? []);
-        setReturns(payload.returns);
-        setChanges(payload.changes);
-        setClosures(payload.closures);
-        setReceivingDocs(payload.receivingDocs);
-        setManualMovementDocs(payload.manualMovementDocs);
-        setRecountDocs(payload.recountDocs);
-        setSeparatedOrders(payload.separatedOrders);
-        setSaleAdjustmentsById(payload.saleAdjustmentsById);
-        const docsList = mappedDocuments(
-          payload.sales,
-          payload.webOrders ?? [],
-          payload.returns,
-          payload.changes,
-          payload.closures,
-          payload.separatedOrders,
-          payload.receivingDocs,
-          payload.manualMovementDocs,
-          payload.recountDocs
-        );
-        setSelectedDoc((prev) => {
-          if (prev) {
-            const prevMatch = docsList.find((doc) => doc.id === prev.id);
-            if (prevMatch) return prevMatch;
-          }
-          if (persistedSelectedId) {
-            const savedMatch = docsList.find(
-              (doc) => doc.id === persistedSelectedId
-            );
-            if (savedMatch) {
-              setPersistedSelectedId(null);
-              return savedMatch;
-            }
-          }
-          return docsList[0] ?? null;
-        });
-      };
-
-      const canUseCache = !needsWebOrders;
-      if (!force && canUseCache && typeof window !== "undefined") {
-        try {
-          const cachedRaw = window.sessionStorage.getItem(cacheKey);
-          if (cachedRaw) {
-            const cached = JSON.parse(cachedRaw) as DocumentsCachePayload;
-            if (
-              cached.savedAt &&
-              Date.now() - cached.savedAt <= DOCUMENTS_CACHE_TTL_MS
-            ) {
-              applyLoadedState(cached);
-              return;
-            }
-          }
-        } catch (err) {
-          console.warn("No se pudo restaurar la caché de documentos", err);
-        }
+      const requestToken = token;
+      const unifiedFrom = appliedFilterFrom
+        ? buildBogotaDateFromKey(appliedFilterFrom).toISOString()
+        : undefined;
+      let unifiedTo: string | undefined;
+      if (appliedFilterTo) {
+        const endExclusive = buildBogotaDateFromKey(appliedFilterTo);
+        endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+        unifiedTo = endExclusive.toISOString();
       }
-
-      const fetchAllPages = async <T,>(
-        path: string,
-        extraParams?: URLSearchParams
-      ): Promise<T[]> => {
-        const rows: T[] = [];
-        let skip = 0;
-        for (;;) {
-          const params = new URLSearchParams(extraParams ?? undefined);
-          params.set("skip", String(skip));
-          params.set("limit", String(PAGE_SIZE));
-          const res = await fetch(`${apiBase}${path}?${params.toString()}`, {
-            headers: authHeaders,
-            credentials: "include",
-          });
-          if (res.status === 401) {
-            logout();
-            throw new Error(
-              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
-            );
-          }
-          if (!res.ok) {
-            throw new Error(`Error ${res.status}`);
-          }
-          const page: T[] = await res.json();
-          rows.push(...page);
-          if (page.length < PAGE_SIZE) break;
-          skip += page.length;
-        }
-        return rows;
-      };
-
-      const fetchAllSeparatedOrders = async (
-        rangeParams?: URLSearchParams
-      ): Promise<SeparatedOrder[]> => {
-        const rows: SeparatedOrder[] = [];
-        let skip = 0;
-        for (;;) {
-          const dateFrom = rangeParams?.get("date_from") ?? undefined;
-          const dateTo = rangeParams?.get("date_to") ?? undefined;
-          const paidFrom = rangeParams?.get("paid_from") ?? undefined;
-          const paidTo = rangeParams?.get("paid_to") ?? undefined;
-          const page = await fetchSeparatedOrders(
-            { skip, limit: PAGE_SIZE, dateFrom, dateTo, paidFrom, paidTo },
-            token
-          );
-          rows.push(...page);
-          if (page.length < PAGE_SIZE) break;
-          skip += page.length;
-        }
-        return rows;
-      };
-
-      const fetchAllReceivingDocuments = async (
-        rangeParams?: URLSearchParams
-      ): Promise<ReceivingDocumentRecord[]> => {
-        const rows: ReceivingDocumentRecord[] = [];
-        let skip = 0;
-        for (;;) {
-          const params = new URLSearchParams(rangeParams ?? undefined);
-          params.set("skip", String(skip));
-          params.set("limit", String(PAGE_SIZE));
-          const res = await fetch(
-            `${apiBase}/receiving/documents?${params.toString()}`,
-            {
-              headers: authHeaders,
-              credentials: "include",
-            }
-          );
-          if (res.status === 401) {
-            logout();
-            throw new Error(
-              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
-            );
-          }
-          if (!res.ok) {
-            throw new Error(`Error ${res.status}`);
-          }
-          const page = (await res.json()) as {
-            items: ReceivingDocumentRecord[];
-            total: number;
-            skip: number;
-            limit: number;
-          };
-          const items = page.items ?? [];
-          rows.push(...items);
-          if (items.length < PAGE_SIZE) break;
-          skip += items.length;
-        }
-        return rows;
-      };
-
-      const fetchAllManualMovementDocuments = async (
-        rangeParams?: URLSearchParams
-      ): Promise<ManualMovementDocumentRecord[]> => {
-        const rows: ManualMovementDocumentRecord[] = [];
-        let skip = 0;
-        for (;;) {
-          const params = new URLSearchParams(rangeParams ?? undefined);
-          params.set("status", "closed");
-          params.set("skip", String(skip));
-          params.set("limit", String(PAGE_SIZE));
-          const res = await fetch(
-            `${apiBase}/manual-movements/documents?${params.toString()}`,
-            {
-              headers: authHeaders,
-              credentials: "include",
-            }
-          );
-          if (res.status === 401) {
-            logout();
-            throw new Error(
-              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
-            );
-          }
-          if (!res.ok) {
-            throw new Error(`Error ${res.status}`);
-          }
-          const page = (await res.json()) as {
-            items: ManualMovementDocumentRecord[];
-            total: number;
-            skip: number;
-            limit: number;
-          };
-          const items = page.items ?? [];
-          rows.push(...items);
-          if (items.length < PAGE_SIZE) break;
-          skip += items.length;
-        }
-        return rows;
-      };
-
-      const fetchAllRecountsByStatus = async (
-        recountStatus: "closed" | "applied",
-        rangeParams?: URLSearchParams
-      ): Promise<InventoryRecountDocumentRecord[]> => {
-        const rows: InventoryRecountDocumentRecord[] = [];
-        let skip = 0;
-        const RECOUNTS_PAGE_SIZE = 100;
-        for (;;) {
-          const params = new URLSearchParams(rangeParams ?? undefined);
-          params.set("status", recountStatus);
-          params.set("skip", String(skip));
-          params.set("limit", String(RECOUNTS_PAGE_SIZE));
-          const res = await fetch(
-            `${apiBase}/inventory/recounts?${params.toString()}`,
-            {
-              headers: authHeaders,
-              credentials: "include",
-            }
-          );
-          if (res.status === 401) {
-            logout();
-            throw new Error(
-              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
-            );
-          }
-          if (!res.ok) {
-            throw new Error(`Error ${res.status}`);
-          }
-          const page = (await res.json()) as {
-            items: InventoryRecountDocumentRecord[];
-            total: number;
-            skip: number;
-            limit: number;
-          };
-          const items = page.items ?? [];
-          rows.push(...items);
-          if (items.length < RECOUNTS_PAGE_SIZE) break;
-          skip += items.length;
-        }
-        return rows;
-      };
-
-      const rangeParams = buildRangeParams();
-      const loadTasks: Array<() => Promise<void>> = [];
-      let salesData: SaleRecord[] = [];
-      let webOrdersData: ComercioWebOrder[] = [];
-      let returnsData: ReturnRecord[] = [];
-      let changesData: ChangeRecord[] = [];
-      let closuresData: ClosureRecord[] = [];
-      let separatedOrdersData: SeparatedOrder[] = [];
-      let receivingDocsData: ReceivingDocumentRecord[] = [];
-      let manualMovementDocsData: ManualMovementDocumentRecord[] = [];
-      let recountClosedData: InventoryRecountDocumentRecord[] = [];
-      let recountAppliedData: InventoryRecountDocumentRecord[] = [];
-
-      if (needsSales) {
-        loadTasks.push(async () => {
-          salesData = await fetchAllPages<SaleRecord>("/pos/sales", rangeParams);
-        });
-      }
-      if (needsWebOrders) {
-        loadTasks.push(async () => {
-          webOrdersData = await fetchComercioWebOrders(token, { limit: 200 });
-        });
-      }
-      if (needsReturns) {
-        loadTasks.push(async () => {
-          returnsData = await fetchAllPages<ReturnRecord>("/pos/returns", rangeParams);
-        });
-      }
-      if (needsChanges) {
-        loadTasks.push(async () => {
-          changesData = await fetchAllPages<ChangeRecord>("/pos/changes", rangeParams);
-        });
-      }
-      if (needsClosures) {
-        loadTasks.push(async () => {
-          closuresData = await fetchAllPages<ClosureRecord>("/pos/closures", rangeParams);
-        });
-      }
-      if (needsSeparatedOrders) {
-        loadTasks.push(async () => {
-          separatedOrdersData = await fetchAllSeparatedOrders(rangeParams);
-        });
-      }
-      if (needsReceiving) {
-        loadTasks.push(async () => {
-          receivingDocsData = await fetchAllReceivingDocuments(rangeParams);
-        });
-      }
-      if (needsManualMovements) {
-        loadTasks.push(async () => {
-          manualMovementDocsData = await fetchAllManualMovementDocuments(rangeParams);
-        });
-      }
-      if (needsRecounts) {
-        loadTasks.push(async () => {
-          recountClosedData = await fetchAllRecountsByStatus("closed", rangeParams);
-        });
-        loadTasks.push(async () => {
-          recountAppliedData = await fetchAllRecountsByStatus("applied", rangeParams);
-        });
-      }
-
-      // Reduce backend memory spikes by limiting concurrent heavy fetches.
-      const CONCURRENT_LOADS = 3;
-      for (let index = 0; index < loadTasks.length; index += CONCURRENT_LOADS) {
-        await Promise.all(loadTasks.slice(index, index + CONCURRENT_LOADS).map((task) => task()));
-      }
-      const adjustmentsBySaleId: Record<number, DocumentAdjustmentRecord[]> = {};
-      if (salesData.length > 0) {
-        const saleIds = salesData
-          .map((sale) => sale.id)
-          .filter((id): id is number => typeof id === "number" && id > 0);
-        if (saleIds.length > 0) {
-          const adjustmentsRes = await fetch(
-            `${apiBase}/pos/documents/adjustments?doc_type=sale&doc_ids=${saleIds.join(",")}`,
-            {
-              headers: authHeaders,
-              credentials: "include",
-            }
-          );
-          if (adjustmentsRes.status === 401) {
-            logout();
-            throw new Error(
-              "Tu sesión expiró o no tienes permisos. Vuelve a iniciar sesión."
-            );
-          }
-          if (adjustmentsRes.ok) {
-            const adjustmentsData =
-              (await adjustmentsRes.json()) as DocumentAdjustmentRecord[];
-            adjustmentsData.forEach((entry) => {
-              const current = adjustmentsBySaleId[entry.doc_id] ?? [];
-              current.push(entry);
-              adjustmentsBySaleId[entry.doc_id] = current;
-            });
-          }
-        }
-      }
-      const recountById = new Map<number, InventoryRecountDocumentRecord>();
-      [...recountClosedData, ...recountAppliedData].forEach((row) => {
-        recountById.set(row.id, row);
+      const paymentCatalogMatch = catalog.find(
+        (method) => method.name.toLocaleLowerCase("es") === appliedFilterPayment.toLocaleLowerCase("es")
+      );
+      const unifiedPaymentMethod = paymentCatalogMatch?.slug ??
+        (appliedFilterPayment.toLocaleLowerCase("es") === "separado"
+          ? "separated"
+          : appliedFilterPayment.toLocaleLowerCase("es") === "mixto" ||
+            appliedFilterPayment.toLocaleLowerCase("es") === "pago combinado"
+          ? "mixed"
+          : appliedFilterPayment);
+      const unifiedPage = await searchDocuments(requestToken, {
+        type: appliedFilterType,
+        dateFrom: unifiedFrom,
+        dateTo: unifiedTo,
+        term: appliedFilterTerm,
+        paymentMethod: unifiedPaymentMethod,
+        customer: appliedFilterCustomer,
+        pos: appliedFilterPos,
+        vendor: appliedFilterVendor,
+        skip: searchSkip,
+        limit: 50,
       });
-      const recountData = Array.from(recountById.values());
-      const payload: DocumentsCachePayload = {
-        savedAt: Date.now(),
-        sales: salesData,
-        webOrders: webOrdersData,
-        returns: returnsData,
-        changes: changesData,
-        closures: closuresData,
-        receivingDocs: receivingDocsData,
-        manualMovementDocs: manualMovementDocsData,
-        recountDocs: recountData,
-        separatedOrders: separatedOrdersData,
-        saleAdjustmentsById: adjustmentsBySaleId,
-      };
-      applyLoadedState(payload);
-      if (typeof window !== "undefined") {
-        try {
-          window.sessionStorage.setItem(cacheKey, JSON.stringify(payload));
-        } catch (err) {
-          console.warn("No se pudo guardar la caché de documentos", err);
+      const nextRows = unifiedPage.items.map(mapSearchItemToDocument);
+      setSearchRows(nextRows);
+      setSearchHasMore(unifiedPage.has_more);
+      setSelectedDoc((current) => {
+        if (current) {
+          const same = nextRows.find((row) => row.id === current.id);
+          if (same) return same;
         }
-      }
+        return nextRows[0] ?? null;
+      });
     } catch (err) {
       console.error(err);
       if (!options?.background) {
@@ -2218,6 +1971,7 @@ export default function DocumentsExplorer({
     appliedFilterType,
     routeFastOpenReference,
     documentsReloadToken,
+    searchSkip,
   ]);
 
   useEffect(() => {
@@ -2894,20 +2648,16 @@ export default function DocumentsExplorer({
     );
   }
 
-  const documents = useMemo(
-    () =>
-      mappedDocuments(
-        sales,
-        webOrders,
-        returns,
-        changes,
-        closures,
-        separatedOrders,
-        receivingDocs,
-        manualMovementDocs,
-        recountDocs
-      ),
-    [sales, webOrders, returns, changes, closures, separatedOrders, receivingDocs, manualMovementDocs, recountDocs]
+  const documents = searchRows ?? mappedDocuments(
+    sales,
+    webOrders,
+    returns,
+    changes,
+    closures,
+    separatedOrders,
+    receivingDocs,
+    manualMovementDocs,
+    recountDocs
   );
 
   const canAdjustDocuments = canDoDocumentAction("documents.sales.adjust");
@@ -2975,6 +2725,12 @@ export default function DocumentsExplorer({
     const customerSet = new Set<string>();
     const paymentSet = new Set<string>();
 
+    catalog.forEach((method) => {
+      if (method.name?.trim()) paymentSet.add(method.name.trim());
+    });
+    paymentSet.add("Separado");
+    paymentSet.add("Pago combinado");
+
     documents.forEach((doc) => {
       if (doc.pos?.trim()) posSet.add(doc.pos.trim());
       if (doc.vendor?.trim()) vendorSet.add(doc.vendor.trim());
@@ -3009,9 +2765,10 @@ export default function DocumentsExplorer({
       customers: sortOptions(customerSet),
       payments: sortOptions(paymentSet),
     };
-  }, [documents, mapPaymentMethod, saleAdjustmentsById]);
+  }, [catalog, documents, mapPaymentMethod, saleAdjustmentsById]);
 
   const filteredDocuments = useMemo(() => {
+    if (searchRows !== null) return documents;
     const fromKey = appliedFilterFrom || null;
     const toKey = appliedFilterTo || null;
     const term = appliedFilterTerm.trim().toLowerCase();
@@ -3098,6 +2855,7 @@ export default function DocumentsExplorer({
     });
   }, [
     documents,
+    searchRows,
     appliedFilterType,
     appliedFilterFrom,
     appliedFilterTo,
@@ -3474,6 +3232,7 @@ const selectedDetails = selectedDoc?.data;
   }, [authHeaders, filteredDocuments, mapPaymentMethod]);
 const selectedDocCanShowVoidButton =
   !!selectedDoc &&
+  !selectedDoc.isSummary &&
   canVoidDocuments &&
   selectedDoc.type !== "cierre" &&
   selectedDoc.type !== "orden_web" &&
@@ -3483,6 +3242,7 @@ const selectedDocCanShowVoidButton =
   !selectedDocIsVoided;
 const selectedDocCanVoid =
   !!selectedDoc &&
+  !selectedDoc.isSummary &&
   canVoidDocuments &&
   selectedDoc.type !== "cierre" &&
   selectedDoc.type !== "orden_web" &&
@@ -3498,6 +3258,7 @@ const selectedDocCreatedDate = selectedDoc
 const selectedDocIsToday = selectedDocCreatedDate === today;
 const canAdjustDoc =
   !!selectedDoc &&
+  !selectedDoc.isSummary &&
   canAdjustDocuments &&
   selectedDoc.type === "venta" &&
   !selectedDocIsVoided &&
@@ -4068,7 +3829,7 @@ useEffect(() => {
     totalAdjustmentsDelta,
   ]);
 
-  const canPrintSelectedTicket = !!selectedSaleDocument;
+  const canPrintSelectedTicket = !!selectedSaleDocument && !selectedDoc?.isSummary;
   const paymentMethodOptions = useMemo(() => {
     const options = catalog.map((method) => ({
       value: method.slug,
@@ -4323,9 +4084,9 @@ useEffect(() => {
   const selectedClosure =
     selectedDoc?.type === "cierre" ? (selectedDetails as ClosureRecord) : null;
   const canOpenVoidModal = selectedDocCanShowVoidButton && selectedDocCanVoid;
-  const canPrintSelectedChange = selectedDoc?.type === "cambio";
+  const canPrintSelectedChange = selectedDoc?.type === "cambio" && !selectedDoc.isSummary;
   const canPrintSelectedClosure =
-    selectedDoc?.type === "cierre" && !!selectedClosure;
+    selectedDoc?.type === "cierre" && !!selectedClosure && !selectedDoc.isSummary;
   const adjustButtonDisabled = !canAdjustDoc;
   const voidButtonDisabled = !canOpenVoidModal;
   const printTicketDisabled = !canPrintSelectedTicket;
@@ -4571,45 +4332,35 @@ useEffect(() => {
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-slate-400">POS</span>
-            <select
+            <input
+              type="text"
               value={filterPos}
               onChange={(e) => setFilterPos(e.target.value)}
+              placeholder="Nombre del POS"
+              list="documents-pos-options"
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
-            >
-              <option value="">Todos</option>
-              {filterOptions.pos.length === 0 ? (
-                <option value="" disabled>
-                  Sin datos
-                </option>
-              ) : (
-                filterOptions.pos.map((posName) => (
-                  <option key={posName} value={posName}>
-                    {posName}
-                  </option>
-                ))
-              )}
-            </select>
+            />
+            <datalist id="documents-pos-options">
+              {filterOptions.pos.map((posName) => (
+                <option key={posName} value={posName} />
+              ))}
+            </datalist>
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-slate-400">Vendedor</span>
-            <select
+            <input
+              type="text"
               value={filterVendor}
               onChange={(e) => setFilterVendor(e.target.value)}
+              placeholder="Nombre del vendedor"
+              list="documents-vendor-options"
               className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
-            >
-              <option value="">Todos</option>
-              {filterOptions.vendors.length === 0 ? (
-                <option value="" disabled>
-                  Sin datos
-                </option>
-              ) : (
-                filterOptions.vendors.map((vendor) => (
-                  <option key={vendor} value={vendor}>
-                    {vendor}
-                  </option>
-                ))
-              )}
-            </select>
+            />
+            <datalist id="documents-vendor-options">
+              {filterOptions.vendors.map((vendor) => (
+                <option key={vendor} value={vendor} />
+              ))}
+            </datalist>
           </label>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -4735,7 +4486,7 @@ useEffect(() => {
                   Documentos registrados
                 </h3>
                 <span className="text-[11px] text-slate-500">
-                  Resultados: {filteredDocuments.length}
+                  Resultados en esta página: {filteredDocuments.length}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
@@ -4894,11 +4645,7 @@ useEffect(() => {
                           documentRowRefs.current[doc.id] = node;
                         }}
                         onClick={() => setSelectedDoc(doc)}
-                        onDoubleClick={() => {
-                          setSelectedDoc(doc);
-                          setDocumentDetailOpen(true);
-                          setDetailExpanded(true);
-                        }}
+                        onDoubleClick={() => void openDocumentDetail(doc)}
                         className={`cursor-pointer border-t dashboard-border transition-colors ${zebra} ${
                           isSelected ? "dashboard-row-selected" : ""
                         }`}
@@ -5007,6 +4754,29 @@ useEffect(() => {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500">
+            <span>
+              Mostrando {searchSkip + 1}–{searchSkip + filteredDocuments.length}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSearchSkip((current) => Math.max(0, current - 50))}
+                disabled={loading || searchSkip === 0}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchSkip((current) => current + 50)}
+                disabled={loading || !searchHasMore}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 disabled:opacity-40"
+              >
+                Siguiente
+              </button>
             </div>
           </div>
         </section>
