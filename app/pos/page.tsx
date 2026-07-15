@@ -797,7 +797,7 @@ const PosConnectionStatus = React.memo(function PosConnectionStatus({
     <div
       role="status"
       aria-live="polite"
-      className={`hidden xl:flex items-center gap-3 rounded-full border px-4 py-2 ${status.style}`}
+      className={`flex w-full items-center gap-3 rounded-full border px-5 py-3 ${status.style}`}
       title={status.detail}
     >
       <span className={`h-2.5 w-2.5 rounded-full ${status.dot}`} aria-hidden />
@@ -6386,10 +6386,6 @@ const matchesStationLabel = useCallback(
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
-            <PosConnectionStatus
-              isOnline={isOnline}
-              pendingCount={pendingSales.length}
-            />
             <div className="flex flex-col items-end gap-1 text-sm">
               <div className="flex items-center gap-2">
                 <button
@@ -6469,6 +6465,18 @@ const matchesStationLabel = useCallback(
                       userMenuClosing ? "opacity-0" : "opacity-100"
                     }`}
                   />
+                  <div
+                    className={`fixed right-[22.5rem] top-8 z-40 hidden w-[17rem] xl:block ${
+                      userMenuClosing
+                        ? "animate-[slideOut_180ms_ease-in]"
+                        : "animate-[slideIn_180ms_ease-out]"
+                    }`}
+                  >
+                    <PosConnectionStatus
+                      isOnline={isOnline}
+                      pendingCount={pendingSales.length}
+                    />
+                  </div>
                   <aside
                     className={`hidden md:flex fixed top-6 z-40 h-[calc(100vh-3rem)] w-72 flex-col overflow-hidden rounded-[26px] border border-sky-500/40 bg-slate-900/95 shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl ${
                       userMenuClosing
