@@ -21,7 +21,7 @@ import {
   buildSaleTicketDisplayBreakdown,
   type SaleTicketSourceItem,
 } from "@/lib/pos/saleTicketData";
-import CustomerPanel from "../../components/CustomerPanel";
+import { PaymentCustomerControl } from "../../components/PaymentCustomerControl";
 import { type PaymentMethodRecord } from "@/lib/api/paymentMethods";
 import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import type { SeparatedOrder } from "@/lib/api/separatedOrders";
@@ -1744,8 +1744,8 @@ export default function PagoMultiplePage() {
         />
       )}
       {/* Barra superior */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-900">
-        <div className="flex items-center gap-3">
+      <header className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-5 px-6 py-3 border-b border-slate-800 bg-slate-900">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={handleCancel}
             className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
@@ -1756,7 +1756,8 @@ export default function PagoMultiplePage() {
             {resolvedPosName}
           </span>
         </div>
-        <div className="flex items-center gap-6">
+        <PaymentCustomerControl />
+        <div className="flex items-center justify-end gap-6">
           <div className="text-right">
             <div className="text-xs uppercase tracking-wide text-slate-500">
               Venta {saleNumberDisplay}
@@ -2218,8 +2219,6 @@ export default function PagoMultiplePage() {
           </footer>
         </section>
 
-      {/* Panel derecho: cliente */}
-      <CustomerPanel />
     </div>
 
       {toast && (

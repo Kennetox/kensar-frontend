@@ -22,7 +22,7 @@ import {
   buildSaleTicketDisplayBreakdown,
   type SaleTicketSourceItem,
 } from "@/lib/pos/saleTicketData";
-import CustomerPanel from "../components/CustomerPanel";
+import { PaymentCustomerControl } from "../components/PaymentCustomerControl";
 import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import type { SeparatedOrder } from "@/lib/api/separatedOrders";
 import { useOnlineStatus } from "@/app/hooks/useOnlineStatus";
@@ -1800,8 +1800,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         />
       )}
       {/* Barra superior */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-900">
-        <div className="flex items-center gap-3">
+      <header className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-5 px-6 py-3 border-b border-slate-800 bg-slate-900">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={handleCancel}
@@ -1813,7 +1813,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             {resolvedPosName}
           </span>
         </div>
-        <div className="flex items-center gap-6">
+        <PaymentCustomerControl />
+        <div className="flex items-center justify-end gap-6">
           <div className="text-right">
             <div className="text-xs uppercase tracking-wide text-slate-500">
               Venta {saleNumberDisplay}
@@ -2252,8 +2253,6 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           </footer>
         </section>
 
-        {/* Panel derecho: cliente */}
-        <CustomerPanel />
       </div>
 
       {toast && (

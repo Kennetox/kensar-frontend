@@ -31,7 +31,8 @@ type CustomerForm = {
 };
 
 type CustomerPanelProps = {
-  variant?: "sidebar" | "page";
+  variant?: "sidebar" | "page" | "payment";
+  initialMode?: "list" | "new";
   onCustomerSelected?: (customer: PosCustomer) => void;
 };
 
@@ -63,11 +64,12 @@ function hasAnyContact(customer: ApiCustomer): boolean {
 
 export default function CustomerPanel({
   variant = "sidebar",
+  initialMode = "list",
   onCustomerSelected,
 }: CustomerPanelProps) {
   const { selectedCustomer, setSelectedCustomer } = usePos();
   const { token } = useAuth();
-  const [mode, setMode] = useState<"list" | "new">("list");
+  const [mode, setMode] = useState<"list" | "new">(initialMode);
   const [customers, setCustomers] = useState<ApiCustomer[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [form, setForm] = useState<CustomerForm>(EMPTY_FORM);
@@ -434,11 +436,15 @@ export default function CustomerPanel({
   const containerClass =
     variant === "page"
       ? "w-full max-w-5xl bg-slate-950/80 border border-slate-800/80 rounded-3xl px-10 py-9 shadow-xl flex flex-col overflow-hidden"
+      : variant === "payment"
+      ? "w-full px-6 py-5 flex flex-col overflow-hidden"
       : "w-[20rem] border-l border-slate-800 bg-slate-950/50 px-5 py-5 flex flex-col gap-4 overflow-hidden";
 
   const listContainerClass =
     variant === "page"
       ? "flex-1 min-h-[22rem] max-h-[22rem] overflow-y-auto rounded-2xl border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
+      : variant === "payment"
+      ? "flex-1 min-h-[16rem] max-h-[23rem] overflow-y-auto rounded-2xl border border-slate-800/70 bg-slate-950/50 divide-y divide-slate-800/70"
       : "flex-1 min-h-[12rem] overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60";
 
   const filteredCustomers = useMemo(() => {
@@ -469,9 +475,11 @@ export default function CustomerPanel({
 
   return (
     <section className={containerClass}>
-      <div className="text-base font-semibold text-slate-400 uppercase tracking-wide mb-5">
-        Cliente
-      </div>
+      {variant !== "payment" && (
+        <div className="text-base font-semibold text-slate-400 uppercase tracking-wide mb-5">
+          Cliente
+        </div>
+      )}
 
       {!authHeaders ? (
         <div className="text-sm text-slate-400">
@@ -479,6 +487,7 @@ export default function CustomerPanel({
         </div>
       ) : (
         <>
+          {variant !== "payment" && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-5 text-base shadow-inner">
             <div className="flex items-center gap-3">
               <div className="h-12 w-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-semibold text-slate-200">
@@ -516,6 +525,7 @@ export default function CustomerPanel({
               </div>
             )}
           </div>
+          )}
 
           {mode !== "new" && (
             <div className="mt-5 text-sm flex flex-col gap-4 min-h-[14rem] flex-1">
