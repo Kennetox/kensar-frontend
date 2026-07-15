@@ -610,23 +610,6 @@ export default function PagoMultiplePage() {
     return due.toISOString();
   }
 
-  // Inicializar con una sola línea en efectivo por defecto (sin monto automático)
-  useEffect(() => {
-    setPayments((prev) => {
-      if (prev.length > 0) return prev;
-      if (!activePaymentMethods.length) return prev;
-      const line: PaymentLine = {
-        id: Date.now(),
-        method: activePaymentMethods[0].slug,
-        amount: 0,
-        separatedRealMethod: null,
-      };
-      setSelectedPaymentId(line.id);
-      setInputValue(amountNumberToString(line.amount));
-      return [line];
-    });
-  }, [totalToPay, activePaymentMethods]);
-
   useEffect(() => {
     if (typeof window === "undefined") return;
     const raw = window.sessionStorage.getItem(
@@ -2084,7 +2067,13 @@ export default function PagoMultiplePage() {
                     type="text"
                     inputMode="numeric"
                     disabled={!currentLine}
-                    value={formatInputAmount(inputValue)}
+                    value={currentLine ? formatInputAmount(inputValue) : ""}
+                    placeholder="Elige un método de pago primero"
+                    aria-label={
+                      currentLine
+                        ? "Monto de la línea seleccionada"
+                        : "Elige un método de pago primero"
+                    }
                     onChange={(e) => {
                       updateCurrentLineAmountFromString(e.target.value);
                     }}
@@ -2102,7 +2091,9 @@ export default function PagoMultiplePage() {
                       "w-full rounded-xl border px-4 py-3 text-2xl bg-[#020713] " +
                       "border-slate-700 text-slate-50 outline-none shadow-inner " +
                       "focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 " +
-                      (!currentLine ? "opacity-40 cursor-not-allowed" : "")
+                      (!currentLine
+                        ? "cursor-not-allowed text-slate-500 placeholder:text-slate-500"
+                        : "")
                     }
                   />
                   {currentLine?.method === "separado" && (
@@ -2160,7 +2151,11 @@ export default function PagoMultiplePage() {
                   <span className="text-sm text-slate-500">Toca una línea para editar</span>
                 </div>
                 <div className="rounded-xl border border-slate-700/70 bg-[#020713] divide-y divide-slate-800/80">
-                {payments.map((line) => {
+                {payments.length === 0 ? (
+                  <div className="flex min-h-[5rem] items-center justify-center px-5 py-4 text-center text-sm text-slate-500">
+                    Elige un método de pago para crear la primera línea.
+                  </div>
+                ) : payments.map((line) => {
                     const isSelected = line.id === selectedPaymentId;
 
                     return (
@@ -2217,7 +2212,9 @@ export default function PagoMultiplePage() {
                 })}
                 </div>
                 <p className="mt-3 text-sm text-slate-500">
-                  Agrega métodos con los botones de la izquierda y ajusta los montos con el teclado.
+                  {payments.length === 0
+                    ? "Comienza seleccionando uno de los métodos disponibles a la izquierda."
+                    : "Agrega métodos con los botones de la izquierda y ajusta los montos con el teclado."}
                 </p>
               </div>
               </div>
