@@ -2659,6 +2659,7 @@ export default function MovementsPage() {
                         >
                           {(() => {
                             const lot = entry.lot;
+                            const sourceBadge = resolveReceivingSourceBadge(lot.origin_name);
                             const isWebOrigin =
                               (lot.origin_name || "").trim().toLowerCase() === WEB_RECEIVING_ORIGIN;
                             return (
@@ -2673,6 +2674,12 @@ export default function MovementsPage() {
                                   <span>Inicio: {formatDate(lot.created_at)}</span>
                                   <span className="mx-1.5 text-slate-400">·</span>
                                   <span>Inició: {lot.created_by_user_name || "Usuario no disponible"}</span>
+                                  <span className="mx-1.5 text-slate-400">·</span>
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${sourceBadge.className}`}
+                                  >
+                                    {sourceBadge.label}
+                                  </span>
                                   {!isWebOrigin ? (
                                     <>
                                       <span className="mx-1.5 text-slate-400">·</span>
@@ -2738,6 +2745,12 @@ export default function MovementsPage() {
                             <span>{formatDate(entry.doc.created_at)}</span>
                             <span className="mx-1.5 text-slate-400">·</span>
                             <span>Inició: {entry.doc.created_by_user_name || "Usuario no disponible"}</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${resolveReceivingSourceBadge(entry.doc.origin_name).className}`}
+                            >
+                              {resolveReceivingSourceBadge(entry.doc.origin_name).label}
+                            </span>
                           </div>
                           <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
                             <button
@@ -2805,6 +2818,14 @@ export default function MovementsPage() {
                             <span>Inicio: {formatDate(entry.lot.created_at)}</span>
                             <span className="mx-1.5 text-slate-400">·</span>
                             <span>Cierre: {formatDate(entry.lot.closed_at || entry.lot.updated_at)}</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                                resolveReceivingSourceBadge(entry.lot.origin_name).className
+                              }`}
+                            >
+                              {resolveReceivingSourceBadge(entry.lot.origin_name).label}
+                            </span>
                           </div>
                           <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
                             <button
@@ -2836,6 +2857,14 @@ export default function MovementsPage() {
                             <span>Inicio: {formatDate(entry.doc.created_at)}</span>
                             <span className="mx-1.5 text-slate-400">·</span>
                             <span>Cierre: {formatDate(entry.doc.closed_at || entry.doc.updated_at)}</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                                resolveReceivingSourceBadge(entry.doc.origin_name).className
+                              }`}
+                            >
+                              {resolveReceivingSourceBadge(entry.doc.origin_name).label}
+                            </span>
                           </div>
                           <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
                             <button
@@ -4099,6 +4128,16 @@ export default function MovementsPage() {
                       <span className="font-medium">Cerró:</span>{" "}
                       <span className="text-slate-900">{lotDetail.lot.closed_by_user_name || "Usuario no disponible"}</span>
                     </div>
+                    <div className="min-w-0 sm:col-span-2">
+                      <span className="font-medium">Origen:</span>{" "}
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                          resolveReceivingSourceBadge(lotDetail.lot.origin_name).className
+                        }`}
+                      >
+                        {resolveReceivingSourceBadge(lotDetail.lot.origin_name).label}
+                      </span>
+                    </div>
                   </div>
 
                   {lotDetail.warnings.length > 0 ? (
@@ -4209,6 +4248,16 @@ export default function MovementsPage() {
                     <div className="min-w-0 sm:text-right">
                       <span className="font-medium">Cerró:</span>{" "}
                       <span className="text-slate-900">{manualDetail.document.closed_by_user_name || "Usuario no disponible"}</span>
+                    </div>
+                    <div className="min-w-0 sm:col-span-2">
+                      <span className="font-medium">Origen:</span>{" "}
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                          resolveReceivingSourceBadge(manualDetail.document.origin_name).className
+                        }`}
+                      >
+                        {resolveReceivingSourceBadge(manualDetail.document.origin_name).label}
+                      </span>
                     </div>
                   </div>
 
@@ -4438,6 +4487,20 @@ function lotStatusLabel(status: "open" | "closed" | "cancelled") {
   if (status === "open") return "Abierto";
   if (status === "closed") return "Cerrado";
   return "Cancelado";
+}
+
+function resolveReceivingSourceBadge(originName?: string | null) {
+  const normalized = (originName || "").trim().toLowerCase();
+  if (normalized.includes("web")) {
+    return {
+      label: "Web",
+      className: "border-sky-200 bg-sky-50 text-sky-700",
+    };
+  }
+  return {
+    label: "App",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
 }
 
 function resolveEntrySourceLabel(movement: InventoryLatestEntryRecord) {
