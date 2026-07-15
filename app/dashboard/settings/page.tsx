@@ -41,6 +41,7 @@ import {
   sendMonthlyQuickReportNow,
   fetchStockDevices,
   updateStockDevice,
+  createStockDeviceSetupCode,
   StockDeviceRecord,
 } from "@/lib/api/settings";
 import {
@@ -831,6 +832,11 @@ export default function SettingsPage() {
   const [stockDevicesError, setStockDevicesError] = useState<string | null>(null);
   const [stockDeviceMessage, setStockDeviceMessage] = useState<string | null>(null);
   const [updatingStockDeviceId, setUpdatingStockDeviceId] = useState<string | null>(null);
+  const [stockDeviceSetupCode, setStockDeviceSetupCode] = useState<{
+    deviceName: string;
+    code: string;
+    expiresAt: string;
+  } | null>(null);
   const [controlRows, setControlRows] = useState<StationControlRow[]>([]);
   const [controlLoading, setControlLoading] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -1950,6 +1956,43 @@ export default function SettingsPage() {
         err instanceof Error
           ? err.message
           : "No pudimos actualizar el nombre del dispositivo."
+      );
+    } finally {
+      setUpdatingStockDeviceId(null);
+    }
+  }
+
+  async function handleCreateStockDeviceSetupCode(existing?: StockDeviceRecord) {
+    if (!token) return;
+    const promptedName = existing
+      ? window
+          .prompt("Nombre del dispositivo Metrik Stock", existing.name)
+          ?.trim()
+      : window.prompt("Nombre de la nueva tablet de Metrik Stock")?.trim();
+    if (!promptedName) return;
+    try {
+      setUpdatingStockDeviceId(existing?.id ?? "new");
+      const response = await createStockDeviceSetupCode(
+        existing
+          ? { stock_device_id: existing.id, name: promptedName }
+          : { name: promptedName },
+        token
+      );
+      setStockDeviceSetupCode({
+        deviceName: response.device.name,
+        code: response.setup_code,
+        expiresAt: response.expires_at,
+      });
+      setStockDeviceMessage(
+        "Código de vinculación generado. Introdúcelo en la tablet antes de que expire."
+      );
+      await loadStockDevices();
+    } catch (err) {
+      console.error(err);
+      setStockDevicesError(
+        err instanceof Error
+          ? err.message
+          : "No pudimos generar el código de vinculación."
       );
     } finally {
       setUpdatingStockDeviceId(null);
@@ -4517,13 +4560,22 @@ export default function SettingsPage() {
               esa tablet.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadStockDevices()}
-            className="text-xs text-slate-400 hover:text-slate-200 underline"
-          >
-            Refrescar
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void handleCreateStockDeviceSetupCode()}
+              className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+            >
+              Preparar nueva tablet
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadStockDevices()}
+              className="text-xs text-slate-400 hover:text-slate-200 underline"
+            >
+              Refrescar
+            </button>
+          </div>
         </div>
         {stockDevicesError && (
           <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
@@ -4534,6 +4586,17 @@ export default function SettingsPage() {
           <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
             {stockDeviceMessage}
           </p>
+        )}
+        {stockDeviceSetupCode && (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-4 text-sm text-emerald-100">
+            <div className="font-semibold">Código listo para {stockDeviceSetupCode.deviceName}</div>
+            <div className="mt-2 text-3xl font-black tracking-[0.4em] text-emerald-300">
+              {stockDeviceSetupCode.code}
+            </div>
+            <div className="mt-2 text-xs text-emerald-200/80">
+              Vence: {formatDateLabel(stockDeviceSetupCode.expiresAt)}
+            </div>
+          </div>
         )}
         <div className="rounded-2xl border border-slate-800 overflow-hidden">
           <table className="w-full text-sm">
@@ -4599,6 +4662,15 @@ export default function SettingsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-2 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => void handleCreateStockDeviceSetupCode(device)}
+                            disabled={isUpdating}
+                            className="text-slate-300 hover:text-emerald-300 disabled:opacity-40"
+                          >
+                            Código
+                          </button>
+                          <span className="text-slate-600">|</span>
                           <button
                             type="button"
                             onClick={() => void handleRenameStockDevice(device)}

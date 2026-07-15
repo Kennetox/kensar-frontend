@@ -164,11 +164,19 @@ export type StockDeviceRecord = {
   is_active: boolean;
   bound_device_id?: string | null;
   bound_device_label?: string | null;
+  has_pending_setup_code?: boolean;
+  setup_code_expires_at?: string | null;
   created_by_user_id?: number | null;
   created_by_user_name?: string | null;
   created_at: string;
   updated_at: string;
   last_seen_at?: string | null;
+};
+
+export type StockDeviceSetupCodeResponse = {
+  device: StockDeviceRecord;
+  setup_code: string;
+  expires_at: string;
 };
 
 type StockDevicePageResponse = {
@@ -1070,6 +1078,24 @@ export async function updateStockDevice(
     `/stock/devices/${stockDeviceId}`,
     {
       method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    undefined,
+    token
+  );
+}
+
+export async function createStockDeviceSetupCode(
+  payload: {
+    stock_device_id?: string;
+    name?: string;
+  },
+  token?: string | null
+): Promise<StockDeviceSetupCodeResponse> {
+  return request<StockDeviceSetupCodeResponse>(
+    "/stock/devices/setup-code",
+    {
+      method: "POST",
       body: JSON.stringify(payload),
     },
     undefined,
