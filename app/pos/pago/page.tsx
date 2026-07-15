@@ -1969,7 +1969,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             )}
           </div>
           {/* Totales abajo */}
-          <div className="border-t border-slate-800 px-4 py-4 space-y-3 shrink-0 text-sm">
+          <div className="h-40 shrink-0 overflow-y-auto border-t border-slate-800 px-4 py-2 text-sm flex flex-col justify-center gap-1 bg-slate-950/85">
             {cartLineDiscountTotal > 0 && (
               <>
                 <div className="flex items-center justify-between text-sm text-slate-300">
@@ -2014,7 +2014,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   : "0"}
               </span>
             </div>
-            <div className="flex items-center justify-between pt-3">
+            <div className="flex items-center justify-between pt-1">
               <span className="text-base font-bold text-slate-200">
                 TOTAL
               </span>
@@ -2293,11 +2293,11 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           </div>
 
           {/* Botones inferiores */}
-          <footer className="grid grid-cols-3 items-center gap-5 px-10 py-6 min-h-[9.075rem] border-t border-slate-800 bg-slate-950/85">
+          <footer className="h-40 shrink-0 grid grid-cols-3 items-center gap-5 px-10 py-5 border-t border-slate-800 bg-slate-950/85">
             <button
               type="button"
               onClick={handleCancel}
-              className="w-full h-[89.2px] rounded-xl bg-red-600 hover:bg-red-700 text-lg font-semibold text-slate-50 transition-colors shadow-lg shadow-red-900/30"
+              className="w-full h-[5.5rem] rounded-xl bg-red-600 hover:bg-red-700 text-lg font-semibold text-slate-50 transition-colors shadow-lg shadow-red-900/30"
             >
               Cancelar
             </button>
@@ -2306,7 +2306,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             <button
               type="button"
               onClick={handleOpenMultiplePayments}
-              className="w-full h-[89.2px] rounded-xl bg-slate-800 hover:bg-slate-700 text-lg font-semibold text-slate-100 transition-colors border border-slate-600 shadow-inner disabled:opacity-60"
+              className="w-full h-[5.5rem] rounded-xl bg-slate-800 hover:bg-slate-700 text-lg font-semibold text-slate-100 transition-colors border border-slate-600 shadow-inner disabled:opacity-60"
               disabled={!cart.length}
             >
               Pagos múltiples
@@ -2315,7 +2315,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             <button
               type="button"
               onClick={handleConfirm}
-              className="w-full h-[89.2px] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-lg font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
+              className="w-full h-[5.5rem] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-lg font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
               disabled={confirmDisabled || isConfirmingSale}
             >
               {isConfirmingSale ? "Procesando..." : "Confirmar pago"}

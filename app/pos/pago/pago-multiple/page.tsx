@@ -1905,7 +1905,7 @@ export default function PagoMultiplePage() {
               })
             )}
           </div>
-          <div className="border-t border-slate-800 px-4 py-4 space-y-3 shrink-0 text-sm">
+          <div className="h-40 shrink-0 overflow-y-auto border-t border-slate-800 px-4 py-2 text-sm flex flex-col justify-center gap-1 bg-slate-950/85">
             {cartLineDiscountTotal > 0 && (
               <>
                 <div className="flex items-center justify-between text-sm text-slate-300">
@@ -1950,7 +1950,7 @@ export default function PagoMultiplePage() {
                   : "0"}
               </span>
             </div>
-            <div className="flex items-center justify-between pt-3">
+            <div className="flex items-center justify-between pt-1">
               <span className="text-base font-bold text-slate-200">
                 TOTAL
               </span>
@@ -2261,11 +2261,11 @@ export default function PagoMultiplePage() {
         </div>
 
         {/* Botones inferiores */}
-          <footer className="grid grid-cols-2 items-center gap-5 px-10 py-6 min-h-[9.075rem] border-t border-slate-800 bg-slate-950/85">
+          <footer className="h-40 shrink-0 grid grid-cols-2 items-center gap-5 px-10 py-5 border-t border-slate-800 bg-slate-950/85">
             <button
               type="button"
               onClick={handleCancel}
-              className="w-full h-[89.2px] rounded-xl bg-slate-800 hover:bg-slate-700 text-lg font-semibold text-slate-50 transition-colors shadow-inner"
+              className="w-full h-[5.5rem] rounded-xl bg-slate-800 hover:bg-slate-700 text-lg font-semibold text-slate-50 transition-colors shadow-inner"
             >
               Volver a pago simple
             </button>
@@ -2273,7 +2273,7 @@ export default function PagoMultiplePage() {
             <button
               type="button"
               onClick={handleConfirm}
-              className="w-full h-[89.2px] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-lg font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
+              className="w-full h-[5.5rem] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-lg font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
               disabled={confirmDisabled}
             >
               {isConfirmingSale ? "Procesando..." : "Confirmar pago múltiple"}
