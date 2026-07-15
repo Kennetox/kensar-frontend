@@ -45,6 +45,9 @@ import { useGuardedPosNavigation } from "../../hooks/useGuardedPosNavigation";
 
 type PaymentMethodSlug = string;
 
+const CUSTOMER_SELECTION_PAYMENT_DRAFT_KEY =
+  "kensar_pos_customer_selection_multiple_payment_draft";
+
 type PaymentLine = {
   id: number;
   method: PaymentMethodSlug;
@@ -302,7 +305,30 @@ export default function PagoMultiplePage() {
   useEffect(() => {
     prefetch("/pos");
     prefetch("/pos/pago");
+    prefetch("/pos/clientes");
   }, [prefetch]);
+
+  const openCustomerSelector = useCallback(
+    (mode: "list" | "new") => {
+      const returnTo = "/pos/pago/pago-multiple";
+      window.sessionStorage.setItem(
+        CUSTOMER_SELECTION_PAYMENT_DRAFT_KEY,
+        JSON.stringify({
+          saleAttemptId,
+          savedAt: Date.now(),
+          payments,
+          selectedPaymentId,
+          inputValue,
+        })
+      );
+      navigate(
+        `/pos/clientes?flow=payment&mode=${mode}&returnTo=${encodeURIComponent(returnTo)}`,
+        mode === "new" ? "Abriendo nuevo cliente…" : "Abriendo clientes…",
+        "La venta seguirá disponible al regresar."
+      );
+    },
+    [inputValue, navigate, payments, saleAttemptId, selectedPaymentId]
+  );
   const apiBase = useMemo(() => getApiBase(), []);
   const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
@@ -600,6 +626,37 @@ export default function PagoMultiplePage() {
       return [line];
     });
   }, [totalToPay, activePaymentMethods]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.sessionStorage.getItem(
+      CUSTOMER_SELECTION_PAYMENT_DRAFT_KEY
+    );
+    if (!raw) return;
+    window.sessionStorage.removeItem(CUSTOMER_SELECTION_PAYMENT_DRAFT_KEY);
+    try {
+      const draft = JSON.parse(raw) as {
+        saleAttemptId?: string;
+        savedAt?: number;
+        payments?: PaymentLine[];
+        selectedPaymentId?: number | null;
+        inputValue?: string;
+      };
+      const isRecent =
+        typeof draft.savedAt === "number" &&
+        Date.now() - draft.savedAt < 30 * 60_000;
+      if (!isRecent || draft.saleAttemptId !== saleAttemptId) return;
+      if (Array.isArray(draft.payments) && draft.payments.length > 0) {
+        setPayments(draft.payments);
+      }
+      setSelectedPaymentId(draft.selectedPaymentId ?? null);
+      if (typeof draft.inputValue === "string") {
+        setInputValue(draft.inputValue);
+      }
+    } catch (error) {
+      console.warn("No se pudo restaurar el pago múltiple al volver de clientes", error);
+    }
+  }, [saleAttemptId]);
 
   // Si el carrito está vacío y no hay venta exitosa → volver al POS
   useEffect(() => {
@@ -1744,8 +1801,8 @@ export default function PagoMultiplePage() {
         />
       )}
       {/* Barra superior */}
-      <header className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-5 px-6 py-3 border-b border-slate-800 bg-slate-900">
-        <div className="flex min-w-0 items-center gap-3">
+      <header className="flex items-center gap-5 px-6 py-3 border-b border-slate-800 bg-slate-900">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <button
             onClick={handleCancel}
             className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
@@ -1756,8 +1813,13 @@ export default function PagoMultiplePage() {
             {resolvedPosName}
           </span>
         </div>
-        <PaymentCustomerControl />
-        <div className="flex items-center justify-end gap-6">
+        <div className="shrink-0">
+          <PaymentCustomerControl
+            onNewCustomer={() => openCustomerSelector("new")}
+            onSearchCustomer={() => openCustomerSelector("list")}
+          />
+        </div>
+        <div className="flex flex-1 items-center justify-end gap-6">
           <div className="text-right">
             <div className="text-xs uppercase tracking-wide text-slate-500">
               Venta {saleNumberDisplay}

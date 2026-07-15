@@ -45,6 +45,9 @@ import { useGuardedPosNavigation } from "../hooks/useGuardedPosNavigation";
 
 type PaymentMethodSlug = string;
 
+const CUSTOMER_SELECTION_PAYMENT_DRAFT_KEY =
+  "kensar_pos_customer_selection_simple_payment_draft";
+
 type SaleResponse = {
   id: number;
   total: number;
@@ -582,7 +585,38 @@ export default function PagoPage() {
   useEffect(() => {
     prefetch("/pos");
     prefetch("/pos/pago/pago-multiple");
+    prefetch("/pos/clientes");
   }, [prefetch]);
+
+  const openCustomerSelector = useCallback(
+    (mode: "list" | "new") => {
+      const returnTo = "/pos/pago";
+      window.sessionStorage.setItem(
+        CUSTOMER_SELECTION_PAYMENT_DRAFT_KEY,
+        JSON.stringify({
+          saleAttemptId,
+          savedAt: Date.now(),
+          method,
+          paidValue,
+          separatedInitialPayments,
+          selectedSeparatedPaymentId,
+        })
+      );
+      navigate(
+        `/pos/clientes?flow=payment&mode=${mode}&returnTo=${encodeURIComponent(returnTo)}`,
+        mode === "new" ? "Abriendo nuevo cliente…" : "Abriendo clientes…",
+        "La venta seguirá disponible al regresar."
+      );
+    },
+    [
+      method,
+      navigate,
+      paidValue,
+      saleAttemptId,
+      selectedSeparatedPaymentId,
+      separatedInitialPayments,
+    ]
+  );
 
   useEffect(() => {
     if (!hasActivePaymentMethods) return;
@@ -625,6 +659,37 @@ export default function PagoPage() {
     // Métodos sin monto manual (tarjeta, qr, nequi, daviplata): pagado = total
     setPaidValue(totalToPay.toString());
   }, [isSeparatedSale, requiresManualAmount, totalToPay]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.sessionStorage.getItem(
+      CUSTOMER_SELECTION_PAYMENT_DRAFT_KEY
+    );
+    if (!raw) return;
+    window.sessionStorage.removeItem(CUSTOMER_SELECTION_PAYMENT_DRAFT_KEY);
+    try {
+      const draft = JSON.parse(raw) as {
+        saleAttemptId?: string;
+        savedAt?: number;
+        method?: string;
+        paidValue?: string;
+        separatedInitialPayments?: SeparatedInitialPaymentLine[];
+        selectedSeparatedPaymentId?: number | null;
+      };
+      const isRecent =
+        typeof draft.savedAt === "number" &&
+        Date.now() - draft.savedAt < 30 * 60_000;
+      if (!isRecent || draft.saleAttemptId !== saleAttemptId) return;
+      if (draft.method) setMethod(draft.method);
+      if (typeof draft.paidValue === "string") setPaidValue(draft.paidValue);
+      if (Array.isArray(draft.separatedInitialPayments)) {
+        setSeparatedInitialPayments(draft.separatedInitialPayments);
+      }
+      setSelectedSeparatedPaymentId(draft.selectedSeparatedPaymentId ?? null);
+    } catch (error) {
+      console.warn("No se pudo restaurar el pago al volver de clientes", error);
+    }
+  }, [saleAttemptId]);
 
   const paidNumber =
     Number(paidValue.toString().replace(/[^\d.]/g, "")) || 0;
@@ -1800,8 +1865,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         />
       )}
       {/* Barra superior */}
-      <header className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-5 px-6 py-3 border-b border-slate-800 bg-slate-900">
-        <div className="flex min-w-0 items-center gap-3">
+      <header className="flex items-center gap-5 px-6 py-3 border-b border-slate-800 bg-slate-900">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <button
             type="button"
             onClick={handleCancel}
@@ -1813,8 +1878,13 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             {resolvedPosName}
           </span>
         </div>
-        <PaymentCustomerControl />
-        <div className="flex items-center justify-end gap-6">
+        <div className="shrink-0">
+          <PaymentCustomerControl
+            onNewCustomer={() => openCustomerSelector("new")}
+            onSearchCustomer={() => openCustomerSelector("list")}
+          />
+        </div>
+        <div className="flex flex-1 items-center justify-end gap-6">
           <div className="text-right">
             <div className="text-xs uppercase tracking-wide text-slate-500">
               Venta {saleNumberDisplay}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import CustomerPanel from "../components/CustomerPanel";
 import { usePos } from "../poscontext";
 import { useAuth } from "../../providers/AuthProvider";
@@ -17,8 +17,14 @@ type FrequentCustomer = {
   sales_count: number;
 };
 
-export default function PosCustomerSelectorPage() {
+const PAYMENT_RETURN_ROUTES = new Set([
+  "/pos/pago",
+  "/pos/pago/pago-multiple",
+]);
+
+function PosCustomerSelectorContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { saleNumber, selectedCustomer, setSelectedCustomer } = usePos();
   const { token } = useAuth();
   const authHeaders = useMemo(
@@ -33,6 +39,19 @@ export default function PosCustomerSelectorPage() {
   const [frequentError, setFrequentError] = useState<string | null>(null);
   const [pendingFrequentSelection, setPendingFrequentSelection] =
     useState<FrequentCustomer | null>(null);
+  const requestedReturnTo = searchParams.get("returnTo");
+  const paymentReturnTo =
+    searchParams.get("flow") === "payment" &&
+    requestedReturnTo &&
+    PAYMENT_RETURN_ROUTES.has(requestedReturnTo)
+      ? requestedReturnTo
+      : null;
+  const initialMode = searchParams.get("mode") === "new" ? "new" : "list";
+  const returnRoute = paymentReturnTo ?? "/pos";
+
+  const returnToOrigin = () => {
+    router.replace(returnRoute);
+  };
 
   useEffect(() => {
     if (!authHeaders) return;
@@ -92,7 +111,7 @@ export default function PosCustomerSelectorPage() {
       address: customer.address ?? undefined,
     });
     setPendingFrequentSelection(null);
-    router.push("/pos");
+    returnToOrigin();
   };
 
   return (
@@ -100,7 +119,7 @@ export default function PosCustomerSelectorPage() {
       <header className="border-b border-slate-800 bg-slate-900/70 px-4 sm:px-8 py-6 flex items-center justify-between gap-4">
         <div className="space-y-1">
           <p className="text-xs uppercase tracking-wide text-slate-400">
-            Asignar cliente
+            {paymentReturnTo ? "Cliente para esta venta" : "Asignar cliente"}
           </p>
           <h1 className="text-2xl font-semibold text-slate-50">
             Selecciona o crea un cliente para la venta
@@ -112,18 +131,20 @@ export default function PosCustomerSelectorPage() {
         </div>
         <button
           type="button"
-          onClick={() => router.push("/pos")}
+          onClick={returnToOrigin}
           className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-100 hover:bg-slate-800"
         >
-          ← Volver al POS
+          ← {paymentReturnTo ? "Volver al pago" : "Volver al POS"}
         </button>
       </header>
 
       <div className="flex-1 w-full flex items-start justify-center px-4 sm:px-8 py-10 overflow-auto">
         <div className="w-full max-w-7xl grid gap-8 lg:grid-cols-[1.5fr_1fr] items-start">
           <CustomerPanel
+            key={initialMode}
             variant="page"
-            onCustomerSelected={() => router.push("/pos")}
+            initialMode={initialMode}
+            onCustomerSelected={returnToOrigin}
           />
 
           <section className="rounded-3xl border border-slate-800/80 bg-slate-950/80 p-7 shadow-xl">
@@ -247,5 +268,19 @@ export default function PosCustomerSelectorPage() {
         </div>
       )}
     </main>
+  );
+}
+
+export default function PosCustomerSelectorPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center">
+          Preparando clientes…
+        </main>
+      }
+    >
+      <PosCustomerSelectorContent />
+    </Suspense>
   );
 }
