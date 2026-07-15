@@ -296,6 +296,9 @@ type ReceivingDocumentRecord = {
   support_file_size?: number | null;
   lines_count: number;
   units_total: number;
+  created_by_user_id?: number | null;
+  created_by_user_name?: string | null;
+  closed_by_user_id?: number | null;
   created_at: string;
   closed_at?: string | null;
   closed_by_user_name?: string | null;
@@ -359,6 +362,7 @@ type ReceivingLotRecord = {
   support_file_name?: string | null;
   support_file_url?: string | null;
   support_file_size?: number | null;
+  created_by_user_name?: string | null;
   created_at: string;
   closed_at?: string | null;
   closed_by_user_name?: string | null;
@@ -2576,12 +2580,14 @@ export default function DocumentsExplorer({
           createdAt: lotDoc.closed_at ?? lotDoc.created_at,
           documentNumber: lotDoc.lot_number,
           reference: `Recepción - ${lotDoc.origin_name}`,
-          detail: `${lotDoc.lines_count} líneas · ${lotDoc.units_total} unidades · ${purchaseLabel}${invoiceMeta}${notesMeta}`,
+          detail: `${lotDoc.lines_count} líneas · ${lotDoc.units_total} unidades · ${purchaseLabel}${invoiceMeta}${
+            lotDoc.created_by_user_name ? ` · Abrió: ${lotDoc.created_by_user_name}` : ""
+          }${lotDoc.closed_by_user_name ? ` · Cerró: ${lotDoc.closed_by_user_name}` : ""}${notesMeta}`,
           total: 0,
           paymentMethod: "recepcion",
           customer: undefined,
           pos: lotDoc.origin_name,
-          vendor: lotDoc.closed_by_user_name ?? undefined,
+          vendor: lotDoc.closed_by_user_name ?? lotDoc.created_by_user_name ?? undefined,
           status: lotDoc.status,
           closureId: null,
           data: lotDoc,
@@ -2610,7 +2616,11 @@ export default function DocumentsExplorer({
           createdAt: doc.closed_at ?? doc.updated_at ?? doc.created_at,
           documentNumber: doc.document_number,
           reference: `${manualMovementKindLabel[doc.kind]} - ${doc.origin_name || "Metrik web"}`,
-          detail: `${doc.lines_count} líneas · ${doc.units_total} unidades${doc.notes ? ` · Obs: ${doc.notes}` : ""}`,
+          detail: `${doc.lines_count} líneas · ${doc.units_total} unidades${
+            doc.created_by_user_name ? ` · Abrió: ${doc.created_by_user_name}` : ""
+          }${doc.closed_by_user_name ? ` · Cerró: ${doc.closed_by_user_name}` : ""}${
+            doc.notes ? ` · Obs: ${doc.notes}` : ""
+          }`,
           total: 0,
           paymentMethod: "movimiento_manual",
           customer: undefined,
@@ -2652,7 +2662,11 @@ export default function DocumentsExplorer({
           createdAt: operationDate,
           documentNumber: row.code || `RCN-${row.id.toString().padStart(6, "0")}`,
           reference: `Recuento - ${statusLabel} - ${sourceLabel}`,
-          detail: `${row.summary.counted_lines}/${row.summary.total_lines} líneas · Dif: ${row.summary.total_diff_units} · ${scopeLabel}`,
+          detail: `${row.summary.counted_lines}/${row.summary.total_lines} líneas · Dif: ${row.summary.total_diff_units} · ${scopeLabel}${
+            row.created_by_user_name ? ` · Abrió: ${row.created_by_user_name}` : ""
+          }${row.closed_by_user_name ? ` · Cerró: ${row.closed_by_user_name}` : ""}${
+            row.applied_by_user_name ? ` · Aplicó: ${row.applied_by_user_name}` : ""
+          }`,
           total: 0,
           paymentMethod: undefined,
           customer: undefined,
@@ -5310,11 +5324,23 @@ useEffect(() => {
                         <span className="text-right">{formatDateTime(selectedReceivingDetail.lot.created_at)}</span>
                       </div>
                       <div className="flex justify-between gap-3">
+                        <span className="text-slate-400">Abrió:</span>
+                        <span className="text-right">
+                          {selectedReceivingDetail.lot.created_by_user_name || "Usuario no disponible"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
                         <span className="text-slate-400">Cierre de recepción:</span>
                         <span className="text-right">
                           {selectedReceivingDetail.lot.closed_at
                             ? formatDateTime(selectedReceivingDetail.lot.closed_at)
                             : "Pendiente de cierre"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-400">Cerró:</span>
+                        <span className="text-right">
+                          {selectedReceivingDetail.lot.closed_by_user_name || "Usuario no disponible"}
                         </span>
                       </div>
                     </div>
@@ -5439,6 +5465,36 @@ useEffect(() => {
                     </div>
                   ) : selectedManualMovementDetail ? (
                     <>
+                      <div className="rounded-xl border border-slate-800/60 bg-slate-950/30 p-3 text-xs text-slate-200">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Apertura</span>
+                            <span className="text-right">
+                              {formatDateTime(selectedManualMovementDetail.document.created_at)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Abrió</span>
+                            <span className="text-right">
+                              {selectedManualMovementDetail.document.created_by_user_name || "Usuario no disponible"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Cierre</span>
+                            <span className="text-right">
+                              {selectedManualMovementDetail.document.closed_at
+                                ? formatDateTime(selectedManualMovementDetail.document.closed_at)
+                                : "Pendiente de cierre"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Cerró</span>
+                            <span className="text-right">
+                              {selectedManualMovementDetail.document.closed_by_user_name || "Usuario no disponible"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                         {[
                           {
@@ -5568,6 +5624,50 @@ useEffect(() => {
                     </div>
                   ) : selectedRecountDetail ? (
                     <>
+                      <div className="rounded-xl border border-slate-800/60 bg-slate-950/30 p-3 text-xs text-slate-200">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Apertura</span>
+                            <span className="text-right">
+                              {formatDateTime(selectedRecountDetail.recount.created_at)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Abrió</span>
+                            <span className="text-right">
+                              {selectedRecountDetail.recount.created_by_user_name || "Usuario no disponible"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Cierre</span>
+                            <span className="text-right">
+                              {selectedRecountDetail.recount.closed_at
+                                ? formatDateTime(selectedRecountDetail.recount.closed_at)
+                                : "Pendiente de cierre"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Cerró</span>
+                            <span className="text-right">
+                              {selectedRecountDetail.recount.closed_by_user_name || "Usuario no disponible"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Aplicado</span>
+                            <span className="text-right">
+                              {selectedRecountDetail.recount.applied_at
+                                ? formatDateTime(selectedRecountDetail.recount.applied_at)
+                                : "Pendiente"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between gap-3">
+                            <span className="text-slate-400">Aplicó</span>
+                            <span className="text-right">
+                              {selectedRecountDetail.recount.applied_by_user_name || "Usuario no disponible"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                         {[
                           {

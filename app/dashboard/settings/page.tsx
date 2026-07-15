@@ -1920,6 +1920,8 @@ export default function SettingsPage() {
   ) {
     if (!token) return;
     try {
+      setStockDevicesError(null);
+      setStockDeviceMessage(null);
       setUpdatingStockDeviceId(device.id);
       await updateStockDevice(device.id, { is_active: nextActive }, token);
       setStockDeviceMessage(
@@ -1947,6 +1949,8 @@ export default function SettingsPage() {
       ?.trim();
     if (!nextName || nextName === device.name) return;
     try {
+      setStockDevicesError(null);
+      setStockDeviceMessage(null);
       setUpdatingStockDeviceId(device.id);
       await updateStockDevice(device.id, { name: nextName }, token);
       setStockDeviceMessage("Nombre de dispositivo actualizado.");
@@ -1970,6 +1974,8 @@ export default function SettingsPage() {
     );
     if (!confirmed) return;
     try {
+      setStockDevicesError(null);
+      setStockDeviceMessage(null);
       setUpdatingStockDeviceId(device.id);
       await deleteStockDevice(device.id, token);
       setStockDeviceMessage("Dispositivo eliminado correctamente.");
@@ -1995,6 +2001,8 @@ export default function SettingsPage() {
       : window.prompt("Nombre de la nueva tablet de Metrik Stock")?.trim();
     if (!promptedName) return;
     try {
+      setStockDevicesError(null);
+      setStockDeviceMessage(null);
       setUpdatingStockDeviceId(existing?.id ?? "new");
       const response = await createStockDeviceSetupCode(
         existing
@@ -2259,6 +2267,17 @@ export default function SettingsPage() {
       window.clearTimeout(timeout);
     };
   }, [stockDeviceMessage]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!stockDevicesError) return;
+    const timeout = window.setTimeout(() => {
+      setStockDevicesError(null);
+    }, 7000);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [stockDevicesError]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -4602,14 +4621,28 @@ export default function SettingsPage() {
           </div>
         </div>
         {stockDevicesError && (
-          <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
-            {stockDevicesError}
-          </p>
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2">
+            <p className="text-xs text-rose-300">{stockDevicesError}</p>
+            <button
+              type="button"
+              onClick={() => setStockDevicesError(null)}
+              className="shrink-0 text-xs font-semibold text-rose-200 hover:text-white"
+            >
+              Cerrar
+            </button>
+          </div>
         )}
         {stockDeviceMessage && (
-          <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">
-            {stockDeviceMessage}
-          </p>
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+            <p className="text-xs text-emerald-300">{stockDeviceMessage}</p>
+            <button
+              type="button"
+              onClick={() => setStockDeviceMessage(null)}
+              className="shrink-0 text-xs font-semibold text-emerald-200 hover:text-white"
+            >
+              Cerrar
+            </button>
+          </div>
         )}
         {stockDeviceSetupCode && (
           <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-mint-50 px-5 py-5 text-sm shadow-sm">

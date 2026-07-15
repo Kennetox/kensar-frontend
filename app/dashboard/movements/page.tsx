@@ -2817,7 +2817,11 @@ export default function MovementsPage() {
                             <span className="mx-1.5 text-slate-400">·</span>
                             <span>Inicio: {formatDate(entry.lot.created_at)}</span>
                             <span className="mx-1.5 text-slate-400">·</span>
+                            <span>Inició: {entry.lot.created_by_user_name || "Usuario no disponible"}</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>Cierre: {formatDate(entry.lot.closed_at || entry.lot.updated_at)}</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
+                            <span>Cerró: {entry.lot.closed_by_user_name || "Usuario no disponible"}</span>
                             <span className="mx-1.5 text-slate-400">·</span>
                             <span
                               className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
@@ -2856,7 +2860,11 @@ export default function MovementsPage() {
                             <span className="mx-1.5 text-slate-400">·</span>
                             <span>Inicio: {formatDate(entry.doc.created_at)}</span>
                             <span className="mx-1.5 text-slate-400">·</span>
+                            <span>Inició: {entry.doc.created_by_user_name || "Usuario no disponible"}</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
                             <span>Cierre: {formatDate(entry.doc.closed_at || entry.doc.updated_at)}</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
+                            <span>Cerró: {entry.doc.closed_by_user_name || "Usuario no disponible"}</span>
                             <span className="mx-1.5 text-slate-400">·</span>
                             <span
                               className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
@@ -3069,6 +3077,13 @@ export default function MovementsPage() {
                         Estado: {statusLabelRecount(recountDetail.recount.status)} · Modo:{" "}
                         {recountDetail.recount.count_mode === "blind" ? "Ciego" : "Visible"} · Por:{" "}
                         {recountDetail.recount.created_by_user_name || "-"}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Apertura: {formatDate(recountDetail.recount.created_at)} · Abrió:{" "}
+                        {recountDetail.recount.created_by_user_name || "Usuario no disponible"} · Cierre:{" "}
+                        {recountDetail.recount.closed_at ? formatDate(recountDetail.recount.closed_at) : "-"} · Cerró:{" "}
+                        {recountDetail.recount.closed_by_user_name || "Usuario no disponible"} · Aplicó:{" "}
+                        {recountDetail.recount.applied_by_user_name || "Usuario no disponible"}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -3475,11 +3490,15 @@ export default function MovementsPage() {
                             <p className="truncate text-[12px] font-semibold leading-4 text-slate-900">
                               {doc.code}
                               {doc.title ? ` · ${doc.title}` : ""}
-                              {doc.created_by_user_name ? ` · ${doc.created_by_user_name}` : ""}
+                              {doc.created_by_user_name ? ` · Abrió: ${doc.created_by_user_name}` : ""}
                             </p>
                             <p className="truncate whitespace-nowrap text-[11px] leading-4 text-slate-600">
                               {statusLabelRecount(doc.status)} · {doc.summary.counted_lines}/{doc.summary.total_lines} líneas ·{" "}
                               {formatDate(doc.applied_at || doc.closed_at || doc.created_at)}
+                            </p>
+                            <p className="truncate whitespace-nowrap text-[10px] leading-4 text-slate-500">
+                              Cerró: {doc.closed_by_user_name || "Usuario no disponible"} · Aplicó:{" "}
+                              {doc.applied_by_user_name || "Pendiente"}
                             </p>
                             {doc.status === "closed" ? (
                               <p className="truncate text-[10px] font-medium leading-3 text-amber-700">
@@ -3564,11 +3583,15 @@ export default function MovementsPage() {
                             <p className="truncate text-[12px] font-semibold leading-4 text-slate-900">
                               {doc.code}
                               {doc.title ? ` · ${doc.title}` : ""}
-                              {doc.created_by_user_name ? ` · ${doc.created_by_user_name}` : ""}
+                              {doc.created_by_user_name ? ` · Abrió: ${doc.created_by_user_name}` : ""}
                             </p>
                             <p className="truncate whitespace-nowrap text-[11px] leading-4 text-slate-600">
                               {statusLabelRecount(doc.status)} · {doc.summary.counted_lines}/{doc.summary.total_lines} líneas ·{" "}
                               {formatDate(doc.applied_at || doc.closed_at || doc.created_at)}
+                            </p>
+                            <p className="truncate whitespace-nowrap text-[10px] leading-4 text-slate-500">
+                              Cerró: {doc.closed_by_user_name || "Usuario no disponible"} · Aplicó:{" "}
+                              {doc.applied_by_user_name || "Usuario no disponible"}
                             </p>
                           </div>
                           <button
