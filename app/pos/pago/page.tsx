@@ -1911,7 +1911,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       <div className="flex-1 flex overflow-hidden">
         {/* Columna izquierda: artículos */}
         <section className="w-[18rem] border-r border-slate-700/60 bg-slate-950/95 flex flex-col overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-700/60 bg-slate-900/25 text-sm font-semibold tracking-wide text-slate-400">
+          <div className="px-4 py-3 border-b border-slate-700/70 bg-[#0b162b] text-sm font-semibold tracking-wide text-slate-300">
             Artículos
           </div>
           <div className="flex-1 flex flex-col overflow-hidden">
@@ -1969,7 +1969,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             )}
           </div>
           {/* Totales abajo */}
-          <div className="h-40 shrink-0 overflow-y-auto border-t border-slate-700/60 px-4 py-2 text-sm flex flex-col justify-center gap-1 bg-slate-900/20">
+          <div className="h-40 shrink-0 overflow-y-auto border-t border-slate-700/70 px-4 py-2 text-sm flex flex-col justify-center gap-1 bg-[#081225]">
             {cartLineDiscountTotal > 0 && (
               <>
                 <div className="flex items-center justify-between text-sm text-slate-300">
@@ -2031,7 +2031,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         <section className="flex-1 border-r border-slate-700/60 flex flex-col overflow-hidden">
           <div className="flex-1 flex overflow-hidden">
             {/* Métodos de pago */}
-            <div className="w-[14.25rem] border-r border-slate-700/60 p-4 flex flex-col gap-3 bg-slate-900/20">
+            <div className="w-[14.25rem] border-r border-slate-700/70 p-4 flex flex-col gap-3 bg-[#081225]">
               <h2 className="text-sm font-semibold text-slate-300 mb-1 uppercase tracking-wide">
                 Tipo de pago
               </h2>
@@ -2069,7 +2069,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             </div>
 
             {/* Área de pago */}
-            <div className="payment-main-panel flex-1 px-5 py-4 flex flex-col items-stretch overflow-y-auto min-h-0">
+            <div className="payment-main-panel flex-1 px-5 py-4 flex flex-col items-stretch overflow-y-auto min-h-0 bg-[#030817]">
               <div className="w-full max-w-none space-y-6">
                 <div className="flex items-start justify-between">
                   <div>
@@ -2085,10 +2085,10 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   </div>
                 </div>
 
-                <div className="grid gap-4 rounded-2xl border border-slate-700/80 bg-slate-900/75 p-5 shadow-[inset_0_1px_0_rgba(52,211,153,0.10)] text-lg">
+                <div className="grid gap-3 rounded-2xl border border-slate-600/70 border-t-emerald-400/45 bg-[#111c33] p-5 shadow-[inset_0_1px_0_rgba(52,211,153,0.16)] text-lg">
                   <div className="grid grid-cols-[1fr_auto] items-center gap-2">
                     <span className="text-slate-300">Total</span>
-                    <span className="font-semibold text-slate-100 text-xl">
+                    <span className="font-semibold text-emerald-200 text-xl">
                       {formatMoney(totalToPay)}
                     </span>
                   </div>
@@ -2115,7 +2115,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                             }
                           }}
                           className={
-                            "w-56 rounded-xl border px-4 py-3 text-2xl bg-slate-950/80 " +
+                            "w-56 rounded-xl border px-4 py-3 text-2xl bg-[#020713] " +
                             "border-slate-700 text-slate-50 outline-none shadow-inner " +
                             "focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/40 " +
                             (!requiresManualAmount ? "opacity-40 cursor-not-allowed" : "")
@@ -2248,7 +2248,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-slate-800/80 bg-slate-900/35 p-5 space-y-3">
+                <div className="rounded-2xl border border-slate-700/70 bg-[#081225] p-5 space-y-3">
                   <div className="flex items-center justify-between text-base text-slate-400">
                     <span className="uppercase tracking-wide text-base">Notas adicionales</span>
                     <button
@@ -2279,7 +2279,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                     value={saleNotes}
                     onChange={(e) => setSaleNotes(e.target.value)}
                     rows={4}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-lg text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
+                    className="w-full rounded-xl border border-slate-700 bg-[#020713] px-4 py-3 text-lg text-slate-50 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-inner"
                     placeholder="Notas de garantía, instrucciones especiales..."
                   />
                 </div>
@@ -2293,7 +2293,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           </div>
 
           {/* Botones inferiores */}
-          <footer className="h-40 shrink-0 grid grid-cols-3 items-center gap-5 px-10 py-5 border-t border-slate-700/60 bg-slate-900/20">
+          <footer className="h-40 shrink-0 grid grid-cols-3 items-center gap-5 px-10 py-5 border-t border-slate-700/70 bg-[#081225]">
             <button
               type="button"
               onClick={handleCancel}
