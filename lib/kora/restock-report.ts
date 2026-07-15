@@ -260,6 +260,9 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
         padding: 12px 10px;
         border-bottom: 1px solid #0b1220;
       }
+      thead th.numeric {
+        text-align: right;
+      }
       tbody td {
         border-top: 1px solid #e2e8f0;
         padding: 10px;
@@ -275,13 +278,13 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
         color: #64748b;
       }
       .sku { width: 8%; }
-      .name { width: 40%; }
+      .name { width: 38%; }
       .stock { width: 9%; }
-      .today { width: 8%; }
+      .today { width: 7%; }
       .coverage { width: 11%; }
-      .suggested { width: 9%; }
+      .suggested { width: 10%; }
       .urgency { width: 8%; }
-      .price { width: 7%; }
+      .price { width: 9%; }
       @media print {
         body { background: #fff; }
         .page { border: none; border-radius: 0; }
@@ -325,12 +328,12 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
             <tr>
               <th class="sku">SKU</th>
               <th class="name">Nombre</th>
-              <th class="stock">Stock</th>
-              <th class="today">Hoy</th>
+              <th class="stock numeric">Stock</th>
+              <th class="today numeric">Hoy</th>
               <th class="coverage">Cobertura</th>
-              <th class="suggested">Sugerido</th>
+              <th class="suggested numeric">Sugerido</th>
               <th class="urgency">Urgencia</th>
-              <th class="price">Precio</th>
+              <th class="price numeric">Precio</th>
             </tr>
           </thead>
           <tbody>
