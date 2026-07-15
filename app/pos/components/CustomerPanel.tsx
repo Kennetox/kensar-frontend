@@ -437,7 +437,7 @@ export default function CustomerPanel({
 
   const containerClass =
     variant === "page"
-      ? "w-full h-full max-w-none bg-slate-950/80 border border-slate-800/80 rounded-3xl px-8 py-8 shadow-xl flex flex-col overflow-hidden"
+      ? "w-full h-full max-w-none bg-slate-950/96 border border-slate-600/80 rounded-3xl px-8 py-8 shadow-xl flex flex-col overflow-hidden"
       : "w-[20rem] border-l border-slate-800 bg-slate-950/50 px-5 py-5 flex flex-col gap-4 overflow-hidden";
 
   const listContainerClass =
@@ -473,36 +473,36 @@ export default function CustomerPanel({
 
   return (
     <section className={containerClass}>
-      <div className="text-base font-semibold text-slate-400 uppercase tracking-wide mb-5">
+      <div className="text-base font-semibold text-slate-200 uppercase tracking-wide mb-5">
         Cliente
       </div>
 
       {!authHeaders ? (
-        <div className="text-sm text-slate-400">
+        <div className="text-sm text-slate-200">
           Inicia sesión para gestionar clientes.
         </div>
       ) : (
         <>
           {showCurrentCustomerCard && (
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4 text-base shadow-inner">
+            <div className="rounded-2xl border border-slate-600/80 bg-slate-900/86 p-5 space-y-4 text-base shadow-inner">
               <div className="flex items-center gap-3">
-                <div className="h-12 w-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-semibold text-slate-200">
+                <div className="h-12 w-12 rounded-full bg-slate-800 border border-slate-500 flex items-center justify-center text-base font-semibold text-slate-50">
                   {selectedCustomer
                     ? selectedCustomer.name.slice(0, 2).toUpperCase()
                     : "CL"}
                 </div>
                 <div>
-                  <div className="text-xs uppercase tracking-wide text-slate-400">
+                  <div className="text-xs uppercase tracking-wide text-slate-200">
                     Cliente actual
                   </div>
-                  <div className="text-lg text-slate-200">
+                  <div className="text-lg text-slate-50">
                     {selectedCustomer ? selectedCustomer.name : "Sin cliente asignado"}
                   </div>
                 </div>
               </div>
 
               {selectedCustomer ? (
-                <div className="space-y-1 text-base text-slate-300">
+                <div className="space-y-1 text-base text-slate-100">
                   {selectedCustomer.phone && <div>Tel: {selectedCustomer.phone}</div>}
                   {selectedCustomer.email && <div>Email: {selectedCustomer.email}</div>}
                   {selectedCustomer.taxId && <div>NIT/ID: {selectedCustomer.taxId}</div>}
@@ -516,7 +516,7 @@ export default function CustomerPanel({
                   </button>
                 </div>
               ) : (
-                <div className="text-slate-500 text-base leading-relaxed">
+                <div className="text-slate-200 text-base leading-relaxed">
                   Selecciona un cliente existente o crea uno nuevo.
                 </div>
               )}
@@ -526,13 +526,13 @@ export default function CustomerPanel({
           {mode !== "new" && (
             <div className="mt-5 text-sm flex flex-1 min-h-0 flex-col gap-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-xs uppercase tracking-wide text-slate-400">
+                <div className="text-xs uppercase tracking-wide text-slate-200">
                   Clientes existentes
                 </div>
                 <button
                   type="button"
                   onClick={() => toggleMode("new")}
-                  className="rounded-xl border px-5 py-2.5 text-base font-semibold transition border-emerald-400 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20"
+                  className="rounded-xl border px-5 py-2.5 text-base font-semibold transition border-emerald-300/40 bg-emerald-400/14 text-emerald-50 hover:bg-emerald-400/22"
                 >
                   Nuevo cliente
                 </button>
@@ -541,7 +541,7 @@ export default function CustomerPanel({
                 <>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div>
-                      <label className="text-xs text-slate-400">Estado</label>
+                      <label className="text-xs text-slate-200">Estado</label>
                       <select
                         value={statusFilter}
                         onChange={(e) => {
@@ -556,7 +556,7 @@ export default function CustomerPanel({
                       </select>
                     </div>
                     <div>
-                      <label className="text-xs text-slate-400">Segmento</label>
+                      <label className="text-xs text-slate-200">Segmento</label>
                       <select
                         value={segmentFilter}
                         onChange={(e) => setSegmentFilter(e.target.value as SegmentFilter)}
@@ -573,24 +573,24 @@ export default function CustomerPanel({
                   </div>
                   {summary && (
                     <div className="grid grid-cols-2 gap-2 text-xs text-slate-300 md:grid-cols-4">
-                      <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 px-3 py-2">
-                        Activos: <span className="font-semibold text-slate-100">{summary.active}</span>
+                      <div className="rounded-lg border border-slate-700/70 bg-slate-900/55 px-3 py-2">
+                        Activos: <span className="font-semibold text-slate-50">{summary.active}</span>
                       </div>
-                      <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 px-3 py-2">
-                        Con correo: <span className="font-semibold text-slate-100">{summary.withEmail}</span>
+                      <div className="rounded-lg border border-slate-700/70 bg-slate-900/55 px-3 py-2">
+                        Con correo: <span className="font-semibold text-slate-50">{summary.withEmail}</span>
                       </div>
-                      <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 px-3 py-2">
-                        Con teléfono: <span className="font-semibold text-slate-100">{summary.withPhone}</span>
+                      <div className="rounded-lg border border-slate-700/70 bg-slate-900/55 px-3 py-2">
+                        Con teléfono: <span className="font-semibold text-slate-50">{summary.withPhone}</span>
                       </div>
-                      <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 px-3 py-2">
-                        Invitados web: <span className="font-semibold text-slate-100">{summary.guests}</span>
+                      <div className="rounded-lg border border-slate-700/70 bg-slate-900/55 px-3 py-2">
+                        Invitados web: <span className="font-semibold text-slate-50">{summary.guests}</span>
                       </div>
                     </div>
                   )}
                 </>
               )}
               <div>
-                <label className="text-xs text-slate-400">Buscar</label>
+                <label className="text-xs text-slate-200">Buscar</label>
                 <input
                   value={search}
                   onChange={(e) => {
@@ -603,11 +603,11 @@ export default function CustomerPanel({
               </div>
               <div className={`${listContainerClass} min-h-[22rem]`}>
                 {loading && filteredCustomers.length === 0 ? (
-                  <div className="p-4 text-xs text-slate-400">
+                  <div className="p-4 text-xs text-slate-200">
                     Cargando clientes...
                   </div>
                 ) : filteredCustomers.length === 0 ? (
-                  <div className="p-4 text-xs text-slate-500">
+                  <div className="p-4 text-xs text-slate-200">
                     No hay clientes que coincidan con los filtros.
                   </div>
                 ) : (
@@ -621,14 +621,14 @@ export default function CustomerPanel({
                         onClick={() => requestSelectCustomer(customer)}
                         className="flex-1 text-left focus:outline-none"
                       >
-                        <div className="font-semibold text-base text-slate-100">
+                        <div className="font-semibold text-base text-slate-50">
                           {customer.name}
                         </div>
-                        <div className="text-xs text-slate-400 flex flex-wrap gap-2">
+                        <div className="text-xs text-slate-200 flex flex-wrap gap-2">
                           <span>{customer.phone ?? "Sin teléfono"}</span>
                           <span>{customer.email ?? "Sin correo"}</span>
                           {variant === "page" && customer.is_active === false && (
-                            <span className="text-amber-300">Inactivo</span>
+                            <span className="text-amber-100">Inactivo</span>
                           )}
                         </div>
                       </button>
@@ -652,12 +652,12 @@ export default function CustomerPanel({
                 <button
                   type="button"
                   onClick={() => handlePageChange(pageIndex - 1)}
-                  className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 hover:border-slate-500 disabled:opacity-40"
+                  className="rounded-lg border border-slate-500 px-4 py-2 text-xs text-slate-50 hover:border-slate-300 disabled:opacity-40"
                   disabled={loading || pageIndex === 0}
                 >
                   Anterior
                 </button>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-200">
                   Página {pageIndex + 1} · {filteredCustomers.length} en vista
                 </span>
                 <div className="flex items-center gap-2">
@@ -667,7 +667,7 @@ export default function CustomerPanel({
                       const includeInactive = variant === "page" && statusFilter !== "active";
                       void fetchCustomers(lastQueryRef.current, pageIndex, includeInactive);
                     }}
-                    className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 hover:border-slate-500 disabled:opacity-40"
+                    className="rounded-lg border border-slate-500 px-4 py-2 text-xs text-slate-50 hover:border-slate-300 disabled:opacity-40"
                     disabled={loading}
                   >
                     Refrescar
@@ -675,7 +675,7 @@ export default function CustomerPanel({
                   <button
                     type="button"
                     onClick={() => handlePageChange(pageIndex + 1)}
-                    className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 hover:border-emerald-400 disabled:opacity-40"
+                    className="rounded-lg border border-slate-500 px-4 py-2 text-xs text-slate-50 hover:border-emerald-200 disabled:opacity-40"
                     disabled={loading || !hasMore}
                   >
                     Siguiente
@@ -688,13 +688,13 @@ export default function CustomerPanel({
           {mode === "new" && (
             <form onSubmit={handleCreateCustomer} className="mt-5 flex flex-1 min-h-0 flex-col space-y-4 text-sm">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-xs uppercase tracking-wide text-slate-400">
-                  Nuevo cliente
-                </div>
+                  <div className="text-xs uppercase tracking-wide text-slate-200">
+                    Nuevo cliente
+                  </div>
                 <button
                   type="button"
                   onClick={() => toggleMode("new")}
-                  className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                  className="rounded-xl border border-slate-500 px-4 py-2 text-sm text-slate-50 hover:bg-slate-800"
                 >
                   Volver a la lista
                 </button>
@@ -705,7 +705,7 @@ export default function CustomerPanel({
                 </div>
               )}
               <div>
-                <label className="text-xs text-slate-400">
+                <label className="text-xs text-slate-200">
                   Nombre completo *
                 </label>
                 <input
@@ -720,7 +720,7 @@ export default function CustomerPanel({
               </div>
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400">Teléfono</label>
+                  <label className="text-xs text-slate-200">Teléfono</label>
                   <input
                     value={form.phone}
                     onChange={(e) =>
@@ -731,7 +731,7 @@ export default function CustomerPanel({
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400">
+                  <label className="text-xs text-slate-200">
                     Correo electrónico
                   </label>
                   <input
@@ -745,7 +745,7 @@ export default function CustomerPanel({
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400">
+                  <label className="text-xs text-slate-200">
                     NIT / Documento
                   </label>
                   <input
@@ -758,7 +758,7 @@ export default function CustomerPanel({
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400">Dirección</label>
+                  <label className="text-xs text-slate-200">Dirección</label>
                   <input
                     value={form.address}
                     onChange={(e) =>

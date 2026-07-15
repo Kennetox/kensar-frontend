@@ -134,22 +134,28 @@ function PosCustomerSelectorContent() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
+    <main className="relative isolate min-h-screen overflow-hidden bg-slate-950 text-slate-50 flex flex-col">
       {navigation && (
         <PosNavigationOverlay
           title={navigation.title}
           detail={navigation.detail}
         />
       )}
-      <header className="border-b border-slate-800 bg-slate-900/70 px-4 sm:px-8 py-5 flex items-center justify-between gap-4">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-24 left-[-5rem] h-[26rem] w-[26rem] rounded-full bg-slate-200/10 blur-3xl" />
+        <div className="absolute top-20 right-[-5rem] h-[24rem] w-[24rem] rounded-full bg-slate-300/10 blur-3xl" />
+        <div className="absolute bottom-[-8rem] left-1/2 h-[30rem] w-[30rem] -translate-x-1/2 rounded-full bg-slate-100/8 blur-3xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(226,232,240,0.1),transparent_24%),radial-gradient(circle_at_20%_25%,rgba(226,232,240,0.06),transparent_18%),radial-gradient(circle_at_80%_20%,rgba(226,232,240,0.08),transparent_20%),radial-gradient(circle_at_55%_75%,rgba(226,232,240,0.05),transparent_18%),linear-gradient(to_bottom,rgba(15,23,42,0.06),rgba(2,6,23,0.34))]" />
+      </div>
+      <header className="relative z-10 border-b border-slate-600/80 bg-slate-900/90 px-4 sm:px-8 py-5 backdrop-blur-2xl flex items-center justify-between gap-4 shadow-[0_1px_0_rgba(148,163,184,0.12)]">
         <div className="space-y-1">
-          <p className="text-xs uppercase tracking-wide text-slate-400">
+          <p className="text-xs uppercase tracking-wide text-slate-300">
             {paymentReturnTo ? "Cliente para esta venta" : "Asignar cliente"}
           </p>
-          <h1 className="text-2xl font-semibold text-slate-50">
+          <h1 className="text-2xl font-semibold text-slate-100">
             Selecciona o crea un cliente para la venta
           </h1>
-          <p className="text-base text-slate-400">
+          <p className="text-base text-slate-300">
             Venta No.{saleNumber.toString().padStart(1, "0")}
             {selectedCustomer ? ` · Actual: ${selectedCustomer.name}` : ""}
           </p>
@@ -157,31 +163,31 @@ function PosCustomerSelectorContent() {
         <button
           type="button"
           onClick={() => returnToOrigin(false)}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-100 hover:bg-slate-800"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-500 bg-slate-800/90 px-5 py-2.5 text-sm font-semibold text-slate-50 hover:bg-slate-700"
         >
           ← {paymentReturnTo ? "Volver al pago" : "Volver al POS"}
         </button>
       </header>
 
-      <div className="flex-1 w-full px-4 sm:px-8 py-6 overflow-auto">
+      <div className="relative z-10 flex-1 w-full px-4 sm:px-8 py-6 overflow-auto">
         <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(360px,1fr)] items-start">
-          <section className="rounded-3xl border border-emerald-500/15 bg-gradient-to-b from-slate-900/95 to-slate-950/90 p-6 shadow-xl ring-1 ring-slate-800/70">
-            <p className="text-xs uppercase tracking-[0.22em] text-emerald-300/75">
+          <section className="rounded-3xl border border-emerald-300/30 bg-gradient-to-b from-slate-900/98 via-slate-900/94 to-slate-950/96 p-6 shadow-[0_22px_80px_rgba(2,6,23,0.55)] ring-1 ring-slate-600/70">
+            <p className="text-xs uppercase tracking-[0.22em] text-emerald-100/95">
               Resumen
             </p>
-            <div className="mt-3 rounded-2xl border border-slate-700/80 bg-gradient-to-br from-slate-900 to-slate-950 p-5 shadow-inner">
+            <div className="mt-3 rounded-2xl border border-slate-500/80 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 p-5 shadow-inner">
               <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-400/25 bg-emerald-500/10 text-sm font-semibold text-emerald-100 shadow-sm">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-emerald-200/40 bg-emerald-400/16 text-sm font-semibold text-emerald-50 shadow-sm">
                   {selectedCustomer ? selectedCustomer.name.slice(0, 2).toUpperCase() : "CL"}
                 </div>
                 <div>
-                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-200">
                     Cliente actual
                   </div>
                   <div className="text-lg font-semibold text-slate-100">
                     {currentCustomerLabel}
                   </div>
-                  <div className="text-sm text-slate-400">
+                  <div className="text-sm text-slate-200">
                     Venta No. {saleNumber.toString().padStart(4, "0")}
                   </div>
                 </div>
@@ -192,16 +198,16 @@ function PosCustomerSelectorContent() {
               <button
                 type="button"
                 onClick={() => setActiveFlow("search")}
-                className="group flex min-h-[5.5rem] items-center gap-4 rounded-3xl border border-sky-400/25 bg-gradient-to-br from-slate-900 to-slate-950 px-5 py-4 text-left shadow-lg shadow-slate-950/30 transition hover:-translate-y-0.5 hover:border-sky-300/40 hover:bg-slate-900"
+                className="group flex min-h-[5.5rem] items-center gap-4 rounded-3xl border border-sky-300/40 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 px-5 py-4 text-left shadow-lg shadow-slate-950/30 transition hover:-translate-y-0.5 hover:border-sky-200/70 hover:bg-slate-900"
               >
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-sky-400/20 bg-sky-500/10 text-xl text-sky-200 transition group-hover:bg-sky-500/15 group-hover:text-sky-100">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-sky-200/35 bg-sky-400/16 text-xl text-sky-50 transition group-hover:bg-sky-400/22 group-hover:text-white">
                   ↗
                 </div>
                 <div>
-                  <div className="text-base font-semibold text-slate-50">
+                  <div className="text-base font-semibold text-slate-100">
                     Buscar cliente
                   </div>
-                  <div className="mt-1 text-sm text-slate-400">
+                  <div className="mt-1 text-sm text-slate-200">
                     Encuentra y asigna un cliente existente.
                   </div>
                 </div>
@@ -209,60 +215,60 @@ function PosCustomerSelectorContent() {
               <button
                 type="button"
                 onClick={() => setActiveFlow("create")}
-                className="group flex min-h-[5.5rem] items-center gap-4 rounded-3xl border border-amber-400/25 bg-gradient-to-br from-slate-900 to-slate-950 px-5 py-4 text-left shadow-lg shadow-slate-950/30 transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-slate-900"
+                className="group flex min-h-[5.5rem] items-center gap-4 rounded-3xl border border-amber-300/40 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 px-5 py-4 text-left shadow-lg shadow-slate-950/30 transition hover:-translate-y-0.5 hover:border-amber-200/70 hover:bg-slate-900"
               >
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-amber-400/20 bg-amber-500/10 text-2xl text-amber-200 transition group-hover:bg-amber-500/15 group-hover:text-amber-100">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-amber-200/35 bg-amber-400/16 text-2xl text-amber-50 transition group-hover:bg-amber-400/22 group-hover:text-white">
                   +
                 </div>
                 <div>
-                  <div className="text-base font-semibold text-slate-50">
+                  <div className="text-base font-semibold text-slate-100">
                     Crear cliente
                   </div>
-                  <div className="mt-1 text-sm text-slate-400">
+                  <div className="mt-1 text-sm text-slate-200">
                     Abre el formulario para registrar uno nuevo.
                   </div>
                 </div>
               </button>
             </div>
 
-            <div className="mt-6 rounded-2xl border border-slate-800/70 bg-slate-950/55 p-5">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+            <div className="mt-6 rounded-2xl border border-slate-600/70 bg-slate-950/80 p-5 shadow-inner">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-200">
                 Flujo recomendado
               </p>
-              <ol className="mt-3 space-y-2 text-sm text-slate-300">
-                <li><span className="text-emerald-300 font-semibold">1.</span> Revisa clientes frecuentes si quieres ir rápido.</li>
-                <li><span className="text-sky-300 font-semibold">2.</span> Si no aparece, abre búsqueda o crea uno nuevo.</li>
-                <li><span className="text-amber-300 font-semibold">3.</span> Al asignar, vuelves directo al POS o al pago.</li>
+              <ol className="mt-3 space-y-2 text-sm text-slate-100">
+                <li><span className="text-emerald-200 font-semibold">1.</span> Revisa clientes frecuentes si quieres ir rápido.</li>
+                <li><span className="text-sky-200 font-semibold">2.</span> Si no aparece, abre búsqueda o crea uno nuevo.</li>
+                <li><span className="text-amber-200 font-semibold">3.</span> Al asignar, vuelves directo al POS o al pago.</li>
               </ol>
             </div>
           </section>
 
-          <aside className="rounded-3xl border border-sky-500/20 bg-gradient-to-b from-slate-900/95 to-slate-950/90 p-7 shadow-xl ring-1 ring-slate-800/70">
+          <aside className="rounded-3xl border border-sky-300/35 bg-gradient-to-b from-slate-900/98 via-slate-900/94 to-slate-950/96 p-7 shadow-[0_22px_80px_rgba(2,6,23,0.55)] ring-1 ring-slate-600/70">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.28em] text-sky-300/80">
+                <p className="text-xs uppercase tracking-[0.28em] text-sky-100">
                   Clientes frecuentes
                 </p>
                 <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-50">
-                  Acceso rápido <span aria-hidden="true" className="text-amber-300">★</span>
+                  Acceso rápido <span aria-hidden="true" className="text-amber-100 drop-shadow-sm">★</span>
                 </h2>
               </div>
-              <span className="rounded-full border border-sky-400/25 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-50 shadow-sm">
+              <span className="rounded-full border border-sky-200/35 bg-sky-400/18 px-4 py-2 text-sm font-medium text-sky-50 shadow-sm">
                 {frequentCustomers.length} clientes
               </span>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-slate-800/70 bg-slate-950/60 divide-y divide-slate-800/60 overflow-hidden">
+            <div className="mt-5 rounded-2xl border border-slate-600/70 bg-slate-950/82 divide-y divide-slate-600/70 overflow-hidden">
               {frequentLoading ? (
-                <div className="px-4 py-5 text-sm text-slate-400">
+                <div className="px-4 py-5 text-sm text-slate-200">
                   Cargando clientes frecuentes...
                 </div>
               ) : frequentError ? (
-                <div className="px-4 py-5 text-sm text-rose-300">
+                <div className="px-4 py-5 text-sm text-rose-100">
                   {frequentError}
                 </div>
               ) : frequentCustomers.length === 0 ? (
-                <div className="px-4 py-6 text-base text-slate-400 bg-slate-950/40">
+                <div className="px-4 py-6 text-base text-slate-200 bg-slate-950/55">
                   Aún no hay clientes frecuentes para mostrar.
                 </div>
               ) : (
@@ -271,18 +277,18 @@ function PosCustomerSelectorContent() {
                     key={customer.id}
                     type="button"
                     onClick={() => handleAssignFrequent(customer)}
-                    className="w-full px-4 py-4 text-left transition hover:bg-sky-500/8"
+                    className="w-full px-4 py-4 text-left transition hover:bg-sky-400/12"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="break-words text-base font-semibold leading-snug text-slate-50">
                           {customer.name}
                         </div>
-                        <div className="text-sm text-slate-400">
+                        <div className="text-sm text-slate-200">
                           {customer.phone ?? "Sin teléfono"}
                         </div>
                       </div>
-                      <span className="shrink-0 rounded-full border border-emerald-400/15 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-200">
+                      <span className="shrink-0 rounded-full border border-emerald-200/30 bg-emerald-400/16 px-3 py-1.5 text-xs font-semibold text-emerald-50">
                         {customer.sales_count} ventas
                       </span>
                     </div>
