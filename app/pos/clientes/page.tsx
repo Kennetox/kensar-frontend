@@ -1,11 +1,13 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import CustomerPanel from "../components/CustomerPanel";
 import { usePos } from "../poscontext";
 import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
+import { PosNavigationOverlay } from "../components/PosNavigationOverlay";
+import { useGuardedPosNavigation } from "../hooks/useGuardedPosNavigation";
 
 type FrequentCustomer = {
   id: number;
@@ -23,8 +25,8 @@ const PAYMENT_RETURN_ROUTES = new Set([
 ]);
 
 function PosCustomerSelectorContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
+  const { navigation, navigate, prefetch } = useGuardedPosNavigation();
   const { saleNumber, selectedCustomer, setSelectedCustomer } = usePos();
   const { token } = useAuth();
   const authHeaders = useMemo(
@@ -49,9 +51,23 @@ function PosCustomerSelectorContent() {
   const initialMode = searchParams.get("mode") === "new" ? "new" : "list";
   const returnRoute = paymentReturnTo ?? "/pos";
 
-  const returnToOrigin = () => {
-    router.replace(returnRoute);
+  const returnToOrigin = (customerAssigned = false) => {
+    const destinationLabel = paymentReturnTo ? "pago" : "POS";
+    navigate(
+      returnRoute,
+      customerAssigned
+        ? "Cliente asignado correctamente…"
+        : `Volviendo al ${destinationLabel}…`,
+      paymentReturnTo
+        ? "Restaurando los datos de esta venta."
+        : "Preparando la venta en curso.",
+      { replace: true }
+    );
   };
+
+  useEffect(() => {
+    prefetch(returnRoute);
+  }, [prefetch, returnRoute]);
 
   useEffect(() => {
     if (!authHeaders) return;
@@ -111,11 +127,17 @@ function PosCustomerSelectorContent() {
       address: customer.address ?? undefined,
     });
     setPendingFrequentSelection(null);
-    returnToOrigin();
+    returnToOrigin(true);
   };
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 flex flex-col">
+      {navigation && (
+        <PosNavigationOverlay
+          title={navigation.title}
+          detail={navigation.detail}
+        />
+      )}
       <header className="border-b border-slate-800 bg-slate-900/70 px-4 sm:px-8 py-6 flex items-center justify-between gap-4">
         <div className="space-y-1">
           <p className="text-xs uppercase tracking-wide text-slate-400">
@@ -131,7 +153,7 @@ function PosCustomerSelectorContent() {
         </div>
         <button
           type="button"
-          onClick={returnToOrigin}
+          onClick={() => returnToOrigin(false)}
           className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-100 hover:bg-slate-800"
         >
           ← {paymentReturnTo ? "Volver al pago" : "Volver al POS"}
@@ -144,7 +166,7 @@ function PosCustomerSelectorContent() {
             key={initialMode}
             variant="page"
             initialMode={initialMode}
-            onCustomerSelected={returnToOrigin}
+            onCustomerSelected={() => returnToOrigin(true)}
           />
 
           <section className="rounded-3xl border border-slate-800/80 bg-slate-950/80 p-7 shadow-xl">
@@ -275,9 +297,10 @@ export default function PosCustomerSelectorPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center">
-          Preparando clientes…
-        </main>
+        <PosNavigationOverlay
+          title="Preparando clientes…"
+          detail="La venta permanece protegida."
+        />
       }
     >
       <PosCustomerSelectorContent />
