@@ -34,6 +34,7 @@ type CustomerPanelProps = {
   variant?: "sidebar" | "page";
   initialMode?: "list" | "new";
   onCustomerSelected?: (customer: PosCustomer) => void;
+  showCurrentCustomerCard?: boolean;
 };
 
 type StatusFilter = "active" | "inactive" | "all";
@@ -66,6 +67,7 @@ export default function CustomerPanel({
   variant = "sidebar",
   initialMode = "list",
   onCustomerSelected,
+  showCurrentCustomerCard = true,
 }: CustomerPanelProps) {
   const { selectedCustomer, setSelectedCustomer } = usePos();
   const { token } = useAuth();
@@ -435,12 +437,12 @@ export default function CustomerPanel({
 
   const containerClass =
     variant === "page"
-      ? "w-full max-w-5xl bg-slate-950/80 border border-slate-800/80 rounded-3xl px-10 py-9 shadow-xl flex flex-col overflow-hidden"
+      ? "w-full h-full max-w-none bg-slate-950/80 border border-slate-800/80 rounded-3xl px-8 py-8 shadow-xl flex flex-col overflow-hidden"
       : "w-[20rem] border-l border-slate-800 bg-slate-950/50 px-5 py-5 flex flex-col gap-4 overflow-hidden";
 
   const listContainerClass =
     variant === "page"
-      ? "flex-1 min-h-[22rem] max-h-[22rem] overflow-y-auto rounded-2xl border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
+      ? "flex-1 min-h-0 overflow-y-auto rounded-2xl border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60"
       : "flex-1 min-h-[12rem] overflow-y-auto rounded-lg border border-slate-800/60 bg-slate-950/40 divide-y divide-slate-800/60";
 
   const filteredCustomers = useMemo(() => {
@@ -481,46 +483,48 @@ export default function CustomerPanel({
         </div>
       ) : (
         <>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-5 text-base shadow-inner">
-            <div className="flex items-center gap-3">
-              <div className="h-12 w-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-semibold text-slate-200">
-                {selectedCustomer
-                  ? selectedCustomer.name.slice(0, 2).toUpperCase()
-                  : "CL"}
-              </div>
-              <div>
-                <div className="text-xs uppercase tracking-wide text-slate-400">
-                  Cliente actual
+          {showCurrentCustomerCard && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-4 text-base shadow-inner">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-base font-semibold text-slate-200">
+                  {selectedCustomer
+                    ? selectedCustomer.name.slice(0, 2).toUpperCase()
+                    : "CL"}
                 </div>
-                <div className="text-lg text-slate-200">
-                  {selectedCustomer ? selectedCustomer.name : "Sin cliente asignado"}
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-slate-400">
+                    Cliente actual
+                  </div>
+                  <div className="text-lg text-slate-200">
+                    {selectedCustomer ? selectedCustomer.name : "Sin cliente asignado"}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {selectedCustomer ? (
-              <div className="space-y-1 text-base text-slate-300">
-                {selectedCustomer.phone && <div>Tel: {selectedCustomer.phone}</div>}
-                {selectedCustomer.email && <div>Email: {selectedCustomer.email}</div>}
-                {selectedCustomer.taxId && <div>NIT/ID: {selectedCustomer.taxId}</div>}
-                {selectedCustomer.address && <div>Dirección: {selectedCustomer.address}</div>}
-                <button
-                  type="button"
-                  onClick={handleRemoveSelection}
-                  className="mt-3 inline-flex items-center rounded-full border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/20"
-                >
-                  Quitar cliente
-                </button>
-              </div>
-            ) : (
-              <div className="text-slate-500 text-base leading-relaxed">
-                Selecciona un cliente existente o crea uno nuevo.
-              </div>
-            )}
-          </div>
+              {selectedCustomer ? (
+                <div className="space-y-1 text-base text-slate-300">
+                  {selectedCustomer.phone && <div>Tel: {selectedCustomer.phone}</div>}
+                  {selectedCustomer.email && <div>Email: {selectedCustomer.email}</div>}
+                  {selectedCustomer.taxId && <div>NIT/ID: {selectedCustomer.taxId}</div>}
+                  {selectedCustomer.address && <div>Dirección: {selectedCustomer.address}</div>}
+                  <button
+                    type="button"
+                    onClick={handleRemoveSelection}
+                    className="mt-3 inline-flex items-center rounded-full border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-200 hover:bg-rose-500/20"
+                  >
+                    Quitar cliente
+                  </button>
+                </div>
+              ) : (
+                <div className="text-slate-500 text-base leading-relaxed">
+                  Selecciona un cliente existente o crea uno nuevo.
+                </div>
+              )}
+            </div>
+          )}
 
           {mode !== "new" && (
-            <div className="mt-5 text-sm flex flex-col gap-4 min-h-[14rem] flex-1">
+            <div className="mt-5 text-sm flex flex-1 min-h-0 flex-col gap-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-xs uppercase tracking-wide text-slate-400">
                   Clientes existentes
@@ -597,7 +601,7 @@ export default function CustomerPanel({
                   className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-base outline-none focus:border-sky-400"
                 />
               </div>
-              <div className={listContainerClass}>
+              <div className={`${listContainerClass} min-h-[22rem]`}>
                 {loading && filteredCustomers.length === 0 ? (
                   <div className="p-4 text-xs text-slate-400">
                     Cargando clientes...
@@ -644,7 +648,7 @@ export default function CustomerPanel({
                   ))
                 )}
               </div>
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-3 pt-1">
                 <button
                   type="button"
                   onClick={() => handlePageChange(pageIndex - 1)}
@@ -682,7 +686,7 @@ export default function CustomerPanel({
           )}
 
           {mode === "new" && (
-            <form onSubmit={handleCreateCustomer} className="mt-5 space-y-4 text-sm">
+            <form onSubmit={handleCreateCustomer} className="mt-5 flex flex-1 min-h-0 flex-col space-y-4 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-xs uppercase tracking-wide text-slate-400">
                   Nuevo cliente
@@ -765,13 +769,15 @@ export default function CustomerPanel({
                   />
                 </div>
               </div>
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-3 transition"
-                disabled={loading}
-              >
-                {editingCustomer ? "Guardar cambios" : "Guardar y asignar"}
-              </button>
+              <div className="pt-1">
+                <button
+                  type="submit"
+                  className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-3 transition"
+                  disabled={loading}
+                >
+                  {editingCustomer ? "Guardar cambios" : "Guardar y asignar"}
+                </button>
+              </div>
             </form>
           )}
 
