@@ -1856,8 +1856,8 @@ export default function PagoMultiplePage() {
       {/* Cuerpo principal */}
       <div className="flex-1 flex overflow-hidden">
         {/* Columna izquierda: artículos (idéntica a la simple) */}
-        <section className="w-[18rem] border-r border-slate-800 flex flex-col overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-800 text-sm font-semibold tracking-wide text-slate-400">
+        <section className="w-[18rem] border-r border-slate-700/60 bg-slate-950/95 flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-700/60 bg-slate-900/25 text-sm font-semibold tracking-wide text-slate-400">
             Artículos
           </div>
           <div className="flex-1 flex flex-col overflow-hidden">
@@ -1876,7 +1876,7 @@ export default function PagoMultiplePage() {
                 return (
                   <div
                     key={item.id}
-                    className="px-4 py-3 text-sm border-b border-slate-900"
+                    className="px-4 py-3 text-sm border-b border-slate-800/70"
                   >
                     <div className="font-semibold truncate text-base">
                       {item.product.name}
@@ -1914,7 +1914,7 @@ export default function PagoMultiplePage() {
               })
             )}
           </div>
-          <div className="h-40 shrink-0 overflow-y-auto border-t border-slate-800 px-4 py-2 text-sm flex flex-col justify-center gap-1 bg-slate-950/85">
+          <div className="h-40 shrink-0 overflow-y-auto border-t border-slate-700/60 px-4 py-2 text-sm flex flex-col justify-center gap-1 bg-slate-900/20">
             {cartLineDiscountTotal > 0 && (
               <>
                 <div className="flex items-center justify-between text-sm text-slate-300">
@@ -1972,10 +1972,10 @@ export default function PagoMultiplePage() {
         </section>
 
         {/* Columna central: métodos y líneas */}
-        <section className="flex-1 border-r border-slate-800 flex flex-col overflow-hidden">
+        <section className="flex-1 border-r border-slate-700/60 flex flex-col overflow-hidden">
           <div className="flex-1 flex overflow-hidden">
             {/* Métodos de pago */}
-            <div className="w-[14.25rem] border-r border-slate-800 p-4 flex flex-col gap-3 bg-slate-950/70 overflow-y-auto">
+            <div className="w-[14.25rem] border-r border-slate-700/60 p-4 flex flex-col gap-3 bg-slate-900/20 overflow-y-auto">
               <h2 className="text-sm font-semibold text-slate-300 mb-1 uppercase tracking-wide">
                 Métodos de pago
               </h2>
@@ -2033,7 +2033,7 @@ export default function PagoMultiplePage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 text-base">
-                    <span className="rounded-full border border-slate-800 bg-slate-900/70 px-4 py-2 text-slate-200">
+                    <span className="rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-slate-200">
                       {currentLine
                         ? getMethodLabel(currentLine.method, paymentCatalog)
                         : "Método"}
@@ -2041,7 +2041,7 @@ export default function PagoMultiplePage() {
                   </div>
                 </div>
 
-                <div className="grid gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-inner text-lg">
+                <div className="grid gap-3 rounded-2xl border border-slate-700/80 bg-slate-900/75 p-5 shadow-[inset_0_1px_0_rgba(52,211,153,0.10)] text-lg">
                   <div className="grid grid-cols-[1fr_auto] items-center gap-2">
                     <span className="text-slate-300">Total</span>
                     <span className="font-semibold text-slate-100 text-xl">
@@ -2060,7 +2060,7 @@ export default function PagoMultiplePage() {
                       className={
                         "inline-flex items-center gap-2 rounded-full px-4 py-2 text-base font-semibold " +
                         (diff < 0
-                          ? "bg-red-500/15 text-red-300 border border-red-500/30"
+                          ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
                           : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30")
                       }
                     >
@@ -2070,7 +2070,7 @@ export default function PagoMultiplePage() {
                 </div>
 
                 <div className="grid items-stretch gap-6 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                <div className="h-full min-w-0 space-y-2 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+                <div className="h-full min-w-0 space-y-2 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-5">
                   <div className="flex justify-between text-base text-slate-400">
                     <span>Monto de la línea seleccionada</span>
                     {currentLine && (
@@ -2099,7 +2099,7 @@ export default function PagoMultiplePage() {
                       }
                     }}
                     className={
-                      "w-full rounded-xl border px-4 py-3 text-2xl bg-slate-900/80 " +
+                      "w-full rounded-xl border px-4 py-3 text-2xl bg-slate-950/80 " +
                       "border-slate-700 text-slate-50 outline-none shadow-inner " +
                       "focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 " +
                       (!currentLine ? "opacity-40 cursor-not-allowed" : "")
@@ -2154,12 +2154,12 @@ export default function PagoMultiplePage() {
                 </div>
 
               {/* Lista de líneas */}
-              <div className="h-full min-w-0 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+              <div className="h-full min-w-0 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-5">
                 <div className="text-base text-slate-400 mb-2 flex items-center justify-between">
                   <span className="uppercase tracking-wide text-base">Líneas de pago</span>
                   <span className="text-sm text-slate-500">Toca una línea para editar</span>
                 </div>
-                <div className="rounded-xl border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/80">
+                <div className="rounded-xl border border-slate-700/60 bg-slate-950/75 divide-y divide-slate-800/80">
                 {payments.map((line) => {
                     const isSelected = line.id === selectedPaymentId;
 
@@ -2222,7 +2222,7 @@ export default function PagoMultiplePage() {
               </div>
               </div>
 
-              <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+              <div className="space-y-3 rounded-2xl border border-slate-800/80 bg-slate-900/35 p-5">
                 <div className="flex items-center justify-between text-base text-slate-400">
                   <span className="uppercase tracking-wide text-base">Notas adicionales</span>
                   <button
@@ -2272,7 +2272,7 @@ export default function PagoMultiplePage() {
         </div>
 
         {/* Botones inferiores */}
-          <footer className="h-40 shrink-0 grid grid-cols-3 items-center gap-5 px-10 py-5 border-t border-slate-800 bg-slate-950/85">
+          <footer className="h-40 shrink-0 grid grid-cols-3 items-center gap-5 px-10 py-5 border-t border-slate-700/60 bg-slate-900/20">
             <button
               type="button"
               onClick={handleCancelToPos}
