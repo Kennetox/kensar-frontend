@@ -1,12 +1,9 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-
 import React, {
   useEffect,
   useMemo,
   useState,
-  ChangeEvent,
   FormEvent,
   useCallback,
   useRef,
@@ -69,6 +66,12 @@ import {
   type PosStationPrinterConfig,
 } from "@/lib/api/posStations";
 import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
+import {
+  PosCatalogGrid,
+  type GridTile,
+  type Path,
+  type ProductTile,
+} from "./components/PosCatalogGrid";
 
 const PENDING_ALERT_ACK_STORAGE_KEY = "metrik_pos_pending_ack_v1";
 const HELD_SALE_STORAGE_KEY_BASE = "kensar_pos_held_sale_v1";
@@ -581,33 +584,6 @@ const slugifyMethodKey = (value: string | null | undefined) => {
   const normalized = normalizeMethodKey(value);
   return normalized.replace(/[^a-z0-9]+/g, "-");
 };
-
-// Tile base genérica
-// --------- Tipos para el grid del POS ---------
-type Path = string[];
-
-type ProductTile = {
-  type: "product";
-  id: string;        // ej: "p-123"
-  product: Product;
-};
-
-type GroupTile = {
-  type: "group";
-  id: string;        // ej: "g-Cámaras", "sg-Megáfonos"
-  label: string;
-  path: Path;        // ruta completa del grupo / subgrupo
-  imageUrl?: string | null;
-  color?: string | null;
-};
-
-type BackTile = {
-  type: "back";
-  id: "back";
-  label: string;
-};
-
-type GridTile = ProductTile | GroupTile | BackTile;
 
 type GroupAppearance = {
   image_url: string | null;
@@ -5209,7 +5185,67 @@ const matchesStationLabel = useCallback(
     });
   }, [structuredProducts, search]);
 
-  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+  const addProductToCart = useCallback((
+    product: Product,
+    unitPrice: number,
+    options?: { freeSaleReason?: string }
+  ) => {
+    if (shouldBlockSales) {
+      setClosureReminderOpen(true);
+      return;
+    }
+
+    setCart((prev: CartItem[]) => {
+      const reason = options?.freeSaleReason?.trim() ?? "";
+      const lineUnitPrice = Number(unitPrice || 0);
+      const baseProductPrice = Number(product.price || 0);
+      const priceMatchesBase = Math.abs(lineUnitPrice - baseProductPrice) < 0.0001;
+      const shouldForceIndependentLine =
+        Boolean(reason.length > 0) ||
+        Boolean(product.service) ||
+        Boolean(product.allow_price_change) ||
+        !priceMatchesBase;
+
+      const existingIndex = prev.findIndex((item: CartItem) => {
+        if (item.product.id !== product.id) return false;
+        if (shouldForceIndependentLine) return false;
+        return Math.abs(Number(item.unitPrice || 0) - lineUnitPrice) < 0.0001;
+      });
+
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        const current = updated[existingIndex];
+        updated[existingIndex] = {
+          ...current,
+          quantity: current.quantity + 1,
+        };
+        return updated;
+      }
+
+      let lineId = shouldForceIndependentLine
+        ? Date.now() * 1000 + Math.floor(Math.random() * 1000)
+        : product.id;
+      while (prev.some((item: CartItem) => item.id === lineId)) {
+        lineId += 1;
+      }
+
+      return [
+        ...prev,
+        {
+          id: lineId,
+          product,
+          quantity: 1,
+          unitPrice: lineUnitPrice,
+          lineDiscountValue: 0,
+          lineDiscountIsPercent: false,
+          lineDiscountPercent: 0,
+          freeSaleReason: reason || undefined,
+        },
+      ];
+    });
+  }, [setCart, shouldBlockSales]);
+
+  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter") return;
 
     e.preventDefault();
@@ -5254,7 +5290,15 @@ const matchesStationLabel = useCallback(
 
     // Limpiamos la búsqueda para el siguiente escaneo
     setSearch("");
-  }
+  }, [
+    addProductToCart,
+    isFreeSaleProduct,
+    productByBarcode,
+    productBySku,
+    search,
+    shouldBlockSales,
+    showSearchMissToast,
+  ]);
 
   const getGroupImageForPath = useCallback(
     (path: Path): string | null => {
@@ -5548,7 +5592,7 @@ const matchesStationLabel = useCallback(
 }
 
   // --------- Handlers: grid ---------
-  function handleTileClick(tile: GridTile) {
+  const handleTileClick = useCallback((tile: GridTile) => {
     if (shouldBlockSales) {
       setClosureReminderOpen(true);
       return;
@@ -5589,196 +5633,14 @@ const matchesStationLabel = useCallback(
     if (search.trim().length > 0) {
       focusSearchInput(true);
     }
-  }
-
-  const renderGridTile = (tile: GridTile) => {
-      if (tile.type === "back") {
-        return (
-          <button
-            key={tile.id}
-            onClick={() => handleTileClick(tile)}
-            className="rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-800 flex items-center justify-center text-sm font-semibold select-none"
-          >
-            ← Volver
-          </button>
-        );
-      }
-
-      if (tile.type === "group") {
-        const groupStyle = tile.color ? { backgroundColor: tile.color } : undefined;
-        return (
-          <button
-            key={tile.id}
-            onClick={() => handleTileClick(tile)}
-            className="rounded-lg bg-slate-800 hover:bg-slate-700 flex flex-col items-center justify-center text-sm font-semibold text-center px-3 py-4 select-none"
-            style={groupStyle}
-          >
-            <div className="w-full flex flex-col items-center gap-2">
-              {tile.imageUrl && (
-                <div
-                  className="w-full rounded-lg flex items-center justify-center overflow-hidden p-2"
-                  style={{
-                    height: `${tileImageHeight}px`,
-                    maxHeight: `${tileImageHeight}px`,
-                  }}
-                >
-                  <img
-                    src={tile.imageUrl}
-                    alt={tile.label}
-                    loading="lazy"
-                    className="max-h-full max-w-full object-contain"
-                  />
-                </div>
-              )}
-              <span
-                className="text-center font-semibold text-slate-100 leading-tight whitespace-normal break-words mt-1"
-                style={{ fontSize: `${tileLabelFontSize}rem` }}
-              >
-                {tile.label}
-              </span>
-            </div>
-          </button>
-        );
-      }
-
-      const product = tile.product;
-      const productImageUrl = resolveAssetUrl(
-        product.image_thumb_url ?? product.image_url
-      );
-      const hasProductImage = Boolean(productImageUrl);
-      const isServiceTile =
-        (!product.group_name || !product.group_name.trim()) &&
-        (product.service || product.allow_price_change);
-      const tileBgClass = hasProductImage
-        ? "bg-slate-800 hover:bg-slate-700"
-        : isServiceTile
-          ? "bg-slate-800 hover:bg-slate-700"
-          : "bg-slate-700 hover:bg-slate-600";
-      const tileStyle = product.tile_color
-        ? { backgroundColor: product.tile_color }
-        : undefined;
-
-    return (
-        <button
-          key={tile.id}
-          onClick={() => handleTileClick(tile)}
-          className={`group relative w-full h-full rounded-xl border border-slate-700/60 px-3 py-3 text-xs text-slate-50 overflow-hidden select-none ${tileBgClass}`}
-          style={tileStyle}
-        >
-          {hasProductImage ? (
-            <div className="flex h-full w-full flex-col items-center justify-between gap-2">
-              <span
-                className="line-clamp-2 text-center font-semibold mt-1"
-                style={{ fontSize: `${tileLabelFontSize}rem` }}
-              >
-                {product.name}
-              </span>
-              <div
-                className="flex-1 w-full flex items-center justify-center py-2 overflow-hidden min-h-0"
-                style={{
-                  height: `${tileImageHeight}px`,
-                  maxHeight: `${tileImageHeight}px`,
-                }}
-              >
-                <img
-                  src={productImageUrl ?? undefined}
-                  alt={product.name}
-                  loading="lazy"
-                  className="max-h-full max-w-full object-contain"
-                />
-              </div>
-              <span
-                className="font-bold mb-1"
-                style={{ fontSize: `${tilePriceFontSize}rem` }}
-              >
-                {formatMoney(product.price)}
-              </span>
-            </div>
-          ) : (
-            <div className="flex h-full w-full flex-col items-center justify-between">
-              <span
-                className="mt-1 line-clamp-2 text-center font-semibold"
-                style={{ fontSize: `${tileLabelFontSize}rem` }}
-              >
-                {product.name}
-              </span>
-              <span
-                className="mt-2 text-slate-300"
-                style={{ fontSize: `${tileMetaFontSize}rem` }}
-              >
-                {product.sku || product.barcode || " "}
-              </span>
-              <span
-                className="mt-3 font-bold"
-                style={{ fontSize: `${tilePriceFontSize}rem` }}
-              >
-                {formatMoney(product.price)}
-              </span>
-            </div>
-          )}
-        </button>
-    );
-  };
-
-  function addProductToCart(
-    product: Product,
-    unitPrice: number,
-    options?: { freeSaleReason?: string }
-  ) {
-    if (shouldBlockSales) {
-      setClosureReminderOpen(true);
-      return;
-    }
-
-    setCart((prev: CartItem[]) => {
-      const reason = options?.freeSaleReason?.trim() ?? "";
-      const lineUnitPrice = Number(unitPrice || 0);
-      const baseProductPrice = Number(product.price || 0);
-      const priceMatchesBase = Math.abs(lineUnitPrice - baseProductPrice) < 0.0001;
-      const shouldForceIndependentLine =
-        Boolean(reason.length > 0) ||
-        Boolean(product.service) ||
-        Boolean(product.allow_price_change) ||
-        !priceMatchesBase;
-
-      const existingIndex = prev.findIndex((item: CartItem) => {
-        if (item.product.id !== product.id) return false;
-        if (shouldForceIndependentLine) return false;
-        return Math.abs(Number(item.unitPrice || 0) - lineUnitPrice) < 0.0001;
-      });
-
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        const current = updated[existingIndex];
-        updated[existingIndex] = {
-          ...current,
-          quantity: current.quantity + 1,
-        };
-        return updated;
-      }
-
-      let lineId = shouldForceIndependentLine
-        ? Date.now() * 1000 + Math.floor(Math.random() * 1000)
-        : product.id;
-      while (prev.some((item: CartItem) => item.id === lineId)) {
-        lineId += 1;
-      }
-
-      return [
-        ...prev,
-        {
-          id: lineId,
-          product,
-          quantity: 1,
-          unitPrice: lineUnitPrice,
-          lineDiscountValue: 0,
-          lineDiscountIsPercent: false,
-          lineDiscountPercent: 0,
-          freeSaleReason: reason || undefined,
-        },
-      ];
-    });
-  }
+  }, [
+    addProductToCart,
+    currentPath.length,
+    focusSearchInput,
+    isFreeSaleProduct,
+    search,
+    shouldBlockSales,
+  ]);
 
 
 
@@ -7439,123 +7301,31 @@ const matchesStationLabel = useCallback(
           <div className="h-12 w-1 rounded-full bg-slate-600" />
         </div>
 
-        {/* Grid productos / grupos */}
-        <section className="flex-1 flex flex-col">
-          {/* Búsqueda y breadcrumb */}
-          <div className="border-b border-slate-800 bg-slate-900">
-            <div className="flex items-center gap-3 px-4 py-3">
-              <input
-                ref={searchInputRef}
-                value={search}
-                onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                  setSearch(e.target.value)
-                }
-                onKeyDown={handleSearchKeyDown}
-                placeholder="Buscar productos por nombre, código o código de barras"
-                className="flex-1 rounded-xl bg-slate-950 border border-emerald-400/60 px-4 py-3.5 text-lg outline-none focus:border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.2)]"
-              />
-              <div className="text-xs text-slate-400 whitespace-nowrap">
-                {currentPath.length === 0 ? (
-                  <span>Inicio</span>
-                ) : (
-                  <span>{["Inicio", ...currentPath].join(" › ")}</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Grid + paginación */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Grid */}
-            <div className="flex-1 overflow-auto px-3 py-3">
-              <div
-                ref={gridRef}
-                className="grid w-full gap-4"
-                style={gridStyle}
-              >
-                {pageTiles.map(renderGridTile)}
-                {pageTiles.length === 0 && !loading && (
-                  <div className="col-span-full text-center text-sm text-slate-400 py-6">
-                    No hay elementos para mostrar.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Paginación inferior */}
-            <div className="h-14 border-t border-slate-800 flex items-center justify-between px-6 text-sm bg-slate-900">
-              <span className="whitespace-nowrap">
-                Página {safePage} / {totalPages}
-              </span>
-              <div className="flex items-center gap-4">
-                <div className="hidden items-center gap-2 text-xs text-slate-300 lg:flex">
-                  <span className="text-slate-400">Grid</span>
-                  <button
-                    type="button"
-                    onClick={() => handleZoomChange(-GRID_ZOOM_STEP)}
-                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
-                  >
-                    –
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleZoomReset}
-                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
-                  >
-                    {Math.round(gridZoom * 100)}%
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleZoomChange(GRID_ZOOM_STEP)}
-                    className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
-                  >
-                    +
-                  </button>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
-                    disabled={safePage === 1}
-                    onClick={() => setCurrentPage(1)}
-                  >
-                    ⏮
-                  </button>
-                  <button
-                    className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
-                    disabled={safePage === 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  >
-                    ◀
-                  </button>
-                  <button
-                    className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
-                    disabled={safePage === totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  >
-                    ▶
-                  </button>
-                  <button
-                    className="px-3 py-2 rounded-md bg-slate-800 hover:bg-slate-700 disabled:opacity-40"
-                    disabled={safePage === totalPages}
-                    onClick={() => setCurrentPage(totalPages)}
-                  >
-                    ⏭
-                  </button>
-                  <button
-                    className="ml-4 px-4 py-2 rounded-md bg-slate-800 hover:bg-slate-700"
-                    onClick={() => {
-                      setCurrentPath([]);
-                      setCurrentPage(1);
-                      setSearch("");
-                    }}
-                  >
-                    Home
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
+        <PosCatalogGrid
+          tiles={pageTiles}
+          loading={loading}
+          search={search}
+          currentPath={currentPath}
+          gridStyle={gridStyle}
+          gridZoom={gridZoom}
+          imageHeight={tileImageHeight}
+          labelFontSize={tileLabelFontSize}
+          priceFontSize={tilePriceFontSize}
+          metaFontSize={tileMetaFontSize}
+          safePage={safePage}
+          totalPages={totalPages}
+          zoomStep={GRID_ZOOM_STEP}
+          searchInputRef={searchInputRef}
+          gridRef={gridRef}
+          setSearch={setSearch}
+          setCurrentPath={setCurrentPath}
+          setCurrentPage={setCurrentPage}
+          onSearchKeyDown={handleSearchKeyDown}
+          onTileClick={handleTileClick}
+          onZoomChange={handleZoomChange}
+          onZoomReset={handleZoomReset}
+          resolveAssetUrl={resolveAssetUrl}
+        />
       </div>
 
       {/* Modales */}
