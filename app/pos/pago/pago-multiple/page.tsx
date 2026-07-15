@@ -1497,6 +1497,15 @@ export default function PagoMultiplePage() {
     );
   }
 
+  function handleCancelToPos() {
+    navigate(
+      "/pos",
+      "Volviendo al POS…",
+      "Tu carrito permanece guardado.",
+      { replace: true }
+    );
+  }
+
   function buildSaleDocumentHtml(variant: "ticket" | "invoice" = "ticket") {
     if (!successSale) return null;
     const payload = {
@@ -2261,7 +2270,15 @@ export default function PagoMultiplePage() {
         </div>
 
         {/* Botones inferiores */}
-          <footer className="h-40 shrink-0 grid grid-cols-2 items-center gap-5 px-10 py-5 border-t border-slate-800 bg-slate-950/85">
+          <footer className="h-40 shrink-0 grid grid-cols-3 items-center gap-5 px-10 py-5 border-t border-slate-800 bg-slate-950/85">
+            <button
+              type="button"
+              onClick={handleCancelToPos}
+              className="w-full h-[5.5rem] rounded-xl bg-red-600 hover:bg-red-700 text-lg font-semibold text-slate-50 transition-colors shadow-lg shadow-red-900/30"
+            >
+              Cancelar
+            </button>
+
             <button
               type="button"
               onClick={handleCancel}
