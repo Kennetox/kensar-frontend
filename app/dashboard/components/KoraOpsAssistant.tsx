@@ -48,6 +48,7 @@ type KoraOpsAssistantProps = {
   token?: string | null;
   userRole?: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "";
   initialOpen?: boolean;
+  initialQuickAction?: "restock_today" | null;
 };
 
 type KoraAction = {
@@ -223,7 +224,6 @@ type KoraRestockReportRow = {
   coverage_days: string;
   suggested_qty: number;
   urgency: "high" | "medium" | "low";
-  reason: string;
 };
 
 type QuickTopRow = {
@@ -1100,7 +1100,14 @@ function buildFallbackSuggestions(input: string, moduleKey?: KoraModuleKey | nul
   };
 }
 
-export default function KoraOpsAssistant({ enabled, userName, token, userRole, initialOpen }: KoraOpsAssistantProps) {
+export default function KoraOpsAssistant({
+  enabled,
+  userName,
+  token,
+  userRole,
+  initialOpen,
+  initialQuickAction,
+}: KoraOpsAssistantProps) {
   const SHOW_RESTOCK_DEBUG = true; // Temporal: quitar cuando afinemos el reporte.
   const router = useRouter();
   const pathname = usePathname();
@@ -1136,6 +1143,7 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
   const nudgeReappearTimeoutRef = useRef<number | null>(null);
   const sessionContextRef = useRef<KoraSessionContext>(getInitialSessionContext());
   const latestRestockReportRef = useRef<KoraRestockForecastResponse | null>(null);
+  const initialQuickActionRunRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -1324,6 +1332,45 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
     [persistCurrentSessionContext, roleTone]
   );
 
+  useEffect(() => {
+    if (!initialOpen || !initialQuickAction || !token) return;
+    if (initialQuickActionRunRef.current === initialQuickAction) return;
+    initialQuickActionRunRef.current = initialQuickAction;
+
+    if (initialQuickAction === "restock_today") {
+      const apiBase = getApiBase();
+      const params = new URLSearchParams({
+        mode: "today",
+        horizon_days: "2",
+        lookback_days: "30",
+      });
+
+      setOpen(true);
+      setBusy(true);
+      void (async () => {
+        try {
+          const res = await fetch(`${apiBase}/kora/restock-forecast?${params.toString()}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            throw new Error(`Error ${res.status} al consultar pronóstico de reposición.`);
+          }
+          const data = (await res.json()) as KoraRestockForecastResponse;
+          latestRestockReportRef.current = data;
+          setRestockReport(data);
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "No fue posible construir el pronóstico de reposición.";
+          pushMessage("kora", `No pude abrir el reporte de reposición ahora. ${message}`, PRODUCT_ACTIONS);
+        } finally {
+          setBusy(false);
+        }
+      })();
+    }
+  }, [initialOpen, initialQuickAction, token, pushMessage]);
+
   function resolveBinaryConfirmation(input: string): "yes" | "no" | null {
     const text = normalizeQuery(input).trim();
     if (!text) return null;
@@ -1367,7 +1414,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
             : `${Math.round(item.coverage_days)} días`,
       suggested_qty: Math.max(0, Number(item.suggested_qty ?? 0)),
       urgency: item.urgency,
-      reason: item.reason,
     }));
   }
 
@@ -1393,7 +1439,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
             <td class="numeric">${row.suggested_qty.toFixed(0)}</td>
             <td><span style="color:${urgencyColor};font-weight:700">${urgencyLabel}</span></td>
             <td class="numeric">${formatMoney(row.price)}</td>
-            <td>${escapeHtml(row.reason)}</td>
           </tr>`;
       })
       .join("");
@@ -4828,7 +4873,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                                 <th className="px-3 py-2 text-right">Umbral</th>
                                 <th className="px-3 py-2">Fuente</th>
                                 <th className="px-3 py-2">Urgencia</th>
-                                <th className="px-3 py-2">Motivo</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -4853,7 +4897,6 @@ export default function KoraOpsAssistant({ enabled, userName, token, userRole, i
                                   <td className="px-3 py-2 font-semibold text-slate-700">
                                     {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
                                   </td>
-                                  <td className="px-3 py-2 text-slate-600">{item.reason}</td>
                                 </tr>
                                 );
                               })}

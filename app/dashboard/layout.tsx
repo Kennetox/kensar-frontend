@@ -474,6 +474,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { user, tenant, token, loading, logout } = useAuth();
   const posPreview = searchParams.get("posPreview") === "1";
   const openKora = searchParams.get("openKora") === "1";
+  const koraQuickAction = searchParams.get("koraQuick") === "restock_today" ? "restock_today" : null;
   const [navOpen, setNavOpen] = useState(false);
   const [roleModules, setRoleModules] = useState(defaultRolePermissions);
   const [rolePermissionsReady, setRolePermissionsReady] = useState(false);
@@ -1129,6 +1130,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           token={token}
           userRole={displayRole}
           initialOpen={openKora}
+          initialQuickAction={koraQuickAction}
         />
       </div>
     </div>

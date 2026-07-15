@@ -34,6 +34,7 @@ import {
   type PendingSaleRecord,
 } from "@/lib/pos/pendingSales";
 import { fetchPosSettings, PosSettingsPayload } from "@/lib/api/settings";
+import { buildRestockReportHtml, type KoraRestockForecastResponse } from "@/lib/kora/restock-report";
 import {
   fetchSeparatedOrders,
   type SeparatedOrder,
@@ -747,6 +748,47 @@ function splitGroupPath(groupName: string | null): string[] | null {
   return parts.length ? parts : null;
 }
 
+function PosCurrentClock() {
+  const [clock, setClock] = useState({
+    time: "",
+    period: "",
+    dateLabel: "",
+  });
+
+  useEffect(() => {
+    const updateTime = () => {
+      const { hour, minute, second, day, month, year } = getBogotaDateParts();
+      const hours = Number(hour);
+      const hours12 = hours % 12 || 12;
+      setClock({
+        time: `${String(hours12).padStart(2, "0")}:${String(minute).padStart(
+          2,
+          "0"
+        )}:${String(second).padStart(2, "0")}`,
+        period: hours >= 12 ? "PM" : "AM",
+        dateLabel: `${day}/${month}/${year}`,
+      });
+    };
+    updateTime();
+    const interval = window.setInterval(updateTime, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-3 text-base text-slate-200 tracking-wide">
+      {clock.time && (
+        <span className="flex items-center gap-2">
+          <span>{clock.time}</span>
+          {clock.period && <span>{clock.period}</span>}
+        </span>
+      )}
+      {clock.dateLabel && (
+        <span className="text-slate-400/80">{clock.dateLabel}</span>
+      )}
+    </div>
+  );
+}
+
 export default function PosPage() {
   // --------- Datos base ---------
   const router = useRouter();
@@ -960,13 +1002,14 @@ const matchesStationLabel = useCallback(
     }
   }, []);
   const [printerModalOpen, setPrinterModalOpen] = useState(false);
+  const [koraRestockModalOpen, setKoraRestockModalOpen] = useState(false);
+  const [koraRestockModalLoading, setKoraRestockModalLoading] = useState(false);
+  const [koraRestockModalError, setKoraRestockModalError] = useState<string | null>(null);
+  const [koraRestockReport, setKoraRestockReport] = useState<KoraRestockForecastResponse | null>(null);
   const [qzGuideOpen, setQzGuideOpen] = useState(false);
   const [availablePrinters, setAvailablePrinters] = useState<string[]>([]);
   const [printerScanMessage, setPrinterScanMessage] = useState<string | null>(null);
   const [printerScanning, setPrinterScanning] = useState(false);
-  const [currentTime, setCurrentTime] = useState("");
-  const [currentPeriod, setCurrentPeriod] = useState("");
-  const [currentDateLabel, setCurrentDateLabel] = useState("");
   const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
     printerName: "",
@@ -986,6 +1029,74 @@ const matchesStationLabel = useCallback(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
     [token]
   );
+  const openKoraRestockModal = useCallback(async () => {
+    setKoraRestockModalOpen(true);
+    setKoraRestockModalError(null);
+    setKoraRestockModalLoading(true);
+
+    if (!token) {
+      setKoraRestockModalError("No pude validar tu sesión para abrir el reporte.");
+      setKoraRestockModalLoading(false);
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        mode: "today",
+        horizon_days: "2",
+        lookback_days: "30",
+      });
+      const res = await fetch(`${apiBase}/kora/restock-forecast?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        throw new Error(`Error ${res.status} al consultar el reporte.`);
+      }
+      const data = (await res.json()) as KoraRestockForecastResponse;
+      setKoraRestockReport(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible abrir el reporte.";
+      setKoraRestockModalError(message);
+      setKoraRestockReport(null);
+    } finally {
+      setKoraRestockModalLoading(false);
+    }
+  }, [apiBase, token]);
+  const printKoraRestockReport = useCallback(() => {
+    const report = koraRestockReport;
+    if (!report || typeof window === "undefined") return;
+    const html = buildRestockReportHtml(report);
+    const printFrame = document.createElement("iframe");
+    printFrame.style.position = "fixed";
+    printFrame.style.right = "0";
+    printFrame.style.bottom = "0";
+    printFrame.style.width = "0";
+    printFrame.style.height = "0";
+    printFrame.style.border = "0";
+    printFrame.setAttribute("aria-hidden", "true");
+    document.body.appendChild(printFrame);
+
+    const cleanup = () => {
+      window.setTimeout(() => {
+        printFrame.remove();
+      }, 1000);
+    };
+
+    printFrame.onload = () => {
+      const frameWindow = printFrame.contentWindow;
+      if (!frameWindow) {
+        cleanup();
+        return;
+      }
+      frameWindow.focus();
+      frameWindow.print();
+      cleanup();
+    };
+
+    printFrame.srcdoc = html;
+  }, [koraRestockReport]);
   const handleDismissStationNotice = useCallback(async (noticeId?: number) => {
     const targetNoticeId = noticeId ?? stationNotice?.id;
     if (!token || !targetNoticeId || !activeStationId) return;
@@ -1241,26 +1352,6 @@ const matchesStationLabel = useCallback(
       if (hideTimer) window.clearTimeout(hideTimer);
       if (removeTimer) window.clearTimeout(removeTimer);
     };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const updateTime = () => {
-      const { hour, minute, second } = getBogotaDateParts();
-      const hours = Number(hour);
-      const hours12 = hours % 12 || 12;
-      const ampm = hours >= 12 ? "PM" : "AM";
-      const paddedHours = String(hours12).padStart(2, "0");
-      const paddedMinutes = String(minute).padStart(2, "0");
-      const paddedSeconds = String(second).padStart(2, "0");
-      setCurrentTime(`${paddedHours}:${paddedMinutes}:${paddedSeconds}`);
-      setCurrentPeriod(ampm);
-      const { day, month, year } = getBogotaDateParts();
-      setCurrentDateLabel(`${day}/${month}/${year}`);
-    };
-    updateTime();
-    const interval = window.setInterval(updateTime, 1000);
-    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -2290,9 +2381,18 @@ const matchesStationLabel = useCallback(
     lastClosureEmailedRef.current = null;
   }, []);
 
+  const pendingSalesScope = useMemo(
+    () => ({
+      tenantId: tenant?.id ?? null,
+      userId: user?.id ?? null,
+      stationId: activeStationId,
+    }),
+    [activeStationId, tenant?.id, user?.id]
+  );
+
   const refreshPendingSales = useCallback(() => {
-    setPendingSales(getPendingSales());
-  }, []);
+    setPendingSales(getPendingSales(pendingSalesScope));
+  }, [pendingSalesScope]);
 
   const handleToggleFullscreen = useCallback(async () => {
     if (typeof document === "undefined") return;
@@ -3926,7 +4026,7 @@ const matchesStationLabel = useCallback(
   );
 
   const handleSendAllPending = useCallback(async () => {
-    const snapshot = getPendingSales();
+    const snapshot = getPendingSales(pendingSalesScope);
     if (!snapshot.length) return;
     setSendingAllPending(true);
     try {
@@ -3946,7 +4046,7 @@ const matchesStationLabel = useCallback(
       setSendingAllPending(false);
       setSendingPendingId(null);
     }
-  }, [processPendingSale]);
+  }, [pendingSalesScope, processPendingSale]);
 
   const acknowledgePendingClosureAlert = useCallback(
     (options?: { dismiss?: boolean }) => {
@@ -6437,6 +6537,57 @@ const matchesStationLabel = useCallback(
                     }`}
                   />
                   <aside
+                    className={`hidden md:flex fixed top-6 z-40 h-[calc(100vh-3rem)] w-72 flex-col overflow-hidden rounded-[26px] border border-sky-500/40 bg-slate-900/95 shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl ${
+                      userMenuClosing
+                        ? "animate-[slideOut_180ms_ease-in]"
+                        : "animate-[slideIn_180ms_ease-out]"
+                    }`}
+                    style={{ left: "1.5rem" }}
+                  >
+                    <style>{`
+                      @keyframes slideIn {
+                        from { transform: translateX(16px); opacity: 0; }
+                        to { transform: translateX(0); opacity: 1; }
+                      }
+                      @keyframes slideOut {
+                        from { transform: translateX(0); opacity: 1; }
+                        to { transform: translateX(24px); opacity: 0; }
+                      }
+                    `}</style>
+                    <div className="px-6 py-5 border-b border-slate-800/80 flex items-center justify-between">
+                      <div>
+                        <div className="text-[12px] uppercase tracking-[0.22em] text-sky-300">
+                          KORA rápida
+                        </div>
+                        <div className="mt-2 text-base font-semibold text-slate-100">
+                          Accesos directos
+                        </div>
+                        <div className="text-[12px] text-slate-400">Revisión rápida desde POS</div>
+                      </div>
+                      <div className="h-12 w-12 rounded-full border border-sky-500/40 bg-slate-800 text-slate-100 flex items-center justify-center text-sm font-bold">
+                        KI
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeUserMenu();
+                          void openKoraRestockModal();
+                        }}
+                        className="mb-3 w-full rounded-2xl border border-sky-400/40 bg-sky-500/10 px-4 py-4 text-left text-slate-100 transition hover:border-sky-300 hover:bg-sky-500/15"
+                      >
+                        <div className="text-[11px] uppercase tracking-[0.2em] text-sky-300">
+                          Reporte rápido
+                        </div>
+                        <div className="mt-1 text-lg font-semibold">Productos para mañana</div>
+                        <div className="mt-1 text-xs text-slate-400">
+                          Abre el reporte en una ventana rápida sin salir del POS.
+                        </div>
+                      </button>
+                    </div>
+                  </aside>
+                  <aside
                     className={`fixed right-6 top-6 z-40 flex h-[calc(100vh-3rem)] w-80 flex-col overflow-hidden rounded-[26px] border border-slate-700/60 bg-slate-900/95 shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl ${
                       userMenuClosing
                         ? "animate-[slideOut_180ms_ease-in]"
@@ -6722,21 +6873,7 @@ const matchesStationLabel = useCallback(
                       <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
                         Hora actual
                       </div>
-                      {(currentTime || currentDateLabel) && (
-                        <div className="mt-2 flex flex-wrap items-center gap-3 text-base text-slate-200 tracking-wide">
-                          {currentTime && (
-                            <span className="flex items-center gap-2">
-                              <span>{currentTime}</span>
-                              {currentPeriod && <span>{currentPeriod}</span>}
-                            </span>
-                          )}
-                          {currentDateLabel && (
-                            <span className="text-slate-400/80">
-                              {currentDateLabel}
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      <PosCurrentClock />
                     </div>
                   </aside>
                 </>
@@ -7351,6 +7488,78 @@ const matchesStationLabel = useCallback(
       </div>
 
       {/* Modales */}
+      {koraRestockModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-3 py-4 backdrop-blur-sm"
+          onClick={() => setKoraRestockModalOpen(false)}
+        >
+          <div
+            className="flex h-[calc(100vh-2rem)] w-full max-w-[1480px] flex-col overflow-hidden rounded-[28px] border border-slate-700 bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
+                  KORA rápida
+                </div>
+                <div className="mt-1 text-lg font-semibold text-slate-900">
+                  Productos vendidos hoy que conviene reponer mañana
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={printKoraRestockReport}
+                  disabled={!koraRestockReport}
+                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Imprimir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setKoraRestockModalOpen(false)}
+                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-100">
+              {koraRestockModalLoading ? (
+                <div className="flex h-full items-center justify-center">
+                  <LoadingSpinner size={56} label="Cargando reporte..." />
+                </div>
+              ) : koraRestockModalError ? (
+                <div className="flex h-full items-center justify-center px-6">
+                  <div className="max-w-xl rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-rose-800">
+                    <div className="font-semibold">No se pudo abrir el reporte.</div>
+                    <div className="mt-1 text-sm">{koraRestockModalError}</div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void openKoraRestockModal();
+                      }}
+                      className="mt-4 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                </div>
+              ) : koraRestockReport ? (
+                <iframe
+                  title="Reporte de reposición KORA"
+                  srcDoc={buildRestockReportHtml(koraRestockReport)}
+                  className="h-full w-full border-0 bg-white"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-slate-500">
+                  No hay reporte para mostrar.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {/* Cantidad */}
       {quantityModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-20 px-4">
