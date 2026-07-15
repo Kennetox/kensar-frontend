@@ -190,7 +190,6 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
       .mini-kpi {
         display: inline-flex;
         align-items: center;
-        margin-top: 12px;
         padding: 6px 10px;
         border-radius: 999px;
         background: rgba(15, 23, 42, 0.05);
@@ -198,6 +197,19 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
         font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.02em;
+      }
+      .meta-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-end;
+      }
+      .meta-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
       }
       .cards {
         display: grid;
@@ -289,10 +301,12 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
           <p>Reporte operativo de reposición</p>
           <p>${escapeHtml(report.mode === "today" ? "Reposición de ventas de hoy" : "Reposición general")}</p>
         </div>
-        <div class="meta">
-          <div class="badge">Generado ${escapeHtml(generatedAt)}</div>
+        <div class="meta meta-stack">
+          <div class="meta-row">
+            <div class="badge">Generado ${escapeHtml(generatedAt)}</div>
+            <div class="mini-kpi">Lista: ${totalProducts.toLocaleString("es-CO")} productos</div>
+          </div>
           <p style="margin-top:10px;">${escapeHtml(report.headline)}</p>
-          <div class="mini-kpi">Lista: ${totalProducts.toLocaleString("es-CO")} productos</div>
         </div>
       </div>
       <div class="table-wrap">
