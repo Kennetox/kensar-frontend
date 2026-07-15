@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   usePos,
@@ -41,6 +40,8 @@ import {
   type PosStationPrinterConfig,
 } from "@/lib/api/posStations";
 import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
+import { PosNavigationOverlay } from "../../components/PosNavigationOverlay";
+import { useGuardedPosNavigation } from "../../hooks/useGuardedPosNavigation";
 
 type PaymentMethodSlug = string;
 
@@ -176,7 +177,7 @@ function getLineEffectiveMethod(line: PaymentLine): PaymentMethodSlug {
 }
 
 export default function PagoMultiplePage() {
-  const router = useRouter();
+  const { navigation, navigate, prefetch } = useGuardedPosNavigation();
   const {
     cart,
     cartTotal,
@@ -297,6 +298,11 @@ export default function PagoMultiplePage() {
   );
   const confirmDisabled = !cart.length || !payments.length || isConfirmingSale;
   const canSubmitWithEnter = !confirmDisabled && !successSale;
+
+  useEffect(() => {
+    prefetch("/pos");
+    prefetch("/pos/pago");
+  }, [prefetch]);
   const apiBase = useMemo(() => getApiBase(), []);
   const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
@@ -597,10 +603,15 @@ export default function PagoMultiplePage() {
 
   // Si el carrito está vacío y no hay venta exitosa → volver al POS
   useEffect(() => {
-    if (!cart.length && !successSale) {
-      router.push("/pos");
+    if (!cart.length && !successSale && !navigation) {
+      navigate(
+        "/pos",
+        "Volviendo al POS…",
+        "Preparando una nueva venta.",
+        { replace: true }
+      );
     }
-  }, [cart.length, successSale, router]);
+  }, [cart.length, navigate, navigation, successSale]);
 
   useEffect(() => {
     let active = true;
@@ -1019,7 +1030,12 @@ export default function PagoMultiplePage() {
             "Guardamos la venta como pendiente. Se enviará cuando se recupere la conexión con el servidor."
         );
         markResumeHeldSale();
-        router.replace("/pos");
+        navigate(
+          "/pos",
+          "Volviendo al POS…",
+          "La venta pendiente quedó guardada.",
+          { replace: true }
+        );
       };
 
       if (!isOnline) {
@@ -1416,7 +1432,12 @@ export default function PagoMultiplePage() {
   }
 
   function handleCancel() {
-    router.push("/pos/pago");
+    navigate(
+      "/pos/pago",
+      "Volviendo al pago simple…",
+      "Conservando los productos y el total de la venta.",
+      { replace: true }
+    );
   }
 
   function buildSaleDocumentHtml(variant: "ticket" | "invoice" = "ticket") {
@@ -1649,10 +1670,16 @@ export default function PagoMultiplePage() {
   }
 
   const handleSuccessDone = useCallback(() => {
-    setSuccessSale(null);
-    markResumeHeldSale();
-    router.push("/pos");
-  }, [markResumeHeldSale, router]);
+    navigate(
+      "/pos",
+      "Preparando una nueva venta…",
+      "La venta anterior ya quedó registrada.",
+      {
+        replace: true,
+        beforeNavigate: markResumeHeldSale,
+      }
+    );
+  }, [markResumeHeldSale, navigate]);
   useEffect(() => {
     handleConfirmRef.current = () => handleConfirm();
   });
@@ -1710,6 +1737,12 @@ export default function PagoMultiplePage() {
 
   return (
     <main className="h-screen bg-slate-950 text-slate-50 flex flex-col overflow-hidden">
+      {navigation && (
+        <PosNavigationOverlay
+          title={navigation.title}
+          detail={navigation.detail}
+        />
+      )}
       {/* Barra superior */}
       <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-900">
         <div className="flex items-center gap-3">

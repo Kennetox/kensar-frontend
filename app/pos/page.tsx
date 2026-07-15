@@ -593,6 +593,14 @@ type GroupAppearance = {
   tile_color: string | null;
 };
 
+type PosCatalogMemoryCache = {
+  scopeKey: string;
+  products: Product[];
+  groupAppearances: Record<string, GroupAppearance>;
+};
+
+let posCatalogMemoryCache: PosCatalogMemoryCache | null = null;
+
 
 
 function formatMoney(value: number): string {
@@ -817,9 +825,16 @@ export default function PosPage() {
   const { token, user, tenant, logout } = useAuth();
   const searchParams = useSearchParams();
   const newTabQuery = searchParams.get("newTab") === "1";
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const catalogLoadedRef = useRef(false);
+  const catalogScopeKey = `tenant:${tenant?.id ?? "pending"}`;
+  const initialCatalogCache =
+    posCatalogMemoryCache?.scopeKey === catalogScopeKey
+      ? posCatalogMemoryCache
+      : null;
+  const [products, setProducts] = useState<Product[]>(
+    () => initialCatalogCache?.products ?? []
+  );
+  const [loading, setLoading] = useState(() => !initialCatalogCache);
+  const catalogLoadedRef = useRef(Boolean(initialCatalogCache));
   const [paymentNavigationPending, setPaymentNavigationPending] = useState(false);
   const paymentNavigationLockRef = useRef(false);
   const paymentNavigationTimerRef = useRef<number | null>(null);
@@ -969,7 +984,9 @@ const matchesStationLabel = useCallback(
   const [customSurchargePercent, setCustomSurchargePercent] = useState("5");
   const [currentPath, setCurrentPath] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [groupAppearances, setGroupAppearances] = useState<Record<string, GroupAppearance>>({});
+  const [groupAppearances, setGroupAppearances] = useState<Record<string, GroupAppearance>>(
+    () => initialCatalogCache?.groupAppearances ?? {}
+  );
   const [syncingCatalog, setSyncingCatalog] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [catalogVersion, setCatalogVersion] = useState<string | null>(null);
@@ -5046,6 +5063,14 @@ const matchesStationLabel = useCallback(
       const data: Product[] = await res.json();
       const activeOnly = data.filter((p) => p.active);
       setProducts(activeOnly);
+      posCatalogMemoryCache = {
+        scopeKey: catalogScopeKey,
+        products: activeOnly,
+        groupAppearances:
+          posCatalogMemoryCache?.scopeKey === catalogScopeKey
+            ? posCatalogMemoryCache.groupAppearances
+            : {},
+      };
       catalogLoadedRef.current = true;
       setError(null);
       return true;
@@ -5056,7 +5081,7 @@ const matchesStationLabel = useCallback(
     } finally {
       if (shouldBlockUi) setLoading(false);
     }
-  }, [authHeaders]);
+  }, [authHeaders, catalogScopeKey]);
 
   const loadGroupAppearances = useCallback(async (): Promise<boolean> => {
     if (!authHeaders) return false;
@@ -5080,12 +5105,20 @@ const matchesStationLabel = useCallback(
         }
       });
       setGroupAppearances(map);
+      posCatalogMemoryCache = {
+        scopeKey: catalogScopeKey,
+        products:
+          posCatalogMemoryCache?.scopeKey === catalogScopeKey
+            ? posCatalogMemoryCache.products
+            : [],
+        groupAppearances: map,
+      };
       return true;
     } catch (err) {
       console.warn("No se pudieron cargar los grupos", err);
       return false;
     }
-  }, [authHeaders]);
+  }, [authHeaders, catalogScopeKey]);
 
   useEffect(() => {
     if (!authHeaders) return;

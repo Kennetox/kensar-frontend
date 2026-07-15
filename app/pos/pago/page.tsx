@@ -1,7 +1,6 @@
 // app/pos/pago/page.tsx
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   usePos,
@@ -41,6 +40,8 @@ import {
   type PosStationPrinterConfig,
 } from "@/lib/api/posStations";
 import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
+import { PosNavigationOverlay } from "../components/PosNavigationOverlay";
+import { useGuardedPosNavigation } from "../hooks/useGuardedPosNavigation";
 
 type PaymentMethodSlug = string;
 
@@ -150,9 +151,9 @@ function getRequiredReasonsFromCart(cart: CartItem[]): Record<string, string[]> 
 }
 
 export default function PagoPage() {
-  const router = useRouter();
   const { token, user, tenant } = useAuth();
   const isOnline = useOnlineStatus();
+  const { navigation, navigate, prefetch } = useGuardedPosNavigation();
 
   // 👇 asegúrate de que usePos expone cartTotal (ya lo usábamos antes)
   const {
@@ -579,6 +580,11 @@ export default function PagoPage() {
   const canSubmitWithEnter = !confirmDisabled && !successSale;
 
   useEffect(() => {
+    prefetch("/pos");
+    prefetch("/pos/pago/pago-multiple");
+  }, [prefetch]);
+
+  useEffect(() => {
     if (!hasActivePaymentMethods) return;
     const exists = activePaymentMethods.some((m) => m.slug === method);
     if (!exists) {
@@ -652,10 +658,15 @@ export default function PagoPage() {
 
   // Si no hay carrito y NO estamos en la ventana de éxito, mandamos al POS
   useEffect(() => {
-    if (!cart.length && !successSale) {
-      router.push("/pos");
+    if (!cart.length && !successSale && !navigation) {
+      navigate(
+        "/pos",
+        "Volviendo al POS…",
+        "Preparando una nueva venta.",
+        { replace: true }
+      );
     }
-  }, [cart.length, successSale, router]); 
+  }, [cart.length, navigate, navigation, successSale]);
 
   useEffect(() => {
     let active = true;
@@ -1060,7 +1071,12 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             "Guardamos la venta como pendiente. Se enviará cuando se recupere la conexión con el servidor."
         );
         markResumeHeldSale();
-        router.replace("/pos");
+        navigate(
+          "/pos",
+          "Volviendo al POS…",
+          "La venta pendiente quedó guardada.",
+          { replace: true }
+        );
       };
 
       if (!isOnline) {
@@ -1465,7 +1481,20 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   }
 
   function handleCancel() {
-    router.push("/pos");
+    navigate(
+      "/pos",
+      "Volviendo al POS…",
+      "Tu carrito permanece guardado.",
+      { replace: true }
+    );
+  }
+
+  function handleOpenMultiplePayments() {
+    navigate(
+      "/pos/pago/pago-multiple",
+      "Abriendo pagos múltiples…",
+      "Conservando los productos y el total de la venta."
+    );
   }
 
   function buildSaleDocumentHtml(variant: "ticket" | "invoice" = "ticket") {
@@ -1692,10 +1721,16 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   }
 
   const handleSuccessDone = useCallback(() => {
-    setSuccessSale(null);
-    markResumeHeldSale();
-    router.push("/pos");
-  }, [markResumeHeldSale, router]);
+    navigate(
+      "/pos",
+      "Preparando una nueva venta…",
+      "La venta anterior ya quedó registrada.",
+      {
+        replace: true,
+        beforeNavigate: markResumeHeldSale,
+      }
+    );
+  }, [markResumeHeldSale, navigate]);
   useEffect(() => {
     handleConfirmRef.current = () => handleConfirm();
   });
@@ -1758,11 +1793,18 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
 
   return (
     <main className="h-screen bg-slate-950 text-slate-50 flex flex-col overflow-hidden">
+      {navigation && (
+        <PosNavigationOverlay
+          title={navigation.title}
+          detail={navigation.detail}
+        />
+      )}
       {/* Barra superior */}
       <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-900">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => router.push("/pos")}
+            type="button"
+            onClick={handleCancel}
             className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold"
           >
             ← Volver al POS
@@ -2192,7 +2234,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             {/* Botón para ir a la pantalla de pagos múltiples (NUEVO) */}
             <button
               type="button"
-              onClick={() => router.push("/pos/pago/pago-multiple")}
+              onClick={handleOpenMultiplePayments}
               className="w-full h-[89.2px] rounded-xl bg-slate-800 hover:bg-slate-700 text-lg font-semibold text-slate-100 transition-colors border border-slate-600 shadow-inner disabled:opacity-60"
               disabled={!cart.length}
             >
