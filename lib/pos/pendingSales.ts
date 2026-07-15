@@ -1,4 +1,4 @@
-import { getApiBase } from "@/lib/api/base";
+import { getApiBase } from "../api/base.ts";
 
 export type PendingSaleRecord = {
   id: string;
@@ -203,6 +203,7 @@ export async function submitPendingSale(
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          "X-Request-ID": `${record.id}_reserve`.slice(0, 64),
         },
         credentials: "include",
         body: JSON.stringify({
@@ -228,6 +229,10 @@ export async function submitPendingSale(
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      "X-Request-ID":
+        typeof payload.client_request_id === "string"
+          ? payload.client_request_id
+          : record.id,
     },
     credentials: "include",
     body: JSON.stringify(payload),

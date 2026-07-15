@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:kora": "node --test --experimental-strip-types tests/kora/**/*.test.ts"
+    "test:kora": "node --test --experimental-strip-types tests/kora/**/*.test.ts",
+    "test:pos": "node --test --experimental-strip-types tests/pos/**/*.test.ts"
   },
   "dependencies": {
     "next": "^16.1.1",

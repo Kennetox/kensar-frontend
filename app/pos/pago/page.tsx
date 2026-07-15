@@ -880,6 +880,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
+              "X-Request-ID": `${saleAttemptId}_reserve`,
             },
             credentials: "include",
             body: JSON.stringify({
@@ -1077,6 +1078,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
+              "X-Request-ID": saleAttemptId,
             },
             credentials: "include",
             body: JSON.stringify(payloadToSend),
@@ -1127,6 +1129,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                 headers: {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${token}`,
+                  "X-Request-ID": saleAttemptId,
                 },
                 credentials: "include",
                 body: JSON.stringify(retryInvalidReservationPayload),
@@ -1183,6 +1186,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                 headers: {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${token}`,
+                  "X-Request-ID": saleAttemptId,
                 },
                 credentials: "include",
                 body: JSON.stringify(retryPayload),

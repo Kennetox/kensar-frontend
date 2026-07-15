@@ -853,6 +853,7 @@ export default function PagoMultiplePage() {
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
+              "X-Request-ID": `${saleAttemptId}_reserve`,
             },
             credentials: "include",
             body: JSON.stringify({
@@ -1036,6 +1037,7 @@ export default function PagoMultiplePage() {
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
+              "X-Request-ID": saleAttemptId,
             },
             credentials: "include",
             body: JSON.stringify(payloadToSend),
@@ -1088,6 +1090,7 @@ export default function PagoMultiplePage() {
                 headers: {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${token}`,
+                  "X-Request-ID": saleAttemptId,
                 },
                 credentials: "include",
                 body: JSON.stringify(retryInvalidReservationPayload),
@@ -1147,6 +1150,7 @@ export default function PagoMultiplePage() {
                 headers: {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${token}`,
+                  "X-Request-ID": saleAttemptId,
                 },
                 credentials: "include",
                 body: JSON.stringify(retryPayload),

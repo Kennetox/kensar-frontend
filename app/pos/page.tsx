@@ -797,6 +797,7 @@ export default function PosPage() {
   const newTabQuery = searchParams.get("newTab") === "1";
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const catalogLoadedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [holdSaleToast, setHoldSaleToast] = useState<string | null>(null);
   const [holdSaleToastPhase, setHoldSaleToastPhase] = useState<"enter" | "exit">("enter");
@@ -1325,11 +1326,6 @@ const matchesStationLabel = useCallback(
   useEffect(() => {
     if (!authHeaders) return;
     void fetchCatalogVersion({ silent: true, markSynced: true });
-  }, [authHeaders, fetchCatalogVersion]);
-
-  useEffect(() => {
-    if (!authHeaders) return;
-    void fetchCatalogVersion({ silent: true });
     const interval = window.setInterval(() => {
       void fetchCatalogVersion({ silent: true });
     }, 30 * 60 * 1000);
@@ -2450,6 +2446,7 @@ const matchesStationLabel = useCallback(
   } | null>(null);
   const [sendingPendingId, setSendingPendingId] = useState<string | null>(null);
   const [sendingAllPending, setSendingAllPending] = useState(false);
+  const autoPendingRetryKeyRef = useRef<string | null>(null);
   const hasSaleContent = useMemo(
     () =>
       cart.length > 0 ||
@@ -4048,6 +4045,30 @@ const matchesStationLabel = useCallback(
     }
   }, [pendingSalesScope, processPendingSale]);
 
+  useEffect(() => {
+    if (!isOnline) {
+      autoPendingRetryKeyRef.current = null;
+      return;
+    }
+    if (!token || sendingAllPending || sendingPendingId || pendingSales.length === 0) {
+      return;
+    }
+    const retryKey = pendingSales.map((sale) => sale.id).sort().join("|");
+    if (autoPendingRetryKeyRef.current === retryKey) return;
+    autoPendingRetryKeyRef.current = retryKey;
+    const timer = window.setTimeout(() => {
+      void handleSendAllPending();
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [
+    handleSendAllPending,
+    isOnline,
+    pendingSales,
+    sendingAllPending,
+    sendingPendingId,
+    token,
+  ]);
+
   const acknowledgePendingClosureAlert = useCallback(
     (options?: { dismiss?: boolean }) => {
       if (!pendingAlertAckKey) return;
@@ -4954,8 +4975,9 @@ const matchesStationLabel = useCallback(
 
   const loadProducts = useCallback(async (): Promise<boolean> => {
     if (!authHeaders) return false;
+    const shouldBlockUi = !catalogLoadedRef.current;
     try {
-      setLoading(true);
+      if (shouldBlockUi) setLoading(true);
       const apiBase = getApiBase();
       const res = await fetch(`${apiBase}/products/`, {
         headers: authHeaders ?? undefined,
@@ -4967,6 +4989,7 @@ const matchesStationLabel = useCallback(
       const data: Product[] = await res.json();
       const activeOnly = data.filter((p) => p.active);
       setProducts(activeOnly);
+      catalogLoadedRef.current = true;
       setError(null);
       return true;
     } catch (err: unknown) {
@@ -4974,7 +4997,7 @@ const matchesStationLabel = useCallback(
       else setError("Error al cargar productos");
       return false;
     } finally {
-      setLoading(false);
+      if (shouldBlockUi) setLoading(false);
     }
   }, [authHeaders]);
 
