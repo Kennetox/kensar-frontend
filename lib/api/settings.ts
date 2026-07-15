@@ -1085,6 +1085,20 @@ export async function updateStockDevice(
   );
 }
 
+export async function deleteStockDevice(
+  stockDeviceId: string,
+  token?: string | null
+): Promise<void> {
+  await request<void>(
+    `/stock/devices/${stockDeviceId}`,
+    {
+      method: "DELETE",
+    },
+    undefined,
+    token
+  );
+}
+
 export async function createStockDeviceSetupCode(
   payload: {
     stock_device_id?: string;

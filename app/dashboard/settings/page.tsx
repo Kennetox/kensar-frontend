@@ -42,6 +42,7 @@ import {
   fetchStockDevices,
   updateStockDevice,
   createStockDeviceSetupCode,
+  deleteStockDevice,
   StockDeviceRecord,
 } from "@/lib/api/settings";
 import {
@@ -1956,6 +1957,29 @@ export default function SettingsPage() {
         err instanceof Error
           ? err.message
           : "No pudimos actualizar el nombre del dispositivo."
+      );
+    } finally {
+      setUpdatingStockDeviceId(null);
+    }
+  }
+
+  async function handleDeleteStockDevice(device: StockDeviceRecord) {
+    if (!token) return;
+    const confirmed = window.confirm(
+      `¿Eliminar el dispositivo "${device.name}"? Esta acción solo debe usarse si ya no lo necesitas.`
+    );
+    if (!confirmed) return;
+    try {
+      setUpdatingStockDeviceId(device.id);
+      await deleteStockDevice(device.id, token);
+      setStockDeviceMessage("Dispositivo eliminado correctamente.");
+      await loadStockDevices();
+    } catch (err) {
+      console.error(err);
+      setStockDevicesError(
+        err instanceof Error
+          ? err.message
+          : "No pudimos eliminar el dispositivo."
       );
     } finally {
       setUpdatingStockDeviceId(null);
@@ -4588,13 +4612,33 @@ export default function SettingsPage() {
           </p>
         )}
         {stockDeviceSetupCode && (
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-4 text-sm text-emerald-100">
-            <div className="font-semibold">Código listo para {stockDeviceSetupCode.deviceName}</div>
-            <div className="mt-2 text-3xl font-black tracking-[0.4em] text-emerald-300">
-              {stockDeviceSetupCode.code}
+          <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-mint-50 px-5 py-5 text-sm shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="inline-flex items-center rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                  Vinculación lista
+                </div>
+                <div className="mt-3 text-base font-semibold text-slate-900">
+                  Código para {stockDeviceSetupCode.deviceName}
+                </div>
+              </div>
+              <div className="rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-800">
+                Úsalo en la tablet
+              </div>
             </div>
-            <div className="mt-2 text-xs text-emerald-200/80">
-              Vence: {formatDateLabel(stockDeviceSetupCode.expiresAt)}
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-white px-4 py-4 shadow-inner">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Código de vinculación
+              </div>
+              <div className="mt-2 text-4xl font-black tracking-[0.34em] text-emerald-600 sm:text-5xl">
+                {stockDeviceSetupCode.code}
+              </div>
+            </div>
+            <div className="mt-3 text-xs font-medium text-slate-600">
+              Vence: <span className="font-semibold text-slate-800">{formatDateLabel(stockDeviceSetupCode.expiresAt)}</span>
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              Abre la app en la tablet y escribe este código para completar la vinculación.
             </div>
           </div>
         )}
@@ -4688,6 +4732,19 @@ export default function SettingsPage() {
                           >
                             {device.is_active ? "Desactivar" : "Activar"}
                           </button>
+                          {!device.is_active ? (
+                            <>
+                              <span className="text-slate-600">|</span>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteStockDevice(device)}
+                                disabled={isUpdating}
+                                className="text-rose-300 hover:text-rose-200 disabled:opacity-40"
+                              >
+                                Eliminar
+                              </button>
+                            </>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
