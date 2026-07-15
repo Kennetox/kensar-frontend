@@ -164,7 +164,7 @@ function PosCustomerSelectorContent() {
       </header>
 
       <div className="flex-1 w-full px-4 sm:px-8 py-6 overflow-auto">
-        <div className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.75fr)] items-start">
+        <div className="mx-auto grid w-full max-w-6xl gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(360px,1fr)] items-start">
           <section className="rounded-3xl border border-emerald-500/15 bg-gradient-to-b from-slate-900/95 to-slate-950/90 p-6 shadow-xl ring-1 ring-slate-800/70">
             <p className="text-xs uppercase tracking-[0.22em] text-emerald-300/75">
               Resumen
@@ -273,9 +273,9 @@ function PosCustomerSelectorContent() {
                     onClick={() => handleAssignFrequent(customer)}
                     className="w-full px-4 py-4 text-left transition hover:bg-sky-500/8"
                   >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-base font-semibold text-slate-50">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="break-words text-base font-semibold leading-snug text-slate-50">
                           {customer.name}
                         </div>
                         <div className="text-sm text-slate-400">
