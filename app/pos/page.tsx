@@ -789,6 +789,50 @@ function PosCurrentClock() {
   );
 }
 
+const PosConnectionStatus = React.memo(function PosConnectionStatus({
+  isOnline,
+  pendingCount,
+}: {
+  isOnline: boolean;
+  pendingCount: number;
+}) {
+  const status = !isOnline
+    ? {
+        label: "Sin conexión",
+        detail: "Ventas protegidas localmente",
+        dot: "bg-amber-300",
+        style: "border-amber-400/40 bg-amber-500/10 text-amber-100",
+      }
+    : pendingCount > 0
+      ? {
+          label: "Recuperando",
+          detail: `${pendingCount} ${pendingCount === 1 ? "venta pendiente" : "ventas pendientes"}`,
+          dot: "bg-sky-300 animate-pulse",
+          style: "border-sky-400/40 bg-sky-500/10 text-sky-100",
+        }
+      : {
+          label: "POS operativo",
+          detail: "Conexión disponible",
+          dot: "bg-emerald-300",
+          style: "border-emerald-400/30 bg-emerald-500/10 text-emerald-100",
+        };
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`hidden xl:flex items-center gap-3 rounded-full border px-4 py-2 ${status.style}`}
+      title={status.detail}
+    >
+      <span className={`h-2.5 w-2.5 rounded-full ${status.dot}`} aria-hidden />
+      <span className="flex flex-col leading-tight">
+        <span className="text-xs font-semibold">{status.label}</span>
+        <span className="text-[10px] opacity-75">{status.detail}</span>
+      </span>
+    </div>
+  );
+});
+
 export default function PosPage() {
   // --------- Datos base ---------
   const router = useRouter();
@@ -6480,6 +6524,10 @@ const matchesStationLabel = useCallback(
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
+            <PosConnectionStatus
+              isOnline={isOnline}
+              pendingCount={pendingSales.length}
+            />
             <div className="flex flex-col items-end gap-1 text-sm">
               <div className="flex items-center gap-2">
                 <button
