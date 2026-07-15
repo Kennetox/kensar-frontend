@@ -55,6 +55,8 @@ import {
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
 const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
+const OPEN_DOCUMENT_FOR_ACTION_MESSAGE =
+  "Abre el documento con doble clic para cargar su información y usar esta acción.";
 
 function sanitizeSaleNotesForDisplay(notes?: string | null): string {
   const raw = (notes ?? "").trim();
@@ -1941,6 +1943,16 @@ export default function DocumentsExplorer({
       showToast("Selecciona un documento para ajustar.");
       return;
     }
+    if (
+      selectedDoc.type === "venta" &&
+      selectedDoc.isSummary &&
+      canAdjustDocuments &&
+      !selectedDocIsVoided &&
+      selectedDocIsToday
+    ) {
+      showToast(OPEN_DOCUMENT_FOR_ACTION_MESSAGE);
+      return;
+    }
     if (!canAdjustDoc) {
       showToast(adjustActionTitle ?? "No se puede ajustar este documento.");
       return;
@@ -1951,6 +1963,23 @@ export default function DocumentsExplorer({
   const handleVoidClick = () => {
     if (!selectedDoc) {
       showToast("Selecciona un documento para anular.");
+      return;
+    }
+    const supportsVoid = ![
+      "cierre",
+      "orden_web",
+      "abono",
+      "recepcion",
+      "recuento",
+    ].includes(selectedDoc.type);
+    if (
+      supportsVoid &&
+      selectedDoc.isSummary &&
+      canVoidDocuments &&
+      !selectedDocIsVoided &&
+      (selectedDoc.type === "venta" || selectedDoc.closureId == null)
+    ) {
+      showToast(OPEN_DOCUMENT_FOR_ACTION_MESSAGE);
       return;
     }
     if (!canOpenVoidModal) {
@@ -4142,6 +4171,10 @@ useEffect(() => {
     ? "Solo se puede anular antes del cierre"
     : undefined;
   const handlePrintTicketClick = () => {
+    if (selectedDoc?.type === "venta" && selectedDoc.isSummary) {
+      showToast(OPEN_DOCUMENT_FOR_ACTION_MESSAGE);
+      return;
+    }
     if (printTicketDisabled) {
       showToast("Solo disponible para ventas.");
       return;
@@ -4149,6 +4182,10 @@ useEffect(() => {
     handlePrintSelectedTicket();
   };
   const handlePrintInvoiceClick = () => {
+    if (selectedDoc?.type === "venta" && selectedDoc.isSummary) {
+      showToast(OPEN_DOCUMENT_FOR_ACTION_MESSAGE);
+      return;
+    }
     if (printTicketDisabled) {
       showToast("Solo disponible para ventas.");
       return;
@@ -4156,6 +4193,10 @@ useEffect(() => {
     handlePrintSelectedInvoice();
   };
   const handlePrintChangeClick = () => {
+    if (selectedDoc?.type === "cambio" && selectedDoc.isSummary) {
+      showToast(OPEN_DOCUMENT_FOR_ACTION_MESSAGE);
+      return;
+    }
     if (printChangeDisabled) {
       showToast("Solo disponible para cambios.");
       return;
@@ -4163,6 +4204,10 @@ useEffect(() => {
     handlePrintSelectedChange();
   };
   const handlePrintClosureClick = () => {
+    if (selectedDoc?.type === "cierre" && selectedDoc.isSummary) {
+      showToast(OPEN_DOCUMENT_FOR_ACTION_MESSAGE);
+      return;
+    }
     if (printClosureDisabled) {
       showToast("Solo disponible para cierres.");
       return;
