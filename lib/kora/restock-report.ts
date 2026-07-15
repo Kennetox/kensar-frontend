@@ -95,6 +95,7 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
     timeStyle: "short",
     timeZone: "America/Bogota",
   }).format(new Date(report.generated_at));
+  const totalProducts = rows.length;
   const tableRowsHtml = rows
     .map((row) => {
       const urgencyLabel = row.urgency === "high" ? "Alta" : row.urgency === "medium" ? "Media" : "Baja";
@@ -186,6 +187,18 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
         font-weight: 700;
         font-size: 12px;
       }
+      .mini-kpi {
+        display: inline-flex;
+        align-items: center;
+        margin-top: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.05);
+        color: #475569;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
       .cards {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -249,15 +262,14 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
         font-size: 11px;
         color: #64748b;
       }
-      .sku { width: 7%; }
-      .name { width: 25%; }
-      .stock { width: 8%; }
-      .today { width: 9%; }
+      .sku { width: 8%; }
+      .name { width: 40%; }
+      .stock { width: 9%; }
+      .today { width: 8%; }
       .coverage { width: 11%; }
-      .suggested { width: 8%; }
-      .urgency { width: 9%; }
-      .price { width: 10%; }
-      .reason { width: 23%; }
+      .suggested { width: 9%; }
+      .urgency { width: 8%; }
+      .price { width: 7%; }
       @media print {
         body { background: #fff; }
         .page { border: none; border-radius: 0; }
@@ -280,10 +292,21 @@ export function buildRestockReportHtml(report: KoraRestockForecastResponse) {
         <div class="meta">
           <div class="badge">Generado ${escapeHtml(generatedAt)}</div>
           <p style="margin-top:10px;">${escapeHtml(report.headline)}</p>
+          <div class="mini-kpi">Lista: ${totalProducts.toLocaleString("es-CO")} productos</div>
         </div>
       </div>
       <div class="table-wrap">
         <table>
+          <colgroup>
+            <col class="sku" />
+            <col class="name" />
+            <col class="stock" />
+            <col class="today" />
+            <col class="coverage" />
+            <col class="suggested" />
+            <col class="urgency" />
+            <col class="price" />
+          </colgroup>
           <thead>
             <tr>
               <th class="sku">SKU</th>
