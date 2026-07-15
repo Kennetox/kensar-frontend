@@ -197,6 +197,7 @@ export default function PagoMultiplePage() {
     setReservedSaleId,
     setReservedSaleNumber,
     setSaleNumber,
+    saleAttemptId,
   } = usePos();
   const { token, user, tenant } = useAuth();
   const isOnline = useOnlineStatus();
@@ -231,6 +232,8 @@ export default function PagoMultiplePage() {
   const [emailSubject, setEmailSubject] = useState("");
   const [emailMessage, setEmailMessage] = useState("");
   const [emailSending, setEmailSending] = useState(false);
+  const [isConfirmingSale, setIsConfirmingSale] = useState(false);
+  const confirmInFlightRef = useRef(false);
   const [emailDocumentType, setEmailDocumentType] = useState<
     "ticket" | "invoice"
   >("ticket");
@@ -270,7 +273,29 @@ export default function PagoMultiplePage() {
     },
     [showToast]
   );
-  const confirmDisabled = !cart.length || !payments.length;
+  const fetchWithTimeout = useCallback(
+    async (
+      input: RequestInfo | URL,
+      init: RequestInit | undefined,
+      timeoutMs: number,
+      label: string
+    ) => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(input, { ...init, signal: controller.signal });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          throw new Error(`La ${label} tardó demasiado. Verifica antes de reintentar.`);
+        }
+        throw err;
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    },
+    []
+  );
+  const confirmDisabled = !cart.length || !payments.length || isConfirmingSale;
   const canSubmitWithEnter = !confirmDisabled && !successSale;
   const apiBase = useMemo(() => getApiBase(), []);
   const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
@@ -702,6 +727,9 @@ export default function PagoMultiplePage() {
   }
 
   async function handleConfirm() {
+    if (confirmInFlightRef.current) return;
+    confirmInFlightRef.current = true;
+    setIsConfirmingSale(true);
     try {
       setError(null);
       setMessage(null);
@@ -818,23 +846,28 @@ export default function PagoMultiplePage() {
           setErrorWithToast("Necesitas conexión para reservar el número de venta.");
           throw new Error("Necesitas conexión para reservar el número de venta.");
         }
-        const reservationRes = await fetch(`${apiBase}/pos/sales/reserve-number`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+        const reservationRes = await fetchWithTimeout(
+          `${apiBase}/pos/sales/reserve-number`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              pos_name: resolvedPosName,
+              station_id: activeStationId,
+              vendor_name: user?.name ?? null,
+              min_sale_number:
+                typeof saleNumber === "number" && saleNumber > 0
+                  ? saleNumber
+                  : null,
+            }),
           },
-          credentials: "include",
-          body: JSON.stringify({
-            pos_name: resolvedPosName,
-            station_id: activeStationId,
-            vendor_name: user?.name ?? null,
-            min_sale_number:
-              typeof saleNumber === "number" && saleNumber > 0
-                ? saleNumber
-                : null,
-          }),
-        });
+          20000,
+          "reserva"
+        );
         if (!reservationRes.ok) {
           const data = await reservationRes.json().catch(() => null);
           const detail =
@@ -881,6 +914,7 @@ export default function PagoMultiplePage() {
         payments: { method: PaymentMethodSlug; amount: number }[];
         sale_number_preassigned: number;
         reservation_id?: number;
+        client_request_id: string;
         notes?: string;
         pos_name?: string;
         vendor_name?: string;
@@ -895,7 +929,9 @@ export default function PagoMultiplePage() {
         throw new Error("Sesión expirada. Inicia sesión nuevamente.");
       }
 
-      await reserveIfNeeded();
+      if (isOnline) {
+        await reserveIfNeeded();
+      }
 
       if (
         typeof reservationNumber === "number" &&
@@ -917,6 +953,7 @@ export default function PagoMultiplePage() {
         pos_name: resolvedPosName,
         vendor_name: user?.name ?? undefined,
         reservation_id: reservationId ?? undefined,
+        client_request_id: saleAttemptId,
       };
       if (activeStationId) {
         basePayload.station_id = activeStationId;
@@ -958,6 +995,11 @@ export default function PagoMultiplePage() {
         addPendingSale({
           endpoint,
           payload: payloadForQueue,
+          scope: {
+            tenantId: tenant?.id ?? null,
+            userId: user?.id ?? null,
+            stationId: activeStationId,
+          },
           summary: {
             saleNumber: assignedSaleNumber,
             total: totalToPay,
@@ -987,15 +1029,20 @@ export default function PagoMultiplePage() {
       let res: Response;
       try {
         const payloadToSend = buildPayload();
-        res = await fetch(`${apiBase}${endpoint}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+        res = await fetchWithTimeout(
+          `${apiBase}${endpoint}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            credentials: "include",
+            body: JSON.stringify(payloadToSend),
           },
-          credentials: "include",
-          body: JSON.stringify(payloadToSend),
-        });
+          45000,
+          "confirmación de la venta"
+        );
       } catch (err) {
         console.error(err);
         const browserOffline =
@@ -1034,15 +1081,20 @@ export default function PagoMultiplePage() {
           await reserveIfNeeded(true);
           const retryInvalidReservationPayload = buildPayload();
           try {
-            res = await fetch(`${apiBase}${endpoint}`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
+            res = await fetchWithTimeout(
+              `${apiBase}${endpoint}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                credentials: "include",
+                body: JSON.stringify(retryInvalidReservationPayload),
               },
-              credentials: "include",
-              body: JSON.stringify(retryInvalidReservationPayload),
-            });
+              45000,
+              "confirmación de la venta"
+            );
           } catch (err) {
             console.error(err);
             const browserOffline =
@@ -1088,15 +1140,20 @@ export default function PagoMultiplePage() {
           }
           const retryPayload = buildPayload();
           try {
-            res = await fetch(`${apiBase}${endpoint}`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
+            res = await fetchWithTimeout(
+              `${apiBase}${endpoint}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${token}`,
+                },
+                credentials: "include",
+                body: JSON.stringify(retryPayload),
               },
-              credentials: "include",
-              body: JSON.stringify(retryPayload),
-            });
+              45000,
+              "confirmación de la venta"
+            );
           } catch (err) {
             console.error(err);
             const browserOffline =
@@ -1348,6 +1405,9 @@ export default function PagoMultiplePage() {
           : "Error al registrar la venta.";
       setErrorWithToast(msg);
       setMessage(null);
+    } finally {
+      confirmInFlightRef.current = false;
+      setIsConfirmingSale(false);
     }
   }
 
@@ -2116,7 +2176,7 @@ export default function PagoMultiplePage() {
               className="w-full h-[89.2px] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-lg font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
               disabled={confirmDisabled}
             >
-              Confirmar pago múltiple
+              {isConfirmingSale ? "Procesando..." : "Confirmar pago múltiple"}
             </button>
           </footer>
         </section>

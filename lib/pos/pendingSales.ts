@@ -4,6 +4,7 @@ export type PendingSaleRecord = {
   id: string;
   endpoint: "/pos/sales" | "/separated-orders";
   payload: unknown;
+  scope?: PendingSaleScope;
   summary: {
     saleNumber: number;
     total: number;
@@ -13,6 +14,12 @@ export type PendingSaleRecord = {
     vendorName?: string | null;
     isSeparated: boolean;
   };
+};
+
+export type PendingSaleScope = {
+  tenantId: number | null;
+  userId: number | null;
+  stationId: string | null;
 };
 
 export const PENDING_SALES_STORAGE_KEY = "kensar_pos_pending_sales_v1";
@@ -61,8 +68,39 @@ function emitUpdate(action: PendingSalesEventDetail["action"]) {
   win.dispatchEvent(event);
 }
 
-export function getPendingSales(): PendingSaleRecord[] {
-  return readStorage();
+function matchesScope(record: PendingSaleRecord, scope?: PendingSaleScope): boolean {
+  if (!scope) return true;
+  if (!record.scope) return false;
+  return (
+    record.scope.tenantId === scope.tenantId &&
+    record.scope.userId === scope.userId &&
+    record.scope.stationId === scope.stationId
+  );
+}
+
+function migrateLegacyStationScope(
+  records: PendingSaleRecord[],
+  scope?: PendingSaleScope
+): PendingSaleRecord[] {
+  if (!scope?.stationId) return records;
+  let changed = false;
+  const migrated = records.map((record) => {
+    if (record.scope || !record.payload || typeof record.payload !== "object") {
+      return record;
+    }
+    const payloadStationId = (record.payload as Record<string, unknown>).station_id;
+    if (payloadStationId !== scope.stationId) return record;
+    changed = true;
+    return { ...record, scope };
+  });
+  if (changed) writeStorage(migrated);
+  return migrated;
+}
+
+export function getPendingSales(scope?: PendingSaleScope): PendingSaleRecord[] {
+  return migrateLegacyStationScope(readStorage(), scope).filter((record) =>
+    matchesScope(record, scope)
+  );
 }
 
 export function addPendingSale(
@@ -76,9 +114,18 @@ export function addPendingSale(
   const id =
     win?.crypto?.randomUUID() ??
     `pending-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const payload =
+    entry.payload && typeof entry.payload === "object" && !Array.isArray(entry.payload)
+      ? {
+          ...(entry.payload as Record<string, unknown>),
+          client_request_id:
+            (entry.payload as Record<string, unknown>).client_request_id ?? id,
+        }
+      : entry.payload;
   const record: PendingSaleRecord = {
     ...entry,
     id,
+    payload,
     summary: {
       ...entry.summary,
       createdAt: entry.summary.createdAt ?? new Date().toISOString(),
@@ -99,6 +146,28 @@ export function removePendingSale(id: string): PendingSaleRecord[] {
   return next;
 }
 
+function persistPendingPayload(
+  id: string,
+  payload: Record<string, unknown>,
+  saleNumber?: number
+): void {
+  const current = readStorage();
+  const next = current.map((item) =>
+    item.id === id
+      ? {
+          ...item,
+          payload,
+          summary: {
+            ...item.summary,
+            saleNumber: saleNumber ?? item.summary.saleNumber,
+          },
+        }
+      : item
+  );
+  writeStorage(next);
+  emitUpdate("updated");
+}
+
 export async function submitPendingSale(
   record: PendingSaleRecord,
   token: string
@@ -111,8 +180,50 @@ export async function submitPendingSale(
     return payload;
   };
   const apiBase = getApiBase();
-  const payload = sanitizePayload(record.payload);
-  const res = await fetch(`${apiBase}${record.endpoint}`, {
+  const payload = sanitizePayload(record.payload) as Record<string, unknown>;
+  const fetchWithTimeout = async (
+    url: string,
+    init: RequestInit,
+    timeoutMs: number
+  ): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+
+  if (!payload.reservation_id) {
+    const reservationResponse = await fetchWithTimeout(
+      `${apiBase}/pos/sales/reserve-number`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          pos_name: payload.pos_name ?? null,
+          station_id: payload.station_id ?? null,
+          min_sale_number: payload.sale_number_preassigned ?? null,
+        }),
+      },
+      20000
+    );
+    if (!reservationResponse.ok) return reservationResponse;
+    const reservation = (await reservationResponse.json()) as {
+      reservation_id: number;
+      sale_number: number;
+    };
+    payload.reservation_id = reservation.reservation_id;
+    payload.sale_number_preassigned = reservation.sale_number;
+    persistPendingPayload(record.id, payload, reservation.sale_number);
+  }
+
+  const res = await fetchWithTimeout(`${apiBase}${record.endpoint}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -120,6 +231,6 @@ export async function submitPendingSale(
     },
     credentials: "include",
     body: JSON.stringify(payload),
-  });
+  }, 45000);
   return res;
 }

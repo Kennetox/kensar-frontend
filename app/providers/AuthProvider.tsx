@@ -110,7 +110,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ensureFreshSessionState({
       preserveSessionKeys: [LOGOUT_REASON_KEY],
       preserveLocalKeys: [AUTH_TRANSFER_STORAGE_KEY],
-      preserveLocalPrefixes: ["kensar_pos_grid_zoom"],
+      preserveLocalPrefixes: [
+        "kensar_pos_grid_zoom",
+        "kensar_pos_session_v1:",
+        "kensar_pos_pending_sales",
+        "kensar_pos_sale_number:",
+        "kensar_pos_printer_",
+        "metrik_pos_device_",
+      ],
     });
     sessionGuardRef.current = true;
   }

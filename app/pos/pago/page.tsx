@@ -175,6 +175,7 @@ export default function PagoPage() {
     setReservedSaleId,
     setReservedSaleNumber,
     setSaleNumber,
+    saleAttemptId,
   } = usePos();
 
   // Total real de la venta
@@ -220,6 +221,7 @@ export default function PagoPage() {
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
   const [isConfirmingSale, setIsConfirmingSale] = useState(false);
+  const confirmInFlightRef = useRef(false);
   const apiBase = useMemo(() => getApiBase(), []);
   const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
@@ -773,7 +775,8 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
   }
 
   async function handleConfirm() {
-    if (isConfirmingSale) return;
+    if (confirmInFlightRef.current) return;
+    confirmInFlightRef.current = true;
     setIsConfirmingSale(true);
     try {
       setError(null);
@@ -914,7 +917,9 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         }
       };
 
-      await reserveIfNeeded();
+      if (isOnline) {
+        await reserveIfNeeded();
+      }
 
       if (
         typeof reservationNumber === "number" &&
@@ -962,6 +967,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         payments?: { method: PaymentMethodSlug; amount: number }[];
         sale_number_preassigned: number;
         reservation_id?: number;
+        client_request_id: string;
         notes?: string;
         pos_name?: string;
         vendor_name?: string;
@@ -982,6 +988,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         pos_name: resolvedPosName,
         vendor_name: user?.name ?? undefined,
         reservation_id: reservationId ?? undefined,
+        client_request_id: saleAttemptId,
       };
       if (activeStationId) {
         basePayload.station_id = activeStationId;
@@ -1029,6 +1036,11 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         addPendingSale({
           endpoint,
           payload: payloadForQueue,
+          scope: {
+            tenantId: tenant?.id ?? null,
+            userId: user?.id ?? null,
+            stationId: activeStationId,
+          },
           summary: {
             saleNumber: assignedSaleNumber,
             total: totalToPay,
@@ -1220,7 +1232,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       let saleId: number;
       let documentNumber: string;
       let serverNotes: string | null | undefined = null;
-      let changeAmountForTicket = change_amount;
+      const changeAmountForTicket = change_amount;
       let separatedInfo: SuccessSaleSummary["separatedInfo"] | undefined;
       let responseSurchargeAmount: number | undefined;
       let responseSurchargeLabel: string | undefined;
@@ -1443,6 +1455,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       setErrorWithToast(msg);
       setMessage(null);
     } finally {
+      confirmInFlightRef.current = false;
       setIsConfirmingSale(false);
     }
   }

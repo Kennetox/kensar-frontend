@@ -82,6 +82,7 @@ type PosContextValue = {
   setReservedSaleId: React.Dispatch<React.SetStateAction<number | null>>;
   reservedSaleNumber: number | null;
   setReservedSaleNumber: React.Dispatch<React.SetStateAction<number | null>>;
+  saleAttemptId: string;
 
   cartGrossSubtotal: number;
   cartLineDiscountTotal: number;
@@ -128,7 +129,15 @@ type PersistedSession = {
   cartSurcharge: SurchargeState;
   reservedSaleId?: number | null;
   reservedSaleNumber?: number | null;
+  saleAttemptId?: string;
 };
+
+function createSaleAttemptId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return `sale_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
 
 export function PosProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -140,6 +149,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
     useState<PosCustomer | null>(null);
   const [reservedSaleId, setReservedSaleId] = useState<number | null>(null);
   const [reservedSaleNumber, setReservedSaleNumber] = useState<number | null>(null);
+  const [saleAttemptId, setSaleAttemptId] = useState(createSaleAttemptId);
   const [cartSurcharge, setCartSurcharge] = useState<SurchargeState>({
     method: null,
     amount: 0,
@@ -239,6 +249,18 @@ export function PosProvider({ children }: { children: ReactNode }) {
             typeof parsed.cartSurcharge === "object"
           ) {
             setCartSurcharge(parsed.cartSurcharge);
+          }
+          if (
+            typeof parsed.saleAttemptId === "string" &&
+            parsed.saleAttemptId.length >= 8
+          ) {
+            setSaleAttemptId(parsed.saleAttemptId);
+          }
+          if (typeof parsed.reservedSaleId === "number") {
+            setReservedSaleId(parsed.reservedSaleId);
+          }
+          if (typeof parsed.reservedSaleNumber === "number") {
+            setReservedSaleNumber(parsed.reservedSaleNumber);
           }
         }
       }
@@ -345,6 +367,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
       cartSurcharge,
       reservedSaleId,
       reservedSaleNumber,
+      saleAttemptId,
     };
 
     try {
@@ -365,6 +388,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
     cartSurcharge,
     reservedSaleId,
     reservedSaleNumber,
+    saleAttemptId,
   ]);
 
   // ---- Cálculos de totales ----
@@ -417,6 +441,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
     setSelectedCustomer(null);
     setReservedSaleId(null);
     setReservedSaleNumber(null);
+    setSaleAttemptId(createSaleAttemptId());
     setCartSurcharge({
       method: null,
       amount: 0,
@@ -440,6 +465,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
     setReservedSaleId,
     reservedSaleNumber,
     setReservedSaleNumber,
+    saleAttemptId,
     cartGrossSubtotal,
     cartLineDiscountTotal,
     cartSubtotal,
