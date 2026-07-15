@@ -77,6 +77,8 @@ const PENDING_ALERT_ACK_STORAGE_KEY = "metrik_pos_pending_ack_v1";
 const HELD_SALE_STORAGE_KEY_BASE = "kensar_pos_held_sale_v1";
 const RESUME_HELD_SALE_KEY_BASE = "kensar_pos_resume_held_sale_v1";
 const POS_NOTICE_HEARTBEAT_MS = 10 * 60 * 1000;
+const PAYMENT_ROUTE = "/pos/pago";
+const PAYMENT_NAVIGATION_TIMEOUT_MS = 10_000;
 
 type DiscountScope = "item" | "cart";
 type DiscountMode = "value" | "percent";
@@ -818,6 +820,9 @@ export default function PosPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const catalogLoadedRef = useRef(false);
+  const [paymentNavigationPending, setPaymentNavigationPending] = useState(false);
+  const paymentNavigationLockRef = useRef(false);
+  const paymentNavigationTimerRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [holdSaleToast, setHoldSaleToast] = useState<string | null>(null);
   const [holdSaleToastPhase, setHoldSaleToastPhase] = useState<"enter" | "exit">("enter");
@@ -845,6 +850,22 @@ export default function PosPage() {
   const isWebMode = posMode === "web";
   const isKioskMode = isStationMode;
   const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
+
+  useEffect(() => {
+    if (loading) return;
+    router.prefetch(PAYMENT_ROUTE);
+  }, [loading, router]);
+
+  useEffect(() => {
+    return () => {
+      if (paymentNavigationTimerRef.current !== null) {
+        window.clearTimeout(paymentNavigationTimerRef.current);
+        paymentNavigationTimerRef.current = null;
+      }
+      paymentNavigationLockRef.current = false;
+    };
+  }, []);
+
   const heldSaleStorageKey = useMemo(
     () =>
       buildScopedPosStorageKey(HELD_SALE_STORAGE_KEY_BASE, {
@@ -4137,6 +4158,7 @@ const matchesStationLabel = useCallback(
   };
 
   const handleProceedToPayment = () => {
+    if (paymentNavigationLockRef.current) return;
     if (!canProceedToPayment) {
       if (REQUIRE_FREE_SALE_REASON && missingFreeSaleReason) {
         setError("Debes registrar el motivo de venta libre antes de continuar.");
@@ -4147,7 +4169,22 @@ const matchesStationLabel = useCallback(
       setClosureReminderOpen(true);
       return;
     }
-    router.push("/pos/pago");
+    paymentNavigationLockRef.current = true;
+    setPaymentNavigationPending(true);
+    const startedAt = performance.now();
+    paymentNavigationTimerRef.current = window.setTimeout(() => {
+      const durationMs = Math.round(performance.now() - startedAt);
+      console.warn(
+        `pos_payment_navigation_slow duration_ms=${durationMs}`
+      );
+      paymentNavigationLockRef.current = false;
+      paymentNavigationTimerRef.current = null;
+      setPaymentNavigationPending(false);
+      setError(
+        "La pantalla de pago está tardando más de lo normal. El carrito sigue intacto; puedes intentar abrirla nuevamente."
+      );
+    }, PAYMENT_NAVIGATION_TIMEOUT_MS);
+    router.push(PAYMENT_ROUTE);
   };
 
   const updateClosureField = (
@@ -7164,15 +7201,17 @@ const matchesStationLabel = useCallback(
 
           {/* Botón Pago grande */}
           <button
+            type="button"
             className={`w-full font-semibold py-7 text-xl rounded-none ${
-              canProceedToPayment
+              canProceedToPayment && !paymentNavigationPending
                 ? "bg-emerald-500 hover:bg-emerald-400 text-slate-900"
                 : "bg-slate-800 text-slate-500 cursor-not-allowed"
             }`}
-            disabled={!canProceedToPayment}
+            disabled={!canProceedToPayment || paymentNavigationPending}
             onClick={handleProceedToPayment}
+            aria-busy={paymentNavigationPending}
           >
-            Pago
+            {paymentNavigationPending ? "Abriendo pago…" : "Pago"}
           </button>
 
             
