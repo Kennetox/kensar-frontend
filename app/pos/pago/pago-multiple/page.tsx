@@ -2069,7 +2069,8 @@ export default function PagoMultiplePage() {
                   </div>
                 </div>
 
-                <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+                <div className="grid items-stretch gap-6 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <div className="h-full min-w-0 space-y-2 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
                   <div className="flex justify-between text-base text-slate-400">
                     <span>Monto de la línea seleccionada</span>
                     {currentLine && (
@@ -2153,7 +2154,7 @@ export default function PagoMultiplePage() {
                 </div>
 
               {/* Lista de líneas */}
-              <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+              <div className="h-full min-w-0 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
                 <div className="text-base text-slate-400 mb-2 flex items-center justify-between">
                   <span className="uppercase tracking-wide text-base">Líneas de pago</span>
                   <span className="text-sm text-slate-500">Toca una línea para editar</span>
@@ -2219,8 +2220,9 @@ export default function PagoMultiplePage() {
                   Agrega métodos con los botones de la izquierda y ajusta los montos con el teclado.
                 </p>
               </div>
+              </div>
 
-              <div className="mt-6 space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
+              <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-5">
                 <div className="flex items-center justify-between text-base text-slate-400">
                   <span className="uppercase tracking-wide text-base">Notas adicionales</span>
                   <button
