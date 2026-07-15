@@ -2652,7 +2652,7 @@ export default function MovementsPage() {
                           key={`rc-${entry.lot.id}`}
                           title={`${entry.lot.lot_number} · Recepción · ${
                             entry.lot.purchase_type === "invoice" ? "Factura" : "Efectivo"
-                          } · ${formatDate(entry.lot.created_at)} · Inició: ${
+                          } · Inicio: ${formatDate(entry.lot.created_at)} · Inició: ${
                             entry.lot.created_by_user_name || "Usuario no disponible"
                           }`}
                           className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
@@ -2670,7 +2670,7 @@ export default function MovementsPage() {
                                   <span className="mx-1.5 text-slate-400">·</span>
                                   <span>{lot.purchase_type === "invoice" ? "Factura" : "Efectivo"}</span>
                                   <span className="mx-1.5 text-slate-400">·</span>
-                                  <span>{formatDate(lot.created_at)}</span>
+                                  <span>Inicio: {formatDate(lot.created_at)}</span>
                                   <span className="mx-1.5 text-slate-400">·</span>
                                   <span>Inició: {lot.created_by_user_name || "Usuario no disponible"}</span>
                                   {!isWebOrigin ? (
@@ -2802,7 +2802,9 @@ export default function MovementsPage() {
                             <span className="mx-1.5 text-slate-400">·</span>
                             <span>{entry.lot.purchase_type === "invoice" ? "Factura" : "Efectivo"}</span>
                             <span className="mx-1.5 text-slate-400">·</span>
-                            <span>{formatDate(entry.lot.closed_at || entry.lot.updated_at)}</span>
+                            <span>Inicio: {formatDate(entry.lot.created_at)}</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
+                            <span>Cierre: {formatDate(entry.lot.closed_at || entry.lot.updated_at)}</span>
                           </div>
                           <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
                             <button
@@ -2831,7 +2833,9 @@ export default function MovementsPage() {
                               )}
                             </span>
                             <span className="mx-1.5 text-slate-400">·</span>
-                            <span>{formatDate(entry.doc.closed_at || entry.doc.updated_at)}</span>
+                            <span>Inicio: {formatDate(entry.doc.created_at)}</span>
+                            <span className="mx-1.5 text-slate-400">·</span>
+                            <span>Cierre: {formatDate(entry.doc.closed_at || entry.doc.updated_at)}</span>
                           </div>
                           <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
                             <button
@@ -4078,12 +4082,23 @@ export default function MovementsPage() {
                       value={lotDetail.lot.closed_at ? formatDate(lotDetail.lot.closed_at) : "-"}
                     />
                   </div>
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                    <span className="font-medium">Inició:</span>{" "}
-                    {lotDetail.lot.created_by_user_name || "Usuario no disponible"}
-                    <span className="mx-2 text-slate-400">|</span>
-                    <span className="font-medium">Cerró:</span>{" "}
-                    {lotDetail.lot.closed_by_user_name || "Usuario no disponible"}
+                  <div className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 sm:grid-cols-2">
+                    <div className="min-w-0">
+                      <span className="font-medium">Apertura:</span>{" "}
+                      <span className="text-slate-900">{formatDate(lotDetail.lot.created_at)}</span>
+                    </div>
+                    <div className="min-w-0 sm:text-right">
+                      <span className="font-medium">Inició por:</span>{" "}
+                      <span className="text-slate-900">{lotDetail.lot.created_by_user_name || "Usuario no disponible"}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <span className="font-medium">Cierre:</span>{" "}
+                      <span className="text-slate-900">{lotDetail.lot.closed_at ? formatDate(lotDetail.lot.closed_at) : "-"}</span>
+                    </div>
+                    <div className="min-w-0 sm:text-right">
+                      <span className="font-medium">Cerró:</span>{" "}
+                      <span className="text-slate-900">{lotDetail.lot.closed_by_user_name || "Usuario no disponible"}</span>
+                    </div>
                   </div>
 
                   {lotDetail.warnings.length > 0 ? (
@@ -4178,12 +4193,23 @@ export default function MovementsPage() {
                       }
                     />
                   </div>
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                    <span className="font-medium">Inició:</span>{" "}
-                    {manualDetail.document.created_by_user_name || "Usuario no disponible"}
-                    <span className="mx-2 text-slate-400">|</span>
-                    <span className="font-medium">Cerró:</span>{" "}
-                    {manualDetail.document.closed_by_user_name || "Usuario no disponible"}
+                  <div className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 sm:grid-cols-2">
+                    <div className="min-w-0">
+                      <span className="font-medium">Apertura:</span>{" "}
+                      <span className="text-slate-900">{formatDate(manualDetail.document.created_at)}</span>
+                    </div>
+                    <div className="min-w-0 sm:text-right">
+                      <span className="font-medium">Inició por:</span>{" "}
+                      <span className="text-slate-900">{manualDetail.document.created_by_user_name || "Usuario no disponible"}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <span className="font-medium">Cierre:</span>{" "}
+                      <span className="text-slate-900">{manualDetail.document.closed_at ? formatDate(manualDetail.document.closed_at) : "-"}</span>
+                    </div>
+                    <div className="min-w-0 sm:text-right">
+                      <span className="font-medium">Cerró:</span>{" "}
+                      <span className="text-slate-900">{manualDetail.document.closed_by_user_name || "Usuario no disponible"}</span>
+                    </div>
                   </div>
 
                   <div className="mt-4 h-72 overflow-y-auto rounded-xl border border-slate-200">
