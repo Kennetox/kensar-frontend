@@ -222,7 +222,7 @@ function PosCustomerSelectorContent() {
                 </div>
                 <div>
                   <div className="text-base font-semibold text-slate-100">
-                    Crear cliente
+                    Crear cliente NUEVO
                   </div>
                   <div className="mt-1 text-sm text-slate-200">
                     Abre el formulario para registrar uno nuevo.
