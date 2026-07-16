@@ -1121,6 +1121,7 @@ export default function KoraOpsAssistant({
   const [messages, setMessages] = useState<KoraMessage[]>([{ id: 1, role: "kora", text: welcomeMessage }]);
   const [restockReport, setRestockReport] = useState<KoraRestockForecastResponse | null>(null);
   const [restockReportSaving, setRestockReportSaving] = useState(false);
+  const [restockDebugOpen, setRestockDebugOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const nextIdRef = useRef(2);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -4009,6 +4010,7 @@ export default function KoraOpsAssistant({
 
   function closeRestockReportModal() {
     setRestockReport(null);
+    setRestockDebugOpen(false);
   }
 
   async function saveRestockReportPdf() {
@@ -4606,6 +4608,7 @@ export default function KoraOpsAssistant({
     setMessages([{ id: 1, role: "kora", text: welcomeMessage }]);
     setDraft("");
     setRestockReport(null);
+    setRestockDebugOpen(false);
     lastTopicRef.current = null;
     lastSaleLookupRef.current = null;
     lastEntityRef.current = {};
@@ -4622,13 +4625,15 @@ export default function KoraOpsAssistant({
 
   if (!enabled) return null;
 
-  const RESTOCK_DEBUG_TARGET_SKU = "907";
+  const RESTOCK_DEBUG_TARGET_SKUS = ["3351", "1697", "907"];
   const restockDebugItems = SHOW_RESTOCK_DEBUG && restockReport
     ? (() => {
-        const targetItem = restockReport.items.find((item) => item.sku === RESTOCK_DEBUG_TARGET_SKU) ?? null;
-        const remainingItems = restockReport.items.filter((item) => item.sku !== RESTOCK_DEBUG_TARGET_SKU);
-        const previewItems = remainingItems.slice(0, targetItem ? 4 : 5);
-        return targetItem ? [targetItem, ...previewItems] : previewItems;
+        const prioritized = RESTOCK_DEBUG_TARGET_SKUS.flatMap((sku) =>
+          restockReport.items.filter((item) => item.sku === sku)
+        );
+        const prioritizedIds = new Set(prioritized.map((item) => item.product_id));
+        const remainingItems = restockReport.items.filter((item) => !prioritizedIds.has(item.product_id));
+        return [...prioritized, ...remainingItems];
       })()
     : [];
 
@@ -4795,6 +4800,15 @@ export default function KoraOpsAssistant({
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs">
+                        {SHOW_RESTOCK_DEBUG ? (
+                          <button
+                            type="button"
+                            onClick={() => setRestockDebugOpen(true)}
+                            className="px-3 py-1.5 rounded-md border border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400"
+                          >
+                            Diagnóstico
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => void saveRestockReportPdf()}
@@ -4845,67 +4859,6 @@ export default function KoraOpsAssistant({
                       </div>
                     </div>
 
-                    {SHOW_RESTOCK_DEBUG ? (
-                      <section className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
-                              Diagnóstico temporal
-                            </div>
-                            <p className="text-sm text-slate-600">
-                              Revisa aquí los campos que KORA está usando para justificar cada fila.
-                            </p>
-                          </div>
-                          <div className="text-xs font-medium text-amber-700">
-                            {restockReport.items.length} filas
-                          </div>
-                        </div>
-                        <div className="mt-3 overflow-auto rounded-xl border border-amber-200 bg-white">
-                          <table className="min-w-full border-collapse text-xs">
-                            <thead className="bg-amber-100 text-left uppercase tracking-wide text-amber-900">
-                              <tr>
-                                <th className="px-3 py-2">SKU</th>
-                                <th className="px-3 py-2 text-right">Stock</th>
-                                <th className="px-3 py-2 text-right">Hoy</th>
-                                <th className="px-3 py-2 text-right">30d</th>
-                                <th className="px-3 py-2 text-right">Rate</th>
-                                <th className="px-3 py-2">Cobertura</th>
-                                <th className="px-3 py-2 text-right">Umbral</th>
-                                <th className="px-3 py-2">Fuente</th>
-                                <th className="px-3 py-2">Urgencia</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {restockDebugItems.map((item) => {
-                                const isTarget = item.sku === RESTOCK_DEBUG_TARGET_SKU;
-                                return (
-                                <tr
-                                  key={`debug-${item.product_id}`}
-                                  className={["border-t border-amber-100 align-top", isTarget ? "bg-amber-100/70" : ""].join(" ")}
-                                >
-                                  <td className="px-3 py-2 font-medium text-slate-800">
-                                    {item.sku || "—"}
-                                    {isTarget ? " · objetivo" : ""}
-                                  </td>
-                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.round(item.qty_on_hand).toFixed(0)}</td>
-                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
-                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.max(0, item.units_lookback).toFixed(0)}</td>
-                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{item.daily_rate.toFixed(2)}</td>
-                                  <td className="px-3 py-2 text-slate-700">{formatCoverageDays(item.coverage_days)}</td>
-                                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{item.effective_threshold.toFixed(0)}</td>
-                                  <td className="px-3 py-2 text-slate-700">{item.threshold_source}</td>
-                                  <td className="px-3 py-2 font-semibold text-slate-700">
-                                    {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
-                                  </td>
-                                </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </section>
-                    ) : null}
-
                     <div className="space-y-4 overflow-auto pr-1">
                       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_12px_24px_-18px_rgba(2,6,23,0.16)]">
                         <table className="min-w-full border-collapse text-sm">
@@ -4949,6 +4902,88 @@ export default function KoraOpsAssistant({
                           </tbody>
                         </table>
                       </div>
+                    </div>
+                  </section>
+                </div>,
+                document.body
+              )
+            : null}
+          {typeof document !== "undefined" && restockReport && restockDebugOpen
+            ? createPortal(
+                <div
+                  className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/60 p-4"
+                  onClick={() => setRestockDebugOpen(false)}
+                >
+                  <section
+                    className="flex h-[90vh] w-full max-w-[1280px] flex-col overflow-hidden rounded-2xl border border-amber-200 bg-white p-5 text-slate-900 shadow-2xl"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="flex items-start justify-between gap-4 border-b border-amber-100 pb-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                          Diagnóstico temporal
+                        </p>
+                        <h3 className="mt-1 text-xl font-semibold text-slate-900">Detalle completo del reporte</h3>
+                        <p className="mt-1 text-sm text-slate-600">
+                          Revisa todas las filas que KORA está usando para justificar cada fila.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRestockDebugOpen(false)}
+                        className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between text-xs font-medium text-amber-700">
+                      <span>{restockDebugItems.length} filas</span>
+                      <span>SKUs priorizados: 3351, 1697, 907</span>
+                    </div>
+
+                    <div className="mt-3 overflow-auto rounded-xl border border-amber-200">
+                      <table className="min-w-full border-collapse text-xs">
+                        <thead className="sticky top-0 bg-amber-100 text-left uppercase tracking-wide text-amber-900">
+                          <tr>
+                            <th className="px-3 py-2">SKU</th>
+                            <th className="px-3 py-2 text-right">Stock</th>
+                            <th className="px-3 py-2 text-right">Hoy</th>
+                            <th className="px-3 py-2 text-right">30d</th>
+                            <th className="px-3 py-2 text-right">Rate</th>
+                            <th className="px-3 py-2">Cobertura</th>
+                            <th className="px-3 py-2 text-right">Umbral</th>
+                            <th className="px-3 py-2">Fuente</th>
+                            <th className="px-3 py-2">Urgencia</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {restockDebugItems.map((item) => {
+                            const isTarget = item.sku != null && ["3351", "1697", "907"].includes(item.sku);
+                            return (
+                              <tr
+                                key={`debug-${item.product_id}`}
+                                className={["border-t border-amber-100 align-top", isTarget ? "bg-amber-100/70" : ""].join(" ")}
+                              >
+                                <td className="px-3 py-2 font-medium text-slate-800">
+                                  {item.sku || "—"}
+                                  {isTarget ? " · objetivo" : ""}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.round(item.qty_on_hand).toFixed(0)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.max(0, item.units_lookback).toFixed(0)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{item.daily_rate.toFixed(2)}</td>
+                                <td className="px-3 py-2 text-slate-700">{formatCoverageDays(item.coverage_days)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-slate-700">{item.effective_threshold.toFixed(0)}</td>
+                                <td className="px-3 py-2 text-slate-700">{item.threshold_source}</td>
+                                <td className="px-3 py-2 font-semibold text-slate-700">
+                                  {item.urgency === "high" ? "Alta" : item.urgency === "medium" ? "Media" : "Baja"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </section>
                 </div>,
