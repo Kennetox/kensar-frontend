@@ -4625,17 +4625,7 @@ export default function KoraOpsAssistant({
 
   if (!enabled) return null;
 
-  const RESTOCK_DEBUG_TARGET_SKUS = ["3351", "1697", "907"];
-  const restockDebugItems = SHOW_RESTOCK_DEBUG && restockReport
-    ? (() => {
-        const prioritized = RESTOCK_DEBUG_TARGET_SKUS.flatMap((sku) =>
-          restockReport.items.filter((item) => item.sku === sku)
-        );
-        const prioritizedIds = new Set(prioritized.map((item) => item.product_id));
-        const remainingItems = restockReport.items.filter((item) => !prioritizedIds.has(item.product_id));
-        return [...prioritized, ...remainingItems];
-      })()
-    : [];
+  const restockDebugItems = SHOW_RESTOCK_DEBUG && restockReport ? restockReport.items : [];
 
   return (
     <div ref={rootRef} className="fixed right-5 bottom-5 z-[140] md:right-6 md:bottom-6">
@@ -4939,7 +4929,7 @@ export default function KoraOpsAssistant({
 
                     <div className="mt-4 flex items-center justify-between text-xs font-medium text-amber-700">
                       <span>{restockDebugItems.length} filas</span>
-                      <span>SKUs priorizados: 3351, 1697, 907</span>
+                      <span>Orden original del reporte</span>
                     </div>
 
                     <div className="mt-3 overflow-auto rounded-xl border border-amber-200">
@@ -4959,15 +4949,13 @@ export default function KoraOpsAssistant({
                         </thead>
                         <tbody>
                           {restockDebugItems.map((item) => {
-                            const isTarget = item.sku != null && ["3351", "1697", "907"].includes(item.sku);
                             return (
                               <tr
                                 key={`debug-${item.product_id}`}
-                                className={["border-t border-amber-100 align-top", isTarget ? "bg-amber-100/70" : ""].join(" ")}
+                                className="border-t border-amber-100 align-top"
                               >
                                 <td className="px-3 py-2 font-medium text-slate-800">
                                   {item.sku || "—"}
-                                  {isTarget ? " · objetivo" : ""}
                                 </td>
                                 <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.round(item.qty_on_hand).toFixed(0)}</td>
                                 <td className="px-3 py-2 text-right tabular-nums text-slate-700">{Math.max(0, item.units_today).toFixed(0)}</td>
