@@ -239,14 +239,32 @@ function PosCatalogGridComponent({
     <section className="flex-1 flex flex-col">
       <div className="border-b border-slate-800 bg-slate-900">
         <div className="flex items-center gap-3 px-4 py-3">
-          <input
-            ref={searchInputRef}
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onKeyDown={onSearchKeyDown}
-            placeholder="Buscar productos por nombre, código o código de barras"
-            className="flex-1 rounded-xl bg-slate-950 border border-emerald-400/60 px-4 py-3.5 text-lg outline-none focus:border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.2)]"
-          />
+          <div className="relative flex-1">
+            <input
+              ref={searchInputRef}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={onSearchKeyDown}
+              placeholder="Buscar productos por nombre, código o código de barras"
+              className="w-full rounded-xl bg-slate-950 border border-emerald-400/60 px-4 py-3.5 pr-12 text-lg outline-none focus:border-emerald-300 shadow-[0_0_0_1px_rgba(16,185,129,0.2)]"
+            />
+            {search.trim() !== "" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  window.requestAnimationFrame(() => {
+                    searchInputRef.current?.focus();
+                  });
+                }}
+                className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-900 text-slate-300 shadow-sm transition hover:border-slate-400 hover:bg-slate-800 hover:text-slate-100"
+                aria-label="Limpiar búsqueda"
+                title="Limpiar búsqueda"
+              >
+                ×
+              </button>
+            )}
+          </div>
           <div className="text-xs text-slate-400 whitespace-nowrap">
             {currentPath.length === 0 ? (
               <span>Inicio</span>
