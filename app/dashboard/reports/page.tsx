@@ -11,10 +11,6 @@ import {
 } from "@/lib/api/settings";
 import { getApiBase } from "@/lib/api/base";
 import { exportReportPdf } from "@/lib/api/reports";
-import {
-  buildRestockReportHtml,
-  type KoraRestockForecastResponse,
-} from "@/lib/kora/restock-report";
 import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import { getBogotaDateKey } from "@/lib/time/bogota";
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
@@ -304,11 +300,6 @@ export default function ReportsPage() {
   const paymentMethodsCatalog = usePaymentMethodsCatalog();
   const [quickPdfLoading, setQuickPdfLoading] = useState(false);
   const [quickPdfError, setQuickPdfError] = useState<string | null>(null);
-  const [koraRestockModalOpen, setKoraRestockModalOpen] = useState(false);
-  const [koraRestockModalLoading, setKoraRestockModalLoading] = useState(false);
-  const [koraRestockModalError, setKoraRestockModalError] = useState<string | null>(null);
-  const [koraRestockReport, setKoraRestockReport] =
-    useState<KoraRestockForecastResponse | null>(null);
   const [yearLeaderDay, setYearLeaderDay] = useState<YearLeaderDay | null>(null);
   const apiCacheRef = useRef<
     Map<string, { ts: number; payload: unknown }>
@@ -1457,131 +1448,6 @@ export default function ReportsPage() {
     yearSalesChange,
   ]);
 
-  const openKoraRestockModal = useCallback(async () => {
-    setKoraRestockModalOpen(true);
-    setKoraRestockModalError(null);
-    setKoraRestockModalLoading(true);
-
-    if (!token) {
-      setKoraRestockModalError(
-        "No pude validar tu sesión para abrir el reporte."
-      );
-      setKoraRestockModalLoading(false);
-      return;
-    }
-
-    try {
-      const apiBase = getApiBase();
-      const params = new URLSearchParams({
-        mode: "today",
-        horizon_days: "2",
-        lookback_days: "30",
-      });
-      const res = await fetch(
-        `${apiBase}/kora/restock-forecast?${params.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          credentials: "include",
-        }
-      );
-      if (!res.ok) {
-        throw new Error(`Error ${res.status} al consultar el reporte.`);
-      }
-      const data = (await res.json()) as KoraRestockForecastResponse;
-      setKoraRestockReport(data);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "No fue posible abrir el reporte.";
-      setKoraRestockModalError(message);
-      setKoraRestockReport(null);
-    } finally {
-      setKoraRestockModalLoading(false);
-    }
-  }, [token]);
-
-  const refreshKoraRestockModal = useCallback(async () => {
-    setKoraRestockModalError(null);
-    setKoraRestockModalLoading(true);
-
-    if (!token) {
-      setKoraRestockModalError(
-        "No pude validar tu sesión para refrescar el reporte."
-      );
-      setKoraRestockModalLoading(false);
-      return;
-    }
-
-    try {
-      const apiBase = getApiBase();
-      const params = new URLSearchParams({
-        mode: "today",
-        horizon_days: "2",
-        lookback_days: "30",
-      });
-      const res = await fetch(
-        `${apiBase}/kora/restock-forecast?${params.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          credentials: "include",
-        }
-      );
-      if (!res.ok) {
-        throw new Error(`Error ${res.status} al consultar el reporte.`);
-      }
-      const data = (await res.json()) as KoraRestockForecastResponse;
-      setKoraRestockReport(data);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "No fue posible refrescar el reporte.";
-      setKoraRestockModalError(message);
-      setKoraRestockReport(null);
-    } finally {
-      setKoraRestockModalLoading(false);
-    }
-  }, [token]);
-
-  const printKoraRestockReport = useCallback(() => {
-    const report = koraRestockReport;
-    if (!report || typeof window === "undefined") return;
-    const html = buildRestockReportHtml(report);
-    const printFrame = document.createElement("iframe");
-    printFrame.style.position = "fixed";
-    printFrame.style.right = "0";
-    printFrame.style.bottom = "0";
-    printFrame.style.width = "0";
-    printFrame.style.height = "0";
-    printFrame.style.border = "0";
-    printFrame.setAttribute("aria-hidden", "true");
-    document.body.appendChild(printFrame);
-
-    const cleanup = () => {
-      window.setTimeout(() => {
-        printFrame.remove();
-      }, 1000);
-    };
-
-    printFrame.onload = () => {
-      const frameWindow = printFrame.contentWindow;
-      if (!frameWindow) {
-        cleanup();
-        return;
-      }
-      frameWindow.focus();
-      frameWindow.print();
-      cleanup();
-    };
-
-    printFrame.srcdoc = html;
-  }, [koraRestockReport]);
-
   return (
     <main className="report-page-shell flex-1 px-6 py-4 text-slate-900">
       <div className="mx-auto w-full max-w-7xl space-y-4">
@@ -1615,31 +1481,6 @@ export default function ReportsPage() {
             </button>
           </div>
         </header>
-        <section className="rounded-3xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-slate-50 p-4 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-600">
-                KORA rápida
-              </p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-900">
-                Productos para mañana
-              </h2>
-              <p className="mt-1 max-w-2xl text-sm text-slate-600">
-                Consulta el reporte operativo de reposición sugerida con base en
-                las ventas de hoy, sin salir de esta ventana.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void openKoraRestockModal()}
-                className="inline-flex rounded-full border border-emerald-400/70 bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600"
-              >
-                Abrir reporte
-              </button>
-            </div>
-          </div>
-        </section>
         {quickPdfError ? (
           <section className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm">
             {quickPdfError}
@@ -2325,92 +2166,6 @@ export default function ReportsPage() {
           </>
         )}
       </div>
-      {koraRestockModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-3 py-4 backdrop-blur-sm"
-          onClick={() => setKoraRestockModalOpen(false)}
-        >
-          <div
-            className="flex h-[calc(100vh-2rem)] w-full max-w-[1480px] flex-col overflow-hidden rounded-[28px] border border-slate-300 bg-white shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
-                  KORA rápida
-                </div>
-                <div className="mt-1 text-lg font-semibold text-slate-900">
-                  Productos vendidos hoy que conviene reponer mañana
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    void refreshKoraRestockModal();
-                  }}
-                  disabled={koraRestockModalLoading}
-                  className="rounded-full border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {koraRestockModalLoading ? "Refrescando..." : "Refrescar"}
-                </button>
-                <button
-                  type="button"
-                  onClick={printKoraRestockReport}
-                  disabled={!koraRestockReport}
-                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Imprimir
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setKoraRestockModalOpen(false)}
-                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cerrar
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 bg-slate-100">
-              {koraRestockModalLoading ? (
-                <div className="flex h-full items-center justify-center">
-                  <LoadingSpinner size={56} label="Cargando reporte..." />
-                </div>
-              ) : koraRestockModalError ? (
-                <div className="flex h-full items-center justify-center px-6">
-                  <div className="max-w-xl rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-rose-800">
-                    <div className="font-semibold">
-                      No se pudo abrir el reporte.
-                    </div>
-                    <div className="mt-1 text-sm">
-                      {koraRestockModalError}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void openKoraRestockModal();
-                      }}
-                      className="mt-4 rounded-full bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
-                    >
-                      Reintentar
-                    </button>
-                  </div>
-                </div>
-              ) : koraRestockReport ? (
-                <iframe
-                  title="Reporte de reposición KORA"
-                  srcDoc={buildRestockReportHtml(koraRestockReport)}
-                  className="h-full w-full border-0 bg-white"
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-slate-500">
-                  No hay reporte para mostrar.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </main>
   );
 }

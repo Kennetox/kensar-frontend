@@ -4659,12 +4659,22 @@ export default function SettingsPage() {
                 Úsalo en la tablet
               </div>
             </div>
-            <div className="mt-4 rounded-2xl border border-emerald-200 bg-white px-4 py-4 shadow-inner">
+            <div className="mt-4 rounded-[28px] border border-emerald-200/80 bg-white/95 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8),0_16px_32px_rgba(16,185,129,0.08)]">
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                 Código de vinculación
               </div>
-              <div className="mt-2 text-4xl font-black tracking-[0.34em] text-emerald-600 sm:text-5xl">
-                {stockDeviceSetupCode.code}
+              <div className="mt-3 flex flex-wrap gap-2 sm:gap-3">
+                {stockDeviceSetupCode.code.split("").map((digit, index) => (
+                  <div
+                    key={`${stockDeviceSetupCode.code}-${index}`}
+                    className="flex h-14 w-11 items-center justify-center rounded-2xl border border-emerald-200 bg-gradient-to-b from-emerald-50 to-white font-mono text-3xl font-black text-emerald-700 shadow-sm sm:h-16 sm:w-12 sm:text-[2rem]"
+                  >
+                    {digit}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 text-[11px] text-slate-500">
+                Escríbelo tal cual aparece, de izquierda a derecha.
               </div>
             </div>
             <div className="mt-3 text-xs font-medium text-slate-600">
