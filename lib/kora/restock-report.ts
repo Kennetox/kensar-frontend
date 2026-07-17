@@ -18,7 +18,6 @@ export type KoraRestockForecastItem = {
   projected_demand: number;
   suggested_qty: number;
   urgency: "high" | "medium" | "low";
-  reason: string;
   last_sale_at?: string | null;
   last_movement_at?: string | null;
 };

@@ -195,7 +195,6 @@ type KoraRestockForecastItem = {
   projected_demand: number;
   suggested_qty: number;
   urgency: "high" | "medium" | "low";
-  reason: string;
   last_sale_at?: string | null;
   last_movement_at?: string | null;
 };
@@ -3907,25 +3906,20 @@ export default function KoraOpsAssistant({
       const dailyUnits = units30d / 30;
       const coverageDays = dailyUnits > 0 ? stock / dailyUnits : Number.POSITIVE_INFINITY;
       let recommendation = "No priorizar reposición por ahora.";
-      let reason = "no hay suficiente rotación reciente para justificar compra inmediata.";
 
       if ((stock <= 0 || (product.status ?? "") === "critical") && units30d > 0) {
         recommendation = "Sí, pedir ya.";
-        reason = "tiene quiebre/estado crítico y sí hubo movimiento reciente.";
       } else if (dailyUnits > 0 && coverageDays <= 7) {
         recommendation = "Sí, pedir ya.";
-        reason = `la cobertura estimada es de ~${coverageDays.toFixed(1)} días.`;
       } else if (dailyUnits > 0 && coverageDays <= 15) {
         recommendation = "Conviene reponer esta semana.";
-        reason = `la cobertura estimada es de ~${coverageDays.toFixed(1)} días.`;
       } else if (units30d > 0) {
         recommendation = "No urgente; monitorear.";
-        reason = `tiene cobertura aproximada de ${coverageDays.toFixed(1)} días al ritmo actual.`;
       }
 
       pushMessage(
         "kora",
-        `Recomendación de reposición para ${product.product_name}${product.sku ? ` (SKU ${product.sku})` : ""}:\n- Stock actual: ${formatStockUnits(stock)}\n- Ventas 30 días: ${formatMoney(sales30d)} COP\n- Tickets 30 días: ${tickets30d}\n- Unidades estimadas 30 días: ${units30d}\n- Cobertura estimada: ${Number.isFinite(coverageDays) ? formatCoverageDays(coverageDays) : "sin consumo reciente"}\n\nConclusión KORA: ${recommendation}\nMotivo: ${reason}`,
+      `Recomendación de reposición para ${product.product_name}${product.sku ? ` (SKU ${product.sku})` : ""}:\n- Stock actual: ${formatStockUnits(stock)}\n- Ventas 30 días: ${formatMoney(sales30d)} COP\n- Tickets 30 días: ${tickets30d}\n- Unidades estimadas 30 días: ${units30d}\n- Cobertura estimada: ${Number.isFinite(coverageDays) ? formatCoverageDays(coverageDays) : "sin consumo reciente"}\n\nConclusión KORA: ${recommendation}`,
         PRODUCT_ACTIONS
       );
       lastEntityRef.current = {
