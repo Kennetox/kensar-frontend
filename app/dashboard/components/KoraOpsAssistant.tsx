@@ -4008,6 +4008,25 @@ export default function KoraOpsAssistant({
     setRestockReport(report);
   }
 
+  async function refreshRestockReport() {
+    const currentReport = restockReport ?? latestRestockReportRef.current;
+    if (!currentReport || !ensureToken()) return;
+    setBusy(true);
+    try {
+      const refreshed = await readRestockForecast(currentReport.mode, currentReport.horizon_days);
+      latestRestockReportRef.current = refreshed;
+      setRestockReport(refreshed);
+      if (restockDebugOpen) {
+        setRestockDebugOpen(false);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible refrescar el reporte.";
+      pushMessage("kora", `No pude refrescar el reporte ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function closeRestockReportModal() {
     setRestockReport(null);
     setRestockDebugOpen(false);
@@ -4790,6 +4809,13 @@ export default function KoraOpsAssistant({
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => void refreshRestockReport()}
+                          className="px-3 py-1.5 rounded-md border border-sky-300 bg-sky-50 text-sky-700 hover:border-sky-400"
+                        >
+                          Refrescar
+                        </button>
                         {SHOW_RESTOCK_DEBUG ? (
                           <button
                             type="button"

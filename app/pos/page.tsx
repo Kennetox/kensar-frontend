@@ -1123,6 +1123,40 @@ const matchesStationLabel = useCallback(
       setKoraRestockModalLoading(false);
     }
   }, [apiBase, token]);
+  const refreshKoraRestockModal = useCallback(async () => {
+    setKoraRestockModalError(null);
+    setKoraRestockModalLoading(true);
+
+    if (!token) {
+      setKoraRestockModalError("No pude validar tu sesión para refrescar el reporte.");
+      setKoraRestockModalLoading(false);
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams({
+        mode: "today",
+        horizon_days: "2",
+        lookback_days: "30",
+      });
+      const res = await fetch(`${apiBase}/kora/restock-forecast?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!res.ok) {
+        throw new Error(`Error ${res.status} al consultar el reporte.`);
+      }
+      const data = (await res.json()) as KoraRestockForecastResponse;
+      setKoraRestockReport(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible refrescar el reporte.";
+      setKoraRestockModalError(message);
+      setKoraRestockReport(null);
+    } finally {
+      setKoraRestockModalLoading(false);
+    }
+  }, [apiBase, token]);
   const printKoraRestockReport = useCallback(() => {
     const report = koraRestockReport;
     if (!report || typeof window === "undefined") return;
@@ -7428,6 +7462,16 @@ const matchesStationLabel = useCallback(
                 </div>
               </div>
               <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void refreshKoraRestockModal();
+                  }}
+                  disabled={koraRestockModalLoading}
+                  className="rounded-full border border-sky-300 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {koraRestockModalLoading ? "Refrescando..." : "Refrescar"}
+                </button>
                 <button
                   type="button"
                   onClick={printKoraRestockReport}
