@@ -257,7 +257,7 @@ function PosCatalogGridComponent({
                     searchInputRef.current?.focus();
                   });
                 }}
-                className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-slate-600 bg-slate-900 text-slate-300 shadow-sm transition hover:border-slate-400 hover:bg-slate-800 hover:text-slate-100"
+                className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-rose-400/50 bg-rose-500/15 text-rose-200 shadow-sm transition hover:border-rose-300 hover:bg-rose-500/25 hover:text-rose-50"
                 aria-label="Limpiar búsqueda"
                 title="Limpiar búsqueda"
               >
