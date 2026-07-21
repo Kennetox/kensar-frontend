@@ -5683,6 +5683,20 @@ const matchesStationLabel = useCallback(
     () => tiles.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
     [tiles, safePage]
   );
+  const previousPageTiles = useMemo(
+    () =>
+      safePage > 1
+        ? tiles.slice((safePage - 2) * PAGE_SIZE, (safePage - 1) * PAGE_SIZE)
+        : [],
+    [tiles, safePage]
+  );
+  const nextPageTiles = useMemo(
+    () =>
+      safePage < totalPages
+        ? tiles.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
+        : [],
+    [tiles, safePage, totalPages]
+  );
 
   // Cuando cambie el contenido (buscar / navegar), reseteamos página
   useEffect(() => {
@@ -7417,6 +7431,8 @@ const matchesStationLabel = useCallback(
 
         <PosCatalogGrid
           tiles={pageTiles}
+          previousPageTiles={previousPageTiles}
+          nextPageTiles={nextPageTiles}
           loading={loading}
           search={search}
           currentPath={currentPath}

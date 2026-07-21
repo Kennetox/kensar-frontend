@@ -4,14 +4,27 @@
 
 import React, {
   memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
   type CSSProperties,
   type Dispatch,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
   type SetStateAction,
 } from "react";
 
 import type { Product } from "../poscontext";
+import {
+  decideGridSwipeRelease,
+  GRID_PAGE_GAP_PX,
+  GRID_SWIPE_AXIS_LOCK_PX,
+  GRID_SWIPE_DIRECTION_RATIO,
+  GRID_SWIPE_VELOCITY_IDLE_MS,
+} from "@/lib/pos/gridSwipe";
 
 export type Path = string[];
 
@@ -38,8 +51,26 @@ export type BackTile = {
 
 export type GridTile = ProductTile | GroupTile | BackTile;
 
+type GridSwipeGesture = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  startTime: number;
+  lastTime: number;
+  velocityX: number;
+  viewportWidth: number;
+  startScrollLeft: number;
+  direction: "pending" | "horizontal";
+};
+
+const GRID_SWIPE_CLICK_GUARD_MS = 450;
+
 type PosCatalogGridProps = {
   tiles: GridTile[];
+  previousPageTiles: GridTile[];
+  nextPageTiles: GridTile[];
   loading: boolean;
   search: string;
   currentPath: Path;
@@ -77,6 +108,7 @@ function CatalogTile({
   labelFontSize,
   priceFontSize,
   metaFontSize,
+  interactive,
   onTileClick,
   resolveAssetUrl,
 }: Pick<
@@ -87,11 +119,12 @@ function CatalogTile({
   | "metaFontSize"
   | "onTileClick"
   | "resolveAssetUrl"
-> & { tile: GridTile }) {
+> & { tile: GridTile; interactive: boolean }) {
   if (tile.type === "back") {
     return (
       <button
         type="button"
+        tabIndex={interactive ? 0 : -1}
         onClick={() => onTileClick(tile)}
         className="rounded-lg border border-slate-600 bg-slate-900 hover:bg-slate-800 flex items-center justify-center text-sm font-semibold select-none"
       >
@@ -105,6 +138,7 @@ function CatalogTile({
     return (
       <button
         type="button"
+        tabIndex={interactive ? 0 : -1}
         onClick={() => onTileClick(tile)}
         className="rounded-lg bg-slate-800 hover:bg-slate-700 flex flex-col items-center justify-center text-sm font-semibold text-center px-3 py-4 select-none"
         style={groupStyle}
@@ -119,6 +153,7 @@ function CatalogTile({
                 src={tile.imageUrl}
                 alt={tile.label}
                 loading="lazy"
+                draggable={false}
                 className="max-h-full max-w-full object-contain"
               />
             </div>
@@ -154,6 +189,7 @@ function CatalogTile({
   return (
     <button
       type="button"
+      tabIndex={interactive ? 0 : -1}
       onClick={() => onTileClick(tile)}
       className={`group relative w-full h-full rounded-xl border border-slate-700/60 px-3 py-3 text-xs text-slate-50 overflow-hidden select-none ${tileBgClass}`}
       style={tileStyle}
@@ -174,6 +210,7 @@ function CatalogTile({
               src={productImageUrl ?? undefined}
               alt={product.name}
               loading="lazy"
+              draggable={false}
               className="max-h-full max-w-full object-contain"
             />
           </div>
@@ -212,6 +249,8 @@ function CatalogTile({
 
 function PosCatalogGridComponent({
   tiles,
+  previousPageTiles,
+  nextPageTiles,
   loading,
   search,
   currentPath,
@@ -235,8 +274,267 @@ function PosCatalogGridComponent({
   onZoomReset,
   resolveAssetUrl,
 }: PosCatalogGridProps) {
+  const carouselViewportRef = useRef<HTMLDivElement | null>(null);
+  const mouseGestureRef = useRef<GridSwipeGesture | null>(null);
+  const pointerActiveRef = useRef(false);
+  const rebasingRef = useRef(false);
+  const suppressClickRef = useRef(false);
+  const clickGuardTimerRef = useRef<number | null>(null);
+  const scrollSettleTimerRef = useRef<number | null>(null);
+
+  const clearClickGuardTimer = useCallback(() => {
+    if (clickGuardTimerRef.current == null) return;
+    window.clearTimeout(clickGuardTimerRef.current);
+    clickGuardTimerRef.current = null;
+  }, []);
+
+  const clearScrollSettleTimer = useCallback(() => {
+    if (scrollSettleTimerRef.current == null) return;
+    window.clearTimeout(scrollSettleTimerRef.current);
+    scrollSettleTimerRef.current = null;
+  }, []);
+
+  const guardAgainstSwipeClick = useCallback(() => {
+    suppressClickRef.current = true;
+    clearClickGuardTimer();
+    clickGuardTimerRef.current = window.setTimeout(() => {
+      suppressClickRef.current = false;
+      clickGuardTimerRef.current = null;
+    }, GRID_SWIPE_CLICK_GUARD_MS);
+  }, [clearClickGuardTimer]);
+
+  const getPageDistance = useCallback(() => {
+    const viewport = carouselViewportRef.current;
+    return Math.max(1, viewport?.clientWidth ?? 1) + GRID_PAGE_GAP_PX;
+  }, []);
+
+  const centerCarousel = useCallback(() => {
+    const viewport = carouselViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollLeft = getPageDistance();
+  }, [getPageDistance]);
+
+  useLayoutEffect(() => {
+    rebasingRef.current = true;
+    clearScrollSettleTimer();
+    mouseGestureRef.current = null;
+    pointerActiveRef.current = false;
+    centerCarousel();
+    const frame = window.requestAnimationFrame(() => {
+      rebasingRef.current = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [centerCarousel, clearScrollSettleTimer, safePage, tiles]);
+
+  useEffect(
+    () => () => {
+      clearClickGuardTimer();
+      clearScrollSettleTimer();
+    },
+    [clearClickGuardTimer, clearScrollSettleTimer]
+  );
+
+  const commitSettledPage = useCallback(() => {
+    const viewport = carouselViewportRef.current;
+    if (!viewport || rebasingRef.current || pointerActiveRef.current) return;
+    const pageDistance = getPageDistance();
+    const slot = Math.round(viewport.scrollLeft / pageDistance);
+    const direction = slot < 1 ? -1 : slot > 1 ? 1 : 0;
+    const canChangePage =
+      (direction === -1 && safePage > 1) ||
+      (direction === 1 && safePage < totalPages);
+
+    if (direction !== 0 && canChangePage) {
+      rebasingRef.current = true;
+      setCurrentPage((page) =>
+        Math.max(1, Math.min(totalPages, page + direction))
+      );
+      return;
+    }
+
+    if (Math.abs(viewport.scrollLeft - pageDistance) > 1) {
+      viewport.scrollTo({ left: pageDistance, behavior: "smooth" });
+    }
+  }, [getPageDistance, safePage, setCurrentPage, totalPages]);
+
+  const scheduleScrollSettle = useCallback(() => {
+    clearScrollSettleTimer();
+    scrollSettleTimerRef.current = window.setTimeout(
+      commitSettledPage,
+      80
+    );
+  }, [clearScrollSettleTimer, commitSettledPage]);
+
+  const clampCarouselPosition = useCallback(() => {
+    const viewport = carouselViewportRef.current;
+    if (!viewport) return;
+    const pageDistance = getPageDistance();
+    const minScrollLeft = safePage > 1 ? 0 : pageDistance;
+    const maxScrollLeft = safePage < totalPages ? pageDistance * 2 : pageDistance;
+    const clampedScrollLeft = Math.min(
+      maxScrollLeft,
+      Math.max(minScrollLeft, viewport.scrollLeft)
+    );
+    if (Math.abs(clampedScrollLeft - viewport.scrollLeft) > 1) {
+      viewport.scrollLeft = clampedScrollLeft;
+    }
+  }, [getPageDistance, safePage, totalPages]);
+
+  const handleCarouselScroll = useCallback(() => {
+    if (rebasingRef.current) return;
+    clampCarouselPosition();
+    if (pointerActiveRef.current) return;
+    scheduleScrollSettle();
+  }, [clampCarouselPosition, scheduleScrollSettle]);
+
+  useEffect(() => {
+    const viewport = carouselViewportRef.current;
+    if (!viewport) return;
+    const handleScrollEnd = () => {
+      if (pointerActiveRef.current || rebasingRef.current) return;
+      clearScrollSettleTimer();
+      commitSettledPage();
+    };
+    viewport.addEventListener("scrollend", handleScrollEnd);
+    return () => viewport.removeEventListener("scrollend", handleScrollEnd);
+  }, [clearScrollSettleTimer, commitSettledPage]);
+
+  const handleGridPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!event.isPrimary || event.button !== 0) return;
+      pointerActiveRef.current = true;
+      clearScrollSettleTimer();
+      if (event.pointerType !== "mouse" || totalPages <= 1) return;
+
+      const viewport = carouselViewportRef.current;
+      if (!viewport) return;
+      viewport.style.scrollSnapType = "none";
+      mouseGestureRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        startTime: event.timeStamp,
+        lastTime: event.timeStamp,
+        velocityX: 0,
+        viewportWidth: viewport.clientWidth,
+        startScrollLeft: viewport.scrollLeft,
+        direction: "pending",
+      };
+    },
+    [clearScrollSettleTimer, totalPages]
+  );
+
+  const handleGridPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const gesture = mouseGestureRef.current;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+      const deltaX = event.clientX - gesture.startX;
+      const deltaY = event.clientY - gesture.startY;
+      const absDeltaX = Math.abs(deltaX);
+      const absDeltaY = Math.abs(deltaY);
+      if (gesture.direction === "pending") {
+        if (
+          absDeltaY >= GRID_SWIPE_AXIS_LOCK_PX &&
+          absDeltaY > absDeltaX * GRID_SWIPE_DIRECTION_RATIO
+        ) {
+          mouseGestureRef.current = null;
+          return;
+        }
+        if (
+          absDeltaX < GRID_SWIPE_AXIS_LOCK_PX ||
+          absDeltaX <= absDeltaY * GRID_SWIPE_DIRECTION_RATIO
+        ) {
+          return;
+        }
+        gesture.direction = "horizontal";
+        event.currentTarget.style.cursor = "grabbing";
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
+
+      const elapsed = event.timeStamp - gesture.lastTime;
+      if (elapsed > 0 && elapsed <= GRID_SWIPE_VELOCITY_IDLE_MS) {
+        const velocity = (event.clientX - gesture.lastX) / elapsed;
+        gesture.velocityX =
+          gesture.velocityX === 0
+            ? velocity
+            : gesture.velocityX * 0.6 + velocity * 0.4;
+      }
+      gesture.lastX = event.clientX;
+      gesture.lastY = event.clientY;
+      gesture.lastTime = event.timeStamp;
+
+      event.preventDefault();
+      const viewport = carouselViewportRef.current;
+      if (viewport) viewport.scrollLeft = gesture.startScrollLeft - deltaX;
+    },
+    []
+  );
+
+  const handleGridPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      pointerActiveRef.current = false;
+      const gesture = mouseGestureRef.current;
+      mouseGestureRef.current = null;
+      event.currentTarget.style.cursor = "";
+      const viewport = carouselViewportRef.current;
+      if (viewport) viewport.style.scrollSnapType = "x mandatory";
+
+      if (gesture?.pointerId === event.pointerId && gesture.direction === "horizontal") {
+        event.preventDefault();
+        guardAgainstSwipeClick();
+        const deltaX = event.clientX - gesture.startX;
+        const deltaY = event.clientY - gesture.startY;
+        const { direction } = decideGridSwipeRelease({
+          deltaX,
+          deltaY,
+          velocityX: gesture.velocityX,
+          elapsedMs: Math.max(1, event.timeStamp - gesture.startTime),
+          viewportWidth: gesture.viewportWidth,
+          canGoPrevious: safePage > 1,
+          canGoNext: safePage < totalPages,
+        });
+        viewport?.scrollTo({
+          left: gesture.startScrollLeft + direction * getPageDistance(),
+          behavior: "smooth",
+        });
+      }
+
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      scheduleScrollSettle();
+    },
+    [getPageDistance, guardAgainstSwipeClick, safePage, scheduleScrollSettle, totalPages]
+  );
+
+  const handleGridPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      pointerActiveRef.current = false;
+      mouseGestureRef.current = null;
+      event.currentTarget.style.cursor = "";
+      const viewport = carouselViewportRef.current;
+      if (viewport) viewport.style.scrollSnapType = "x mandatory";
+      scheduleScrollSettle();
+    },
+    [scheduleScrollSettle]
+  );
+
+  const handleGridClickCapture = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (!suppressClickRef.current) return;
+      suppressClickRef.current = false;
+      clearClickGuardTimer();
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    [clearClickGuardTimer]
+  );
+
   return (
-    <section className="flex-1 flex flex-col">
+    <section className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-slate-800 bg-slate-900">
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="relative flex-1">
@@ -275,26 +573,91 @@ function PosCatalogGridComponent({
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto px-3 py-3">
-          <div ref={gridRef} className="grid w-full gap-4" style={gridStyle}>
-            {tiles.map((tile) => (
-              <CatalogTile
-                key={tile.id}
-                tile={tile}
-                imageHeight={imageHeight}
-                labelFontSize={labelFontSize}
-                priceFontSize={priceFontSize}
-                metaFontSize={metaFontSize}
-                onTileClick={onTileClick}
-                resolveAssetUrl={resolveAssetUrl}
-              />
-            ))}
-            {tiles.length === 0 && !loading && (
-              <div className="col-span-full text-center text-sm text-slate-400 py-6">
-                No hay elementos para mostrar.
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div
+          ref={carouselViewportRef}
+          className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden [&::-webkit-scrollbar]:hidden"
+          style={{
+            touchAction: "pan-x pan-y pinch-zoom",
+            scrollSnapType: "x mandatory",
+            overscrollBehaviorX: "none",
+            scrollbarWidth: "none",
+            overflowX: totalPages > 1 ? "auto" : "hidden",
+            WebkitOverflowScrolling: "touch",
+          }}
+          onScroll={handleCarouselScroll}
+          onWheel={scheduleScrollSettle}
+          onPointerDown={handleGridPointerDown}
+          onPointerMove={handleGridPointerMove}
+          onPointerUp={handleGridPointerUp}
+          onPointerCancel={handleGridPointerCancel}
+          onClickCapture={handleGridClickCapture}
+          onDragStart={(event) => event.preventDefault()}
+        >
+          <div
+            className="grid h-full w-full"
+            style={{
+              gridTemplateColumns: "repeat(3, 100%)",
+              columnGap: `${GRID_PAGE_GAP_PX}px`,
+            }}
+          >
+            {[
+              {
+                pageNumber: safePage - 1,
+                pageTiles: previousPageTiles,
+                current: false,
+              },
+              {
+                pageNumber: safePage,
+                pageTiles: tiles,
+                current: true,
+              },
+              {
+                pageNumber: safePage + 1,
+                pageTiles: nextPageTiles,
+                current: false,
+              },
+            ].map(({ pageNumber, pageTiles, current }) => {
+              const isAvailablePage =
+                pageNumber >= 1 && pageNumber <= totalPages;
+              return (
+              <div
+                key={`grid-page-${pageNumber}`}
+                className="h-full min-h-0 w-full overflow-y-auto px-3 py-3"
+                style={{
+                  scrollSnapAlign: isAvailablePage ? "center" : "none",
+                  scrollSnapStop: "always",
+                  overscrollBehaviorY: "contain",
+                }}
+                aria-hidden={!current}
+              >
+                <div
+                  ref={current ? gridRef : undefined}
+                  className="grid w-full gap-4"
+                  style={gridStyle}
+                >
+                  {pageTiles.map((tile) => (
+                    <CatalogTile
+                      key={tile.id}
+                      tile={tile}
+                      imageHeight={imageHeight}
+                      labelFontSize={labelFontSize}
+                      priceFontSize={priceFontSize}
+                      metaFontSize={metaFontSize}
+                      interactive={current}
+                      onTileClick={onTileClick}
+                      resolveAssetUrl={resolveAssetUrl}
+                    />
+                  ))}
+                  {current && pageTiles.length === 0 && !loading && (
+                    <div className="col-span-full py-6 text-center text-sm text-slate-400">
+                      No hay elementos para mostrar.
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
+              );
+            })}
           </div>
         </div>
 
