@@ -215,6 +215,12 @@ function CatalogTile({
             />
           </div>
           <span
+            className="text-slate-300 leading-none"
+            style={{ fontSize: `${metaFontSize}rem` }}
+          >
+            {product.sku || product.barcode || " "}
+          </span>
+          <span
             className="font-bold mb-1"
             style={{ fontSize: `${priceFontSize}rem` }}
           >
