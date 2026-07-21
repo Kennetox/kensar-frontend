@@ -16,6 +16,7 @@ import React, {
   type RefObject,
   type SetStateAction,
 } from "react";
+import { flushSync } from "react-dom";
 
 import type { Product } from "../poscontext";
 import {
@@ -66,6 +67,8 @@ type GridSwipeGesture = {
 };
 
 const GRID_SWIPE_CLICK_GUARD_MS = 450;
+const GRID_SCROLL_STABLE_EPSILON_PX = 0.1;
+const GRID_SCROLL_STABLE_FRAMES = 3;
 
 type PosCatalogGridProps = {
   tiles: GridTile[];
@@ -286,7 +289,7 @@ function PosCatalogGridComponent({
   const rebasingRef = useRef(false);
   const suppressClickRef = useRef(false);
   const clickGuardTimerRef = useRef<number | null>(null);
-  const scrollSettleTimerRef = useRef<number | null>(null);
+  const scrollSettleFrameRef = useRef<number | null>(null);
 
   const clearClickGuardTimer = useCallback(() => {
     if (clickGuardTimerRef.current == null) return;
@@ -294,10 +297,10 @@ function PosCatalogGridComponent({
     clickGuardTimerRef.current = null;
   }, []);
 
-  const clearScrollSettleTimer = useCallback(() => {
-    if (scrollSettleTimerRef.current == null) return;
-    window.clearTimeout(scrollSettleTimerRef.current);
-    scrollSettleTimerRef.current = null;
+  const clearScrollSettleWatcher = useCallback(() => {
+    if (scrollSettleFrameRef.current == null) return;
+    window.cancelAnimationFrame(scrollSettleFrameRef.current);
+    scrollSettleFrameRef.current = null;
   }, []);
 
   const guardAgainstSwipeClick = useCallback(() => {
@@ -321,23 +324,26 @@ function PosCatalogGridComponent({
   }, [getPageDistance]);
 
   useLayoutEffect(() => {
+    const viewport = carouselViewportRef.current;
     rebasingRef.current = true;
-    clearScrollSettleTimer();
+    clearScrollSettleWatcher();
     mouseGestureRef.current = null;
     pointerActiveRef.current = false;
+    if (viewport) viewport.style.scrollSnapType = "none";
     centerCarousel();
     const frame = window.requestAnimationFrame(() => {
+      if (viewport) viewport.style.scrollSnapType = "x mandatory";
       rebasingRef.current = false;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [centerCarousel, clearScrollSettleTimer, safePage, tiles]);
+  }, [centerCarousel, clearScrollSettleWatcher, safePage, tiles]);
 
   useEffect(
     () => () => {
       clearClickGuardTimer();
-      clearScrollSettleTimer();
+      clearScrollSettleWatcher();
     },
-    [clearClickGuardTimer, clearScrollSettleTimer]
+    [clearClickGuardTimer, clearScrollSettleWatcher]
   );
 
   const commitSettledPage = useCallback(() => {
@@ -352,24 +358,61 @@ function PosCatalogGridComponent({
 
     if (direction !== 0 && canChangePage) {
       rebasingRef.current = true;
-      setCurrentPage((page) =>
-        Math.max(1, Math.min(totalPages, page + direction))
-      );
+      clearScrollSettleWatcher();
+      viewport.style.scrollSnapType = "none";
+      flushSync(() => {
+        setCurrentPage(Math.max(1, Math.min(totalPages, safePage + direction)));
+      });
       return;
     }
 
     if (Math.abs(viewport.scrollLeft - pageDistance) > 1) {
       viewport.scrollTo({ left: pageDistance, behavior: "smooth" });
     }
-  }, [getPageDistance, safePage, setCurrentPage, totalPages]);
+  }, [
+    clearScrollSettleWatcher,
+    getPageDistance,
+    safePage,
+    setCurrentPage,
+    totalPages,
+  ]);
 
   const scheduleScrollSettle = useCallback(() => {
-    clearScrollSettleTimer();
-    scrollSettleTimerRef.current = window.setTimeout(
-      commitSettledPage,
-      80
+    const viewport = carouselViewportRef.current;
+    if (!viewport || viewport.onscrollend !== undefined) return;
+    clearScrollSettleWatcher();
+    let lastScrollLeft = viewport.scrollLeft;
+    let stableFrames = 0;
+
+    const watchForStablePosition = () => {
+      scrollSettleFrameRef.current = null;
+      if (rebasingRef.current || pointerActiveRef.current) return;
+
+      const currentScrollLeft = viewport.scrollLeft;
+      if (
+        Math.abs(currentScrollLeft - lastScrollLeft) <=
+        GRID_SCROLL_STABLE_EPSILON_PX
+      ) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+        lastScrollLeft = currentScrollLeft;
+      }
+
+      if (stableFrames >= GRID_SCROLL_STABLE_FRAMES) {
+        commitSettledPage();
+        return;
+      }
+
+      scrollSettleFrameRef.current = window.requestAnimationFrame(
+        watchForStablePosition
+      );
+    };
+
+    scrollSettleFrameRef.current = window.requestAnimationFrame(
+      watchForStablePosition
     );
-  }, [clearScrollSettleTimer, commitSettledPage]);
+  }, [clearScrollSettleWatcher, commitSettledPage]);
 
   const clampCarouselPosition = useCallback(() => {
     const viewport = carouselViewportRef.current;
@@ -398,18 +441,18 @@ function PosCatalogGridComponent({
     if (!viewport) return;
     const handleScrollEnd = () => {
       if (pointerActiveRef.current || rebasingRef.current) return;
-      clearScrollSettleTimer();
+      clearScrollSettleWatcher();
       commitSettledPage();
     };
     viewport.addEventListener("scrollend", handleScrollEnd);
     return () => viewport.removeEventListener("scrollend", handleScrollEnd);
-  }, [clearScrollSettleTimer, commitSettledPage]);
+  }, [clearScrollSettleWatcher, commitSettledPage]);
 
   const handleGridPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       if (!event.isPrimary || event.button !== 0) return;
       pointerActiveRef.current = true;
-      clearScrollSettleTimer();
+      clearScrollSettleWatcher();
       if (event.pointerType !== "mouse" || totalPages <= 1) return;
 
       const viewport = carouselViewportRef.current;
@@ -429,7 +472,7 @@ function PosCatalogGridComponent({
         direction: "pending",
       };
     },
-    [clearScrollSettleTimer, totalPages]
+    [clearScrollSettleWatcher, totalPages]
   );
 
   const handleGridPointerMove = useCallback(
