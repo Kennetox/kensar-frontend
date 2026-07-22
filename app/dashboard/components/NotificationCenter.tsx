@@ -9,6 +9,7 @@ import {
   markNotificationRead,
   type DashboardNotification,
 } from "@/lib/api/notifications";
+import WebOpportunityReviewModal from "./WebOpportunityReviewModal";
 
 
 const severityStyle: Record<DashboardNotification["severity"], string> = {
@@ -44,6 +45,7 @@ export default function NotificationCenter({ token }: { token: string }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [webOpportunityNotification, setWebOpportunityNotification] = useState<DashboardNotification | null>(null);
   const centerRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async (silent = false) => {
@@ -109,6 +111,11 @@ export default function NotificationCenter({ token }: { token: string }) {
 
   const handleAction = async (notification: DashboardNotification) => {
     await markRead(notification);
+    if (notification.category === "web_opportunity") {
+      setOpen(false);
+      setWebOpportunityNotification(notification);
+      return;
+    }
     if (notification.action_href?.startsWith("/dashboard")) {
       setOpen(false);
       router.push(notification.action_href);
@@ -292,6 +299,17 @@ export default function NotificationCenter({ token }: { token: string }) {
             )}
           </div>
         </aside>
+      )}
+      {webOpportunityNotification && (
+        <WebOpportunityReviewModal
+          token={token}
+          notificationPayload={webOpportunityNotification.payload}
+          onClose={() => setWebOpportunityNotification(null)}
+          onOpenCommerce={() => {
+            setWebOpportunityNotification(null);
+            router.push("/dashboard/comercio-web");
+          }}
+        />
       )}
     </div>
   );
