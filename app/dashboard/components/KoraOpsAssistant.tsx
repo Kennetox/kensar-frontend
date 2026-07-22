@@ -213,6 +213,32 @@ type KoraRestockForecastResponse = {
   conversation_starters: string[];
 };
 
+type KoraWebOpportunityItem = {
+  product_id: number;
+  product_name: string;
+  sku?: string | null;
+  group_name?: string | null;
+  qty_on_hand: number;
+  units_7d: number;
+  units_lookback: number;
+  revenue_lookback: number;
+  last_sale_at?: string | null;
+  readiness_score: number;
+  missing_web_fields: string[];
+  score: number;
+  reason: string;
+};
+
+type KoraWebOpportunityResponse = {
+  generated_at: string;
+  source: "web-opportunities-v1";
+  state: "opportunities" | "no_sales" | "no_candidates";
+  lookback_days: number;
+  analyzed_product_count: number;
+  headline: string;
+  items: KoraWebOpportunityItem[];
+};
+
 type KoraRestockReportRow = {
   product_id: number;
   sku: string;
@@ -1002,6 +1028,7 @@ function intentLabel(intent: QueryIntent) {
     sales_overview: "Resumen comercial",
     sales_day_reading: "Lectura del día",
     inventory_overview: "Resumen inventario",
+    web_opportunities: "Oportunidades para la web",
     web_overview: "Resumen comercio web",
   };
   return labels[intent] ?? "Consulta";
@@ -1731,6 +1758,15 @@ export default function KoraOpsAssistant({
     });
     if (!res.ok) throw new Error(`Error ${res.status} al consultar pronóstico de reposición.`);
     return (await res.json()) as KoraRestockForecastResponse;
+  }
+
+  async function readWebOpportunities() {
+    const apiBase = getApiBase();
+    const res = await fetch(`${apiBase}/kora/web-opportunities?lookback_days=30&max_items=8`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`Error ${res.status} al analizar oportunidades para la web.`);
+    return (await res.json()) as KoraWebOpportunityResponse;
   }
 
   async function readMonthlySeries(year: number) {
@@ -2669,6 +2705,44 @@ export default function KoraOpsAssistant({
     } catch (error) {
       const message = error instanceof Error ? error.message : "No fue posible cargar comercio web.";
       pushMessage("kora", `No pude consultar comercio web en este momento. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function answerWebOpportunities() {
+    if (!ensureToken()) return;
+    setBusy(true);
+    lastTopicRef.current = "web";
+    lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "comercio_web" };
+    try {
+      const data = await readWebOpportunities();
+      if (data.state !== "opportunities" || !data.items.length) {
+        const devHint = data.state === "no_sales"
+          ? " Si estás trabajando en desarrollo, es normal que no aparezcan candidatos porque allí no están las ventas reales de producción."
+          : "";
+        pushMessage(
+          "kora",
+          `${data.headline}${devHint}\n\nRevisé ventas recientes, stock disponible y productos que todavía no están publicados. No publiqué ni modifiqué nada.`
+        );
+        return;
+      }
+
+      const ranking = data.items.slice(0, 8).map((item, index) => {
+        const sku = item.sku ? ` · SKU ${item.sku}` : "";
+        const pending = item.missing_web_fields.length
+          ? `\n   Antes de publicar: completar ${item.missing_web_fields.join(", ")}.`
+          : "\n   Está listo en sus datos básicos para la web.";
+        return `${index + 1}. ${item.product_name}${sku}\n   ${formatMoney(item.units_lookback)} uds. vendidas en ${data.lookback_days} días · ${formatMoney(item.units_7d)} en 7 días · stock ${formatMoney(item.qty_on_hand)}.${pending}`;
+      }).join("\n\n");
+
+      pushMessage(
+        "kora",
+        `${data.headline}\n\n${ranking}\n\nEs una recomendación basada en rotación reciente y disponibilidad. No publiqué ni modifiqué ningún producto.`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible analizar las oportunidades web.";
+      pushMessage("kora", `No pude revisar qué productos conviene publicar en este momento. ${message}`);
     } finally {
       setBusy(false);
     }
@@ -4381,6 +4455,10 @@ export default function KoraOpsAssistant({
     }
     if (intent === "separated_pending") {
       await answerSales("separated");
+      return "handled" as const;
+    }
+    if (intent === "web_opportunities") {
+      await answerWebOpportunities();
       return "handled" as const;
     }
     if (intent === "web_overview") {

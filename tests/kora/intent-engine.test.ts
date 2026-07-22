@@ -163,6 +163,40 @@ test("detectIntent web pending", () => {
   assertIntent("comercio web pendientes", "module_playbook_task");
 });
 
+test("detectIntent web publishing opportunities in natural variations", () => {
+  const variations = [
+    "qué productos debería publicar en la web",
+    "cuáles productos conviene subir a comercio web",
+    "recomiéndame productos para la tienda online",
+    "qué se está vendiendo bien y aún no está en la web",
+    "hay oportunidades para el catálogo web",
+    "qué productos tienen potencial para la página web",
+    "cuáles llevo al canal online",
+    "revisa qué artículos vendidos podemos publicar",
+    "muéstrame el radar de oportunidades web",
+    "dame sugerencias de productos para comercio web",
+    "de lo que vendemos qué pondrías en la página web",
+    "qué productos no publicados se venden bien",
+    "qué puedo pasar al catálogo online",
+    "dime qué subirías a la web",
+    "busca productos con buena rotación para la tienda online",
+    "qué productos me recomiendas para publicar",
+  ];
+
+  for (const variation of variations) assertIntent(variation, "web_opportunities");
+});
+
+test("resolveIntentWithContext recognizes short web opportunity follow-ups", () => {
+  assert.equal(resolveIntentWithContext("y cuáles recomiendas", "web", {}, resolveModuleFromQuery), "web_opportunities");
+  assert.equal(resolveIntentWithContext("entonces cuáles subirías", "web", {}, resolveModuleFromQuery), "web_opportunities");
+});
+
+test("detectIntent distinguishes web opportunities from publishing instructions", () => {
+  assertIntent("cómo publicar un producto en comercio web", "module_playbook_task");
+  assertIntent("estado comercio web", "web_overview");
+  assertIntent("cuáles son los 10 productos más vendidos", "top_products_current_month");
+});
+
 test("detectIntent customer lookup by name", () => {
   assertIntent("buscar cliente juan perez", "customer_lookup");
 });

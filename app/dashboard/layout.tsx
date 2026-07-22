@@ -14,6 +14,7 @@ import { fetchUserProfile, type UserProfileRecord } from "@/lib/api/profile";
 import { getApiBase } from "@/lib/api/base";
 import { isTenantModuleEnabled } from "@/lib/tenantModules";
 import KoraOpsAssistant from "./components/KoraOpsAssistant";
+import NotificationCenter from "./components/NotificationCenter";
 
 type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "Gestor Web";
 const SCHEDULE_MODULE_ENABLED = true;
@@ -970,7 +971,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       {/* CONTENIDO PRINCIPAL */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           {/* TOPBAR */}
-        <header className="h-16 border-b dashboard-topbar backdrop-blur flex items-center justify-between gap-3 px-4 md:px-5 shadow-[0_1px_0_rgba(15,23,42,0.12)]">
+        <header className="relative z-50 h-16 overflow-visible border-b dashboard-topbar backdrop-blur flex items-center justify-between gap-3 px-4 md:px-5 shadow-[0_1px_0_rgba(15,23,42,0.12)]">
           <div className="flex min-w-0 items-center gap-2">
             {!posPreview && (
               <button
@@ -1012,12 +1013,14 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               </button>
             )}
             {!posPreview && (
-              <div
-                className="relative"
-                ref={profileMenuRef}
-                onMouseEnter={() => setProfileMenuOpen(true)}
-                onMouseLeave={() => setProfileMenuOpen(false)}
-              >
+              <>
+                {token && <NotificationCenter token={token} />}
+                <div
+                  className="relative"
+                  ref={profileMenuRef}
+                  onMouseEnter={() => setProfileMenuOpen(true)}
+                  onMouseLeave={() => setProfileMenuOpen(false)}
+                >
                 <button
                   type="button"
                   onClick={() => setProfileMenuOpen((prev) => !prev)}
@@ -1115,7 +1118,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                     </div>
                   </div>
                 )}
-              </div>
+                </div>
+              </>
             )}
           </div>
         </header>

@@ -57,6 +57,7 @@ export type QueryIntent =
   | "sales_month"
   | "sales_tickets"
   | "separated_pending"
+  | "web_opportunities"
   | "web_overview"
   | "web_pending"
   | "web_processing"
@@ -81,6 +82,79 @@ export type IntentCandidate = {
 };
 
 type ResolveModuleFromQuery = (input: string) => string | null;
+
+function isWebOpportunityQuery(input: string) {
+  const text = normalizeQuery(input);
+  const tokens = tokenizeQuery(input);
+  const hasWebDestination = hasPhrase(text, [
+    "comercio web",
+    "catalogo web",
+    "catalogo online",
+    "tienda online",
+    "pagina web",
+    "sitio web",
+    "canal online",
+    "en la web",
+    "a la web",
+  ]);
+  const hasProductReference = hasTokenStartingWith(tokens, ["produc", "articul", "item"]);
+  const hasPublishAction = hasTokenStartingWith(tokens, ["public", "sub", "pon", "agreg", "llev", "pas"]);
+  const hasSalesSignal = hasTokenStartingWith(tokens, ["vend", "rotac", "salid", "movim"]);
+  const asksRecommendation = hasTokenStartingWith(tokens, ["recom", "sug", "conv", "deber", "potencial", "oportun", "revis", "busc"]);
+  const asksWhich = hasPhrase(text, [
+    "que producto",
+    "que productos",
+    "cual producto",
+    "cuales productos",
+    "cuales llevo",
+    "que puedo",
+    "que pondrias",
+    "que subirias",
+    "que publicarias",
+  ]);
+  const explicitRadar = hasPhrase(text, [
+    "radar web",
+    "radar de oportunidades web",
+    "oportunidades web",
+    "oportunidades para la web",
+    "oportunidades para el catalogo web",
+    "oportunidades de comercio web",
+    "productos con potencial web",
+    "sugerencias para comercio web",
+    "sugerencias de productos para comercio web",
+  ]);
+  const asksForUnpublishedSellers =
+    hasSalesSignal &&
+    hasPhrase(text, [
+      "no esta en la web",
+      "no estan en la web",
+      "no esta publicado",
+      "no estan publicados",
+      "aun no esta en la web",
+      "aun no estan en la web",
+    ]);
+
+  if (explicitRadar || asksForUnpublishedSellers) return true;
+  if (hasWebDestination && asksRecommendation && (hasProductReference || hasPublishAction || hasSalesSignal)) return true;
+  if (hasWebDestination && asksWhich && (hasPublishAction || hasProductReference || hasSalesSignal)) return true;
+  return hasProductReference && hasPublishAction && (asksWhich || asksRecommendation);
+}
+
+function isWebOpportunityFollowUp(input: string) {
+  const text = normalizeQuery(input);
+  return hasPhrase(text, [
+    "que recomiendas",
+    "cuales recomiendas",
+    "que sugeririas",
+    "cuales sugeririas",
+    "que publicarias",
+    "cuales publicarias",
+    "que subirias",
+    "cuales subirias",
+    "cuales convienen",
+    "que oportunidades hay",
+  ]);
+}
 
 function detectTaskSignal(text: string) {
   return (
@@ -336,6 +410,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
     ((text.includes("donde") || text.includes("dónde") || text.includes("modulo") || text.includes("módulo")) &&
       (text.includes("estoy") || text.includes("viendo")));
   const asksModuleTask = hasModule && detectTaskSignal(text);
+  const asksWebOpportunities = isWebOpportunityQuery(input);
   const asksCustomerLookup =
     (hasCustomerNoun ||
       ((text.includes("documento") || text.includes("cedula") || text.includes("cédula") || text.includes("nombre")) &&
@@ -655,6 +730,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   if (asksRestockForecastGeneral) return "product_restock_general";
   if (asksProductPrice) return "product_price_lookup";
   if (asksRestockAdvice && hasProductNoun) return "product_restock_advice";
+  if (asksWebOpportunities) return "web_opportunities";
   if (asksTopProductsRanking) {
     if (hasMonthNameReference) return "top_products_specific_month";
     if (text.includes("mes anterior") || text.includes("mes pasado")) return "top_products_previous_month";
@@ -1178,6 +1254,7 @@ export function resolveIntentWithContext(
   }
 
   if (lastTopic === "web") {
+    if (isWebOpportunityQuery(input) || isWebOpportunityFollowUp(input)) return "web_opportunities";
     if (text.includes("pendiente")) return "web_pending";
     if (text.includes("proceso") || text.includes("procesando") || text.includes("lista")) return "web_processing";
     return "web_overview";
