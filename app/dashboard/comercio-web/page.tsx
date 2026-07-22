@@ -536,6 +536,8 @@ const OPERATIVE_STATUS_OPTIONS: Array<{
 ];
 const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
 const DEFAULT_KENSAR_WEB_URL = "https://kensarelectronic.com";
+const MAX_HOME_VIDEO_UPLOAD_BYTES = 90 * 1024 * 1024;
+const HOME_VIDEO_UPLOAD_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_CATALOG_GALLERY_IMAGES = 5;
 const MAX_CATALOG_VIDEO_DURATION_SECONDS = 45;
 
@@ -5419,10 +5421,24 @@ export default function ComercioWebPage() {
       showToast("Debes iniciar sesión para subir el video.", "error");
       return;
     }
+    if (file.size > MAX_HOME_VIDEO_UPLOAD_BYTES) {
+      const message =
+        "El video supera los 90 MB. Comprímelo a MP4 H.264, 720×1280 y vuelve a intentarlo.";
+      setHomeVideosError(message);
+      showToast(message, "error");
+      setHomeVideoPickerSlot(null);
+      if (homeVideoInputRef.current) homeVideoInputRef.current.value = "";
+      return;
+    }
     setHomeVideoUploadingSlot(slot);
     setHomeVideosError(null);
     const formData = new FormData();
     formData.append("file", file);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      HOME_VIDEO_UPLOAD_TIMEOUT_MS
+    );
 
     try {
       const uploadRes = await fetch(`${getApiBase()}/uploads/home-videos`, {
@@ -5430,9 +5446,15 @@ export default function ComercioWebPage() {
         headers: { Authorization: `Bearer ${token}` },
         credentials: "include",
         body: formData,
+        signal: controller.signal,
       });
       if (!uploadRes.ok) {
         const data = await uploadRes.json().catch(() => null);
+        if (uploadRes.status === 413) {
+          throw new Error(
+            "El archivo es demasiado grande para la conexión de producción. Usa un video menor de 90 MB."
+          );
+        }
         throw new Error(
           (data && (data.detail as string)) ||
             `Error al subir video (código ${uploadRes.status})`
@@ -5447,10 +5469,18 @@ export default function ComercioWebPage() {
       patchHomeVideoLocal(slot, () => saved);
       showToast(`Video del slot ${slot} publicado.`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "No se pudo subir el video.";
+      const message =
+        err instanceof DOMException && err.name === "AbortError"
+          ? "El procesamiento tardó más de 5 minutos. Optimiza el video antes de intentarlo nuevamente."
+          : err instanceof TypeError
+            ? "La conexión se interrumpió durante la carga. Usa un MP4 optimizado menor de 90 MB."
+            : err instanceof Error
+              ? err.message
+              : "No se pudo subir el video.";
       setHomeVideosError(message);
       showToast(message, "error");
     } finally {
+      window.clearTimeout(timeoutId);
       setHomeVideoUploadingSlot(null);
       setHomeVideoPickerSlot(null);
       if (homeVideoInputRef.current) homeVideoInputRef.current.value = "";
@@ -11842,7 +11872,7 @@ export default function ComercioWebPage() {
                 }}
               />
               <p className="text-xs text-slate-500">
-                Usa videos verticales 9:16 de hasta 500 MB y 3 minutos; recomendamos 45 segundos o menos. Se convierten a una versión web liviana y se publican automáticamente.
+                Usa videos verticales 9:16 de hasta 90 MB y 3 minutos; recomendamos 45 segundos o menos. Para cargas rápidas usa MP4 H.264, 720×1280, 30 fps y audio AAC.
               </p>
               {homeVideosError ? (
                 <p className="mt-2 text-sm text-rose-600">{homeVideosError}</p>
@@ -11928,7 +11958,7 @@ export default function ComercioWebPage() {
                             className="border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {homeVideoUploadingSlot === item.slot
-                              ? "Procesando..."
+                              ? "Subiendo y optimizando..."
                               : item.video_url
                                 ? "Reemplazar"
                                 : "Subir video"}
