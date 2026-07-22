@@ -11,6 +11,7 @@ import {
 } from "@/lib/api/notifications";
 import WebOpportunityReviewModal from "./WebOpportunityReviewModal";
 import OperationalNotificationModal from "./OperationalNotificationModal";
+import NotificationReviewModal from "./NotificationReviewModal";
 
 
 const severityStyle: Record<DashboardNotification["severity"], string> = {
@@ -51,6 +52,7 @@ export default function NotificationCenter({ token }: { token: string }) {
   const [error, setError] = useState("");
   const [webOpportunityNotification, setWebOpportunityNotification] = useState<DashboardNotification | null>(null);
   const [operationalNotification, setOperationalNotification] = useState<DashboardNotification | null>(null);
+  const [detailNotification, setDetailNotification] = useState<DashboardNotification | null>(null);
   const centerRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async (silent = false) => {
@@ -121,15 +123,24 @@ export default function NotificationCenter({ token }: { token: string }) {
       setWebOpportunityNotification(notification);
       return;
     }
-    if (["separated_follow_up", "web_content_renewal"].includes(notification.category)) {
+    const normalizedCategory = notification.category.toLowerCase();
+    const hasSeparatedSnapshot =
+      Array.isArray(notification.payload?.orders) ||
+      Array.isArray(notification.payload?.separated_orders) ||
+      (normalizedCategory.includes("separ") && Array.isArray(notification.payload?.items));
+    const hasContentSnapshot = Array.isArray(notification.payload?.content);
+    if (
+      hasSeparatedSnapshot ||
+      hasContentSnapshot ||
+      normalizedCategory === "separated_follow_up" ||
+      normalizedCategory === "web_content_renewal"
+    ) {
       setOpen(false);
       setOperationalNotification(notification);
       return;
     }
-    if (notification.action_href?.startsWith("/dashboard")) {
-      setOpen(false);
-      router.push(notification.action_href);
-    }
+    setOpen(false);
+    setDetailNotification(notification);
   };
 
   const handleDismiss = async (notification: DashboardNotification) => {
@@ -325,16 +336,32 @@ export default function NotificationCenter({ token }: { token: string }) {
         <OperationalNotificationModal
           notification={operationalNotification}
           onClose={() => setOperationalNotification(null)}
-          onOpenTarget={() => {
-            const category = operationalNotification.category;
-            setOperationalNotification(null);
-            if (category === "web_content_renewal") {
-              window.sessionStorage.setItem("commerce_web_active_tab", "sliders");
-              router.push("/dashboard/comercio-web");
-              return;
-            }
-            router.push("/pos/abonos/lista");
-          }}
+          onOpenTarget={
+            operationalNotification.category === "web_content_renewal" ||
+            Array.isArray(operationalNotification.payload?.content)
+              ? () => {
+                  setOperationalNotification(null);
+                  window.sessionStorage.setItem("commerce_web_active_tab", "sliders");
+                  router.push("/dashboard/comercio-web");
+                }
+              : undefined
+          }
+        />
+      )}
+      {detailNotification && (
+        <NotificationReviewModal
+          notification={detailNotification}
+          onClose={() => setDetailNotification(null)}
+          onOpenTarget={
+            detailNotification.action_href?.startsWith("/dashboard") &&
+            detailNotification.action_href !== "/dashboard"
+              ? () => {
+                  const href = detailNotification.action_href;
+                  setDetailNotification(null);
+                  if (href) router.push(href);
+                }
+              : undefined
+          }
         />
       )}
     </div>

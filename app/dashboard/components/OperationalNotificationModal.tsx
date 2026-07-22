@@ -7,7 +7,7 @@ import type { DashboardNotification } from "@/lib/api/notifications";
 type Props = {
   notification: DashboardNotification;
   onClose: () => void;
-  onOpenTarget: () => void;
+  onOpenTarget?: () => void;
 };
 
 type SeparatedSnapshot = {
@@ -49,9 +49,18 @@ export default function OperationalNotificationModal({
   onClose,
   onOpenTarget,
 }: Props) {
-  const isSeparated = notification.category === "separated_follow_up";
-  const orders = readArray<SeparatedSnapshot>(notification.payload?.orders);
+  const orders = readArray<SeparatedSnapshot>(
+    notification.payload?.orders ??
+      notification.payload?.separated_orders ??
+      (notification.category.toLowerCase().includes("separ")
+        ? notification.payload?.items
+        : undefined)
+  );
   const content = readArray<ContentSnapshot>(notification.payload?.content);
+  const isSeparated =
+    orders.length > 0 ||
+    notification.category.toLowerCase().includes("separated") ||
+    notification.category.toLowerCase().includes("separado");
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -160,9 +169,11 @@ export default function OperationalNotificationModal({
           <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">
             Cerrar
           </button>
-          <button type="button" onClick={onOpenTarget} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-600">
-            {isSeparated ? "Gestionar separados" : "Administrar contenido"}
-          </button>
+          {onOpenTarget && (
+            <button type="button" onClick={onOpenTarget} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-600">
+              {isSeparated ? "Gestionar separados" : "Administrar contenido"}
+            </button>
+          )}
         </footer>
       </section>
     </div>,
