@@ -10,6 +10,7 @@ import {
   type DashboardNotification,
 } from "@/lib/api/notifications";
 import WebOpportunityReviewModal from "./WebOpportunityReviewModal";
+import OperationalNotificationModal from "./OperationalNotificationModal";
 
 
 const severityStyle: Record<DashboardNotification["severity"], string> = {
@@ -49,6 +50,7 @@ export default function NotificationCenter({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [webOpportunityNotification, setWebOpportunityNotification] = useState<DashboardNotification | null>(null);
+  const [operationalNotification, setOperationalNotification] = useState<DashboardNotification | null>(null);
   const centerRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async (silent = false) => {
@@ -117,6 +119,11 @@ export default function NotificationCenter({ token }: { token: string }) {
     if (notification.category === "web_opportunity") {
       setOpen(false);
       setWebOpportunityNotification(notification);
+      return;
+    }
+    if (["separated_follow_up", "web_content_renewal"].includes(notification.category)) {
+      setOpen(false);
+      setOperationalNotification(notification);
       return;
     }
     if (notification.action_href?.startsWith("/dashboard")) {
@@ -311,6 +318,22 @@ export default function NotificationCenter({ token }: { token: string }) {
           onOpenCommerce={() => {
             setWebOpportunityNotification(null);
             router.push("/dashboard/comercio-web");
+          }}
+        />
+      )}
+      {operationalNotification && (
+        <OperationalNotificationModal
+          notification={operationalNotification}
+          onClose={() => setOperationalNotification(null)}
+          onOpenTarget={() => {
+            const category = operationalNotification.category;
+            setOperationalNotification(null);
+            if (category === "web_content_renewal") {
+              window.sessionStorage.setItem("commerce_web_active_tab", "sliders");
+              router.push("/dashboard/comercio-web");
+              return;
+            }
+            router.push("/pos/abonos/lista");
           }}
         />
       )}
