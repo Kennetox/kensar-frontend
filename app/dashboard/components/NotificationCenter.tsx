@@ -20,7 +20,10 @@ const severityStyle: Record<DashboardNotification["severity"], string> = {
 };
 
 function relativeDate(value: string): string {
-  const timestamp = new Date(value).getTime();
+  const normalizedValue = value.includes("T") ? value : value.replace(" ", "T");
+  const hasExplicitTimeZone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(normalizedValue);
+  const date = new Date(hasExplicitTimeZone ? normalizedValue : `${normalizedValue}Z`);
+  const timestamp = date.getTime();
   if (!Number.isFinite(timestamp)) return "Ahora";
   const seconds = Math.round((timestamp - Date.now()) / 1000);
   const formatter = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
@@ -34,8 +37,8 @@ function relativeDate(value: string): string {
   return new Intl.DateTimeFormat("es-CO", {
     day: "numeric",
     month: "short",
-    year: new Date(value).getFullYear() === new Date().getFullYear() ? undefined : "numeric",
-  }).format(new Date(value));
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+  }).format(date);
 }
 
 export default function NotificationCenter({ token }: { token: string }) {
