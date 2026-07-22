@@ -615,7 +615,9 @@ body::after {
   transform-origin: 50% 18%;
 }
 
-.notification-badge {
+.dashboard-topbar .notification-badge {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff;
   border-color: #ffffff !important;
 }
 
