@@ -57,6 +57,11 @@ import {
   type ComercioWebHomeSliderLinkType,
 } from "@/lib/api/comercioWebHomeSliders";
 import {
+  fetchComercioWebHomeVideos,
+  updateComercioWebHomeVideo,
+  type ComercioWebHomeVideo,
+} from "@/lib/api/comercioWebHomeVideos";
+import {
   defaultRolePermissions,
   fetchPosSettings,
   fetchRolePermissions,
@@ -669,6 +674,67 @@ function formatDateTime(value?: string | null): string {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+type ContentFreshness = {
+  ageLabel: string;
+  statusLabel: "Nuevo" | "Vigente" | "Cambiar pronto" | "Renovar";
+  badgeClassName: string;
+};
+
+function getContentFreshness(
+  value: string | null | undefined,
+  thresholds: { newThrough: number; validThrough: number; soonThrough: number }
+): ContentFreshness | null {
+  if (!value) return null;
+  const publishedAt = new Date(value);
+  if (Number.isNaN(publishedAt.getTime())) return null;
+
+  const elapsedDays = Math.max(
+    0,
+    Math.floor((Date.now() - publishedAt.getTime()) / (24 * 60 * 60 * 1000))
+  );
+  const ageLabel =
+    elapsedDays === 0
+      ? "Publicado hoy"
+      : elapsedDays === 1
+        ? "Publicado hace 1 día"
+        : `Publicado hace ${elapsedDays} días`;
+
+  if (elapsedDays <= thresholds.newThrough) {
+    return {
+      ageLabel,
+      statusLabel: "Nuevo",
+      badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    };
+  }
+  if (elapsedDays <= thresholds.validThrough) {
+    return {
+      ageLabel,
+      statusLabel: "Vigente",
+      badgeClassName: "border-sky-200 bg-sky-50 text-sky-700",
+    };
+  }
+  if (elapsedDays <= thresholds.soonThrough) {
+    return {
+      ageLabel,
+      statusLabel: "Cambiar pronto",
+      badgeClassName: "border-amber-200 bg-amber-50 text-amber-800",
+    };
+  }
+  return {
+    ageLabel,
+    statusLabel: "Renovar",
+    badgeClassName: "border-rose-200 bg-rose-50 text-rose-700",
+  };
+}
+
+function getHomeVideoFreshness(value?: string | null): ContentFreshness | null {
+  return getContentFreshness(value, { newThrough: 7, validThrough: 20, soonThrough: 27 });
+}
+
+function getHomeSliderFreshness(value?: string | null): ContentFreshness | null {
+  return getContentFreshness(value, { newThrough: 14, validThrough: 34, soonThrough: 44 });
 }
 
 function toDateTimeLocalInput(value?: string | null): string {
@@ -1970,6 +2036,12 @@ export default function ComercioWebPage() {
   const [viewportWidth, setViewportWidth] = useState<number>(1920);
   const [homeSliderPreviewWidth, setHomeSliderPreviewWidth] = useState<number>(0);
   const [homeSlidersError, setHomeSlidersError] = useState<string | null>(null);
+  const [homeVideos, setHomeVideos] = useState<ComercioWebHomeVideo[]>([]);
+  const [homeVideosLoading, setHomeVideosLoading] = useState(false);
+  const [homeVideosSavingSlot, setHomeVideosSavingSlot] = useState<number | null>(null);
+  const [homeVideoUploadingSlot, setHomeVideoUploadingSlot] = useState<number | null>(null);
+  const [homeVideoPickerSlot, setHomeVideoPickerSlot] = useState<number | null>(null);
+  const [homeVideosError, setHomeVideosError] = useState<string | null>(null);
   const [personalizationHomeImagePicker, setPersonalizationHomeImagePicker] = useState<{
     instrument: PersonalizableInstrumentKey;
     side: PersonalizationHomeImageSide;
@@ -1994,6 +2066,7 @@ export default function ComercioWebPage() {
   const catalogVideoInputRef = useRef<HTMLInputElement | null>(null);
   const categoryImageInputRef = useRef<HTMLInputElement | null>(null);
   const homeSliderImageInputRef = useRef<HTMLInputElement | null>(null);
+  const homeVideoInputRef = useRef<HTMLInputElement | null>(null);
   const personalizationHomeImageInputRef = useRef<HTMLInputElement | null>(null);
   const homeSliderPositionerRef = useRef<HTMLDivElement | null>(null);
   const categoryTableScrollRef = useRef<HTMLDivElement | null>(null);
@@ -3526,6 +3599,26 @@ export default function ComercioWebPage() {
     }
   }, [token]);
 
+  const loadHomeVideos = useCallback(async () => {
+    if (!token) return;
+    try {
+      setHomeVideosLoading(true);
+      setHomeVideosError(null);
+      const rows = await fetchComercioWebHomeVideos(token);
+      setHomeVideos(
+        rows
+          .slice()
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.slot - b.slot)
+      );
+    } catch (err) {
+      setHomeVideosError(
+        err instanceof Error ? err.message : "No se pudieron cargar los videos de inicio."
+      );
+    } finally {
+      setHomeVideosLoading(false);
+    }
+  }, [token]);
+
   const loadDescriptionTemplates = useCallback(async () => {
     if (!token) return;
     try {
@@ -4030,7 +4123,8 @@ export default function ComercioWebPage() {
   useEffect(() => {
     if (!token) return;
     void loadHomeSliders();
-  }, [loadHomeSliders, token]);
+    void loadHomeVideos();
+  }, [loadHomeSliders, loadHomeVideos, token]);
 
   const executeCatalogExitAction = useCallback(
     (action: PendingCatalogExitAction | null) => {
@@ -5308,6 +5402,95 @@ export default function ComercioWebPage() {
       setHomeSliderPickerSlot(null);
       setHomeSliderPickerTarget("desktop");
       if (homeSliderImageInputRef.current) homeSliderImageInputRef.current.value = "";
+    }
+  }
+
+  function patchHomeVideoLocal(
+    slot: number,
+    updater: (current: ComercioWebHomeVideo) => ComercioWebHomeVideo
+  ) {
+    setHomeVideos((current) =>
+      current.map((item) => (item.slot === slot ? updater(item) : item))
+    );
+  }
+
+  async function handleHomeVideoFileChange(slot: number, file: File) {
+    if (!token) {
+      showToast("Debes iniciar sesión para subir el video.", "error");
+      return;
+    }
+    setHomeVideoUploadingSlot(slot);
+    setHomeVideosError(null);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const uploadRes = await fetch(`${getApiBase()}/uploads/home-videos`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json().catch(() => null);
+        throw new Error(
+          (data && (data.detail as string)) ||
+            `Error al subir video (código ${uploadRes.status})`
+        );
+      }
+
+      const data: UploadProductVideoResponse = await uploadRes.json();
+      const saved = await updateComercioWebHomeVideo(token, slot, {
+        video_url: data.url,
+        enabled: true,
+      });
+      patchHomeVideoLocal(slot, () => saved);
+      showToast(`Video del slot ${slot} publicado.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "No se pudo subir el video.";
+      setHomeVideosError(message);
+      showToast(message, "error");
+    } finally {
+      setHomeVideoUploadingSlot(null);
+      setHomeVideoPickerSlot(null);
+      if (homeVideoInputRef.current) homeVideoInputRef.current.value = "";
+    }
+  }
+
+  async function handleHomeVideoEnabled(slot: number, enabled: boolean) {
+    if (!token) return;
+    try {
+      setHomeVideosSavingSlot(slot);
+      setHomeVideosError(null);
+      const saved = await updateComercioWebHomeVideo(token, slot, { enabled });
+      patchHomeVideoLocal(slot, () => saved);
+      showToast(enabled ? `Video ${slot} activado.` : `Video ${slot} ocultado.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "No se pudo actualizar el video.";
+      setHomeVideosError(message);
+      showToast(message, "error");
+    } finally {
+      setHomeVideosSavingSlot(null);
+    }
+  }
+
+  async function handleRemoveHomeVideo(slot: number) {
+    if (!token) return;
+    try {
+      setHomeVideosSavingSlot(slot);
+      setHomeVideosError(null);
+      const saved = await updateComercioWebHomeVideo(token, slot, {
+        enabled: false,
+        video_url: null,
+      });
+      patchHomeVideoLocal(slot, () => saved);
+      showToast(`Video del slot ${slot} quitado.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "No se pudo quitar el video.";
+      setHomeVideosError(message);
+      showToast(message, "error");
+    } finally {
+      setHomeVideosSavingSlot(null);
     }
   }
 
@@ -11338,13 +11521,20 @@ export default function ComercioWebPage() {
               />
               <p className="text-xs text-slate-500">
                 Desktop recomendado: 1920x520 (.webp). Móvil opcional por slot: 1200x900 (4:3). Solo se publican sliders activos con imagen desktop.
+                <span className="mt-1 block">
+                  Rotación recomendada: cambia un slider cada 10–14 días; cada imagen pasa a Renovar a los 45 días.
+                </span>
               </p>
               {homeSlidersError ? <p className="mt-2 text-sm text-rose-600">{homeSlidersError}</p> : null}
               {homeSlidersLoading ? (
                 <p className="mt-4 text-sm text-slate-500">Cargando sliders...</p>
               ) : (
                 <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                  {homeSliderCards.map((slider) => (
+                  {homeSliderCards.map((slider) => {
+                    const freshness = slider.image_url
+                      ? getHomeSliderFreshness(slider.content_updated_at)
+                      : null;
+                    return (
                     <div key={`home-slider-${slider.slot}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold text-slate-900">Slot {slider.slot}</p>
@@ -11362,6 +11552,19 @@ export default function ComercioWebPage() {
                           Activo
                         </label>
                       </div>
+
+                      {freshness ? (
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-1.5">
+                          <span className="text-[11px] text-slate-500">
+                            {freshness.ageLabel}
+                          </span>
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${freshness.badgeClassName}`}
+                          >
+                            {freshness.statusLabel}
+                          </span>
+                        </div>
+                      ) : null}
 
                       <div className="mt-3 h-28 w-full rounded-xl border border-slate-200 bg-white bg-cover bg-center bg-no-repeat" style={slider.image_url ? { backgroundImage: `url('${resolveAssetUrl(slider.image_url) || slider.image_url}')` } : undefined}>
                         {!slider.image_url ? (
@@ -11608,7 +11811,142 @@ export default function ComercioWebPage() {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="Videos del inicio"
+              subtitle="Administra los 5 videos verticales que aparecen debajo de Instrumentos destacados."
+              headerActions={
+                <button
+                  type="button"
+                  onClick={() => void loadHomeVideos()}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400"
+                >
+                  Refrescar
+                </button>
+              }
+            >
+              <input
+                ref={homeVideoInputRef}
+                type="file"
+                accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm,.avi,.mkv"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file || homeVideoPickerSlot === null) return;
+                  void handleHomeVideoFileChange(homeVideoPickerSlot, file);
+                }}
+              />
+              <p className="text-xs text-slate-500">
+                Usa videos verticales 9:16 de hasta 500 MB y 3 minutos; recomendamos 45 segundos o menos. Se convierten a una versión web liviana y se publican automáticamente.
+              </p>
+              {homeVideosError ? (
+                <p className="mt-2 text-sm text-rose-600">{homeVideosError}</p>
+              ) : null}
+              {homeVideosLoading ? (
+                <p className="mt-4 text-sm text-slate-500">Cargando videos...</p>
+              ) : (
+                <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+                  {homeVideos.map((item) => {
+                    const videoSrc = item.video_url
+                      ? resolveAssetUrl(item.video_url) || item.video_url
+                      : "";
+                    const freshness = item.video_url
+                      ? getHomeVideoFreshness(item.content_updated_at)
+                      : null;
+                    const busy =
+                      homeVideoUploadingSlot === item.slot || homeVideosSavingSlot === item.slot;
+                    return (
+                      <div
+                        key={`home-video-${item.slot}`}
+                        className="border border-slate-200 bg-slate-50 p-2"
+                      >
+                        <div className="flex items-center justify-between gap-2 pb-2">
+                          <p className="text-xs font-semibold text-slate-900">Slot {item.slot}</p>
+                          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600">
+                            <input
+                              type="checkbox"
+                              checked={item.enabled}
+                              disabled={!item.video_url || busy}
+                              onChange={(event) =>
+                                void handleHomeVideoEnabled(item.slot, event.target.checked)
+                              }
+                            />
+                            Activo
+                          </label>
+                        </div>
+                        {freshness ? (
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
+                            <span className="text-[10px] text-slate-500">
+                              {freshness.ageLabel}
+                            </span>
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${freshness.badgeClassName}`}
+                            >
+                              {freshness.statusLabel}
+                            </span>
+                          </div>
+                        ) : null}
+                        <div className="aspect-[9/16] w-full overflow-hidden border border-slate-200 bg-slate-950">
+                          {videoSrc ? (
+                            <video
+                              key={videoSrc}
+                              src={`${videoSrc}#t=0.5`}
+                              className="h-full w-full object-cover"
+                              muted
+                              playsInline
+                              controls
+                              preload="auto"
+                              onLoadedMetadata={(event) => {
+                                const video = event.currentTarget;
+                                const previewTime = Number.isFinite(video.duration)
+                                  ? Math.min(0.5, Math.max(0, video.duration / 2))
+                                  : 0.5;
+                                if (video.currentTime < previewTime) {
+                                  video.currentTime = previewTime;
+                                }
+                              }}
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center px-2 text-center text-xs text-slate-400">
+                              Sin video
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-2 grid gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setHomeVideoPickerSlot(item.slot);
+                              homeVideoInputRef.current?.click();
+                            }}
+                            className="border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {homeVideoUploadingSlot === item.slot
+                              ? "Procesando..."
+                              : item.video_url
+                                ? "Reemplazar"
+                                : "Subir video"}
+                          </button>
+                          {item.video_url ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void handleRemoveHomeVideo(item.slot)}
+                              className="border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs font-medium text-rose-700 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {homeVideosSavingSlot === item.slot ? "Guardando..." : "Quitar"}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </SectionCard>

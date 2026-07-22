@@ -25,6 +25,7 @@ export type ComercioWebHomeSlider = {
   link_type: ComercioWebHomeSliderLinkType;
   link_value?: string | null;
   sort_order: number;
+  content_updated_at?: string | null;
   created_at: string;
   updated_at: string;
 };
