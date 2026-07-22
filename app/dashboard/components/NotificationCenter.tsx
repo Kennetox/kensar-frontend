@@ -145,7 +145,11 @@ export default function NotificationCenter({ token }: { token: string }) {
         aria-label={unreadCount ? `Notificaciones, ${unreadCount} sin leer` : "Notificaciones"}
         aria-expanded={open}
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+        <svg
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          className={`h-5 w-5 ${unreadCount > 0 && !open ? "notification-bell-attention" : ""}`}
+        >
           <path
             d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"
             fill="none"
@@ -156,7 +160,7 @@ export default function NotificationCenter({ token }: { token: string }) {
           />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-rose-500 px-1.5 py-0.5 text-center text-[10px] font-bold leading-4 text-white shadow-sm">
+          <span className={`force-light-text notification-badge absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-rose-500 px-1 text-center text-[10px] font-extrabold leading-none shadow-[0_3px_8px_rgba(244,63,94,0.45)] ${!open ? "notification-badge-attention" : ""}`}>
             {badge}
           </span>
         )}

@@ -576,6 +576,60 @@ body::after {
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04), 0 8px 16px rgba(15, 23, 42, 0.08);
 }
 
+@keyframes notification-bell-attention {
+  0%,
+  76%,
+  100% {
+    transform: rotate(0deg);
+  }
+  80% {
+    transform: rotate(-13deg);
+  }
+  85% {
+    transform: rotate(11deg);
+  }
+  90% {
+    transform: rotate(-7deg);
+  }
+  95% {
+    transform: rotate(4deg);
+  }
+}
+
+@keyframes notification-badge-attention {
+  0%,
+  76%,
+  100% {
+    transform: scale(1);
+  }
+  84% {
+    transform: scale(1.16);
+  }
+  93% {
+    transform: scale(1);
+  }
+}
+
+.notification-bell-attention {
+  animation: notification-bell-attention 3.6s ease-in-out infinite;
+  transform-origin: 50% 18%;
+}
+
+.notification-badge {
+  border-color: #ffffff !important;
+}
+
+.notification-badge-attention {
+  animation: notification-badge-attention 3.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-bell-attention,
+  .notification-badge-attention {
+    animation: none;
+  }
+}
+
 /* Links hover */
 .dashboard-theme a:hover {
   color: var(--accent);
