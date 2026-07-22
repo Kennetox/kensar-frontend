@@ -169,6 +169,7 @@ const roleOrder: PosUserRecord["role"][] = [
   "Supervisor",
   "Vendedor",
   "Auditor",
+  "Gestor Web",
 ];
 const SCHEDULE_MODULE_ENABLED = true;
 
@@ -691,6 +692,17 @@ export default function SettingsPage() {
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
   const { token, user, tenant } = useAuth();
+  const commerceWebEnabled = isTenantModuleEnabled(
+    tenant?.enabled_modules,
+    "commerce_web"
+  );
+  const availableRoleOrder = useMemo(
+    () =>
+      roleOrder.filter(
+        (role) => role !== "Gestor Web" || commerceWebEnabled
+      ),
+    [commerceWebEnabled]
+  );
   const [rolePermissions, setRolePermissions] =
     useState<RolePermissionModule[]>(defaultRolePermissions);
   const visibleRolePermissions = useMemo(
@@ -2811,6 +2823,7 @@ export default function SettingsPage() {
 
   const canToggleModuleRole = useCallback(
     (module: RolePermissionModule, role: PosUserRecord["role"]) => {
+      if (role === "Gestor Web") return false;
       const moduleEditable = module.editable ?? true;
       if (!moduleEditable) return false;
       const hasLockedAllowedAction = module.actions.some(
@@ -2823,6 +2836,7 @@ export default function SettingsPage() {
 
   const handleTogglePermission = useCallback(
     (moduleId: string, role: PosUserRecord["role"], actionId?: string) => {
+      if (role === "Gestor Web") return;
       setRolePermissions((prev) =>
         prev.map((module) => {
           if (module.id !== moduleId) return module;
@@ -4074,6 +4088,9 @@ export default function SettingsPage() {
                     <option value="Supervisor">Supervisor</option>
                     <option value="Vendedor">Vendedor</option>
                     <option value="Auditor">Auditor</option>
+                    {(commerceWebEnabled || user.role === "Gestor Web") && (
+                      <option value="Gestor Web">Gestor Web</option>
+                    )}
                   </select>
                 </td>
                     <td className="px-4 py-3">
@@ -4195,7 +4212,7 @@ export default function SettingsPage() {
             <thead className="bg-slate-950 text-slate-400 uppercase tracking-wide text-[11px]">
               <tr>
                 <th className="px-4 py-2 font-medium w-1/2">Módulo</th>
-                {roleOrder.map((role) => (
+                {availableRoleOrder.map((role) => (
                   <th key={role} className="px-3 py-2 font-medium text-center">
                     {role}
                   </th>
@@ -4217,7 +4234,7 @@ export default function SettingsPage() {
                         {row.description}
                       </div>
                     </td>
-                    {roleOrder.map((role) => {
+                    {availableRoleOrder.map((role) => {
                       const allowed = row.roles[role];
                       const canToggle = canToggleModuleRole(row, role);
                       const toggleClass = !canToggle
@@ -4283,7 +4300,7 @@ export default function SettingsPage() {
                       <thead className="bg-slate-950 text-slate-400 uppercase tracking-wide text-[10px]">
                         <tr>
                           <th className="px-3 py-2 text-left">Acción</th>
-                          {roleOrder.map((role) => (
+                          {availableRoleOrder.map((role) => (
                             <th key={role} className="px-2 py-2 text-center">
                               {role}
                             </th>
@@ -4292,10 +4309,10 @@ export default function SettingsPage() {
                       </thead>
                       <tbody>
                         {row.actions.map((action) => {
-                          const actionEditable =
+                          const baseActionEditable =
                             (action.editable ?? true) && moduleEditable;
-                          const toggleClass = (allowed: boolean) =>
-                            !actionEditable
+                          const toggleClass = (allowed: boolean, editable: boolean) =>
+                            !editable
                               ? "bg-slate-700/80 text-slate-300 border border-slate-600"
                               : allowed
                                 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
@@ -4313,8 +4330,10 @@ export default function SettingsPage() {
                                   {action.description}
                                 </div>
                               </td>
-                              {roleOrder.map((role) => {
+                              {availableRoleOrder.map((role) => {
                                 const allowed = action.roles[role];
+                                const actionEditable =
+                                  baseActionEditable && role !== "Gestor Web";
                                 return (
                                   <td
                                     key={`${action.id}-${role}`}
@@ -4334,7 +4353,7 @@ export default function SettingsPage() {
                                         actionEditable
                                           ? "hover:scale-110 transition"
                                           : "cursor-not-allowed"
-                                      } ${toggleClass(allowed)}`}
+                                      } ${toggleClass(Boolean(allowed), actionEditable)}`}
                                     >
                                       {allowed ? "✓" : "—"}
                                     </button>
@@ -5533,6 +5552,9 @@ export default function SettingsPage() {
                     <option value="Supervisor">Supervisor</option>
                     <option value="Vendedor">Vendedor</option>
                     <option value="Auditor">Auditor</option>
+                    {(commerceWebEnabled || editingUser?.role === "Gestor Web") && (
+                      <option value="Gestor Web">Gestor Web</option>
+                    )}
                   </select>
                 </label>
                   <label className="text-sm text-slate-300 flex flex-col gap-1">

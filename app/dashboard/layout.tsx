@@ -8,14 +8,14 @@ import { useAuth } from "../providers/AuthProvider";
 import {
   defaultRolePermissions,
   fetchPosSettings,
-  fetchRolePermissions,
+  fetchMyRolePermissions,
 } from "@/lib/api/settings";
 import { fetchUserProfile, type UserProfileRecord } from "@/lib/api/profile";
 import { getApiBase } from "@/lib/api/base";
 import { isTenantModuleEnabled } from "@/lib/tenantModules";
 import KoraOpsAssistant from "./components/KoraOpsAssistant";
 
-type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
+type DashboardRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "Gestor Web";
 const SCHEDULE_MODULE_ENABLED = true;
 
 const navItems: Array<{
@@ -399,7 +399,8 @@ function isDashboardRole(role?: string | null): role is DashboardRole {
     role === "Administrador" ||
     role === "Supervisor" ||
     role === "Vendedor" ||
-    role === "Auditor"
+    role === "Auditor" ||
+    role === "Gestor Web"
   );
 }
 
@@ -482,18 +483,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfileRecord | null>(null);
   const [companyBrandName, setCompanyBrandName] = useState("");
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
-  const canLoadRolePermissions = useMemo(() => {
-    if (!user?.role) return false;
-    const settingsModule = defaultRolePermissions.find(
-      (row) => row.id === "settings"
-    );
-    const settingsAction = settingsModule?.actions.find(
-      (entry) => entry.id === "settings.view"
-    );
-    if (!settingsAction) return false;
-    return Boolean(settingsAction.roles[user.role as DashboardRole]);
-  }, [user?.role]);
-  const permissionsResolved = rolePermissionsReady || !canLoadRolePermissions;
+  const permissionsResolved = rolePermissionsReady;
 
   useEffect(() => {
     if (searchParams.get("debugScale") !== "1") return;
@@ -550,9 +540,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!token) return;
-    if (!canLoadRolePermissions) return;
     let cancelled = false;
-    fetchRolePermissions(token)
+    fetchMyRolePermissions(token)
       .then((modules) => {
         if (cancelled) return;
         setRoleModules(modules);
@@ -570,7 +559,16 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [canLoadRolePermissions, token]);
+  }, [token]);
+
+  const canViewSettings = useMemo(() => {
+    if (!isDashboardRole(user?.role)) return false;
+    const settingsModule = roleModules.find((row) => row.id === "settings");
+    const action = settingsModule?.actions.find(
+      (entry) => entry.id === "settings.view"
+    );
+    return Boolean(action?.roles[user.role]);
+  }, [roleModules, user?.role]);
 
   useEffect(() => {
     if (!loading && !token) {
@@ -599,7 +597,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   }, [token]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !permissionsResolved || !canViewSettings) return;
     let cancelled = false;
     fetchPosSettings(token)
       .then((settings) => {
@@ -615,7 +613,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [canViewSettings, permissionsResolved, token]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !token) return;
@@ -651,6 +649,19 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     );
   }, [pathname, tenant?.enabled_modules, tenant?.module_access, user?.role, posPreview, roleModules, permissionsResolved]);
 
+  const fallbackHref = useMemo(() => {
+    const candidate = navItems.find((item) =>
+      isPathAllowed(
+        item.href,
+        user?.role,
+        roleModules,
+        tenant?.enabled_modules,
+        tenant?.module_access
+      )
+    );
+    return candidate?.href ?? "/login";
+  }, [roleModules, tenant?.enabled_modules, tenant?.module_access, user?.role]);
+
   const currentBreadcrumbs = useMemo(() => {
     if (posPreview) return ["Inicio"];
     const breadcrumbOverrides: Array<{
@@ -684,11 +695,11 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     if (!loading && token && permissionsResolved && !routeAllowed) {
       if (posPreview) {
         router.replace("/dashboard?posPreview=1");
-      } else if (pathname !== "/dashboard") {
-        router.replace("/dashboard");
+      } else if (pathname !== fallbackHref) {
+        router.replace(fallbackHref);
       }
     }
-  }, [loading, token, routeAllowed, router, pathname, posPreview, permissionsResolved]);
+  }, [fallbackHref, loading, token, routeAllowed, router, pathname, posPreview, permissionsResolved]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -783,7 +794,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     : isDashboardRole(user?.role)
       ? user.role
       : "";
-  const isKoraEnabled = true;
+  const dashboardModule = roleModules.find((row) => row.id === "dashboard");
+  const dashboardViewAction = dashboardModule?.actions.find(
+    (entry) => entry.id === "dashboard.view"
+  );
+  const isKoraEnabled = Boolean(
+    isDashboardRole(user?.role) && dashboardViewAction?.roles[user.role]
+  );
   const avatarUrl = profile?.avatar_url ?? "";
   const resolvedAvatarUrl = avatarUrl.startsWith("/")
     ? `${getApiBase()}${avatarUrl}`

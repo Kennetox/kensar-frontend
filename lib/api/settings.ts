@@ -98,7 +98,7 @@ export type PosUserRecord = {
   id: number;
   name: string;
   email: string;
-  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
+  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "Gestor Web";
   status: "Activo" | "Inactivo";
   phone?: string | null;
   position?: string | null;
@@ -107,7 +107,7 @@ export type PosUserRecord = {
   accepted_at?: string | null;
 };
 
-export type RolePermissionRoles = Record<PosUserRecord["role"], boolean>;
+export type RolePermissionRoles = Partial<Record<PosUserRecord["role"], boolean>>;
 
 export type RolePermissionAction = {
   id: string;
@@ -696,6 +696,7 @@ export const defaultRolePermissions: RolePermissionModule[] = [
       Supervisor: true,
       Vendedor: false,
       Auditor: false,
+      "Gestor Web": true,
     },
     actions: [
       {
@@ -707,6 +708,7 @@ export const defaultRolePermissions: RolePermissionModule[] = [
           Supervisor: true,
           Vendedor: false,
           Auditor: true,
+          "Gestor Web": true,
         },
       },
       {
@@ -718,6 +720,7 @@ export const defaultRolePermissions: RolePermissionModule[] = [
           Supervisor: true,
           Vendedor: false,
           Auditor: false,
+          "Gestor Web": true,
         },
       },
     ],
@@ -1180,6 +1183,17 @@ export async function fetchRolePermissions(
     "/pos/roles/permissions",
     undefined,
     token ? undefined : { modules: defaultRolePermissions },
+    token
+  ).then((res) => res.modules);
+}
+
+export async function fetchMyRolePermissions(
+  token: string
+): Promise<RolePermissionModule[]> {
+  return request<{ modules: RolePermissionModule[] }>(
+    "/pos/me/permissions",
+    undefined,
+    undefined,
     token
   ).then((res) => res.modules);
 }

@@ -1,6 +1,6 @@
 import { getApiBase } from "@/lib/api/base";
 
-export type SystemRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
+export type SystemRole = "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "Gestor Web";
 export type SystemStatus = "Activo" | "Inactivo";
 
 export type HrEmployeeRecord = {

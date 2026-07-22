@@ -63,14 +63,16 @@ import {
 } from "@/lib/api/comercioWebHomeVideos";
 import {
   defaultRolePermissions,
-  fetchPosSettings,
-  fetchRolePermissions,
-  updatePosSettings,
+  fetchMyRolePermissions,
   type WebBrandCollageImages,
   type WebHomeSectionsMode,
   type WebPersonalizationHomeImages,
   type RolePermissionModule,
 } from "@/lib/api/settings";
+import {
+  fetchComercioWebSettings,
+  updateComercioWebSettings,
+} from "@/lib/api/comercioWebSettings";
 import {
   DEFAULT_COMMERCE_DESCRIPTION_CONFIG,
   generateCommerceWebDescription,
@@ -2413,7 +2415,7 @@ export default function ComercioWebPage() {
   useEffect(() => {
     if (!token) return;
     let active = true;
-    fetchPosSettings(token)
+    fetchComercioWebSettings(token)
       .then((settings) => {
         if (!active) return;
         const source = settings.web_personalization_bindings;
@@ -2569,7 +2571,7 @@ export default function ComercioWebPage() {
   useEffect(() => {
     if (!token) return;
     let active = true;
-    fetchRolePermissions(token)
+    fetchMyRolePermissions(token)
       .then((modules) => {
         if (active) setRoleModules(modules);
       })
@@ -2645,9 +2647,9 @@ export default function ComercioWebPage() {
         }
       >
     );
-    void fetchPosSettings(token)
+    void fetchComercioWebSettings(token)
       .then((settings) =>
-        updatePosSettings(
+        updateComercioWebSettings(
           {
             ...settings,
             web_personalization_bindings: payloadBindings,
@@ -2697,9 +2699,9 @@ export default function ComercioWebPage() {
         },
         {} as WebPersonalizationHomeImages
       );
-      void fetchPosSettings(token)
+      void fetchComercioWebSettings(token)
         .then((settings) =>
-          updatePosSettings(
+          updateComercioWebSettings(
             {
               ...settings,
               web_personalization_home_images: payloadHomeImages,
@@ -2721,9 +2723,9 @@ export default function ComercioWebPage() {
   const handleSaveHomeSectionsMode = useCallback(() => {
     if (!token) return;
     setHomeSectionsModeSaving(true);
-    void fetchPosSettings(token)
+    void fetchComercioWebSettings(token)
       .then((settings) =>
-        updatePosSettings(
+        updateComercioWebSettings(
           {
             ...settings,
             web_home_sections_mode: homeSectionsMode,
@@ -2800,9 +2802,9 @@ export default function ComercioWebPage() {
         },
         {} as WebBrandCollageImages
       );
-      void fetchPosSettings(token)
+      void fetchComercioWebSettings(token)
         .then((settings) =>
-          updatePosSettings(
+          updateComercioWebSettings(
             {
               ...settings,
               web_brand_collage_images: payloadBrandCollageImages,
@@ -11993,7 +11995,7 @@ export default function ComercioWebPage() {
                   type="button"
                   onClick={() => {
                     if (!token) return;
-                    void fetchPosSettings(token).then((settings) => {
+                    void fetchComercioWebSettings(token).then((settings) => {
                       const value = settings.web_home_sections_mode;
                       const nextMode: WebHomeSectionsMode =
                         value === "instruments" || value === "both" ? value : "categories";
@@ -12079,7 +12081,7 @@ export default function ComercioWebPage() {
                   type="button"
                   onClick={() => {
                     if (!token) return;
-                    void fetchPosSettings(token).then((settings) => {
+                    void fetchComercioWebSettings(token).then((settings) => {
                       const source = settings.web_personalization_home_images;
                       if (!source || typeof source !== "object") return;
                       const next = { ...DEFAULT_PERSONALIZATION_HOME_IMAGES };
@@ -12282,7 +12284,7 @@ export default function ComercioWebPage() {
                   type="button"
                   onClick={() => {
                     if (!token) return;
-                    void fetchPosSettings(token).then((settings) => {
+                    void fetchComercioWebSettings(token).then((settings) => {
                       const source = settings.web_brand_collage_images;
                       if (!source || typeof source !== "object") return;
                       const next = { ...DEFAULT_BRAND_COLLAGE_IMAGES };

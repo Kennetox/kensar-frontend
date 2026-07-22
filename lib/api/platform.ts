@@ -64,7 +64,7 @@ export type PlatformTenantUser = {
   id: number;
   name: string;
   email: string;
-  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor";
+  role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "Gestor Web";
   status: "Activo" | "Inactivo";
   is_active: boolean;
   created_at: string;

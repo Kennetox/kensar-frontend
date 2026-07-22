@@ -46,7 +46,7 @@ type KoraOpsAssistantProps = {
   enabled: boolean;
   userName?: string | null;
   token?: string | null;
-  userRole?: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "";
+  userRole?: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "Gestor Web" | "";
   initialOpen?: boolean;
   initialQuickAction?: "restock_today" | null;
 };
@@ -301,12 +301,12 @@ function resolveFirstName(value?: string | null) {
   return cleaned.split(/\s+/)[0] || "";
 }
 
-function normalizeRole(value?: string | null): "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown" {
-  if (value === "Administrador" || value === "Supervisor" || value === "Vendedor" || value === "Auditor") return value;
+function normalizeRole(value?: string | null): "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "Gestor Web" | "unknown" {
+  if (value === "Administrador" || value === "Supervisor" || value === "Vendedor" || value === "Auditor" || value === "Gestor Web") return value;
   return "unknown";
 }
 
-function getRoleTone(role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "unknown"): KoraReplyTone {
+function getRoleTone(role: "Administrador" | "Supervisor" | "Vendedor" | "Auditor" | "Gestor Web" | "unknown"): KoraReplyTone {
   switch (role) {
     case "Administrador":
       return { directness: "high", warmth: "medium", detail: "high" };
@@ -316,6 +316,8 @@ function getRoleTone(role: "Administrador" | "Supervisor" | "Vendedor" | "Audito
       return { directness: "high", warmth: "high", detail: "medium" };
     case "Auditor":
       return { directness: "high", warmth: "low", detail: "high" };
+    case "Gestor Web":
+      return { directness: "high", warmth: "medium", detail: "medium" };
     default:
       return { directness: "medium", warmth: "medium", detail: "medium" };
   }
