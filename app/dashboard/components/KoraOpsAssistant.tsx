@@ -218,6 +218,9 @@ type KoraWebOpportunityItem = {
   product_name: string;
   sku?: string | null;
   group_name?: string | null;
+  sale_price: number;
+  suggested_category_key: string;
+  suggested_category_name: string;
   qty_on_hand: number;
   units_7d: number;
   units_lookback: number;
@@ -231,10 +234,12 @@ type KoraWebOpportunityItem = {
 
 type KoraWebOpportunityResponse = {
   generated_at: string;
-  source: "web-opportunities-v1";
+  source: "web-opportunities-v2";
   state: "opportunities" | "no_sales" | "no_candidates";
   lookback_days: number;
   analyzed_product_count: number;
+  minimum_sale_price: number;
+  eligible_group_count: number;
   headline: string;
   items: KoraWebOpportunityItem[];
 };
@@ -2733,7 +2738,7 @@ export default function KoraOpsAssistant({
         const pending = item.missing_web_fields.length
           ? `\n   Antes de publicar: completar ${item.missing_web_fields.join(", ")}.`
           : "\n   Está listo en sus datos básicos para la web.";
-        return `${index + 1}. ${item.product_name}${sku}\n   ${formatMoney(item.units_lookback)} uds. vendidas en ${data.lookback_days} días · ${formatMoney(item.units_7d)} en 7 días · stock ${formatMoney(item.qty_on_hand)}.${pending}`;
+        return `${index + 1}. ${item.product_name}${sku}\n   Precio ${formatMoney(item.sale_price)} COP · ${formatMoney(item.units_lookback)} uds. vendidas en ${data.lookback_days} días · ${formatMoney(item.units_7d)} en 7 días · stock ${formatMoney(item.qty_on_hand)}.\n   Categoría sugerida: ${item.suggested_category_name}.${pending}`;
       }).join("\n\n");
 
       pushMessage(
