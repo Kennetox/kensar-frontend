@@ -1,151 +1,175 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getApiBase } from "@/lib/api/base";
 
 type HealthState = "healthy" | "degraded" | "maintenance";
+type PreviewState = Exclude<HealthState, "healthy">;
+type ReadyPayload = {
+  status?: string;
+  maintenance?: boolean;
+  message?: string;
+  retry_after_seconds?: number;
+};
 
-const POLL_MS = 30000;
-const REQUEST_TIMEOUT_MS = 5000;
-const FAILURES_TO_OPEN = 3;
+const POLL_MS = 10000;
+const REQUEST_TIMEOUT_MS = 4000;
+const FAILURES_TO_OPEN = 2;
 const SUCCESSES_TO_CLOSE = 2;
-const MIN_DEGRADED_SECONDS = 20;
+
+function getPreviewState(): PreviewState | null {
+  if (process.env.NODE_ENV === "production" || typeof window === "undefined") return null;
+  const value = new URLSearchParams(window.location.search).get("systemStatusPreview");
+  return value === "maintenance" || value === "degraded" ? value : null;
+}
 
 export function SystemStatusProvider() {
   const [state, setState] = useState<HealthState>("healthy");
-  const consecutiveFailures = useRef(0);
-  const consecutiveSuccesses = useRef(0);
-  const degradedSinceRef = useRef<number | null>(null);
+  const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
+  const [previewState, setPreviewState] = useState<PreviewState | null>(null);
+  const stateRef = useRef<HealthState>("healthy");
 
   useEffect(() => {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveFailures = 0;
+    let consecutiveSuccesses = 0;
+
+    const preview = getPreviewState();
+    if (preview) {
+      setPreviewState(preview);
+      stateRef.current = preview;
+      setState(preview);
+      setLastCheckedAt(Date.now());
+      return () => {
+        active = false;
+      };
+    }
 
     const schedule = () => {
-      if (!active) return;
-      timer = setTimeout(runCheck, POLL_MS);
+      if (active) timer = setTimeout(runCheck, POLL_MS);
     };
 
     const runCheck = async () => {
+      let nextState: HealthState | null = null;
       let apiBase = "";
       try {
         apiBase = getApiBase();
-      } catch {
-        consecutiveFailures.current += 1;
-        consecutiveSuccesses.current = 0;
-        if (consecutiveFailures.current >= FAILURES_TO_OPEN && active) {
-          const now = Date.now();
-          if (degradedSinceRef.current == null) {
-            degradedSinceRef.current = now;
-          }
-          const degradedElapsedSeconds = (now - degradedSinceRef.current) / 1000;
-          if (degradedElapsedSeconds < MIN_DEGRADED_SECONDS) {
-            schedule();
-            return;
-          }
-          setState("degraded");
-        }
-        schedule();
-        return;
-      }
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+          const response = await fetch(`${apiBase}/readyz`, {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          const payload = (await response.json().catch(() => null)) as ReadyPayload | null;
+          setLastCheckedAt(Date.now());
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-      try {
-        const res = await fetch(`${apiBase}/readyz`, {
-          method: "GET",
-          cache: "no-store",
-          signal: controller.signal,
-        });
-
-        if (res.ok) {
-          consecutiveFailures.current = 0;
-          consecutiveSuccesses.current += 1;
-          degradedSinceRef.current = null;
-          if (consecutiveSuccesses.current >= SUCCESSES_TO_CLOSE && active) {
-            setState("healthy");
-          }
-        } else {
-          let nextState: HealthState = "degraded";
-          const payload = await res.json().catch(() => null);
           if (payload?.status === "maintenance" || payload?.maintenance === true) {
             nextState = "maintenance";
+            consecutiveFailures += 1;
+            consecutiveSuccesses = 0;
+          } else if (response.ok) {
+            consecutiveFailures = 0;
+            consecutiveSuccesses += 1;
+            if (consecutiveSuccesses >= SUCCESSES_TO_CLOSE) nextState = "healthy";
+          } else {
+            consecutiveFailures += 1;
+            consecutiveSuccesses = 0;
+            if (consecutiveFailures >= FAILURES_TO_OPEN) nextState = "degraded";
           }
-
-          consecutiveFailures.current += 1;
-          consecutiveSuccesses.current = 0;
-          const now = Date.now();
-          if (degradedSinceRef.current == null) {
-            degradedSinceRef.current = now;
-          }
-
-          if (nextState === "maintenance" && active) {
-            setState("maintenance");
-            schedule();
-            return;
-          }
-
-          if (consecutiveFailures.current >= FAILURES_TO_OPEN && active) {
-            const degradedElapsedSeconds = (now - (degradedSinceRef.current || now)) / 1000;
-            if (degradedElapsedSeconds < MIN_DEGRADED_SECONDS) {
-              schedule();
-              return;
-            }
-            setState(nextState);
-          }
+        } finally {
+          clearTimeout(timeout);
         }
       } catch {
-        consecutiveFailures.current += 1;
-        consecutiveSuccesses.current = 0;
-        const now = Date.now();
-        if (degradedSinceRef.current == null) {
-          degradedSinceRef.current = now;
+        consecutiveFailures += 1;
+        consecutiveSuccesses = 0;
+        if (consecutiveFailures >= FAILURES_TO_OPEN) {
+          // If maintenance was already announced, preserve that message while
+          // the process restarts instead of downgrading it to an incident.
+          nextState = stateRef.current === "maintenance" ? "maintenance" : "degraded";
         }
-        if (consecutiveFailures.current >= FAILURES_TO_OPEN && active) {
-          const degradedElapsedSeconds = (now - (degradedSinceRef.current || now)) / 1000;
-          if (degradedElapsedSeconds < MIN_DEGRADED_SECONDS) {
-            schedule();
-            return;
-          }
-          setState("degraded");
-        }
-      } finally {
-        clearTimeout(timeout);
-        schedule();
       }
+
+      if (active && nextState) {
+        stateRef.current = nextState;
+        setState(nextState);
+      }
+      schedule();
     };
 
     void runCheck();
-
     return () => {
       active = false;
       if (timer) clearTimeout(timer);
     };
   }, []);
 
-  const message = useMemo(() => {
-    if (state === "maintenance") {
-      return "Estamos en mantenimiento temporal. El servicio se restablecera en breve.";
-    }
-    if (state === "degraded") {
-      return "Estamos experimentando intermitencias. Nuestro equipo ya esta trabajando para solucionarlo.";
-    }
-    return "";
-  }, [state]);
-
   if (state === "healthy") return null;
 
-  const bannerClassName =
-    state === "maintenance"
-      ? "w-full max-w-5xl rounded-md border border-red-200/40 bg-red-600/95 px-4 py-2 text-center text-sm font-semibold text-white shadow-lg animate-pulse"
-      : "w-full max-w-5xl rounded-md border border-red-200/40 bg-red-500/95 px-4 py-2 text-center text-sm font-semibold text-white shadow-lg animate-pulse";
+  const isMaintenance = state === "maintenance";
+  const title = isMaintenance ? "Actualización en curso" : "Problema de conexión";
+  const message = isMaintenance
+    ? "Estamos aplicando mejoras a Metrik. El sistema volverá a estar disponible en unos minutos."
+    : "Metrik no está respondiendo correctamente. El equipo técnico ya está revisando el problema.";
+  const detail = isMaintenance
+    ? "Puedes mantener esta ventana abierta; reintentaremos automáticamente."
+    : "Evita repetir operaciones mientras restablecemos el servicio.";
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[9999] flex justify-center px-3 pt-3">
-      <div className={bannerClassName}>
-        {message}
+      <div
+        role="alert"
+        aria-live="assertive"
+        className={`pointer-events-auto w-full max-w-3xl rounded-xl border px-4 py-3 shadow-xl ${
+          isMaintenance
+            ? "border-amber-200 bg-amber-50 text-amber-950"
+            : "border-red-200 bg-red-50 text-red-950"
+        }`}
+      >
+        <div className="flex items-start gap-3">
+          <span
+            className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
+              isMaintenance ? "bg-amber-200 text-amber-800" : "bg-red-200 text-red-800"
+            }`}
+            aria-hidden="true"
+          >
+            {isMaintenance ? "↻" : "!"}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="text-sm font-bold">{title}</p>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
+                  isMaintenance ? "bg-amber-200/70 text-amber-900" : "bg-red-200/70 text-red-900"
+                }`}
+              >
+                {isMaintenance ? "Mantenimiento" : "Incidente"}
+              </span>
+              {previewState ? (
+                <span className="rounded-full bg-slate-900/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]">
+                  Vista de prueba
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-0.5 text-sm leading-5">{message}</p>
+            <p className="mt-1 text-xs opacity-75">{detail}</p>
+            <p className="mt-1 text-[11px] opacity-60">
+              {lastCheckedAt ? `Última comprobación: ${formatStatusTime(lastCheckedAt)}` : "Comprobando el servicio..."}
+              {" · Reintentando automáticamente"}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
+}
+
+function formatStatusTime(timestamp: number) {
+  return new Intl.DateTimeFormat("es-CO", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(timestamp);
 }
