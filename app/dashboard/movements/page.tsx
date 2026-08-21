@@ -181,6 +181,14 @@ export default function MovementsPage() {
   const [stockTrend, setStockTrend] = useState<InventoryStockTrendPoint[]>([]);
   const [stockTrendLoading, setStockTrendLoading] = useState(false);
   const [stockTrendError, setStockTrendError] = useState<string | null>(null);
+  const [stockHistoryOpen, setStockHistoryOpen] = useState(false);
+  const [stockHistory, setStockHistory] = useState<InventoryStockTrendPoint[]>([]);
+  const [stockHistoryLoading, setStockHistoryLoading] = useState(false);
+  const [stockHistoryError, setStockHistoryError] = useState<string | null>(null);
+  const weeklyStockHistory = useMemo(
+    () => aggregateStockHistoryByWeek(stockHistory),
+    [stockHistory]
+  );
   const [latestEntries, setLatestEntries] = useState<InventoryLatestEntryRecord[]>([]);
   const [latestEntriesLoading, setLatestEntriesLoading] = useState(false);
   const [latestEntriesError, setLatestEntriesError] = useState<string | null>(null);
@@ -715,6 +723,28 @@ export default function MovementsPage() {
       cancelled = true;
     };
   }, [token, activeTab, refreshNonce]);
+
+  useEffect(() => {
+    if (!token || !stockHistoryOpen) return;
+    let cancelled = false;
+    setStockHistoryLoading(true);
+    setStockHistoryError(null);
+    fetchInventoryStockTrend(token, getCurrentYearDayCount())
+      .then((rows) => {
+        if (!cancelled) setStockHistory(rows);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setStockHistory([]);
+        setStockHistoryError(err instanceof Error ? err.message : "Error");
+      })
+      .finally(() => {
+        if (!cancelled) setStockHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, stockHistoryOpen, refreshNonce]);
 
   useEffect(() => {
     if (!token || activeTab !== "summary") return;
@@ -1833,6 +1863,15 @@ export default function MovementsPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [printerSettingsOpen]);
 
+  useEffect(() => {
+    if (!stockHistoryOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setStockHistoryOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [stockHistoryOpen]);
+
   const handleOpenAgentUi = () => {
     window.open(LABEL_AGENT_UI_URL, "_blank", "noopener,noreferrer");
   };
@@ -2170,6 +2209,13 @@ export default function MovementsPage() {
                 </p>
               </div>
               <div className="flex items-center gap-3 text-[11px] font-medium text-slate-600">
+                <button
+                  type="button"
+                  onClick={() => setStockHistoryOpen(true)}
+                  className="mr-1 cursor-pointer text-[11px] font-medium text-slate-500 underline decoration-slate-300 underline-offset-2 hover:text-slate-700 hover:decoration-slate-500"
+                >
+                  Ver historial del año
+                </button>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-sky-500" /> Unidades
                 </span>
@@ -3995,6 +4041,78 @@ export default function MovementsPage() {
         </div>
       ) : null}
 
+      {stockHistoryOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setStockHistoryOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stock-history-title"
+            className="w-full max-w-6xl rounded-2xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 id="stock-history-title" className="text-base font-semibold text-slate-900">
+                  Comportamiento del stock · {new Date().getUTCFullYear()}
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Cierre semanal desde el inicio del año · valor calculado con precios de venta actuales
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStockHistoryOpen(false)}
+                className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="p-5">
+              {stockHistoryLoading ? (
+                <div className="h-[22rem] animate-pulse rounded-xl bg-slate-100" />
+              ) : stockHistoryError ? (
+                <div className="flex h-[22rem] items-center justify-center text-sm text-rose-600">
+                  {stockHistoryError}
+                </div>
+              ) : stockHistory.length === 0 ? (
+                <div className="flex h-[22rem] items-center justify-center text-sm text-slate-500">
+                  No hay datos históricos de stock.
+                </div>
+              ) : (
+                <>
+                  <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <StockHistoryMetric
+                      label="Stock actual"
+                      value={`${formatQty(stockHistory[stockHistory.length - 1]?.stock_units ?? 0)} uds`}
+                    />
+                    <StockHistoryMetric
+                      label="Valor de venta actual"
+                      value={formatMoney(stockHistory[stockHistory.length - 1]?.stock_sale_value ?? 0)}
+                    />
+                    <StockHistoryMetric
+                      label="Semanas disponibles"
+                      value={String(weeklyStockHistory.length)}
+                    />
+                  </div>
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-2 sm:p-4">
+                    <StockTrendChart points={weeklyStockHistory} height={280} labelMode="months" />
+                  </div>
+                  <p className="mt-3 text-[11px] text-slate-500">
+                    El histórico refleja los movimientos registrados. Si el inventario inicial fue cargado sin movimientos,
+                    la serie comenzará desde el primer registro disponible.
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {historyOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
           <div className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-xl">
@@ -4730,10 +4848,52 @@ function parseRecountCountDraft(raw: string | null | undefined): number | null {
   return counted;
 }
 
-function StockTrendChart({ points }: { points: InventoryStockTrendPoint[] }) {
+type StockTrendChartPoint = InventoryStockTrendPoint & {
+  period_start?: string;
+  period_end?: string;
+};
+
+function aggregateStockHistoryByWeek(points: InventoryStockTrendPoint[]): StockTrendChartPoint[] {
+  const weeks = new Map<string, StockTrendChartPoint>();
+  points.forEach((point) => {
+    const periodStart = getWeekStart(point.date);
+    weeks.set(periodStart, {
+      ...point,
+      period_start: periodStart,
+      period_end: point.date,
+    });
+  });
+  return [...weeks.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getWeekStart(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, Math.max(0, month - 1), day);
+  const dayOfWeek = date.getDay();
+  date.setDate(date.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+}
+
+function StockHistoryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-slate-900 tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function StockTrendChart({
+  points,
+  height = 200,
+  labelMode = "auto",
+}: {
+  points: StockTrendChartPoint[];
+  height?: number;
+  labelMode?: "auto" | "months";
+}) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const width = 900;
-  const height = 200;
   const left = 56;
   const right = 76;
   const top = 18;
@@ -4760,6 +4920,7 @@ function StockTrendChart({ points }: { points: InventoryStockTrendPoint[] }) {
   }));
   const unitLine = unitCoordinates.map(({ x, y }) => `${x},${y}`).join(" ");
   const valueLine = valueCoordinates.map(({ x, y }) => `${x},${y}`).join(" ");
+  const markerIndexes = getTrendMarkerIndexes(points);
   const selectedIndex = hoveredIndex ?? 0;
   const selected = points[selectedIndex];
   const selectedX = xAt(selectedIndex);
@@ -4770,9 +4931,10 @@ function StockTrendChart({ points }: { points: InventoryStockTrendPoint[] }) {
     <div className="w-full" onMouseLeave={() => setHoveredIndex(null)}>
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        className="h-48 w-full overflow-visible"
+        className="w-full overflow-visible"
+        style={{ height: `${height}px` }}
         role="img"
-        aria-label="Gráfica del stock total en unidades y valor de venta durante los últimos siete días"
+        aria-label="Gráfica del stock total en unidades y valor de venta"
       >
         {[0, 0.5, 1].map((ratio) => {
           const y = top + ratio * plotHeight;
@@ -4811,18 +4973,28 @@ function StockTrendChart({ points }: { points: InventoryStockTrendPoint[] }) {
 
         {points.map((point, index) => (
           <g key={point.date}>
-            <circle cx={unitCoordinates[index].x} cy={unitCoordinates[index].y} r="3.5" fill="white" stroke="#0ea5e9" strokeWidth="2" />
-            <circle cx={valueCoordinates[index].x} cy={valueCoordinates[index].y} r="3.5" fill="white" stroke="#10b981" strokeWidth="2" />
-            <circle
-              cx={xAt(index)}
-              cy={top + plotHeight / 2}
-              r={plotWidth / Math.max(points.length - 1, 1) / 2}
+            {markerIndexes.has(index) || hoveredIndex === index ? (
+              <>
+                <circle cx={unitCoordinates[index].x} cy={unitCoordinates[index].y} r="3.5" fill="white" stroke="#0ea5e9" strokeWidth="2" />
+                <circle cx={valueCoordinates[index].x} cy={valueCoordinates[index].y} r="3.5" fill="white" stroke="#10b981" strokeWidth="2" />
+              </>
+            ) : null}
+            <rect
+              x={index === 0 ? left : (xAt(index - 1) + xAt(index)) / 2}
+              y={top}
+              width={
+                (index === points.length - 1 ? width - right : (xAt(index) + xAt(index + 1)) / 2) -
+                (index === 0 ? left : (xAt(index - 1) + xAt(index)) / 2)
+              }
+              height={plotHeight}
               fill="transparent"
               onMouseEnter={() => setHoveredIndex(index)}
             />
-            <text x={xAt(index)} y={height - 8} textAnchor="middle" className="fill-slate-500 text-[10px]">
-              {formatTrendDate(point.date)}
-            </text>
+            {shouldShowTrendLabel(points, index, labelMode) ? (
+              <text x={xAt(index)} y={height - 8} textAnchor="middle" className="fill-slate-500 text-[10px]">
+                {formatTrendDate(point.date, points.length > 31, labelMode)}
+              </text>
+            ) : null}
           </g>
         ))}
 
@@ -4830,7 +5002,9 @@ function StockTrendChart({ points }: { points: InventoryStockTrendPoint[] }) {
           <g pointerEvents="none">
             <rect x={tooltipX} y={24} width={tooltipWidth} height="48" rx="8" fill="#0f172a" opacity="0.94" />
             <text x={tooltipX + 10} y={43} className="fill-slate-300 text-[10px]">
-              {formatTrendDate(selected.date, true)}
+              {selected.period_start && selected.period_end
+                ? formatWeekRange(selected.period_start, selected.period_end)
+                : formatTrendDate(selected.date, true)}
             </text>
             <text x={tooltipX + 10} y={61} className="fill-white text-[11px] font-semibold">
               {formatQty(selected.stock_units)} uds · {formatMoney(selected.stock_sale_value)}
@@ -4842,13 +5016,90 @@ function StockTrendChart({ points }: { points: InventoryStockTrendPoint[] }) {
   );
 }
 
-function formatTrendDate(value: string, long = false) {
+function formatTrendDate(value: string, long = false, labelMode: "auto" | "months" = "auto") {
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(year, Math.max(0, month - 1), day);
   if (Number.isNaN(date.getTime())) return value;
+  if (labelMode === "months") {
+    return date.toLocaleDateString("es-CO", { month: "short" });
+  }
   return date.toLocaleDateString("es-CO", long
     ? { weekday: "short", day: "numeric", month: "short" }
     : { day: "numeric", month: "short" });
+}
+
+function formatWeekRange(start: string, end: string) {
+  const startDate = parseTrendDate(start);
+  const endDate = parseTrendDate(end);
+  if (!startDate || !endDate) return `${start} - ${end}`;
+  const startLabel = startDate.toLocaleDateString("es-CO", { day: "numeric", month: "short" });
+  const endLabel = endDate.toLocaleDateString("es-CO", { day: "numeric", month: "short" });
+  return `Semana ${startLabel} - ${endLabel}`;
+}
+
+function parseTrendDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, Math.max(0, month - 1), day);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function shouldShowTrendLabel(
+  points: StockTrendChartPoint[],
+  index: number,
+  labelMode: "auto" | "months"
+) {
+  if (labelMode === "months") {
+    if (index === 0 || index === points.length - 1) return true;
+    return points[index - 1]?.date.slice(0, 7) !== points[index]?.date.slice(0, 7);
+  }
+  if (points.length <= 31) return true;
+  if (index === 0 || index === points.length - 1) return true;
+  return points[index - 1]?.date.slice(0, 7) !== points[index]?.date.slice(0, 7);
+}
+
+function getTrendMarkerIndexes(points: InventoryStockTrendPoint[]) {
+  const indexes = new Set<number>([0, Math.max(0, points.length - 1)]);
+  if (points.length <= 31) {
+    points.forEach((_, index) => indexes.add(index));
+    return indexes;
+  }
+
+  const units = points.map((point) => Number(point.stock_units || 0));
+  const values = points.map((point) => Number(point.stock_sale_value || 0));
+  const unitRange = Math.max(...units) - Math.min(...units);
+  const valueRange = Math.max(...values) - Math.min(...values);
+  const candidates: Array<{ index: number; score: number }> = [];
+
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const unitDelta = unitRange ? Math.abs(units[index] - units[index - 1]) / unitRange : 0;
+    const valueDelta = valueRange ? Math.abs(values[index] - values[index - 1]) / valueRange : 0;
+    const unitDirection = Math.sign(units[index] - units[index - 1]);
+    const previousUnitDirection = Math.sign(units[index - 1] - units[index - 2]);
+    const valueDirection = Math.sign(values[index] - values[index - 1]);
+    const previousValueDirection = Math.sign(values[index - 1] - values[index - 2]);
+    const directionChanged =
+      (unitDirection !== 0 && previousUnitDirection !== 0 && unitDirection !== previousUnitDirection) ||
+      (valueDirection !== 0 && previousValueDirection !== 0 && valueDirection !== previousValueDirection);
+    const score = Math.max(unitDelta, valueDelta) + (directionChanged ? 0.08 : 0);
+
+    if (score >= 0.02 || directionChanged) {
+      candidates.push({ index, score });
+    }
+  }
+
+  candidates
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 20)
+    .forEach(({ index }) => indexes.add(index));
+
+  return indexes;
+}
+
+function getCurrentYearDayCount() {
+  const now = new Date();
+  const start = Date.UTC(now.getUTCFullYear(), 0, 1);
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.floor((today - start) / 86400000) + 1;
 }
 
 function formatCompactNumber(value: number) {
