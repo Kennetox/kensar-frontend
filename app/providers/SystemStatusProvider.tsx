@@ -24,12 +24,16 @@ function getPreviewState(): PreviewState | null {
 }
 
 export function SystemStatusProvider() {
+  const nativePos =
+    typeof window !== "undefined" &&
+    Boolean((window as Window & { kensar?: { isNativePos?: boolean } }).kensar?.isNativePos);
   const [state, setState] = useState<HealthState>("healthy");
   const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState | null>(null);
   const stateRef = useRef<HealthState>("healthy");
 
   useEffect(() => {
+    if (nativePos) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let consecutiveFailures = 0;
@@ -116,9 +120,9 @@ export function SystemStatusProvider() {
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, []);
+  }, [nativePos]);
 
-  if (state === "healthy") return null;
+  if (nativePos || state === "healthy") return null;
 
   const isMaintenance = state === "maintenance";
   const title = isMaintenance ? "Actualización en curso" : "Problema de conexión";
