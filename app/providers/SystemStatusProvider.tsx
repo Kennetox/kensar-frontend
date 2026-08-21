@@ -12,9 +12,9 @@ type ReadyPayload = {
   retry_after_seconds?: number;
 };
 
-const POLL_MS = 10000;
-const REQUEST_TIMEOUT_MS = 4000;
-const FAILURES_TO_OPEN = 2;
+const POLL_MS = 5000;
+const REQUEST_TIMEOUT_MS = 2500;
+const FAILURES_TO_OPEN = 1;
 const SUCCESSES_TO_CLOSE = 2;
 
 function getPreviewState(): PreviewState | null {
@@ -100,9 +100,21 @@ export function SystemStatusProvider() {
     };
 
     void runCheck();
+
+    const onOnline = () => {
+      void runCheck();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void runCheck();
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       active = false;
       if (timer) clearTimeout(timer);
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
