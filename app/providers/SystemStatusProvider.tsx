@@ -15,6 +15,7 @@ type ReadyPayload = {
 const POLL_MS = 5000;
 const REQUEST_TIMEOUT_MS = 2500;
 const FAILURES_TO_OPEN = 1;
+const NETWORK_FAILURES_TO_OPEN = 2;
 const SUCCESSES_TO_CLOSE = 2;
 
 function getPreviewState(): PreviewState | null {
@@ -41,6 +42,7 @@ export function SystemStatusProvider() {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let revealTimer: ReturnType<typeof setTimeout> | null = null;
     let consecutiveFailures = 0;
+    let consecutiveNetworkFailures = 0;
     let consecutiveSuccesses = 0;
 
     const updateBanner = (nextState: HealthState) => {
@@ -92,6 +94,7 @@ export function SystemStatusProvider() {
           });
           const payload = (await response.json().catch(() => null)) as ReadyPayload | null;
           setLastCheckedAt(Date.now());
+          consecutiveNetworkFailures = 0;
 
           if (payload?.status === "maintenance" || payload?.maintenance === true) {
             nextState = "maintenance";
@@ -110,9 +113,9 @@ export function SystemStatusProvider() {
           clearTimeout(timeout);
         }
       } catch {
-        consecutiveFailures += 1;
+        consecutiveNetworkFailures += 1;
         consecutiveSuccesses = 0;
-        if (consecutiveFailures >= FAILURES_TO_OPEN) {
+        if (consecutiveNetworkFailures >= NETWORK_FAILURES_TO_OPEN) {
           // If maintenance was already announced, preserve that message while
           // the process restarts instead of downgrading it to an incident.
           nextState = stateRef.current === "maintenance" ? "maintenance" : "degraded";
