@@ -88,6 +88,31 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.system-status-banner {
+  transform: translateY(-120%);
+  opacity: 0;
+  transition: transform 320ms ease-out, opacity 240ms ease-out;
+}
+
+.system-status-banner-visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.system-status-banner-exiting {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .system-status-banner {
+    transition: opacity 160ms ease-out;
+  }
+
+  .system-status-banner-visible {
+    transform: none;
+  }
+}
+
 .dashboard-shell,
 .dashboard-theme {
   font-family: inherit;

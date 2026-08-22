@@ -27,26 +27,49 @@ export function SystemStatusProvider() {
   const nativePos =
     typeof window !== "undefined" &&
     Boolean((window as Window & { kensar?: { isNativePos?: boolean } }).kensar?.isNativePos);
-  const [state, setState] = useState<HealthState>("healthy");
+  const [, setState] = useState<HealthState>("healthy");
+  const [displayState, setDisplayState] = useState<HealthState>("healthy");
+  const [bannerVisible, setBannerVisible] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState | null>(null);
   const stateRef = useRef<HealthState>("healthy");
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (nativePos) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let revealTimer: ReturnType<typeof setTimeout> | null = null;
     let consecutiveFailures = 0;
     let consecutiveSuccesses = 0;
+
+    const updateBanner = (nextState: HealthState) => {
+      if (nextState !== "healthy") {
+        if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+        setDisplayState(nextState);
+        revealTimer = setTimeout(() => {
+          if (active) setBannerVisible(true);
+        }, 0);
+        return;
+      }
+
+      setBannerVisible(false);
+      bannerTimerRef.current = setTimeout(() => {
+        if (active) setDisplayState("healthy");
+      }, 320);
+    };
 
     const preview = getPreviewState();
     if (preview) {
       setPreviewState(preview);
       stateRef.current = preview;
       setState(preview);
+      updateBanner(preview);
       setLastCheckedAt(Date.now());
       return () => {
         active = false;
+        if (revealTimer) clearTimeout(revealTimer);
+        if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
       };
     }
 
@@ -99,6 +122,7 @@ export function SystemStatusProvider() {
       if (active && nextState) {
         stateRef.current = nextState;
         setState(nextState);
+        updateBanner(nextState);
       }
       schedule();
     };
@@ -117,14 +141,16 @@ export function SystemStatusProvider() {
     return () => {
       active = false;
       if (timer) clearTimeout(timer);
+      if (revealTimer) clearTimeout(revealTimer);
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [nativePos]);
 
-  if (nativePos || state === "healthy") return null;
+  if (nativePos || displayState === "healthy") return null;
 
-  const isMaintenance = state === "maintenance";
+  const isMaintenance = displayState === "maintenance";
   const title = isMaintenance ? "Actualización en curso" : "Problema de conexión";
   const message = isMaintenance
     ? "Estamos aplicando mejoras a Metrik. El sistema volverá a estar disponible en unos minutos."
@@ -138,7 +164,9 @@ export function SystemStatusProvider() {
       <div
         role="alert"
         aria-live="assertive"
-        className={`pointer-events-auto w-full max-w-3xl rounded-xl border px-4 py-3 shadow-xl ${
+        className={`system-status-banner pointer-events-auto w-full max-w-3xl rounded-xl border px-4 py-3 shadow-xl ${
+          bannerVisible ? "system-status-banner-visible" : "system-status-banner-exiting"
+        } ${
           isMaintenance
             ? "border-amber-200 bg-amber-50 text-amber-950"
             : "border-red-200 bg-red-50 text-red-950"
@@ -173,7 +201,13 @@ export function SystemStatusProvider() {
             <p className="mt-1 text-xs opacity-75">{detail}</p>
             <p className="mt-1 text-[11px] opacity-60">
               {lastCheckedAt ? `Última comprobación: ${formatStatusTime(lastCheckedAt)}` : "Comprobando el servicio..."}
-              {" · Reintentando automáticamente"}
+              <span className="ml-1 inline-flex items-center gap-1">
+                <span
+                  className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current/25 border-t-current"
+                  aria-hidden="true"
+                />
+                Reintentando automáticamente
+              </span>
             </p>
           </div>
         </div>
