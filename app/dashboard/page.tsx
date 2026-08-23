@@ -2626,8 +2626,7 @@ export default function DashboardHomePage() {
                       ? (point.total / maxTrendValue) * 100
                       : 0;
 
-                  const heightPercent =
-                    point.total === 0 ? 6 : Math.max(18, rawHeight);
+                  const heightPercent = Math.max(0, Math.min(100, rawHeight));
                   const isZero = point.total === 0;
 
                   return (
@@ -2664,16 +2663,12 @@ export default function DashboardHomePage() {
                       </div>
 
                       <div
-                          className={`w-6 sm:w-7 h-[6.5rem] rounded-full overflow-hidden flex items-end dashboard-chart-track ${
+                          className={`w-6 sm:w-7 h-[6.5rem] overflow-hidden flex items-end dashboard-chart-track ${
                           isZero ? "dashboard-chart-track-empty" : ""
                         } ${isCurrentDay ? "dashboard-chart-current" : ""}`}
                       >
                         <div
-                          className={`w-full rounded-full transition-all ${
-                            isCurrentDay
-                              ? "dashboard-chart-fill-strong"
-                              : "dashboard-chart-fill"
-                          }`}
+                          className="w-full dashboard-chart-fill transition-[height] duration-300 ease-out"
                           style={{ height: `${heightPercent}%` }}
                         />
                       </div>
