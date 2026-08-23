@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getApiBase } from "@/lib/api/base";
 
-type HealthState = "healthy" | "degraded" | "maintenance";
+type HealthState = "healthy" | "degraded" | "maintenance" | "connection";
 type PreviewState = Exclude<HealthState, "healthy">;
 type ReadyPayload = {
   status?: string;
@@ -21,7 +21,7 @@ const SUCCESSES_TO_CLOSE = 2;
 function getPreviewState(): PreviewState | null {
   if (process.env.NODE_ENV === "production" || typeof window === "undefined") return null;
   const value = new URLSearchParams(window.location.search).get("systemStatusPreview");
-  return value === "maintenance" || value === "degraded" ? value : null;
+  return value === "maintenance" || value === "degraded" || value === "connection" ? value : null;
 }
 
 export function SystemStatusProvider() {
@@ -118,7 +118,7 @@ export function SystemStatusProvider() {
         if (consecutiveNetworkFailures >= NETWORK_FAILURES_TO_OPEN) {
           // If maintenance was already announced, preserve that message while
           // the process restarts instead of downgrading it to an incident.
-          nextState = stateRef.current === "maintenance" ? "maintenance" : "degraded";
+          nextState = stateRef.current === "maintenance" ? "maintenance" : "connection";
         }
       }
 
@@ -154,13 +154,22 @@ export function SystemStatusProvider() {
   if (nativePos || displayState === "healthy") return null;
 
   const isMaintenance = displayState === "maintenance";
-  const title = isMaintenance ? "Actualización en curso" : "Problema de conexión";
+  const isConnection = displayState === "connection";
+  const title = isMaintenance
+    ? "Actualización en curso"
+    : isConnection
+      ? "Conexión a internet inestable"
+      : "Problema del servicio";
   const message = isMaintenance
     ? "Estamos aplicando mejoras a Metrik. El sistema volverá a estar disponible en unos minutos."
-    : "Metrik no está respondiendo correctamente. El equipo técnico ya está revisando el problema.";
+    : isConnection
+      ? "No logramos comunicarnos con Metrik. Revisa la conexión a internet de este equipo."
+      : "Metrik está teniendo dificultades internas. El equipo técnico ya está revisando el problema.";
   const detail = isMaintenance
     ? "Puedes mantener esta ventana abierta; reintentaremos automáticamente."
-    : "Evita repetir operaciones mientras restablecemos el servicio.";
+    : isConnection
+      ? "Comprueba el Wi-Fi o el cable de red; reintentaremos automáticamente."
+      : "Evita repetir operaciones mientras restablecemos el servicio.";
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[9999] flex justify-center px-3 pt-3">
@@ -172,27 +181,57 @@ export function SystemStatusProvider() {
         } ${
           isMaintenance
             ? "border-amber-200 bg-amber-50 text-amber-950"
-            : "border-red-200 bg-red-50 text-red-950"
+            : isConnection
+              ? "border-sky-200 bg-sky-50 text-sky-950"
+              : "border-red-200 bg-red-50 text-red-950"
         }`}
       >
         <div className="flex items-start gap-3">
           <span
             className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-              isMaintenance ? "bg-amber-200 text-amber-800" : "bg-red-200 text-red-800"
+              isMaintenance
+                ? "bg-amber-200 text-amber-800"
+                : isConnection
+                  ? "bg-sky-200 text-sky-800"
+                  : "bg-red-200 text-red-800"
             }`}
             aria-hidden="true"
           >
-            {isMaintenance ? "↻" : "!"}
+            {isMaintenance ? (
+              "↻"
+            ) : isConnection ? (
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M2 8.8a15.4 15.4 0 0 1 20 0" />
+                <path d="M5 12.8a10.7 10.7 0 0 1 8-2.7" />
+                <path d="M8.5 16.2a5.6 5.6 0 0 1 2.7-.9" />
+                <path d="m3 3 18 18" />
+              </svg>
+            ) : (
+              "!"
+            )}
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <p className="text-sm font-bold">{title}</p>
               <span
                 className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
-                  isMaintenance ? "bg-amber-200/70 text-amber-900" : "bg-red-200/70 text-red-900"
+                  isMaintenance
+                    ? "bg-amber-200/70 text-amber-900"
+                    : isConnection
+                      ? "bg-sky-200/70 text-sky-900"
+                      : "bg-red-200/70 text-red-900"
                 }`}
               >
-                {isMaintenance ? "Mantenimiento" : "Incidente"}
+                {isMaintenance ? "Mantenimiento" : isConnection ? "Conexión" : "Incidente"}
               </span>
               {previewState ? (
                 <span className="rounded-full bg-slate-900/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]">
