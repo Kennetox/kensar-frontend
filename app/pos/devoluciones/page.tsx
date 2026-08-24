@@ -109,6 +109,11 @@ type Sale = {
   is_separated?: boolean;
   initial_payment_amount?: number | null;
   balance?: number | null;
+  separated_status?: string | null;
+  separated_active_total_amount?: number | null;
+  separated_recorded_paid_total?: number | null;
+  separated_net_paid_total?: number | null;
+  separated_reconciled_amount?: number | null;
   adjustment_total_delta?: number | null;
   adjustment_payment_delta?: number | null;
   items: SaleItem[];
@@ -120,7 +125,17 @@ function getSaleNetBalance(entry: {
   total?: number;
   refunded_total?: number | null;
   refunded_balance?: number | null;
+  is_separated?: boolean;
+  separated_status?: string | null;
+  separated_active_total_amount?: number | null;
 }): number {
+  if (entry.is_separated) {
+    const status = (entry.separated_status ?? "").toLowerCase();
+    if (["cancelado", "incobrable", "anulado"].includes(status)) return 0;
+    if (entry.separated_active_total_amount != null) {
+      return Math.max(0, entry.separated_active_total_amount);
+    }
+  }
   if (entry.refunded_balance != null) {
     return Math.max(0, entry.refunded_balance);
   }
@@ -643,10 +658,13 @@ export default function DevolucionesPage() {
   const paidTotal = useMemo(() => {
     if (!sale) return 0;
     if (sale.is_separated) {
-      if (sale.total != null && sale.balance != null) {
-        return Math.max(0, sale.total - sale.balance);
-      }
-      return Math.max(0, sale.initial_payment_amount ?? sale.paid_amount ?? 0);
+      return Math.max(
+        0,
+        sale.separated_recorded_paid_total ??
+          sale.initial_payment_amount ??
+          sale.paid_amount ??
+          0
+      );
     }
     return Math.max(
       0,
@@ -984,12 +1002,15 @@ export default function DevolucionesPage() {
       const payload = {
         sale_id: sale.id,
         items: itemsPayload,
-        payments: [
-          {
-            method: paymentMethod,
-            amount: paymentValue,
-          },
-        ],
+        payments:
+          paymentValue > 0
+            ? [
+                {
+                  method: paymentMethod,
+                  amount: paymentValue,
+                },
+              ]
+            : undefined,
         notes: notes || undefined,
       };
 

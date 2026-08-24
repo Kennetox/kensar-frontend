@@ -670,6 +670,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       crumbs: string[];
     }> = [
       { prefix: "/dashboard/sales", crumbs: ["Inicio", "Historial de ventas"] },
+      { prefix: "/dashboard/documents/separated", crumbs: ["Documentos", "Gestionar separados"] },
       { prefix: "/dashboard/customers", crumbs: ["Documentos", "Gestionar clientes"] },
       { prefix: "/dashboard/profile", crumbs: ["Perfil"] },
     ];

@@ -48,6 +48,33 @@ export type SeparatedOrder = {
   updated_at: string;
   completed_at?: string | null;
   cancelled_at?: string | null;
+  recorded_paid_total: number;
+  refunded_total: number;
+  net_paid_total: number;
+  active_total_amount: number;
+  reconciled_amount: number;
+  waived_amount: number;
+  retained_amount: number;
+  credit_amount: number;
+  pending_refund_amount: number;
+  balance_before_resolution?: number | null;
+  resolution_type?: string | null;
+  resolution_reason?: string | null;
+  resolution_reference?: string | null;
+  resolution_notes?: string | null;
+  resolution_history?: Array<Record<string, unknown>> | null;
+  resolved_at?: string | null;
+  resolved_by_user_id?: number | null;
+  inventory_released_at?: string | null;
+  items: {
+    id: number;
+    product_id: number;
+    product_sku?: string | null;
+    product_name: string;
+    quantity: number;
+    unit_price: number;
+    total: number;
+  }[];
   initial_payments: {
     id: number;
     method: string;
@@ -58,6 +85,19 @@ export type SeparatedOrder = {
   payments: SeparatedOrderPayment[];
   surcharge_amount?: number | null;
   surcharge_label?: string | null;
+};
+
+export type SeparatedOrderResolutionPayload = {
+  action: "reconcile" | "reschedule" | "cancel" | "refund_pending";
+  amount?: number;
+  reference?: string;
+  reason?: string;
+  notes?: string;
+  due_date?: string;
+  cancellation_outcome?: "cancelled" | "uncollectible" | "voided_error";
+  refund_amount?: number;
+  refund_method?: string;
+  remainder_disposition?: "retained" | "credit" | "pending_refund";
 };
 
 export type SeparatedOrderPaymentPayload = {
@@ -131,6 +171,26 @@ export async function registerSeparatedOrderPayment(
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(detail || `Error ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function resolveSeparatedOrder(
+  orderId: number,
+  payload: SeparatedOrderResolutionPayload,
+  token?: string | null
+): Promise<SeparatedOrder> {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/separated-orders/${orderId}/resolve`, {
+    method: "POST",
+    headers: buildHeaders(token),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = body?.detail;
+    throw new Error(typeof detail === "string" ? detail : `Error ${res.status}`);
   }
   return res.json();
 }

@@ -77,7 +77,7 @@ export default function OperationalNotificationModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[10020] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-[2px] md:p-6"
+      className="notification-ui fixed inset-0 z-[10020] flex items-center justify-center bg-slate-950/55 p-3 backdrop-blur-[2px] md:p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="operational-notification-title"

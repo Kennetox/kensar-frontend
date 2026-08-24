@@ -4300,12 +4300,20 @@ useEffect(() => {
           </div>
         </div>
         {!hideManageCustomers && (
-          <Link
-            href="/dashboard/customers"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-slate-700 text-xs text-slate-100 hover:bg-slate-800"
-          >
-            Gestionar clientes
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/dashboard/documents/separated"
+              className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-emerald-400/70 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+            >
+              Gestionar separados
+            </Link>
+            <Link
+              href="/dashboard/customers"
+              className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-700 px-4 py-2 text-xs text-slate-100 hover:bg-slate-800"
+            >
+              Gestionar clientes
+            </Link>
+          </div>
         )}
       </header>
 

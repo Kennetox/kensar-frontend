@@ -380,6 +380,13 @@ export default function NotificationCenter({ token }: { token: string }) {
                   window.sessionStorage.setItem("commerce_web_active_tab", "sliders");
                   router.push("/dashboard/comercio-web");
                 }
+              : operationalNotification.category.toLowerCase().includes("separ") ||
+                Array.isArray(operationalNotification.payload?.orders) ||
+                Array.isArray(operationalNotification.payload?.separated_orders)
+              ? () => {
+                  setOperationalNotification(null);
+                  router.push("/dashboard/documents/separated?filter=follow_up");
+                }
               : undefined
           }
         />
