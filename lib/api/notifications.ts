@@ -56,6 +56,10 @@ export async function markAllNotificationsRead(token: string): Promise<void> {
   await request(token, "/notifications/read-all", { method: "POST" });
 }
 
+export async function dismissAllNotifications(token: string): Promise<void> {
+  await request(token, "/notifications/dismiss-all", { method: "POST" });
+}
+
 export async function dismissNotification(
   token: string,
   notificationId: number

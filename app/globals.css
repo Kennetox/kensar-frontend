@@ -650,6 +650,17 @@ body::after {
   animation: notification-badge-attention 3.6s ease-in-out infinite;
 }
 
+.notification-ui button:not(:disabled),
+.notification-ui [role="button"]:not([aria-disabled="true"]),
+.notification-ui a[href] {
+  cursor: pointer;
+}
+
+.notification-ui button:disabled,
+.notification-ui [role="button"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .notification-bell-attention,
   .notification-badge-attention {

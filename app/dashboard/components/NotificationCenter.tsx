@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  dismissAllNotifications,
   dismissNotification,
   fetchNotificationInbox,
   markAllNotificationsRead,
@@ -49,6 +50,7 @@ export default function NotificationCenter({ token }: { token: string }) {
   const [items, setItems] = useState<DashboardNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [clearing, setClearing] = useState(false);
   const [error, setError] = useState("");
   const [webOpportunityNotification, setWebOpportunityNotification] = useState<DashboardNotification | null>(null);
   const [operationalNotification, setOperationalNotification] = useState<DashboardNotification | null>(null);
@@ -164,12 +166,33 @@ export default function NotificationCenter({ token }: { token: string }) {
     }
   };
 
+  const handleClearAll = async () => {
+    if (clearing || items.length === 0) return;
+    const confirmed = window.confirm(
+      "¿Quieres borrar todas las notificaciones? Esta acción no se puede deshacer."
+    );
+    if (!confirmed) return;
+
+    setClearing(true);
+    try {
+      await dismissAllNotifications(token);
+      setItems([]);
+      setUnreadCount(0);
+      setError("");
+    } catch {
+      setError("No fue posible limpiar la bandeja de notificaciones.");
+      void refresh(true);
+    } finally {
+      setClearing(false);
+    }
+  };
+
   return (
-    <div ref={centerRef} className="relative">
+    <div ref={centerRef} className="notification-ui relative">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="relative flex h-10 w-10 items-center justify-center rounded-full border ui-border dashboard-profile-chip transition hover:border-emerald-400/70"
+        className="relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border ui-border dashboard-profile-chip transition hover:border-emerald-400/70"
         aria-label={unreadCount ? `Notificaciones, ${unreadCount} sin leer` : "Notificaciones"}
         aria-expanded={open}
       >
@@ -225,15 +248,28 @@ export default function NotificationCenter({ token }: { token: string }) {
             <span className="text-xs font-medium ui-text-muted">
               {unreadCount === 0 ? "Todo al día" : `${unreadCount} sin leer`}
             </span>
-            {unreadCount > 0 && (
-              <button
-                type="button"
-                onClick={() => void handleReadAll()}
-                className="text-xs font-semibold text-emerald-600 hover:text-emerald-500"
-              >
-                Marcar todas como leídas
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleReadAll()}
+                  disabled={clearing}
+                  className="text-xs font-semibold text-emerald-600 hover:text-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Marcar todas como leídas
+                </button>
+              )}
+              {items.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleClearAll()}
+                  disabled={clearing}
+                  className="text-xs font-semibold text-rose-600 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {clearing ? "Limpiando…" : "Limpiar bandeja"}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 [scrollbar-gutter:stable]">
