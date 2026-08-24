@@ -138,7 +138,7 @@ export default function SeparatedOrdersManagementPage() {
   const requestedFilter = searchParams.get("filter") as FilterId | null;
   const initialFilter = FILTERS.some((filter) => filter.id === requestedFilter)
     ? (requestedFilter as FilterId)
-    : "follow_up";
+    : "active";
   const [filter, setFilter] = useState<FilterId>(initialFilter);
   const [search, setSearch] = useState("");
   const [orders, setOrders] = useState<SeparatedOrder[]>([]);
@@ -244,9 +244,9 @@ export default function SeparatedOrdersManagementPage() {
   }, [filter, orders, search, todayKey]);
 
   return (
-    <main className="flex-1 px-4 py-4 md:px-6">
-      <div className="mx-auto w-full max-w-[96rem] space-y-3">
-        <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+    <main className="flex h-full min-h-0 flex-col px-4 py-4 md:px-6">
+      <div className="mx-auto flex min-h-0 w-full max-w-[96rem] flex-1 flex-col gap-3">
+        <header className="flex shrink-0 flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-2xl font-semibold ui-text">Gestión de separados</h1>
             <p className="mt-1 text-sm ui-text-muted">
@@ -271,14 +271,14 @@ export default function SeparatedOrdersManagementPage() {
           </div>
         </header>
 
-        <section className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <section className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-4">
           <SummaryCard label="Separados activos" value={String(summary.active)} />
           <SummaryCard label="Vencidos" value={String(summary.overdue)} tone="danger" />
           <SummaryCard label="Por vencer (3 días)" value={String(summary.dueSoon)} tone="warning" />
           <SummaryCard label="Saldo pendiente activo" value={formatMoney(summary.pendingBalance)} tone="money" />
         </section>
 
-        <section className="dashboard-card rounded-2xl border ui-border p-4 shadow-sm">
+        <section className="dashboard-card shrink-0 rounded-2xl border ui-border p-4 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <label className="flex min-w-0 flex-1 flex-col gap-1.5 lg:max-w-xl">
               <span className="text-xs font-semibold ui-text-muted">Buscar separado</span>
@@ -295,21 +295,34 @@ export default function SeparatedOrdersManagementPage() {
                   key={option.id}
                   type="button"
                   onClick={() => setFilter(option.id)}
-                  className={`cursor-pointer rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                  className={`relative cursor-pointer rounded-full border px-3 py-2 text-xs font-semibold transition ${
                     filter === option.id
                       ? "border-emerald-400 bg-emerald-50 text-emerald-700"
                       : "ui-border bg-white ui-text-muted hover:bg-slate-100 hover:text-slate-900"
                   }`}
                 >
                   {option.label}
+                  {option.id === "follow_up" && summary.overdue + summary.dueSoon > 0 && (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        className="force-light-text absolute -right-1.5 -top-2 flex h-5 w-5 animate-bounce items-center justify-center rounded-full border-2 border-white bg-rose-600 text-[11px] font-black leading-none text-white shadow-md"
+                      >
+                        !
+                      </span>
+                      <span className="sr-only">
+                        Hay {summary.overdue + summary.dueSoon} separados que requieren seguimiento
+                      </span>
+                    </>
+                  )}
                 </button>
               ))}
             </div>
           </div>
         </section>
 
-        <section className="dashboard-card overflow-hidden rounded-2xl border ui-border shadow-sm">
-          <div className="flex items-center justify-between border-b ui-border px-4 py-3">
+        <section className="dashboard-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border ui-border shadow-sm">
+          <div className="flex shrink-0 items-center justify-between border-b ui-border px-4 py-3">
             <div>
               <h2 className="text-sm font-semibold ui-text">Separados registrados</h2>
               <p className="text-xs ui-text-muted">
@@ -344,7 +357,7 @@ export default function SeparatedOrdersManagementPage() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               <table className="w-full min-w-[1120px] table-fixed border-collapse text-left text-[13px]">
                 <colgroup>
                   <col className="w-[10%]" />
@@ -357,7 +370,7 @@ export default function SeparatedOrdersManagementPage() {
                   <col className="w-[8%]" />
                   <col className="w-[9%]" />
                 </colgroup>
-                <thead className="dashboard-table-head text-[11px] uppercase tracking-wide ui-text-muted">
+                <thead className="dashboard-table-head sticky top-0 z-10 text-[11px] uppercase tracking-wide ui-text-muted shadow-[0_1px_0_rgba(148,163,184,0.55)]">
                   <tr>
                     <th className="px-3 py-3 font-semibold">Documento</th>
                     <th className="px-3 py-3 font-semibold">Cliente</th>
@@ -379,7 +392,7 @@ export default function SeparatedOrdersManagementPage() {
                       <tr
                         key={order.id}
                         onDoubleClick={() => setSelectedOrder(order)}
-                        className={`border-t ui-border ${
+                        className={`border-t last:border-b ui-border ${
                           index % 2 === 0 ? "dashboard-row-zebra" : "dashboard-row-zebra-alt"
                         }`}
                       >

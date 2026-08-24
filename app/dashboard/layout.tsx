@@ -692,6 +692,8 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const isProductsRoute =
     pathname === "/dashboard/products" ||
     pathname.startsWith("/dashboard/products/");
+  const isFixedWorkspaceRoute =
+    isProductsRoute || pathname === "/dashboard/documents/separated";
 
   useEffect(() => {
     if (!loading && token && permissionsResolved && !routeAllowed) {
@@ -1128,7 +1130,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         {/* CONTENIDO DE CADA PÁGINA */}
         <main
           className={`flex-1 min-h-0 min-w-0 px-4 md:px-8 py-6 md:py-8 dashboard-theme ${
-            isProductsRoute
+            isFixedWorkspaceRoute
               ? "overflow-hidden flex flex-col"
               : "overflow-y-auto"
           }`}
@@ -1140,7 +1142,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               <span className="font-semibold text-amber-950">{tenant.name}</span>.
             </div>
           )}
-          {isProductsRoute ? (
+          {isFixedWorkspaceRoute ? (
             <div className="flex-1 min-h-0 min-w-0">{children}</div>
           ) : (
             children
