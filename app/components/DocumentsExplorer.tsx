@@ -2085,8 +2085,10 @@ export default function DocumentsExplorer({
   }, []);
 
   useEffect(() => {
-    const fromMovements = searchParams.get("fromMovements");
-    if (fromMovements !== "1") {
+    const fromExternalContext =
+      searchParams.get("fromMovements") === "1" ||
+      searchParams.get("fromSeparated") === "1";
+    if (!fromExternalContext) {
       setFastOpenReference(null);
       setSuppressBulkLoad(false);
       fastOpenHandledRef.current = false;

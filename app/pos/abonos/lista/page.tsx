@@ -9,7 +9,7 @@ import {
   type SeparatedOrder,
 } from "@/lib/api/separatedOrders";
 import { getApiBase } from "@/lib/api/base";
-import { formatBogotaDate } from "@/lib/time/bogota";
+import { formatBogotaDate, getBogotaDateKey } from "@/lib/time/bogota";
 
 const moneyFormatter = new Intl.NumberFormat("es-CO", {
   minimumFractionDigits: 0,
@@ -18,6 +18,7 @@ const moneyFormatter = new Intl.NumberFormat("es-CO", {
 
 const STATUS_FILTERS = [
   { id: "reservado", label: "Activos" },
+  { id: "vencido", label: "Vencidos" },
   { id: "pagado", label: "Pagados" },
   { id: "cancelado", label: "Cancelados" },
   { id: "todos", label: "Todos" },
@@ -68,6 +69,11 @@ function buildSelectionCode(order: SeparatedOrder) {
   );
 }
 
+function isOverdue(order: SeparatedOrder) {
+  if (!order.due_date || order.status !== "reservado" || Number(order.balance || 0) <= 0.01) return false;
+  return getBogotaDateKey(order.due_date) < getBogotaDateKey();
+}
+
 export default function ListaAbonosPage() {
   const { token } = useAuth();
   const router = useRouter();
@@ -98,7 +104,7 @@ export default function ListaAbonosPage() {
           limit: 200,
         };
         if (status !== "todos") {
-          params.status = status;
+          params.status = status === "vencido" ? "reservado" : status;
         }
         const normalizedSearch = debouncedSearch.trim();
         if (normalizedSearch) {
@@ -135,7 +141,12 @@ export default function ListaAbonosPage() {
 
   const timeFilteredOrders = useMemo(() => {
     if (!orders.length) return orders;
-    if (timeFilter === "all") return orders;
+    const statusOrders = orders.filter((order) => {
+      if (status === "reservado") return !isOverdue(order);
+      if (status === "vencido") return isOverdue(order);
+      return true;
+    });
+    if (timeFilter === "all") return statusOrders;
     const now = new Date();
     let start: Date;
     if (timeFilter === "year") {
@@ -149,12 +160,12 @@ export default function ListaAbonosPage() {
       start.setHours(0, 0, 0, 0);
       start.setDate(now.getDate() - diff);
     }
-    return orders.filter((order) => {
+    return statusOrders.filter((order) => {
       const created = new Date(order.created_at);
       if (Number.isNaN(created.getTime())) return true;
       return created >= start;
     });
-  }, [orders, timeFilter]);
+  }, [orders, status, timeFilter]);
 
   const filteredOrders = useMemo(() => {
     const base = timeFilteredOrders;
@@ -213,7 +224,7 @@ export default function ListaAbonosPage() {
 
   const handleSelect = (order: SeparatedOrder) => {
     const code = buildSelectionCode(order);
-    router.push(`/pos/abonos?ticket=${encodeURIComponent(code)}`);
+    router.push(`/pos/abonos?ticket=${encodeURIComponent(code)}&origin=abonos-list`);
   };
 
   const getSummaryLabel = (saleId?: number | null) => {
@@ -356,7 +367,7 @@ export default function ListaAbonosPage() {
                       </div>
                       <div>
                         <p className="text-slate-400">Estado</p>
-                        <p className="font-semibold capitalize">{order.status}</p>
+                        <p className={`font-semibold ${isOverdue(order) ? "text-rose-300" : "capitalize"}`}>{isOverdue(order) ? "Vencido" : order.status}</p>
                       </div>
                     </div>
                     <button

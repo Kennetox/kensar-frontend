@@ -106,6 +106,7 @@ export type SeparatedOrderPaymentPayload = {
   reference?: string;
   note?: string;
   station_id?: string;
+  expired_acknowledged?: boolean;
 };
 
 type FetchSeparatedParams = {

@@ -78,12 +78,12 @@ function dueDayDistance(order: SeparatedOrder, todayKey: string) {
   return Math.round((dueDate.getTime() - today.getTime()) / DAY_MS);
 }
 
-function isActive(order: SeparatedOrder) {
+function isOpenSeparated(order: SeparatedOrder) {
   return order.status === "reservado" && Number(order.balance || 0) > 0.01;
 }
 
 function followUpLabel(order: SeparatedOrder, todayKey: string) {
-  if (!isActive(order)) return null;
+  if (!isOpenSeparated(order)) return null;
   const distance = dueDayDistance(order, todayKey);
   if (distance == null) return null;
   if (distance < 0) {
@@ -199,13 +199,19 @@ export default function SeparatedOrdersManagementPage() {
     let dueSoon = 0;
     let pendingBalance = 0;
     orders.forEach((order) => {
-      if (!isActive(order)) return;
-      active += 1;
-      pendingBalance += Number(order.balance || 0);
+      if (!isOpenSeparated(order)) return;
       const distance = dueDayDistance(order, todayKey);
-      if (distance == null) return;
+      if (distance == null) {
+        active += 1;
+        pendingBalance += Number(order.balance || 0);
+        return;
+      }
       if (distance < 0) overdue += 1;
-      else if (distance <= 3) dueSoon += 1;
+      else {
+        active += 1;
+        pendingBalance += Number(order.balance || 0);
+        if (distance <= 3) dueSoon += 1;
+      }
     });
     return { active, overdue, dueSoon, pendingBalance };
   }, [orders, todayKey]);
@@ -216,17 +222,19 @@ export default function SeparatedOrdersManagementPage() {
       const distance = dueDayDistance(order, todayKey);
       const matchesFilter =
         filter === "all" ||
-        (filter === "active" && isActive(order)) ||
+        (filter === "active" &&
+          isOpenSeparated(order) &&
+          (distance == null || distance >= 0)) ||
         (filter === "paid" && ["pagado", "conciliado"].includes(order.status)) ||
         (filter === "cancelled" && ["cancelado", "incobrable", "anulado"].includes(order.status)) ||
-        (filter === "overdue" && isActive(order) && distance != null && distance < 0) ||
+        (filter === "overdue" && isOpenSeparated(order) && distance != null && distance < 0) ||
         (filter === "due_soon" &&
-          isActive(order) &&
+          isOpenSeparated(order) &&
           distance != null &&
           distance >= 0 &&
           distance <= 3) ||
         (filter === "follow_up" &&
-          isActive(order) &&
+          isOpenSeparated(order) &&
           distance != null &&
           distance <= 3);
       if (!matchesFilter) return false;
@@ -386,6 +394,8 @@ export default function SeparatedOrdersManagementPage() {
                 <tbody>
                   {filteredOrders.map((order, index) => {
                     const paid = Number(order.recorded_paid_total || 0);
+                    const distance = dueDayDistance(order, todayKey);
+                    const overdue = isOpenSeparated(order) && distance != null && distance < 0;
                     const followUp = followUpLabel(order, todayKey);
                     const products = productSummary(order);
                     return (
@@ -434,8 +444,8 @@ export default function SeparatedOrdersManagementPage() {
                           {formatMoney(order.balance)}
                         </td>
                         <td className="px-3 py-3">
-                          <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${statusClasses(order.status)}`}>
-                            {STATUS_LABELS[order.status] ?? order.status}
+                          <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${overdue ? "border-rose-200 bg-rose-50 text-rose-700" : statusClasses(order.status)}`}>
+                            {overdue ? "Vencido" : STATUS_LABELS[order.status] ?? order.status}
                           </span>
                         </td>
                         <td className="px-3 py-3 text-right">
@@ -520,6 +530,7 @@ function resolutionActionLabel(value: string) {
     refund_pending: "Devolución pendiente pagada",
     pos_return: "Devolución total desde POS",
     pos_partial_return: "Devolución parcial desde POS",
+    overdue_payment_acknowledged: "Abono vencido autorizado",
   };
   return labels[value] ?? "Resolución administrativa";
 }
@@ -551,6 +562,7 @@ function SeparatedResolutionModal({
   const [remainderDisposition, setRemainderDisposition] = useState<"retained" | "credit" | "pending_refund">("retained");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const availablePaid = Number(order.net_paid_total || 0);
   const numericRefund = Math.max(0, Math.min(Number(refundAmount || 0), availablePaid));
@@ -620,7 +632,18 @@ function SeparatedResolutionModal({
             </h2>
             <p className="mt-1 text-sm text-slate-500">Cada acción quedará registrada sin crear ingresos ficticios.</p>
           </div>
-          <button type="button" onClick={onClose} disabled={submitting} className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50">×</button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setGuideOpen(true)}
+              className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-100"
+              aria-expanded={guideOpen}
+            >
+              <span className="flex h-4 w-4 items-center justify-center rounded-full border border-indigo-400 text-[10px] font-black">?</span>
+              Guía rápida
+            </button>
+            <button type="button" onClick={onClose} disabled={submitting} className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50" aria-label="Cerrar resolución">×</button>
+          </div>
         </header>
 
         <div className="min-h-0 overflow-y-auto bg-slate-50/70 p-5">
@@ -755,6 +778,146 @@ function SeparatedResolutionModal({
           </button>
         </footer>
       </section>
+      {guideOpen && <SeparatedResolutionGuide onClose={() => setGuideOpen(false)} />}
+    </div>
+  );
+}
+
+function SeparatedResolutionGuide({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[10040] flex items-center justify-center bg-slate-950/65 p-3 backdrop-blur-sm md:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="separated-resolution-guide-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 md:px-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.15em] text-indigo-600">Guía rápida</p>
+            <h2 id="separated-resolution-guide-title" className="mt-1 text-xl font-bold text-slate-950">
+              ¿Cómo resolver un separado?
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">Elige según lo que ocurrió realmente, no según el resultado que quieras ocultar.</p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-xl text-slate-500 hover:bg-slate-100" aria-label="Cerrar guía">×</button>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/70 p-4 md:p-6">
+          <div className="grid gap-3 md:grid-cols-3">
+            <GuideActionCard
+              number="1"
+              title="Conciliar pago"
+              useWhen="El cliente ya pagó, pero el dinero quedó registrado en otra venta, factura o comprobante."
+              effect="Reduce el saldo del separado sin volver a sumar ventas ni caja. Puede ser parcial o total y exige una referencia."
+              example="Ejemplo: se cobró como venta normal por error."
+              tone="indigo"
+            />
+            <GuideActionCard
+              number="2"
+              title="Reprogramar"
+              useWhen="El acuerdo sigue vigente y el cliente necesita una nueva fecha para completar el pago."
+              effect="Solo cambia la fecha límite. El separado permanece activo, conserva su saldo y volverá a generar alertas."
+              example="Ejemplo: el cliente pidió una semana adicional."
+              tone="amber"
+            />
+            <GuideActionCard
+              number="3"
+              title="Cancelar"
+              useWhen="El separado dejó de aplicar, no se cobrará o fue creado por equivocación."
+              effect="Cierra el saldo, retira las alertas y libera el inventario. Debes indicar qué sucede con el dinero abonado."
+              example="Ejemplo: el cliente desistió de la compra."
+              tone="rose"
+            />
+          </div>
+
+          <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-950">Si eliges Cancelar</h3>
+            <div className="mt-3 grid gap-4 lg:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Resultado del caso</p>
+                <dl className="mt-2 space-y-2 text-sm">
+                  <GuideDefinition term="Cliente desistió / no aplica" description="El acuerdo existió, pero ya no continuará." />
+                  <GuideDefinition term="Incobrable" description="La deuda era válida, pero se decidió que ya no se recuperará." />
+                  <GuideDefinition term="Duplicado o error" description="El separado no debió existir o quedó repetido." />
+                </dl>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Dinero abonado</p>
+                <dl className="mt-2 space-y-2 text-sm">
+                  <GuideDefinition term="Devolver ahora" description="Registra una salida real de dinero por el valor indicado." />
+                  <GuideDefinition term="Abono retenido" description="El negocio conserva el dinero según el acuerdo aplicable." />
+                  <GuideDefinition term="Saldo a favor" description="El dinero queda reconocido para usarlo en otra compra." />
+                  <GuideDefinition term="Devolución pendiente" description="El negocio todavía debe entregar ese dinero; luego se registra cuando se pague." />
+                </dl>
+              </div>
+            </div>
+          </section>
+
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="font-bold">Cuando aparezca “Registrar devolución pendiente”</p>
+            <p className="mt-1">Úsalo únicamente cuando entregues al cliente un dinero que antes quedó marcado como pendiente. Esta acción sí registra la salida financiera real.</p>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
+              <p className="font-bold">Regla práctica</p>
+              <p className="mt-1">Pagado en otro lugar → <strong>Conciliar</strong>. Pagará después → <strong>Reprogramar</strong>. Ya no aplica → <strong>Cancelar</strong>.</p>
+              <p className="mt-2 text-xs text-emerald-800">Si no tienes claro qué ocurrió o qué pasará con el abono, revisa el soporte antes de confirmar.</p>
+            </div>
+            <button type="button" onClick={onClose} className="force-light-text cursor-pointer rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700">
+              Entendido
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function GuideActionCard({
+  number,
+  title,
+  useWhen,
+  effect,
+  example,
+  tone,
+}: {
+  number: string;
+  title: string;
+  useWhen: string;
+  effect: string;
+  example: string;
+  tone: "indigo" | "amber" | "rose";
+}) {
+  const toneClasses = {
+    indigo: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    amber: "border-amber-200 bg-amber-50 text-amber-700",
+    rose: "border-rose-200 bg-rose-50 text-rose-700",
+  }[tone];
+  return (
+    <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center gap-2">
+        <span className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-black ${toneClasses}`}>{number}</span>
+        <h3 className="font-bold text-slate-950">{title}</h3>
+      </div>
+      <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Úsalo cuando</p>
+      <p className="mt-1 text-sm leading-5 text-slate-700">{useWhen}</p>
+      <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Qué ocurre</p>
+      <p className="mt-1 text-sm leading-5 text-slate-700">{effect}</p>
+      <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs italic text-slate-600">{example}</p>
+    </article>
+  );
+}
+
+function GuideDefinition({ term, description }: { term: string; description: string }) {
+  return (
+    <div className="rounded-xl bg-slate-50 px-3 py-2">
+      <dt className="font-semibold text-slate-900">{term}</dt>
+      <dd className="mt-0.5 text-xs leading-5 text-slate-600">{description}</dd>
     </div>
   );
 }
@@ -806,6 +969,7 @@ function SeparatedOrderDetail({
   const paid = Number(order.recorded_paid_total || 0);
   const reconciled = Number(order.reconciled_amount || 0);
   const followUp = followUpLabel(order, todayKey);
+  const overdue = isOpenSeparated(order) && (dueDayDistance(order, todayKey) ?? 0) < 0;
   const initialPayments = order.initial_payments ?? [];
   const laterPayments = order.payments ?? [];
   const selectionCode = order.barcode || order.sale_document_number || String(order.sale_number || order.id);
@@ -831,8 +995,8 @@ function SeparatedOrderDetail({
               {order.sale_document_number}
             </h2>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(order.status)}`}>
-                {STATUS_LABELS[order.status] ?? order.status}
+              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${overdue ? "border-rose-200 bg-rose-50 text-rose-700" : statusClasses(order.status)}`}>
+                {overdue ? "Vencido" : STATUS_LABELS[order.status] ?? order.status}
               </span>
               {followUp && (
                 <span className={`text-xs font-semibold ${dueDayDistance(order, todayKey)! < 0 ? "text-rose-600" : "text-amber-600"}`}>
@@ -841,14 +1005,26 @@ function SeparatedOrderDetail({
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-            aria-label="Cerrar detalle"
-          >
-            ×
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href={`/dashboard/documents?fromSeparated=1&type=venta&term=${encodeURIComponent(order.sale_document_number)}`}
+              className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M7 3h7l4 4v14H7z" strokeLinejoin="round" />
+                <path d="M14 3v5h5M10 12h5M10 16h5" strokeLinecap="round" />
+              </svg>
+              Ver en documentos
+            </Link>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+              aria-label="Cerrar detalle"
+            >
+              ×
+            </button>
+          </div>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/70 p-4 md:p-5">
@@ -1033,7 +1209,7 @@ function SeparatedOrderDetail({
           >
             Cerrar
           </button>
-          {isActive(order) && (
+          {isOpenSeparated(order) && (
             <button
               type="button"
               onClick={() => setResolutionMode("reconcile")}
@@ -1042,9 +1218,9 @@ function SeparatedOrderDetail({
               Resolver separado
             </button>
           )}
-          {isActive(order) && (
+          {isOpenSeparated(order) && (
             <Link
-              href={`/pos/abonos?ticket=${encodeURIComponent(selectionCode)}`}
+              href={`/pos/abonos?ticket=${encodeURIComponent(selectionCode)}&origin=separated-management`}
               className="cursor-pointer rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
             >
               Registrar abono

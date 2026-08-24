@@ -28,7 +28,7 @@ import {
   fetchPosStationPrinterConfig,
   type PosAccessMode,
 } from "@/lib/api/posStations";
-import { formatBogotaDate } from "@/lib/time/bogota";
+import { formatBogotaDate, getBogotaDateKey } from "@/lib/time/bogota";
 
 const BLOCKED_PAYMENT_SLUGS = new Set(["separado", "credito"]);
 
@@ -84,12 +84,25 @@ function formatDateOnly(value?: string | null): string {
   return formatted || value;
 }
 
+function getSeparatedOverdueDays(order?: SeparatedOrder | null): number {
+  if (!order?.due_date || order.status !== "reservado" || Number(order.balance || 0) <= 0.01) {
+    return 0;
+  }
+  const dueKey = getBogotaDateKey(order.due_date);
+  const todayKey = getBogotaDateKey();
+  const due = Date.parse(`${dueKey}T00:00:00Z`);
+  const today = Date.parse(`${todayKey}T00:00:00Z`);
+  if (!Number.isFinite(due) || !Number.isFinite(today)) return 0;
+  return Math.max(0, Math.round((today - due) / (24 * 60 * 60 * 1000)));
+}
+
 export default function AbonosPage() {
   const { token, user } = useAuth();
   const router = useRouter();
   const apiBase = useMemo(() => getApiBase(), []);
   const searchParams = useSearchParams();
   const ticketParam = searchParams.get("ticket");
+  const paymentOrigin = searchParams.get("origin");
   const paymentCatalog = usePaymentMethodsCatalog();
   const allowedPaymentMethods = useMemo(
     () =>
@@ -144,6 +157,8 @@ export default function AbonosPage() {
     method: string;
   } | null>(null);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
+  const [expiredWarningOrder, setExpiredWarningOrder] = useState<SeparatedOrder | null>(null);
+  const [expiredAcknowledgedOrderId, setExpiredAcknowledgedOrderId] = useState<number | null>(null);
   const lastDrawerPaymentId = useRef<string | null>(null);
   const toastTimerRef = useRef<{ hide?: number; remove?: number }>({});
   const scanInputRef = useRef<HTMLInputElement | null>(null);
@@ -491,7 +506,12 @@ export default function AbonosPage() {
           setLookupError("No se encontró un separado con ese código.");
           return;
         }
-        setResult(orders[0]);
+        const foundOrder = orders[0];
+        setResult(foundOrder);
+        setExpiredAcknowledgedOrderId(null);
+        setExpiredWarningOrder(
+          getSeparatedOverdueDays(foundOrder) > 0 ? foundOrder : null
+        );
         setCanPrintTicket(false);
       } catch (err) {
         console.error("No pudimos cargar el separado", err);
@@ -561,6 +581,8 @@ export default function AbonosPage() {
     setCanPrintTicket(false);
     setSuccessSummary(null);
     setSuccessModalOpen(false);
+    setExpiredWarningOrder(null);
+    setExpiredAcknowledgedOrderId(null);
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
         scanInputRef.current?.focus();
@@ -572,6 +594,13 @@ export default function AbonosPage() {
   async function handleRegisterPayment(e: React.FormEvent) {
     e.preventDefault();
     if (!result || !token) return;
+    if (
+      getSeparatedOverdueDays(result) > 0 &&
+      expiredAcknowledgedOrderId !== result.id
+    ) {
+      setExpiredWarningOrder(result);
+      return;
+    }
     if (!selectedMethod) {
       const message = "Debes elegir un método de pago antes de registrar el abono.";
       showToast(message, "error");
@@ -591,11 +620,13 @@ export default function AbonosPage() {
         reference?: string;
         note?: string;
         station_id?: string;
+        expired_acknowledged?: boolean;
       } = {
         method: selectedMethod,
         amount: Math.round(value),
         reference: reference.trim() || undefined,
         note: note.trim() || undefined,
+        expired_acknowledged: expiredAcknowledgedOrderId === result.id,
       };
       if (activeStationId) {
         payload.station_id = activeStationId;
@@ -668,9 +699,29 @@ export default function AbonosPage() {
     return "Sin definir";
   }, [result]);
 
+  const overdueDays = useMemo(() => getSeparatedOverdueDays(result), [result]);
+  const expiredPaymentAcknowledged = Boolean(
+    result && expiredAcknowledgedOrderId === result.id
+  );
+
+  const leaveExpiredPayment = useCallback(() => {
+    setExpiredWarningOrder(null);
+    setExpiredAcknowledgedOrderId(null);
+    if (paymentOrigin === "separated-management") {
+      router.push("/dashboard/documents/separated?filter=overdue");
+      return;
+    }
+    if (paymentOrigin === "abonos-list") {
+      router.push("/pos/abonos/lista");
+      return;
+    }
+    router.push("/pos");
+  }, [paymentOrigin, router]);
+
   const registrationDisabled =
     !result ||
     result.status === "cancelado" ||
+    (overdueDays > 0 && !expiredPaymentAcknowledged) ||
     submitting;
 
   const historyEntries = useMemo(() => {
@@ -1125,8 +1176,8 @@ export default function AbonosPage() {
                         </div>
                         <div className="text-right">
                           <p className="text-sm text-slate-400">Estado</p>
-                          <p className="text-base font-semibold capitalize">
-                            {STATUS_LABELS[result.status] ?? result.status}
+                          <p className={`text-base font-semibold ${overdueDays > 0 ? "text-rose-300" : "capitalize"}`}>
+                            {overdueDays > 0 ? "Vencido" : STATUS_LABELS[result.status] ?? result.status}
                           </p>
                         </div>
                         <button
@@ -1379,6 +1430,73 @@ export default function AbonosPage() {
           </section>
         </div>
       </div>
+
+      {expiredWarningOrder && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/85 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="overdue-separated-title">
+          <section className="w-full max-w-2xl overflow-hidden rounded-3xl border border-rose-400/40 bg-slate-900 shadow-2xl">
+            <header className="border-b border-slate-700 bg-rose-500/10 px-6 py-5 md:px-8">
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-rose-400/50 bg-rose-500/15 text-2xl font-black text-rose-300">!</div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-rose-300">Atención antes de cobrar</p>
+                  <h2 id="overdue-separated-title" className="mt-1 text-2xl font-bold text-white">Este separado está vencido</h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">Antes de recibir más dinero, lo recomendable es revisar si el acuerdo se mantiene, se reprograma o se cancela.</p>
+                </div>
+              </div>
+            </header>
+
+            <div className="px-6 py-5 md:px-8 md:py-6">
+              <div className="grid gap-3 rounded-2xl border border-slate-700 bg-slate-950/55 p-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Ticket</p>
+                  <p className="mt-1 text-lg font-bold text-slate-100">{expiredWarningOrder.barcode ?? expiredWarningOrder.sale_document_number}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Cliente</p>
+                  <p className="mt-1 font-semibold text-slate-100">{expiredWarningOrder.customer_name ?? "Cliente sin nombre"}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Fecha límite</p>
+                  <p className="mt-1 font-semibold text-rose-300">{formatDateOnly(expiredWarningOrder.due_date)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Tiempo vencido</p>
+                  <p className="mt-1 font-semibold text-rose-300">{getSeparatedOverdueDays(expiredWarningOrder)} día{getSeparatedOverdueDays(expiredWarningOrder) === 1 ? "" : "s"}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Saldo pendiente</p>
+                  <p className="mt-1 text-2xl font-bold text-white">$ {formatMoney(expiredWarningOrder.balance)}</p>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm leading-5 text-amber-100">
+                Si decides continuar, el abono se registrará normalmente y la aceptación del vencimiento quedará guardada en el historial administrativo.
+              </div>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <button type="button" onClick={leaveExpiredPayment} className="cursor-pointer rounded-xl border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800">
+                  {paymentOrigin === "separated-management"
+                    ? "Volver a gestión"
+                    : paymentOrigin === "abonos-list"
+                      ? "Volver al listado"
+                      : "Volver al POS"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpiredAcknowledgedOrderId(expiredWarningOrder.id);
+                    setExpiredWarningOrder(null);
+                    window.requestAnimationFrame(() => amountInputRef.current?.focus());
+                  }}
+                  className="cursor-pointer rounded-xl bg-rose-500 px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-400"
+                >
+                  Continuar con el abono
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {successModalOpen && successSummary && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 py-6">
