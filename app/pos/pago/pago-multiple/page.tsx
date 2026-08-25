@@ -42,6 +42,7 @@ import {
 import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
 import { PosNavigationOverlay } from "../../components/PosNavigationOverlay";
 import { useGuardedPosNavigation } from "../../hooks/useGuardedPosNavigation";
+import { isCustomerEligibleForSeparated } from "@/lib/customers/validation";
 
 type PaymentMethodSlug = string;
 
@@ -299,7 +300,14 @@ export default function PagoMultiplePage() {
     },
     []
   );
-  const confirmDisabled = !cart.length || !payments.length || isConfirmingSale;
+  const isSeparatedSale =
+    payments.length > 0 && payments.every((payment) => payment.method === "separado");
+  const separatedCustomerReady = isCustomerEligibleForSeparated(selectedCustomer);
+  const confirmDisabled =
+    !cart.length ||
+    !payments.length ||
+    isConfirmingSale ||
+    (isSeparatedSale && !separatedCustomerReady);
   const canSubmitWithEnter = !confirmDisabled && !successSale;
 
   useEffect(() => {
@@ -833,10 +841,17 @@ export default function PagoMultiplePage() {
         return;
       }
 
-      const isSeparatedSale =
-        payments.length > 0 &&
-        payments.every((p) => p.method === "separado");
       if (isSeparatedSale) {
+        if (!selectedCustomer) {
+          setErrorWithToast("Debes asignar un cliente para crear el separado.");
+          return;
+        }
+        if (!separatedCustomerReady) {
+          setErrorWithToast(
+            "Completa al menos un dato adicional del cliente antes de crear el separado."
+          );
+          return;
+        }
         const missingRealMethod = payments.some(
           (p) => !p.separatedRealMethod
         );
@@ -1833,6 +1848,19 @@ export default function PagoMultiplePage() {
       {!isOnline && (
         <div className="px-6 py-2 text-xs text-amber-200 bg-amber-500/10 border-b border-amber-500/30">
           Sin conexión a internet. Las ventas se guardarán como pendientes y podrás enviarlas desde el POS cuando vuelva la red.
+        </div>
+      )}
+      {isSeparatedSale && !separatedCustomerReady && (
+        <div className="flex items-center justify-between gap-4 border-b border-amber-400/30 bg-amber-500/10 px-6 py-2.5 text-sm text-amber-100">
+          <p>
+            <span className="font-semibold">Cliente obligatorio:</span>{" "}
+            {selectedCustomer
+              ? "completa teléfono, correo, documento o dirección para continuar."
+              : "selecciona o crea un cliente antes de confirmar el separado."}
+          </p>
+          <button type="button" onClick={() => openCustomerSelector("list")} className="shrink-0 rounded-lg border border-amber-300/50 px-3 py-1.5 text-xs font-semibold hover:bg-amber-400/10">
+            {selectedCustomer ? "Completar cliente" : "Asignar cliente"}
+          </button>
         </div>
       )}
 

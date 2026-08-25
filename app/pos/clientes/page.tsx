@@ -50,9 +50,10 @@ function PosCustomerSelectorContent() {
       : null;
   const returnRoute = paymentReturnTo ?? "/pos";
   const currentCustomerLabel = selectedCustomer?.name || "Sin cliente asignado";
+  const requestedMode = searchParams.get("mode");
   const [activeFlow, setActiveFlow] = useState<
     "frequent" | "search" | "create" | null
-  >(null);
+  >(requestedMode === "new" ? "create" : requestedMode === "list" ? "search" : null);
 
   const returnToOrigin = (customerAssigned = false) => {
     const destinationLabel = paymentReturnTo ? "pago" : "POS";
@@ -382,7 +383,8 @@ function PosCustomerSelectorContent() {
                   key={activeFlow}
                   variant="page"
                   initialMode={activeFlow === "create" ? "new" : "list"}
-                  showCurrentCustomerCard={activeFlow !== "search"}
+                  initialSearch={activeFlow === "search" ? selectedCustomer?.name ?? "" : ""}
+                  showCurrentCustomerCard={false}
                   onCustomerSelected={() => returnToOrigin(true)}
                 />
               )}

@@ -42,6 +42,7 @@ import {
 import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
 import { PosNavigationOverlay } from "../components/PosNavigationOverlay";
 import { useGuardedPosNavigation } from "../hooks/useGuardedPosNavigation";
+import { isCustomerEligibleForSeparated } from "@/lib/customers/validation";
 
 type PaymentMethodSlug = string;
 
@@ -572,6 +573,7 @@ export default function PagoPage() {
   // Métodos que requieren escribir un monto manual
   // (los que permiten cambio o los que manejan crédito/separado)
   const requiresManualAmount = allowsChange || (isCreditLike && !isSeparatedSale);
+  const separatedCustomerReady = isCustomerEligibleForSeparated(selectedCustomer);
   const confirmDisabled =
     !cart.length ||
     !hasActivePaymentMethods ||
@@ -870,6 +872,18 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       }
 
       if (isSeparatedSale) {
+        if (!selectedCustomer) {
+          setErrorWithToast(
+            "Debes agregar o asignar un cliente antes de confirmar el pago del separado."
+          );
+          return;
+        }
+        if (!separatedCustomerReady) {
+          setErrorWithToast(
+            "Completa al menos un dato adicional del cliente antes de crear el separado."
+          );
+          return;
+        }
         if (separatedInitialPayments.length === 0) {
           setErrorWithToast(
             "Agrega al menos un método para el abono inicial."
@@ -1906,6 +1920,28 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           Sin conexión a internet. Las ventas se guardarán como pendientes y podrás enviarlas desde el POS cuando vuelva la red.
         </div>
       )}
+      {isSeparatedSale && !separatedCustomerReady && (
+        <div className="flex items-center justify-between gap-4 border-b border-amber-400/30 bg-amber-500/10 px-6 py-2.5 text-sm text-amber-100">
+          <p>
+            <span className="font-semibold">Cliente obligatorio:</span>{" "}
+            {selectedCustomer
+              ? "completa teléfono, correo, documento o dirección para continuar."
+              : "selecciona o crea un cliente antes de confirmar el separado."}
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            {selectedCustomer && (
+              <button type="button" onClick={() => openCustomerSelector("list")} className="rounded-lg border border-amber-300/50 px-3 py-1.5 text-xs font-semibold hover:bg-amber-400/10">
+                Completar cliente
+              </button>
+            )}
+            {!selectedCustomer && (
+              <button type="button" onClick={() => openCustomerSelector("list")} className="rounded-lg border border-amber-300/50 px-3 py-1.5 text-xs font-semibold hover:bg-amber-400/10">
+                Asignar cliente
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Cuerpo principal */}
       <div className="flex-1 flex overflow-hidden">
@@ -2329,14 +2365,19 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         <div className="fixed right-8 top-24 z-40 w-[360px] max-w-[90vw]">
           <div
             className={
-              "rounded-2xl border border-rose-400/40 bg-slate-900/80 px-4 py-3 text-rose-100 shadow-[0_16px_40px_rgba(15,23,42,0.45)] backdrop-blur transition-all duration-300 " +
+              "flex items-start gap-3 rounded-2xl border border-red-500/70 bg-red-600 px-5 py-4 text-white shadow-2xl shadow-red-950/40 transition-all duration-300 " +
               (toastVisible
                 ? "translate-x-0 opacity-100"
                 : "translate-x-4 opacity-0")
             }
           >
-            <div className="text-sm font-semibold">Error</div>
-            <p className="mt-1 text-sm text-slate-100/90">{toast.message}</p>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-base font-black text-red-600">
+              !
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-bold">Falta información</p>
+              <p className="mt-1 text-sm leading-5 text-red-50">{toast.message}</p>
+            </div>
           </div>
         </div>
       )}

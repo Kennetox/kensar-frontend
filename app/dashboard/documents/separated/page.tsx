@@ -6,11 +6,14 @@ import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/providers/AuthProvider";
 import {
   fetchSeparatedOrders,
+  assignSeparatedOrderCustomer,
   resolveSeparatedOrder,
   type SeparatedOrder,
   type SeparatedOrderPayment,
   type SeparatedOrderResolutionPayload,
 } from "@/lib/api/separatedOrders";
+import { fetchPosCustomers, type PosCustomerRead } from "@/lib/api/inventory";
+import { hasCustomerAdditionalInformation } from "@/lib/customers/validation";
 import {
   buildBogotaDateFromKey,
   formatBogotaDate,
@@ -531,6 +534,7 @@ function resolutionActionLabel(value: string) {
     pos_return: "Devolución total desde POS",
     pos_partial_return: "Devolución parcial desde POS",
     overdue_payment_acknowledged: "Abono vencido autorizado",
+    customer_assigned: "Cliente asignado al separado",
   };
   return labels[value] ?? "Resolución administrativa";
 }
@@ -974,6 +978,7 @@ function SeparatedOrderDetail({
   const laterPayments = order.payments ?? [];
   const selectionCode = order.barcode || order.sale_document_number || String(order.sale_number || order.id);
   const [resolutionMode, setResolutionMode] = useState<ResolutionMode | null>(null);
+  const [customerAssignmentOpen, setCustomerAssignmentOpen] = useState(false);
 
   return (
     <div
@@ -1040,7 +1045,16 @@ function SeparatedOrderDetail({
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <h3 className="text-sm font-semibold text-slate-950">Información general</h3>
                 <div className="mt-3 border-b border-slate-100 pb-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Cliente</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Cliente</p>
+                    <button
+                      type="button"
+                      onClick={() => setCustomerAssignmentOpen(true)}
+                      className="cursor-pointer rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-emerald-400 hover:text-emerald-700"
+                    >
+                      {order.customer_id ? "Cambiar cliente" : "Asignar cliente"}
+                    </button>
+                  </div>
                   <p className="mt-1 font-semibold text-slate-900">{order.customer_name || "Cliente sin nombre"}</p>
                   <div className="mt-1 grid gap-x-4 gap-y-0.5 text-sm text-slate-600 sm:grid-cols-2">
                     <p>{order.customer_phone || "Sin teléfono registrado"}</p>
@@ -1250,6 +1264,122 @@ function SeparatedOrderDetail({
           }}
         />
       )}
+      {customerAssignmentOpen && (
+        <SeparatedCustomerAssignmentModal
+          order={order}
+          token={token}
+          onClose={() => setCustomerAssignmentOpen(false)}
+          onAssigned={(updated) => {
+            onUpdated(updated);
+            setCustomerAssignmentOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SeparatedCustomerAssignmentModal({
+  order,
+  token,
+  onClose,
+  onAssigned,
+}: {
+  order: SeparatedOrder;
+  token?: string | null;
+  onClose: () => void;
+  onAssigned: (order: SeparatedOrder) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [customers, setCustomers] = useState<PosCustomerRead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  const loadCustomers = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const records = await fetchPosCustomers(token, {
+        search: query.trim() || undefined,
+        limit: 50,
+      });
+      setCustomers(records);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "No fue posible cargar los clientes.");
+    } finally {
+      setLoading(false);
+    }
+  }, [query, token]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => void loadCustomers(), 250);
+    return () => window.clearTimeout(timeoutId);
+  }, [loadCustomers]);
+
+  const assignCustomer = async (customer: PosCustomerRead) => {
+    if (!token || savingId) return;
+    setSavingId(customer.id);
+    try {
+      const updated = await assignSeparatedOrderCustomer(order.id, customer.id, token);
+      onAssigned(updated);
+    } catch (assignError) {
+      setError(assignError instanceof Error ? assignError.message : "No fue posible asignar el cliente.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[10030] flex items-center justify-center bg-slate-950/65 p-4" role="dialog" aria-modal="true" aria-labelledby="assign-separated-customer-title">
+      <section className="flex max-h-[82vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-emerald-600">Cliente del separado</p>
+            <h2 id="assign-separated-customer-title" className="mt-1 text-xl font-bold text-slate-950">Asignar cliente a {order.sale_document_number}</h2>
+            <p className="mt-1 text-sm text-slate-600">La asignación también actualizará el documento original y quedará auditada.</p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 text-xl text-slate-500 hover:bg-slate-100" aria-label="Cerrar">×</button>
+        </header>
+        <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+          <div className="flex gap-2">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nombre, teléfono, correo o documento" className="h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-emerald-400" autoFocus />
+            <button type="button" onClick={() => void loadCustomers()} className="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:border-emerald-400">Actualizar</button>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+            <span>Solo pueden asignarse clientes con al menos un dato adicional.</span>
+            <Link href="/dashboard/customers" target="_blank" className="font-semibold text-emerald-700 hover:underline">Crear o completar cliente ↗</Link>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          {loading ? (
+            <p className="py-8 text-center text-sm text-slate-500">Cargando clientes…</p>
+          ) : customers.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">No encontramos clientes con esta búsqueda.</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {customers.map((customer) => {
+                const complete = hasCustomerAdditionalInformation(customer);
+                return (
+                  <div key={customer.id} className="flex items-center justify-between gap-4 px-2 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-900">{customer.name}</p>
+                      <p className="mt-0.5 truncate text-xs text-slate-500">
+                        {[customer.phone, customer.email, customer.tax_id, customer.address].filter(Boolean).join(" · ") || "Sin datos adicionales"}
+                      </p>
+                    </div>
+                    <button type="button" disabled={!complete || savingId !== null} onClick={() => void assignCustomer(customer)} className="cursor-pointer rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+                      {savingId === customer.id ? "Asignando…" : complete ? "Asignar" : "Completar primero"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {error && <p className="m-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+        </div>
+      </section>
     </div>
   );
 }

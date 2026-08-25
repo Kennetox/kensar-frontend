@@ -1,9 +1,13 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
+import {
+  CUSTOMER_ADDITIONAL_INFO_MESSAGE,
+  hasCustomerAdditionalInformation,
+} from "@/lib/customers/validation";
 
 type Customer = {
   id: number;
@@ -34,6 +38,12 @@ type SegmentFilter =
   | "web_guest"
   | "without_contact";
 
+type CustomerFilters = {
+  search: string;
+  status: StatusFilter;
+  segment: SegmentFilter;
+};
+
 const EMPTY_FORM: CustomerForm = {
   name: "",
   phone: "",
@@ -43,15 +53,11 @@ const EMPTY_FORM: CustomerForm = {
   is_active: true,
 };
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 100;
 
 function isGuestWebCustomer(customer: Customer): boolean {
   const email = (customer.email ?? "").toLowerCase();
   return email.includes("__guest_checkout__");
-}
-
-function hasAnyContact(customer: Customer): boolean {
-  return Boolean(customer.phone || customer.email);
 }
 
 function formatDateLabel(raw?: string): string {
@@ -69,11 +75,18 @@ export default function CustomersManager() {
   const { token } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
+  const [paginationLoading, setPaginationLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
+  const [totalCustomers, setTotalCustomers] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [validationToast, setValidationToast] = useState<{
+    id: number;
+    message: string;
+  } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>("all");
@@ -81,6 +94,14 @@ export default function CustomersManager() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<CustomerForm>(EMPTY_FORM);
+  const requestIdRef = useRef(0);
+  const customerListRef = useRef<HTMLDivElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
+  const appliedFiltersRef = useRef<CustomerFilters>({
+    search: "",
+    status: "active",
+    segment: "all",
+  });
 
   const authHeaders = useMemo(
     () => (token ? { Authorization: `Bearer ${token}` } : null),
@@ -89,24 +110,40 @@ export default function CustomersManager() {
 
   const apiBase = getApiBase();
 
-  const includeInactive = statusFilter !== "active";
+  useEffect(() => {
+    if (!validationToast) return;
+    const toastId = validationToast.id;
+    const timer = window.setTimeout(() => {
+      setValidationToast((current) =>
+        current?.id === toastId ? null : current
+      );
+    }, 4200);
+    return () => window.clearTimeout(timer);
+  }, [validationToast]);
 
-  async function loadCustomers(targetPage = pageIndex) {
+  async function loadCustomers(
+    targetPage = pageIndex,
+    isPagination = false,
+    filters = appliedFiltersRef.current
+  ) {
     if (!authHeaders) return;
+    const requestId = ++requestIdRef.current;
     try {
-      setLoading(true);
+      if (isPagination) {
+        setPaginationLoading(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
-      const term = search.trim();
       const params = new URLSearchParams({
-        search: term,
+        search: filters.search,
+        status: filters.status,
+        segment: filters.segment,
         skip: String(targetPage * PAGE_SIZE),
         limit: PAGE_SIZE.toString(),
       });
-      if (includeInactive) {
-        params.set("include_inactive", "true");
-      }
 
-      const res = await fetch(`${apiBase}/pos/customers?${params.toString()}`, {
+      const res = await fetch(`${apiBase}/pos/customers/page?${params.toString()}`, {
         headers: authHeaders,
         credentials: "include",
       });
@@ -115,60 +152,94 @@ export default function CustomersManager() {
       }
 
       const data = await res.json();
-      const list = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.items)
-        ? data.items
-        : [];
+      const list: Customer[] = Array.isArray(data?.items) ? data.items : [];
+      const total = Number(data?.total) || 0;
 
       if (list.length === 0 && targetPage > 0) {
         // Si una eliminación deja la página vacía, volvemos a la anterior.
-        await loadCustomers(targetPage - 1);
+        await loadCustomers(targetPage - 1, isPagination);
         return;
       }
 
+      if (requestId !== requestIdRef.current) return;
       setCustomers(list);
       setPageIndex(targetPage);
-      setHasNextPage(list.length === PAGE_SIZE);
+      setTotalCustomers(total);
+      setHasNextPage((targetPage + 1) * PAGE_SIZE < total);
+      customerListRef.current?.scrollTo({ top: 0 });
     } catch (err) {
+      if (requestId !== requestIdRef.current) return;
       console.error(err);
       setError(
         err instanceof Error ? err.message : "No se pudieron cargar los clientes."
       );
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+        setPaginationLoading(false);
+      }
+    }
+  }
+
+  function applyCurrentFilters() {
+    const filters: CustomerFilters = {
+      search: search.trim(),
+      status: statusFilter,
+      segment: segmentFilter,
+    };
+    appliedFiltersRef.current = filters;
+    void loadCustomers(0, false, filters);
+  }
+
+  async function handleExport() {
+    if (!authHeaders || exporting) return;
+    try {
+      setExporting(true);
+      setError(null);
+      const filters = appliedFiltersRef.current;
+      const params = new URLSearchParams({
+        search: filters.search,
+        status: filters.status,
+        segment: filters.segment,
+      });
+      const res = await fetch(
+        `${apiBase}/pos/customers/export.xlsx?${params.toString()}`,
+        {
+          headers: authHeaders,
+          credentials: "include",
+        }
+      );
+      if (!res.ok) {
+        throw new Error(`Error ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `clientes_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "No se pudo exportar la lista.");
+    } finally {
+      setExporting(false);
     }
   }
 
   useEffect(() => {
-    setPageIndex(0);
-    void loadCustomers(0);
+    const filters: CustomerFilters = {
+      search: search.trim(),
+      status: statusFilter,
+      segment: segmentFilter,
+    };
+    appliedFiltersRef.current = filters;
+    void loadCustomers(0, false, filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authHeaders, statusFilter]);
-
-  const filteredCustomers = useMemo(() => {
-    return customers.filter((customer) => {
-      const isActive = customer.is_active !== false;
-      if (statusFilter === "active" && !isActive) return false;
-      if (statusFilter === "inactive" && isActive) return false;
-
-      if (segmentFilter === "with_email" && !customer.email) return false;
-      if (segmentFilter === "with_phone" && !customer.phone) return false;
-      if (segmentFilter === "with_tax_id" && !customer.tax_id) return false;
-      if (segmentFilter === "web_guest" && !isGuestWebCustomer(customer)) return false;
-      if (segmentFilter === "without_contact" && hasAnyContact(customer)) return false;
-
-      return true;
-    });
-  }, [customers, statusFilter, segmentFilter]);
-
-  const summary = useMemo(() => {
-    const active = customers.filter((c) => c.is_active !== false).length;
-    const withEmail = customers.filter((c) => Boolean(c.email)).length;
-    const withPhone = customers.filter((c) => Boolean(c.phone)).length;
-    const guests = customers.filter((c) => isGuestWebCustomer(c)).length;
-    return { active, withEmail, withPhone, guests };
-  }, [customers]);
 
   function openCreateModal() {
     setEditingId(null);
@@ -203,6 +274,14 @@ export default function CustomersManager() {
     if (!authHeaders) return;
     if (!form.name.trim()) {
       setFeedback("El nombre es obligatorio.");
+      return;
+    }
+    if (!hasCustomerAdditionalInformation(form)) {
+      setValidationToast({
+        id: Date.now(),
+        message: CUSTOMER_ADDITIONAL_INFO_MESSAGE,
+      });
+      window.requestAnimationFrame(() => phoneInputRef.current?.focus());
       return;
     }
 
@@ -287,13 +366,13 @@ export default function CustomersManager() {
   }
 
   function handlePrevPage() {
-    if (loading || pageIndex === 0) return;
-    void loadCustomers(pageIndex - 1);
+    if (loading || paginationLoading || pageIndex === 0) return;
+    void loadCustomers(pageIndex - 1, true);
   }
 
   function handleNextPage() {
-    if (loading || !hasNextPage) return;
-    void loadCustomers(pageIndex + 1);
+    if (loading || paginationLoading || !hasNextPage) return;
+    void loadCustomers(pageIndex + 1, true);
   }
 
   return (
@@ -342,10 +421,7 @@ export default function CustomersManager() {
               <label className="text-xs font-medium text-slate-600">Buscar cliente</label>
               <input
                 value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPageIndex(0);
-                }}
+                onChange={(e) => setSearch(e.target.value)}
                 placeholder="Nombre, teléfono, correo o NIT"
                 className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500"
               />
@@ -380,35 +456,23 @@ export default function CustomersManager() {
               </select>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                setPageIndex(0);
-                void loadCustomers(0);
-              }}
-              className="h-[38px] rounded-md border border-emerald-300 px-4 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
-              disabled={loading || saving}
-            >
-              {loading ? "Actualizando..." : "Aplicar"}
-            </button>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">Cargados</p>
-              <p className="text-2xl font-semibold text-slate-900">{customers.length}</p>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">Activos</p>
-              <p className="text-2xl font-semibold text-slate-900">{summary.active}</p>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">Con correo</p>
-              <p className="text-2xl font-semibold text-slate-900">{summary.withEmail}</p>
-            </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">Invitados web</p>
-              <p className="text-2xl font-semibold text-slate-900">{summary.guests}</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={applyCurrentFilters}
+                className="h-[38px] rounded-md border border-emerald-300 px-4 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                disabled={loading || saving || exporting}
+              >
+                {loading ? "Actualizando..." : "Aplicar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExport()}
+                className="h-[38px] whitespace-nowrap rounded-md bg-emerald-600 px-4 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+                disabled={loading || saving || exporting || totalCustomers === 0}
+              >
+                {exporting ? "Exportando..." : "Exportar Excel"}
+              </button>
             </div>
           </div>
 
@@ -417,36 +481,39 @@ export default function CustomersManager() {
               <div>
                 <p className="text-sm font-semibold text-slate-800">Clientes filtrados</p>
                 <p className="text-xs text-slate-500">
-                  Página {pageIndex + 1} · Mostrando {filteredCustomers.length} de {customers.length} cargados
+                  Página {pageIndex + 1} · Mostrando {customers.length} de {totalCustomers} clientes
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <button
                   type="button"
                   onClick={handlePrevPage}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-white disabled:opacity-60"
-                  disabled={loading || saving || pageIndex === 0}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-white"
+                  disabled={loading || paginationLoading || saving || pageIndex === 0}
                 >
                   Anterior
                 </button>
                 <button
                   type="button"
                   onClick={handleNextPage}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-white disabled:opacity-60"
-                  disabled={loading || saving || !hasNextPage}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-white"
+                  disabled={loading || paginationLoading || saving || !hasNextPage}
                 >
                   Siguiente
                 </button>
               </div>
             </div>
 
-            <div className="max-h-[35rem] overflow-y-auto divide-y divide-slate-200">
-              {filteredCustomers.length === 0 ? (
+            <div
+              ref={customerListRef}
+              className="max-h-[35rem] overflow-y-auto divide-y divide-slate-200"
+            >
+              {customers.length === 0 ? (
                 <div className="p-10 text-center text-sm text-slate-500">
                   No encontramos clientes con los filtros actuales.
                 </div>
               ) : (
-                filteredCustomers.map((customer) => {
+                customers.map((customer) => {
                   const active = customer.is_active !== false;
                   return (
                     <div key={customer.id} className="px-4 py-3 bg-white">
@@ -470,16 +537,12 @@ export default function CustomersManager() {
                             )}
                           </div>
                           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-                            <span>{customer.phone || "Sin teléfono"}</span>
-                            {customer.email ? <span>{customer.email}</span> : <span>Sin correo</span>}
-                            {customer.tax_id ? <span>ID: {customer.tax_id}</span> : <span>Sin documento</span>}
+                            <span>Teléfono: {customer.phone || "No registrado"}</span>
+                            <span>Correo: {customer.email || "No registrado"}</span>
+                            <span>Documento: {customer.tax_id || "No registrado"}</span>
+                            <span>Dirección: {customer.address || "No registrada"}</span>
                             <span>Creado: {formatDateLabel(customer.created_at)}</span>
                           </div>
-                          {customer.address && (
-                            <p className="mt-1 text-xs text-slate-500 truncate">
-                              Dirección: {customer.address}
-                            </p>
-                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -537,11 +600,16 @@ export default function CustomersManager() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium text-slate-600">Teléfono</label>
+                  <label className="text-xs font-semibold text-emerald-700">Teléfono · recomendado</label>
                   <input
+                    ref={phoneInputRef}
                     value={form.phone}
                     onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                    className={`mt-1 w-full rounded-md border px-3 py-2 text-sm outline-none ${
+                      validationToast && !hasCustomerAdditionalInformation(form)
+                        ? "border-red-500 ring-2 ring-red-100 focus:border-red-600"
+                        : "border-slate-300 focus:border-emerald-500"
+                    }`}
                   />
                 </div>
 
@@ -607,6 +675,32 @@ export default function CustomersManager() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {validationToast && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed right-5 top-5 z-[100] flex max-w-md items-start gap-3 rounded-xl border border-red-700 bg-red-600 px-4 py-3 text-white shadow-2xl"
+        >
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-sm font-black text-red-600">
+            !
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-bold">Falta información del cliente</p>
+            <p className="mt-0.5 text-sm leading-5 text-red-50">
+              {validationToast.message}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setValidationToast(null)}
+            className="ml-1 shrink-0 rounded-md px-1 text-lg leading-none text-white/80 hover:bg-white/15 hover:text-white"
+            aria-label="Cerrar aviso"
+          >
+            ×
+          </button>
         </div>
       )}
     </main>

@@ -10,6 +10,10 @@ import React, {
 import { useAuth } from "../../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import { PosCustomer, usePos } from "../poscontext";
+import {
+  CUSTOMER_ADDITIONAL_INFO_MESSAGE,
+  hasCustomerAdditionalInformation,
+} from "@/lib/customers/validation";
 
 type ApiCustomer = {
   id: number;
@@ -35,6 +39,7 @@ type CustomerPanelProps = {
   initialMode?: "list" | "new";
   onCustomerSelected?: (customer: PosCustomer) => void;
   showCurrentCustomerCard?: boolean;
+  initialSearch?: string;
 };
 
 type StatusFilter = "active" | "inactive" | "all";
@@ -68,6 +73,7 @@ export default function CustomerPanel({
   initialMode = "list",
   onCustomerSelected,
   showCurrentCustomerCard = true,
+  initialSearch = "",
 }: CustomerPanelProps) {
   const { selectedCustomer, setSelectedCustomer } = usePos();
   const { token } = useAuth();
@@ -75,10 +81,14 @@ export default function CustomerPanel({
   const [customers, setCustomers] = useState<ApiCustomer[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [form, setForm] = useState<CustomerForm>(EMPTY_FORM);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [segmentFilter, setSegmentFilter] = useState<SegmentFilter>("all");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [validationToast, setValidationToast] = useState<{
+    id: number;
+    message: string;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [pendingDuplicateMatches, setPendingDuplicateMatches] = useState<
@@ -94,7 +104,19 @@ export default function CustomerPanel({
   );
   const apiBase = getApiBase();
   const lastQueryRef = useRef("");
+  const phoneInputRef = useRef<HTMLInputElement>(null);
   const PAGE_SIZE = 20;
+
+  useEffect(() => {
+    if (!validationToast) return;
+    const toastId = validationToast.id;
+    const timer = window.setTimeout(() => {
+      setValidationToast((current) =>
+        current?.id === toastId ? null : current
+      );
+    }, 4200);
+    return () => window.clearTimeout(timer);
+  }, [validationToast]);
 
   const mapCustomer = useCallback((customer: ApiCustomer): PosCustomer => {
     return {
@@ -199,6 +221,19 @@ export default function CustomerPanel({
     const trimmedName = form.name.trim();
     if (!trimmedName) {
       setFeedback("El nombre del cliente es obligatorio.");
+      return;
+    }
+    if (!hasCustomerAdditionalInformation({
+      phone: form.phone,
+      email: form.email,
+      tax_id: form.tax_id,
+      address: form.address,
+    })) {
+      setValidationToast({
+        id: Date.now(),
+        message: CUSTOMER_ADDITIONAL_INFO_MESSAGE,
+      });
+      window.requestAnimationFrame(() => phoneInputRef.current?.focus());
       return;
     }
     const payload = {
@@ -691,13 +726,15 @@ export default function CustomerPanel({
                   <div className="text-xs uppercase tracking-wide text-slate-200">
                     Nuevo cliente
                   </div>
-                <button
-                  type="button"
-                  onClick={() => toggleMode("new")}
-                  className="rounded-xl border border-slate-500 px-4 py-2 text-sm text-slate-50 hover:bg-slate-800"
-                >
-                  Volver a la lista
-                </button>
+                {initialMode !== "new" && (
+                  <button
+                    type="button"
+                    onClick={() => toggleMode("new")}
+                    className="rounded-xl border border-slate-500 px-4 py-2 text-sm text-slate-50 hover:bg-slate-800"
+                  >
+                    Volver a la lista
+                  </button>
+                )}
               </div>
               {editingCustomer && (
                 <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-200">
@@ -720,13 +757,24 @@ export default function CustomerPanel({
               </div>
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="text-xs text-slate-200">Teléfono</label>
+                  <label className="text-xs font-semibold text-emerald-200">Teléfono · recomendado</label>
                   <input
+                    ref={phoneInputRef}
                     value={form.phone}
                     onChange={(e) =>
                       setForm((prev) => ({ ...prev, phone: e.target.value }))
                     }
-                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-base outline-none focus:border-emerald-400"
+                    className={`mt-1 w-full rounded-xl border bg-slate-950 px-4 py-3 text-base outline-none ${
+                      validationToast &&
+                      !hasCustomerAdditionalInformation({
+                        phone: form.phone,
+                        email: form.email,
+                        tax_id: form.tax_id,
+                        address: form.address,
+                      })
+                        ? "border-red-500 ring-2 ring-red-500/25 focus:border-red-400"
+                        : "border-slate-800 focus:border-emerald-400"
+                    }`}
                     placeholder="Celular o fijo"
                   />
                 </div>
@@ -907,6 +955,32 @@ export default function CustomerPanel({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {validationToast && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed right-6 top-6 z-[100] flex max-w-md items-start gap-3 rounded-2xl border border-red-500/70 bg-red-600 px-5 py-4 text-white shadow-2xl shadow-red-950/40"
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-base font-black text-red-600">
+            !
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-bold">Falta información del cliente</p>
+            <p className="mt-1 text-sm leading-5 text-red-50">
+              {validationToast.message}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setValidationToast(null)}
+            className="ml-1 shrink-0 rounded-lg px-1 text-xl leading-none text-white/80 hover:bg-white/15 hover:text-white"
+            aria-label="Cerrar aviso"
+          >
+            ×
+          </button>
         </div>
       )}
     </section>

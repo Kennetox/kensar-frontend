@@ -176,6 +176,27 @@ export async function registerSeparatedOrderPayment(
   return res.json();
 }
 
+export async function assignSeparatedOrderCustomer(
+  orderId: number,
+  customerId: number,
+  token?: string | null
+): Promise<SeparatedOrder> {
+  const apiBase = getApiBase();
+  const res = await fetch(`${apiBase}/separated-orders/${orderId}/customer`, {
+    method: "PATCH",
+    headers: buildHeaders(token),
+    credentials: "include",
+    body: JSON.stringify({ customer_id: customerId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(
+      typeof body?.detail === "string" ? body.detail : `Error ${res.status}`
+    );
+  }
+  return res.json();
+}
+
 export async function resolveSeparatedOrder(
   orderId: number,
   payload: SeparatedOrderResolutionPayload,
