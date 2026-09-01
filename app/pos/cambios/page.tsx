@@ -38,6 +38,7 @@ import {
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
 import { formatBogotaDate } from "@/lib/time/bogota";
 import type { Product } from "../poscontext";
+import { resolveOperationDocument } from "@/lib/api/operationDocuments";
 
 type PaymentMethodSlug = string;
 
@@ -48,6 +49,8 @@ type SaleChangeReturnItem = {
 
 type SaleChange = {
   items_returned?: SaleChangeReturnItem[];
+  status?: string;
+  voided_at?: string | null;
 };
 
 type SaleReturnItem = {
@@ -57,6 +60,8 @@ type SaleReturnItem = {
 
 type SaleReturn = {
   items?: SaleReturnItem[];
+  status?: string;
+  voided_at?: string | null;
 };
 
 type SaleItem = {
@@ -69,6 +74,8 @@ type SaleItem = {
   unit_price_original?: number;
   discount?: number;
   line_discount_value?: number;
+  source_type?: "sale" | "change";
+  source_item_id?: number;
 };
 
 type Sale = {
@@ -91,6 +98,7 @@ type Sale = {
   items: SaleItem[];
   returns?: SaleReturn[];
   changes?: SaleChange[];
+  operation_source_document?: string;
 };
 
 type ChangeReturnItemDetail = {
@@ -117,11 +125,14 @@ type ChangePaymentDetail = {
 type SaleChangeDetail = {
   id: number;
   document_number?: string;
+  sale_document_number?: string | null;
+  source_document_number?: string | null;
   created_at?: string;
   total_credit: number;
   total_new: number;
   extra_payment: number;
   refund_due: number;
+  refund_method?: string | null;
   notes?: string | null;
   created_by?: string | null;
   items_returned: ChangeReturnItemDetail[];
@@ -252,6 +263,7 @@ export default function CambiosPage() {
     DEFAULT_PAYMENT_METHODS
   );
   const [payments, setPayments] = useState<ChangePayment[]>([]);
+  const [refundMethod, setRefundMethod] = useState<PaymentMethodSlug>("cash");
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -509,6 +521,7 @@ export default function CambiosPage() {
     const map = new Map<number, number>();
     if (sale?.returns) {
       for (const ret of sale.returns) {
+        if (ret.status === "voided" || ret.voided_at) continue;
         if (!ret.items) continue;
         for (const item of ret.items) {
           map.set(
@@ -520,6 +533,7 @@ export default function CambiosPage() {
     }
     if (sale?.changes) {
       for (const change of sale.changes) {
+        if (change.status === "voided" || change.voided_at) continue;
         if (!change.items_returned) continue;
         for (const item of change.items_returned) {
           map.set(
@@ -662,10 +676,36 @@ export default function CambiosPage() {
       const digitsOnly = extractDigits(value);
       const numericIdentifier = digitsOnly ? Number.parseInt(digitsOnly, 10) : null;
       const normalizedDoc = normalizeDocument(value);
-      if (normalizedDoc.startsWith("DV") || normalizedDoc.startsWith("CB")) {
-        throw new Error("Ese codigo no corresponde a una venta.");
-      }
       if (!authHeaders) throw new Error("Sesion expirada.");
+      if (normalizedDoc.startsWith("DV")) {
+        throw new Error("Una devolución no contiene productos que puedan volver a cambiarse.");
+      }
+      if (normalizedDoc.startsWith("CB") || normalizedDoc.startsWith("V")) {
+        const document = await resolveOperationDocument(value, authHeaders);
+        if (!document.allowed_actions.includes("change")) {
+          throw new Error("Este documento no tiene productos disponibles para cambiar.");
+        }
+        const rootSale = await fetchSaleById(String(document.root_sale_id));
+        return {
+          ...rootSale,
+          document_number: document.document_number,
+          cart_discount_value: 0,
+          cart_discount_percent: 0,
+          items: document.items.map((item) => ({
+            id: item.source_item_id,
+            product_name: item.product_name,
+            quantity: item.available_quantity,
+            unit_price: item.unit_value,
+            unit_price_original: item.unit_value,
+            total: item.unit_value * item.available_quantity,
+            source_type: item.source_type,
+            source_item_id: item.source_item_id,
+          })),
+          returns: [],
+          changes: [],
+          operation_source_document: document.document_number,
+        };
+      }
       const params = new URLSearchParams({
         skip: "0",
         limit: "20",
@@ -726,6 +766,7 @@ export default function CambiosPage() {
     setQuantities({});
     setNotes("");
     setPayments([]);
+    setRefundMethod("cash");
     setSubmitError(null);
     setNewItems([]);
   }, []);
@@ -808,8 +849,14 @@ export default function CambiosPage() {
         if (!saleFromList) {
           throw new Error("Venta no encontrada.");
         }
-        applyLoadedSale(saleFromList);
-        await handleLoadSale(saleFromList.id.toString(), saleFromList);
+        if (saleFromList.operation_source_document) {
+          applyLoadedSale(saleFromList);
+          setSaleAdjustmentTotalDelta(0);
+          setSaleAdjustmentPaymentDelta(0);
+        } else {
+          applyLoadedSale(saleFromList);
+          await handleLoadSale(saleFromList.id.toString(), saleFromList);
+        }
         if (typeof window !== "undefined") {
           window.requestAnimationFrame(() => {
             productScanInputRef.current?.focus();
@@ -967,7 +1014,8 @@ export default function CambiosPage() {
     !!sale &&
     totalCredit > 0 &&
     roundedTotalNew > 0 &&
-    (extraPayment <= 0 || totalPayments === extraPayment);
+    (extraPayment <= 0 || totalPayments === extraPayment) &&
+    (refundDue <= 0 || !!refundMethod);
 
   const showToast = useCallback((message: string, tone: "info" | "error" = "info") => {
     const timers = toastTimerRef.current;
@@ -1023,9 +1071,14 @@ export default function CambiosPage() {
           const available = Math.max(0, (line.item.quantity ?? 0) - returned);
           const finalQty = Math.min(qty, available);
           if (finalQty <= 0) return null;
-          return { sale_item_id: id, quantity: finalQty };
+          return {
+            sale_item_id: line.item.source_type === "change" ? undefined : id,
+            source_type: line.item.source_type ?? "sale",
+            source_item_id: line.item.source_item_id ?? id,
+            quantity: finalQty,
+          };
         })
-        .filter((item): item is { sale_item_id: number; quantity: number } => !!item);
+        .filter((item): item is NonNullable<typeof item> => !!item);
 
       const newItemsPayload = newItems
         .filter((entry) => entry.quantity > 0)
@@ -1054,6 +1107,8 @@ export default function CambiosPage() {
           pos_name: resolvedPosName,
           station_id: activeStationId ?? undefined,
           notes: notes.trim() || undefined,
+          source_document_number: sale.document_number,
+          refund_method: refundDue > 0 ? refundMethod : undefined,
           return_items: itemsPayload,
           new_items: newItemsPayload,
           payments: paymentsPayload.length > 0 ? paymentsPayload : undefined,
@@ -1082,6 +1137,8 @@ export default function CambiosPage() {
     CHANGES_API,
     alreadyReturnedMap,
     extraPayment,
+    refundDue,
+    refundMethod,
     lineData,
     newItems,
     notes,
@@ -1124,6 +1181,7 @@ export default function CambiosPage() {
         changeSuccess.document_number ??
         `CB-${changeSuccess.id.toString().padStart(6, "0")}`,
       originalDocumentNumber: sale?.document_number ?? null,
+      rootSaleDocumentNumber: changeSuccess.sale_document_number ?? null,
       createdAt: changeSuccess.created_at ?? null,
       posName: sale?.pos_name ?? undefined,
       sellerName: sale?.vendor_name ?? changeSuccess.created_by ?? undefined,
@@ -1134,6 +1192,9 @@ export default function CambiosPage() {
       totalNew: changeSuccess.total_new ?? 0,
       extraPayment: changeSuccess.extra_payment ?? 0,
       refundDue: changeSuccess.refund_due ?? 0,
+      refundMethod: changeSuccess.refund_method
+        ? resolvePaymentLabel(changeSuccess.refund_method)
+        : null,
       notes: changeSuccess.notes,
     });
 
@@ -1815,7 +1876,7 @@ export default function CambiosPage() {
                 )}
                 {refundDue > 0 && (
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Saldo a devolver (efectivo)</span>
+                    <span className="text-slate-400">Saldo a devolver</span>
                     <span className="text-rose-300 font-semibold">
                       {formatMoney(refundDue)}
                     </span>
@@ -1879,6 +1940,23 @@ export default function CambiosPage() {
                   >
                     Agregar metodo
                   </button>
+                </div>
+              )}
+
+              {refundDue > 0 && (
+                <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 p-4 space-y-2">
+                  <label className="block text-xs uppercase tracking-wide text-rose-200">
+                    Método del reembolso
+                  </label>
+                  <select
+                    value={refundMethod}
+                    onChange={(event) => setRefundMethod(event.target.value)}
+                    className="h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100"
+                  >
+                    {activePaymentMethods.map((method) => (
+                      <option key={method.id} value={method.slug}>{method.name}</option>
+                    ))}
+                  </select>
                 </div>
               )}
 

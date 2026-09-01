@@ -132,6 +132,7 @@ export type ReturnTicketOptions = {
   settings?: PosSettingsPayload | null;
   documentNumber: string;
   originalDocumentNumber?: string | null;
+  rootSaleDocumentNumber?: string | null;
   createdAt?: string | null;
   posName?: string | null;
   sellerName?: string | null;
@@ -145,6 +146,7 @@ export type ChangeTicketOptions = {
   settings?: PosSettingsPayload | null;
   documentNumber: string;
   originalDocumentNumber?: string | null;
+  rootSaleDocumentNumber?: string | null;
   createdAt?: string | null;
   posName?: string | null;
   sellerName?: string | null;
@@ -155,6 +157,7 @@ export type ChangeTicketOptions = {
   totalNew: number;
   extraPayment: number;
   refundDue: number;
+  refundMethod?: string | null;
   notes?: string | null;
 };
 
@@ -413,6 +416,10 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
   const footer = footerMeta.text.trim() || FALLBACK_COMPANY.footer;
   const footerAlign = footerMeta.align;
   const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
+  const barcodeSvg = generateCode128Svg(options.documentNumber, {
+    height: 30, moduleWidth: 1.5, includeText: true,
+    includeTextFontSize: 11, quietZoneModules: 10,
+  });
 
   const itemsRows = options.items.length
     ? options.items
@@ -439,8 +446,10 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
     .join("");
 
   const originalDoc = options.originalDocumentNumber
-    ? `<div>Venta original: ${escapeHtml(options.originalDocumentNumber)}</div>`
+    ? `<div>Documento origen: ${escapeHtml(options.originalDocumentNumber)}</div>`
     : "";
+  const rootSaleDoc = options.rootSaleDocumentNumber && options.rootSaleDocumentNumber !== options.originalDocumentNumber
+    ? `<div>Venta raíz: ${escapeHtml(options.rootSaleDocumentNumber)}</div>` : "";
   const sellerLine = options.sellerName
     ? `<div>Vendedor: ${escapeHtml(options.sellerName)}</div>`
     : "";
@@ -472,6 +481,8 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
           .item-total { font-size: 14px; text-align: right; color: #000000; font-weight: 700; }
           .total { font-size: 16px; font-weight: 800; color: #000000; }
           .muted { font-size: 13px; color: #000000; }
+          .barcode { margin-top: 14px; text-align: center; }
+          .barcode svg { width: 96%; height: auto; }
         </style>
       </head>
       <body>
@@ -487,6 +498,7 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
           <div class="meta">
             <div>Documento: ${escapeHtml(options.documentNumber)}</div>
             ${originalDoc}
+            ${rootSaleDoc}
             ${posLine}
             ${sellerLine}
             <div>Fecha: ${escapeHtml(formatDisplayDate(options.createdAt))}</div>
@@ -509,6 +521,7 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
               </div>`
             : ""}
           ${options.notes ? `<div class="section muted">Notas: ${escapeHtml(options.notes)}</div>` : ""}
+          <div class="barcode">${barcodeSvg}</div>
           <div class="line"></div>
           <div class="muted" style="text-align:${footerAlign};">${escapeHtml(footer)}</div>
         </div>
@@ -529,6 +542,10 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
   const footer = footerMeta.text.trim() || FALLBACK_COMPANY.footer;
   const footerAlign = footerMeta.align;
   const logoUrl = resolveLogoUrl(extractSettingsLogo(settings));
+  const barcodeSvg = generateCode128Svg(options.documentNumber, {
+    height: 30, moduleWidth: 1.5, includeText: true,
+    includeTextFontSize: 11, quietZoneModules: 10,
+  });
 
   const returnedRows = options.itemsReturned.length
     ? options.itemsReturned
@@ -568,8 +585,10 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
     .join("");
 
   const originalDoc = options.originalDocumentNumber
-    ? `<div>Venta original: ${escapeHtml(options.originalDocumentNumber)}</div>`
+    ? `<div>Documento origen: ${escapeHtml(options.originalDocumentNumber)}</div>`
     : "";
+  const rootSaleDoc = options.rootSaleDocumentNumber && options.rootSaleDocumentNumber !== options.originalDocumentNumber
+    ? `<div>Venta raíz: ${escapeHtml(options.rootSaleDocumentNumber)}</div>` : "";
   const sellerLine = options.sellerName
     ? `<div>Vendedor: ${escapeHtml(options.sellerName)}</div>`
     : "";
@@ -601,6 +620,8 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
           .item-total { font-size: 14px; text-align: right; color: #000000; font-weight: 700; }
           .total { font-size: 16px; font-weight: 800; color: #000000; }
           .muted { font-size: 13px; color: #000000; }
+          .barcode { margin-top: 14px; text-align: center; }
+          .barcode svg { width: 96%; height: auto; }
         </style>
       </head>
       <body>
@@ -616,6 +637,7 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
           <div class="meta">
             <div>Documento: ${escapeHtml(options.documentNumber)}</div>
             ${originalDoc}
+            ${rootSaleDoc}
             ${posLine}
             ${sellerLine}
             <div>Fecha: ${escapeHtml(formatDisplayDate(options.createdAt))}</div>
@@ -638,7 +660,7 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
               ? `<div class="row"><span>Excedente cobrado</span><span>${formatMoney(options.extraPayment)}</span></div>`
               : ""}
             ${options.refundDue > 0
-              ? `<div class="row"><span>Saldo devuelto</span><span>${formatMoney(options.refundDue)}</span></div>`
+              ? `<div class="row"><span>Saldo devuelto${options.refundMethod ? ` (${escapeHtml(options.refundMethod)})` : ""}</span><span>${formatMoney(options.refundDue)}</span></div>`
               : ""}
           </div>
           <div class="section">
@@ -656,6 +678,7 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
               </div>`
             : ""}
           ${options.notes ? `<div class="section muted">Notas: ${escapeHtml(options.notes)}</div>` : ""}
+          <div class="barcode">${barcodeSvg}</div>
           <div class="line"></div>
           <div class="muted" style="text-align:${footerAlign};">${escapeHtml(footer)}</div>
         </div>
@@ -815,18 +838,9 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         </div>`
       : "";
 
-  const rawSaleNumber = String(options.saleNumber ?? "")
-    .replace(/\D/g, "")
-    .trim();
-  const fallbackFromDoc = options.documentNumber
-    ? options.documentNumber.replace(/\D/g, "").trim()
-    : "";
-  const numericValue = rawSaleNumber || fallbackFromDoc || "0";
-  const paddedValue =
-    numericValue.length >= 6
-      ? numericValue
-      : numericValue.padStart(6, "0");
-  const barcodeSvg = generateCode128Svg(paddedValue, {
+  const barcodeValue = options.documentNumber?.trim() ||
+    `V-${String(options.saleNumber ?? 0).padStart(6, "0")}`;
+  const barcodeSvg = generateCode128Svg(barcodeValue, {
     height: 30,
     moduleWidth: 2,
     includeText: true,

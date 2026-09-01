@@ -172,6 +172,9 @@ type ChangeRecord = {
   total_new?: number;
   extra_payment?: number;
   refund_due?: number;
+  refund_method?: string | null;
+  sale_document_number?: string | null;
+  source_document_number?: string | null;
   notes?: string | null;
   items_returned?: {
     sale_item_id: number;
@@ -4134,7 +4137,8 @@ useEffect(() => {
       settings: posSettings,
       documentNumber:
         change.document_number ?? `CB-${change.id.toString().padStart(5, "0")}`,
-      originalDocumentNumber: undefined,
+      originalDocumentNumber: change.source_document_number ?? change.sale_document_number,
+      rootSaleDocumentNumber: change.sale_document_number,
       createdAt: change.created_at ?? undefined,
       posName: change.pos_name ?? undefined,
       sellerName: change.seller_name ?? undefined,
@@ -4145,6 +4149,7 @@ useEffect(() => {
       totalNew: change.total_new ?? 0,
       extraPayment: change.extra_payment ?? 0,
       refundDue: change.refund_due ?? 0,
+      refundMethod: change.refund_method ? mapPaymentMethod(change.refund_method) : null,
       notes: change.notes,
     });
     openSaleDocumentWindow(html, { width: 380, height: 640 });

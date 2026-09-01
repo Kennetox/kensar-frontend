@@ -27,6 +27,7 @@ import {
 } from "@/lib/api/posStations";
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
 import { formatBogotaDate } from "@/lib/time/bogota";
+import { resolveOperationDocument } from "@/lib/api/operationDocuments";
 
 type PaymentMethodSlug = string;
 
@@ -40,6 +41,8 @@ type SaleReturn = {
   document_number?: string;
   created_at?: string;
   items: SaleReturnItem[];
+  status?: string;
+  voided_at?: string | null;
 };
 
 type SaleChangeReturnItem = {
@@ -49,6 +52,8 @@ type SaleChangeReturnItem = {
 
 type SaleChange = {
   items_returned?: SaleChangeReturnItem[];
+  status?: string;
+  voided_at?: string | null;
 };
 
 type ReturnItemDetail = {
@@ -68,6 +73,8 @@ type SaleReturnDetail = {
   id: number;
   document_number?: string;
   original_document_number?: string | null;
+  sale_document_number?: string | null;
+  source_document_number?: string | null;
   created_at?: string;
   total_refund: number;
   created_by?: string | null;
@@ -88,6 +95,8 @@ type SaleItem = {
   unit_price_original?: number;
   discount?: number;
   line_discount_value?: number;
+  source_type?: "sale" | "change";
+  source_item_id?: number;
 };
 
 type Sale = {
@@ -119,6 +128,7 @@ type Sale = {
   items: SaleItem[];
   returns?: SaleReturn[];
   changes?: SaleChange[];
+  operation_source_document?: string;
 };
 
 function getSaleNetBalance(entry: {
@@ -576,6 +586,7 @@ export default function DevolucionesPage() {
     const map = new Map<number, number>();
     if (sale?.returns) {
       for (const ret of sale.returns) {
+        if (ret.status === "voided" || ret.voided_at) continue;
         if (!ret.items) continue;
         for (const item of ret.items) {
           map.set(
@@ -587,6 +598,7 @@ export default function DevolucionesPage() {
     }
     if (sale?.changes) {
       for (const change of sale.changes) {
+        if (change.status === "voided" || change.voided_at) continue;
         if (!change.items_returned) continue;
         for (const item of change.items_returned) {
           map.set(
@@ -704,14 +716,41 @@ export default function DevolucionesPage() {
     const digitsOnly = extractDigits(value);
     const numericIdentifier = digitsOnly ? Number.parseInt(digitsOnly, 10) : null;
     const normalizedDoc = normalizeDocument(value);
+    if (!authHeaders) throw new Error("Sesión expirada.");
 
     if (normalizedDoc.startsWith("DV")) {
       throw new Error(
-        "Ese código corresponde a una devolución, selecciona un ticket de venta."
+        "Ese código corresponde a una devolución y no tiene productos disponibles."
       );
     }
 
-    if (!authHeaders) throw new Error("Sesión expirada.");
+    if (normalizedDoc.startsWith("CB") || normalizedDoc.startsWith("V")) {
+      const document = await resolveOperationDocument(value, authHeaders);
+      if (!document.allowed_actions.includes("return")) {
+        throw new Error("Este documento no tiene productos disponibles para devolver.");
+      }
+      const rootSale = await fetchSaleById(String(document.root_sale_id));
+      return {
+        ...rootSale,
+        document_number: document.document_number,
+        cart_discount_value: 0,
+        cart_discount_percent: 0,
+        items: document.items.map((item) => ({
+          id: item.source_item_id,
+          product_name: item.product_name,
+          quantity: item.available_quantity,
+          unit_price: item.unit_value,
+          unit_price_original: item.unit_value,
+          total: item.unit_value * item.available_quantity,
+          source_type: item.source_type,
+          source_item_id: item.source_item_id,
+        })),
+        returns: [],
+        changes: [],
+        operation_source_document: document.document_number,
+      };
+    }
+
     const params = new URLSearchParams({
       skip: "0",
       limit: "20",
@@ -870,10 +909,13 @@ export default function DevolucionesPage() {
           setScanError("Ese ticket ya fue devuelto por completo.");
           return;
         }
-        await handleLoadSale(
-          foundSale.id.toString(),
-          foundSale
-        );
+        if (foundSale.operation_source_document) {
+          applyLoadedSale(foundSale);
+          setSaleAdjustmentTotalDelta(0);
+          setSaleAdjustmentPaymentDelta(0);
+        } else {
+          await handleLoadSale(foundSale.id.toString(), foundSale);
+        }
         setScanValue("");
       } catch (err) {
         console.error(err);
@@ -886,7 +928,7 @@ export default function DevolucionesPage() {
         setScanLoading(false);
       }
     },
-    [scanValue, findSaleByIdentifier, handleLoadSale]
+    [scanValue, findSaleByIdentifier, handleLoadSale, applyLoadedSale]
   );
 
   useEffect(() => {
@@ -965,7 +1007,7 @@ export default function DevolucionesPage() {
     !!sale &&
     selectedItemsCount > 0 &&
     !submitting &&
-    Number(paymentAmount) > 0 &&
+    (sale?.is_separated ? cappedRefund : refundEstimate) > 0 &&
     (!sale.is_separated || paidRemaining > 0);
 
   const handleSubmit = async () => {
@@ -983,7 +1025,9 @@ export default function DevolucionesPage() {
             ) || 0;
           if (!qty) return null;
           return {
-            sale_item_id: item.id,
+            sale_item_id: item.source_type === "change" ? undefined : item.id,
+            source_type: item.source_type ?? "sale",
+            source_item_id: item.source_item_id ?? item.id,
             quantity: qty,
             reason: notes || undefined,
           };
@@ -996,11 +1040,12 @@ export default function DevolucionesPage() {
         return;
       }
 
-      const paymentValue = sale.is_separated
-        ? Math.min(Number(paymentAmount), cappedRefund)
-        : Number(paymentAmount);
+      const paymentValue = sale.is_separated ? cappedRefund : refundEstimate;
       const payload = {
         sale_id: sale.id,
+        pos_name: stationInfo?.label ?? sale.pos_name ?? undefined,
+        station_id: activeStationId ?? undefined,
+        source_document_number: sale.document_number,
         items: itemsPayload,
         payments:
           paymentValue > 0
@@ -1046,6 +1091,8 @@ export default function DevolucionesPage() {
         id: createdReturn.id,
         document_number: createdReturn.document_number,
         original_document_number: sale.document_number ?? null,
+        sale_document_number: createdReturn.sale_document_number ?? null,
+        source_document_number: createdReturn.source_document_number ?? sale.document_number ?? null,
         created_at: createdReturn.created_at,
         total_refund: createdReturn.total_refund ?? refundEstimate,
         created_by: createdReturn.created_by ?? sale.vendor_name ?? null,
@@ -1095,6 +1142,7 @@ export default function DevolucionesPage() {
         returnSuccess.document_number ??
         `DV-${returnSuccess.id.toString().padStart(6, "0")}`,
       originalDocumentNumber: returnSuccess.original_document_number,
+      rootSaleDocumentNumber: returnSuccess.sale_document_number,
       createdAt: returnSuccess.created_at,
       posName: returnSuccess.pos_name ?? undefined,
       sellerName:
@@ -1602,12 +1650,9 @@ export default function DevolucionesPage() {
                     inputMode="numeric"
                     value={paymentAmount ? formatMoney(Number(paymentAmount)) : ""}
                     min={0}
-                    onChange={(e) => {
-                      setPaymentTouched(true);
-                      const numeric = e.target.value.replace(/[^\d]/g, "");
-                      setPaymentAmount(numeric);
-                    }}
-                    className="h-14 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 text-right text-base text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    readOnly
+                    title="El monto se calcula automáticamente para proteger la operación."
+                    className="h-14 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 text-right text-base text-slate-300"
                   />
                 </div>
               </div>

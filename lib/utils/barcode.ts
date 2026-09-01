@@ -256,13 +256,21 @@ export function generateCode128Svg(
   options?: Barcode128Options
 ): string {
   const opts = { ...CODE128_DEFAULTS, ...(options ?? {}) };
-  let data = sanitizeCode128CValue(value);
-  if (data.length % 2 === 1) {
-    data = `0${data}`;
-  }
-  const codes: number[] = [105]; // Start Code C
-  for (let i = 0; i < data.length; i += 2) {
-    codes.push(Number.parseInt(data.slice(i, i + 2), 10));
+  const raw = (value ?? "").toUpperCase().trim();
+  const useCodeC = /^\d+$/.test(raw);
+  let data = useCodeC
+    ? sanitizeCode128CValue(raw)
+    : raw.replace(/[^\x20-\x7E]/g, "") || "0";
+  const codes: number[] = [];
+  if (useCodeC) {
+    if (data.length % 2 === 1) data = `0${data}`;
+    codes.push(105); // Start Code C
+    for (let i = 0; i < data.length; i += 2) {
+      codes.push(Number.parseInt(data.slice(i, i + 2), 10));
+    }
+  } else {
+    codes.push(104); // Start Code B (ASCII 32-126)
+    for (const char of data) codes.push(char.charCodeAt(0) - 32);
   }
   let checksum = codes[0];
   for (let i = 1; i < codes.length; i += 1) {

@@ -125,6 +125,8 @@ type SaleReturnDetail = {
   total_refund: number;
   notes?: string | null;
   created_by?: string | null;
+  sale_document_number?: string | null;
+  source_document_number?: string | null;
   items: ReturnItemDetail[];
   payments: ReturnPaymentDetail[];
 };
@@ -160,6 +162,9 @@ type SaleChangeDetail = {
   total_new: number;
   extra_payment: number;
   refund_due: number;
+  refund_method?: string | null;
+  sale_document_number?: string | null;
+  source_document_number?: string | null;
   notes?: string | null;
   created_by?: string | null;
   items_returned: ChangeReturnItemDetail[];
@@ -1978,7 +1983,8 @@ export default function SalesHistoryContent({
         documentNumber:
           detail.document_number ??
           `DV-${detail.id.toString().padStart(6, "0")}`,
-        originalDocumentNumber: selectedSale.document_number,
+        originalDocumentNumber: detail.source_document_number ?? selectedSale.document_number,
+        rootSaleDocumentNumber: detail.sale_document_number ?? selectedSale.document_number,
         createdAt: detail.created_at,
         posName: selectedSale.pos_name ?? undefined,
         sellerName:
@@ -2106,7 +2112,8 @@ export default function SalesHistoryContent({
         documentNumber:
           detail.document_number ??
           `CB-${detail.id.toString().padStart(6, "0")}`,
-        originalDocumentNumber: selectedSale.document_number,
+        originalDocumentNumber: detail.source_document_number ?? selectedSale.document_number,
+        rootSaleDocumentNumber: detail.sale_document_number ?? selectedSale.document_number,
         createdAt: detail.created_at,
         posName: selectedSale.pos_name ?? undefined,
         sellerName:
@@ -2120,6 +2127,7 @@ export default function SalesHistoryContent({
         totalNew: detail.total_new ?? 0,
         extraPayment: detail.extra_payment ?? 0,
         refundDue: detail.refund_due ?? 0,
+        refundMethod: detail.refund_method ? mapPaymentMethod(detail.refund_method) : null,
         notes: detail.notes,
       });
 
