@@ -27,7 +27,10 @@ import {
 } from "@/lib/api/posStations";
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
 import { formatBogotaDate } from "@/lib/time/bogota";
-import { resolveOperationDocument } from "@/lib/api/operationDocuments";
+import {
+  resolveOperationDocument,
+  type OperationChainEntry,
+} from "@/lib/api/operationDocuments";
 
 type PaymentMethodSlug = string;
 
@@ -83,6 +86,7 @@ type SaleReturnDetail = {
   notes?: string | null;
   items: ReturnItemDetail[];
   payments: ReturnPaymentDetail[];
+  operation_history?: OperationChainEntry[];
 };
 
 type SaleItem = {
@@ -247,7 +251,7 @@ export default function DevolucionesPage() {
   const [notes, setNotes] = useState("");
 
   const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethodSlug>("cash");
+    useState<PaymentMethodSlug>("");
   const [paymentAmount, setPaymentAmount] = useState("0");
   const [paymentTouched, setPaymentTouched] = useState(false);
   const lastDrawerReturnId = useRef<number | null>(null);
@@ -271,6 +275,13 @@ export default function DevolucionesPage() {
         ),
     [paymentCatalog]
   );
+
+  useEffect(() => {
+    if (!paymentMethod) return;
+    if (!activePaymentMethods.some((method) => method.slug === paymentMethod)) {
+      setPaymentMethod("");
+    }
+  }, [activePaymentMethods, paymentMethod]);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -543,16 +554,6 @@ export default function DevolucionesPage() {
     configureQzSecurity();
   }, [configureQzSecurity]);
 
-  useEffect(() => {
-    if (!activePaymentMethods.length) return;
-    const exists = activePaymentMethods.some(
-      (m) => m.slug === paymentMethod
-    );
-    if (!exists) {
-      setPaymentMethod(activePaymentMethods[0].slug);
-    }
-  }, [activePaymentMethods, paymentMethod]);
-
   const paymentLabels = useMemo(() => {
     return new Map(paymentCatalog.map((method) => [method.slug, method.name]));
   }, [paymentCatalog]);
@@ -810,6 +811,7 @@ export default function DevolucionesPage() {
   const resetFormState = useCallback(() => {
     setQuantities({});
     setNotes("");
+    setPaymentMethod("");
     setPaymentAmount("0");
     setPaymentTouched(false);
     setSubmitError(null);
@@ -1008,10 +1010,15 @@ export default function DevolucionesPage() {
     selectedItemsCount > 0 &&
     !submitting &&
     (sale?.is_separated ? cappedRefund : refundEstimate) > 0 &&
-    (!sale.is_separated || paidRemaining > 0);
+    (!sale.is_separated || paidRemaining > 0) &&
+    !!paymentMethod;
 
   const handleSubmit = async () => {
     if (!sale) return;
+    if (!paymentMethod) {
+      setSubmitError("Selecciona el método de reembolso.");
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
 
@@ -1087,6 +1094,19 @@ export default function DevolucionesPage() {
       }
 
       const createdReturn = (await res.json()) as SaleReturnDetail;
+      let operationHistory: OperationChainEntry[] | undefined;
+      const documentNumber =
+        createdReturn.document_number ??
+        `DV-${createdReturn.id.toString().padStart(6, "0")}`;
+      try {
+        const operationDocument = await resolveOperationDocument(
+          documentNumber,
+          authHeaders
+        );
+        operationHistory = operationDocument.chain;
+      } catch (historyError) {
+        console.warn("No se pudo cargar el historial de la devolución", historyError);
+      }
       setReturnSuccess({
         id: createdReturn.id,
         document_number: createdReturn.document_number,
@@ -1101,6 +1121,7 @@ export default function DevolucionesPage() {
         notes: createdReturn.notes ?? notes ?? null,
         items: createdReturn.items ?? [],
         payments: createdReturn.payments ?? [],
+        operation_history: operationHistory,
       });
       setQuantities({});
       setNotes("");
@@ -1153,6 +1174,7 @@ export default function DevolucionesPage() {
       payments,
       totalRefund: returnSuccess.total_refund,
       notes: returnSuccess.notes,
+      operationHistory: returnSuccess.operation_history,
     });
 
     const printTicketWithQz = async () => {
@@ -1633,9 +1655,7 @@ export default function DevolucionesPage() {
                     onChange={(e) => setPaymentMethod(e.target.value)}
                     className="h-14 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 text-base text-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    {activePaymentMethods.length === 0 && (
-                      <option value="cash">Efectivo</option>
-                    )}
+                    <option value="" disabled>Selecciona un método</option>
                     {activePaymentMethods.map((method) => (
                       <option key={method.id} value={method.slug}>
                         {method.name}

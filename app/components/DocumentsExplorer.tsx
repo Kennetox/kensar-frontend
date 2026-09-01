@@ -52,6 +52,7 @@ import {
   searchDocuments,
   type DocumentSearchItem,
 } from "@/lib/api/documents";
+import { resolveOperationDocument } from "@/lib/api/operationDocuments";
 
 const DOCUMENTS_STATE_KEY = "kensar_documents_state";
 const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
@@ -4109,7 +4110,7 @@ useEffect(() => {
     openSaleDocumentWindow(html, { width: 960, height: 900 });
   };
 
-  const handlePrintSelectedChange = () => {
+  const handlePrintSelectedChange = async () => {
     if (selectedDoc?.type !== "cambio") return;
     const change = selectedDoc.data as ChangeRecord;
     const returnedItems =
@@ -4133,10 +4134,21 @@ useEffect(() => {
         label: mapPaymentMethod(payment.method),
         amount: payment.amount,
       })) ?? [];
+    const documentNumber =
+      change.document_number ?? `CB-${change.id.toString().padStart(5, "0")}`;
+    let operationHistory;
+    if (authHeaders) {
+      try {
+        operationHistory = (
+          await resolveOperationDocument(documentNumber, authHeaders)
+        ).chain;
+      } catch (historyError) {
+        console.warn("No se pudo cargar el historial del cambio", historyError);
+      }
+    }
     const html = renderChangeTicket({
       settings: posSettings,
-      documentNumber:
-        change.document_number ?? `CB-${change.id.toString().padStart(5, "0")}`,
+      documentNumber,
       originalDocumentNumber: change.source_document_number ?? change.sale_document_number,
       rootSaleDocumentNumber: change.sale_document_number,
       createdAt: change.created_at ?? undefined,
@@ -4151,6 +4163,7 @@ useEffect(() => {
       refundDue: change.refund_due ?? 0,
       refundMethod: change.refund_method ? mapPaymentMethod(change.refund_method) : null,
       notes: change.notes,
+      operationHistory,
     });
     openSaleDocumentWindow(html, { width: 380, height: 640 });
   };
@@ -4222,7 +4235,7 @@ useEffect(() => {
       showToast("Solo disponible para cambios.");
       return;
     }
-    handlePrintSelectedChange();
+    void handlePrintSelectedChange();
   };
   const handlePrintClosureClick = () => {
     if (selectedDoc?.type === "cierre" && selectedDoc.isSummary) {

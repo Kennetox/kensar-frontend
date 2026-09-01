@@ -140,6 +140,7 @@ export type ReturnTicketOptions = {
   payments: ReturnTicketPayment[];
   totalRefund: number;
   notes?: string | null;
+  operationHistory?: OperationHistoryEntry[];
 };
 
 export type ChangeTicketOptions = {
@@ -159,6 +160,15 @@ export type ChangeTicketOptions = {
   refundDue: number;
   refundMethod?: string | null;
   notes?: string | null;
+  operationHistory?: OperationHistoryEntry[];
+};
+
+export type OperationHistoryEntry = {
+  document_type: "sale" | "change" | "return";
+  document_id: number;
+  document_number: string;
+  status: string;
+  created_at: string;
 };
 
 export type ClosureTicketMethod = {
@@ -404,6 +414,38 @@ function formatDisplayDateOnly(value?: string | null): string {
   );
 }
 
+function renderOperationHistory(
+  entries: OperationHistoryEntry[] | undefined,
+  currentDocumentNumber: string
+): string {
+  if (!entries?.length) return "";
+  let changeIndex = 0;
+  let returnIndex = 0;
+  const rows = entries.map((entry) => {
+    const typeLabel = entry.document_type === "sale"
+      ? "Venta original"
+      : entry.document_type === "change"
+        ? `Cambio ${++changeIndex}`
+        : `Devolución ${++returnIndex}`;
+    const normalizedStatus = (entry.status || "").toLowerCase();
+    const statusLabel = ["voided", "anulado", "cancelled", "canceled"].includes(normalizedStatus)
+      ? " · ANULADO"
+      : "";
+    const isCurrent = entry.document_number === currentDocumentNumber;
+    return `<div class="history-row${isCurrent ? " history-current" : ""}">
+      <div><strong>${escapeHtml(typeLabel)}</strong>${statusLabel}${isCurrent ? " · ESTE DOCUMENTO" : ""}</div>
+      <div>${escapeHtml(entry.document_number)} · ${escapeHtml(formatDisplayDate(entry.created_at))}</div>
+    </div>`;
+  }).join("");
+  const changeCount = entries.filter((entry) => entry.document_type === "change").length;
+  const returnCount = entries.filter((entry) => entry.document_type === "return").length;
+  return `<div class="history">
+    <div class="history-title">HISTORIAL DEL PROCESO</div>
+    <div class="history-summary">Esta venta registra ${changeCount} cambio(s) y ${returnCount} devolución(es).</div>
+    ${rows}
+  </div>`;
+}
+
 export function renderReturnTicket(options: ReturnTicketOptions): string {
   const settings = options.settings;
   const companyName =
@@ -456,6 +498,10 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
   const posLine = options.posName
     ? `<div>POS: ${escapeHtml(options.posName)}</div>`
     : "";
+  const operationHistory = renderOperationHistory(
+    options.operationHistory,
+    options.documentNumber
+  );
 
   return `
     <html>
@@ -481,6 +527,11 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
           .item-total { font-size: 14px; text-align: right; color: #000000; font-weight: 700; }
           .total { font-size: 16px; font-weight: 800; color: #000000; }
           .muted { font-size: 13px; color: #000000; }
+          .history { margin-top: 12px; border: 2px solid #000000; padding: 8px; font-size: 12px; }
+          .history-title { font-size: 13px; font-weight: 900; text-align: center; }
+          .history-summary { margin: 4px 0 6px; font-weight: 700; }
+          .history-row { border-top: 1px solid #000000; padding: 4px 0; line-height: 1.25; }
+          .history-current { font-weight: 800; background: #eeeeee; }
           .barcode { margin-top: 14px; text-align: center; }
           .barcode svg { width: 96%; height: auto; }
         </style>
@@ -503,6 +554,7 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
             ${sellerLine}
             <div>Fecha: ${escapeHtml(formatDisplayDate(options.createdAt))}</div>
           </div>
+          ${operationHistory}
           <div class="line"></div>
           <div class="section">
             <div class="row">
@@ -595,6 +647,10 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
   const posLine = options.posName
     ? `<div>POS: ${escapeHtml(options.posName)}</div>`
     : "";
+  const operationHistory = renderOperationHistory(
+    options.operationHistory,
+    options.documentNumber
+  );
 
   return `
     <html>
@@ -620,6 +676,11 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
           .item-total { font-size: 14px; text-align: right; color: #000000; font-weight: 700; }
           .total { font-size: 16px; font-weight: 800; color: #000000; }
           .muted { font-size: 13px; color: #000000; }
+          .history { margin-top: 12px; border: 2px solid #000000; padding: 8px; font-size: 12px; }
+          .history-title { font-size: 13px; font-weight: 900; text-align: center; }
+          .history-summary { margin: 4px 0 6px; font-weight: 700; }
+          .history-row { border-top: 1px solid #000000; padding: 4px 0; line-height: 1.25; }
+          .history-current { font-weight: 800; background: #eeeeee; }
           .barcode { margin-top: 14px; text-align: center; }
           .barcode svg { width: 96%; height: auto; }
         </style>
@@ -642,6 +703,7 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
             ${sellerLine}
             <div>Fecha: ${escapeHtml(formatDisplayDate(options.createdAt))}</div>
           </div>
+          ${operationHistory}
           <div class="line"></div>
           <div class="section">
             <div class="row">

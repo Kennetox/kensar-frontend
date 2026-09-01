@@ -37,6 +37,7 @@ import {
   renderSaleTicket,
   buildSaleTicketCustomer,
 } from "@/lib/printing/saleTicket";
+import { resolveOperationDocument } from "@/lib/api/operationDocuments";
 import {
   fetchSeparatedOrders,
   type SeparatedOrder,
@@ -1967,6 +1968,19 @@ export default function SalesHistoryContent({
         );
       }
       const detail = (await res.json()) as SaleReturnDetail;
+      const returnDocumentNumber =
+        detail.document_number ??
+        `DV-${detail.id.toString().padStart(6, "0")}`;
+      let operationHistory;
+      try {
+        operationHistory = (
+          await resolveOperationDocument(returnDocumentNumber, {
+            Authorization: `Bearer ${token}`,
+          })
+        ).chain;
+      } catch (historyError) {
+        console.warn("No se pudo cargar el historial de la devolución", historyError);
+      }
       const items = (detail.items ?? []).map((item) => ({
         name: item.product_name,
         quantity: item.quantity,
@@ -1980,9 +1994,7 @@ export default function SalesHistoryContent({
       }));
       const html = renderReturnTicket({
         settings: posSettings,
-        documentNumber:
-          detail.document_number ??
-          `DV-${detail.id.toString().padStart(6, "0")}`,
+        documentNumber: returnDocumentNumber,
         originalDocumentNumber: detail.source_document_number ?? selectedSale.document_number,
         rootSaleDocumentNumber: detail.sale_document_number ?? selectedSale.document_number,
         createdAt: detail.created_at,
@@ -1995,6 +2007,7 @@ export default function SalesHistoryContent({
         payments,
         totalRefund: detail.total_refund ?? 0,
         notes: detail.notes,
+        operationHistory,
       });
 
       const printTicketWithQz = async () => {
@@ -2089,6 +2102,19 @@ export default function SalesHistoryContent({
         );
       }
       const detail = (await res.json()) as SaleChangeDetail;
+      const changeDocumentNumber =
+        detail.document_number ??
+        `CB-${detail.id.toString().padStart(6, "0")}`;
+      let operationHistory;
+      try {
+        operationHistory = (
+          await resolveOperationDocument(changeDocumentNumber, {
+            Authorization: `Bearer ${token}`,
+          })
+        ).chain;
+      } catch (historyError) {
+        console.warn("No se pudo cargar el historial del cambio", historyError);
+      }
       const returnedItems = (detail.items_returned ?? []).map((item) => ({
         name: item.product_name,
         quantity: item.quantity,
@@ -2109,9 +2135,7 @@ export default function SalesHistoryContent({
       }));
       const html = renderChangeTicket({
         settings: posSettings,
-        documentNumber:
-          detail.document_number ??
-          `CB-${detail.id.toString().padStart(6, "0")}`,
+        documentNumber: changeDocumentNumber,
         originalDocumentNumber: detail.source_document_number ?? selectedSale.document_number,
         rootSaleDocumentNumber: detail.sale_document_number ?? selectedSale.document_number,
         createdAt: detail.created_at,
@@ -2129,6 +2153,7 @@ export default function SalesHistoryContent({
         refundDue: detail.refund_due ?? 0,
         refundMethod: detail.refund_method ? mapPaymentMethod(detail.refund_method) : null,
         notes: detail.notes,
+        operationHistory,
       });
 
       const printTicketWithQz = async () => {

@@ -13,6 +13,14 @@ export type OperationSourceLine = {
   unit_value: number;
 };
 
+export type OperationChainEntry = {
+  document_type: "sale" | "change" | "return";
+  document_id: number;
+  document_number: string;
+  status: string;
+  created_at: string;
+};
+
 export type OperationDocument = {
   document_type: "sale" | "change" | "return";
   document_id: number;
@@ -22,13 +30,7 @@ export type OperationDocument = {
   root_sale_document_number: string;
   source_document_number?: string | null;
   items: OperationSourceLine[];
-  chain: Array<{
-    document_type: "sale" | "change" | "return";
-    document_id: number;
-    document_number: string;
-    status: string;
-    created_at: string;
-  }>;
+  chain: OperationChainEntry[];
   allowed_actions: Array<"change" | "return">;
 };
 

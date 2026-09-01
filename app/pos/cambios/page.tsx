@@ -38,7 +38,10 @@ import {
 import LoadingSpinner from "../../components/ui/LoadingSpinner";
 import { formatBogotaDate } from "@/lib/time/bogota";
 import type { Product } from "../poscontext";
-import { resolveOperationDocument } from "@/lib/api/operationDocuments";
+import {
+  resolveOperationDocument,
+  type OperationChainEntry,
+} from "@/lib/api/operationDocuments";
 
 type PaymentMethodSlug = string;
 
@@ -138,6 +141,7 @@ type SaleChangeDetail = {
   items_returned: ChangeReturnItemDetail[];
   items_new: ChangeNewItemDetail[];
   payments: ChangePaymentDetail[];
+  operation_history?: OperationChainEntry[];
 };
 
 type ChangeNewItem = {
@@ -263,7 +267,7 @@ export default function CambiosPage() {
     DEFAULT_PAYMENT_METHODS
   );
   const [payments, setPayments] = useState<ChangePayment[]>([]);
-  const [refundMethod, setRefundMethod] = useState<PaymentMethodSlug>("cash");
+  const [refundMethod, setRefundMethod] = useState<PaymentMethodSlug>("");
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -615,6 +619,19 @@ export default function CambiosPage() {
   const extraPayment = Math.max(0, Math.round(netDifference));
   const refundDue = Math.max(0, Math.round(-netDifference));
 
+  useEffect(() => {
+    if (refundDue <= 0 && refundMethod) {
+      setRefundMethod("");
+    }
+  }, [refundDue, refundMethod]);
+
+  useEffect(() => {
+    if (!refundMethod) return;
+    if (!activePaymentMethods.some((method) => method.slug === refundMethod)) {
+      setRefundMethod("");
+    }
+  }, [activePaymentMethods, refundMethod]);
+
   const parseAmountInput = useCallback((value: string) => {
     const normalized = value.replace(/[^\d]/g, "");
     return Number(normalized) || 0;
@@ -766,7 +783,7 @@ export default function CambiosPage() {
     setQuantities({});
     setNotes("");
     setPayments([]);
-    setRefundMethod("cash");
+    setRefundMethod("");
     setSubmitError(null);
     setNewItems([]);
   }, []);
@@ -1057,6 +1074,11 @@ export default function CambiosPage() {
       showToast("El excedente debe coincidir con la suma de pagos.", "error");
       return;
     }
+    if (refundDue > 0 && !refundMethod) {
+      setSubmitError("Selecciona el método del reembolso.");
+      showToast("Selecciona el método del reembolso.", "error");
+      return;
+    }
     setSubmitError(null);
     setSubmitting(true);
     try {
@@ -1123,6 +1145,16 @@ export default function CambiosPage() {
       }
 
       const data = (await res.json()) as SaleChangeDetail;
+      const documentNumber =
+        data.document_number ?? `CB-${data.id.toString().padStart(6, "0")}`;
+      try {
+        const operationDocument = await resolveOperationDocument(documentNumber, {
+          Authorization: `Bearer ${token}`,
+        });
+        data.operation_history = operationDocument.chain;
+      } catch (historyError) {
+        console.warn("No se pudo cargar el historial del cambio", historyError);
+      }
       setChangeSuccess(data);
     } catch (err) {
       console.error(err);
@@ -1196,6 +1228,7 @@ export default function CambiosPage() {
         ? resolvePaymentLabel(changeSuccess.refund_method)
         : null,
       notes: changeSuccess.notes,
+      operationHistory: changeSuccess.operation_history,
     });
 
     const shouldUseQz = printerConfig.mode === "qz-tray";
@@ -1953,6 +1986,7 @@ export default function CambiosPage() {
                     onChange={(event) => setRefundMethod(event.target.value)}
                     className="h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100"
                   >
+                    <option value="" disabled>Selecciona un método</option>
                     {activePaymentMethods.map((method) => (
                       <option key={method.id} value={method.slug}>{method.name}</option>
                     ))}
@@ -2124,7 +2158,12 @@ export default function CambiosPage() {
               )}
               {changeSuccess.refund_due > 0 && (
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Saldo devuelto (efectivo)</span>
+                  <span className="text-slate-400">
+                    Saldo devuelto
+                    {changeSuccess.refund_method
+                      ? ` (${resolvePaymentLabel(changeSuccess.refund_method)})`
+                      : ""}
+                  </span>
                   <span className="text-rose-300 font-semibold">
                     {formatMoney(changeSuccess.refund_due)}
                   </span>
