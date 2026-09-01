@@ -962,6 +962,21 @@ export default function ReportsPage() {
       barWidth,
     };
   }, []);
+  const selectedAnnualMonth = useMemo(
+    () =>
+      monthlyData.find(
+        (month) => `${selectedYear}-${month.key}` === selectedMonthKey
+      ) ?? null,
+    [monthlyData, selectedMonthKey, selectedYear]
+  );
+  const selectedAnnualBarHeight = selectedAnnualMonth
+    ? selectedAnnualMonth.total > 0
+      ? Math.max(
+          2,
+          (selectedAnnualMonth.total / maxValue) * annualChart.chartHeight
+        )
+      : 0
+    : 0;
   const dailyData = useMemo(() => {
     const totals = new Map<number, { total: number; tickets: number }>();
     for (let day = 1; day <= currentMonthDays; day += 1) {
@@ -1102,14 +1117,21 @@ export default function ReportsPage() {
         .map((month, index) => {
           const hasSales = month.total > 0;
           const barHeight = hasSales
-            ? Math.max(24, (month.total / maxValue) * annualChart.chartHeight)
-            : 6;
+            ? Math.max(2, (month.total / maxValue) * annualChart.chartHeight)
+            : 0;
           const x =
             annualChart.leftPadding +
             index * annualChart.slotWidth +
             (annualChart.slotWidth - annualChart.barWidth) / 2;
           const y = annualChart.baselineY - barHeight;
           const labelX = x + annualChart.barWidth / 2;
+          const barShape = hasSales
+            ? `<rect x="${x}" y="${y}" width="${annualChart.barWidth}" height="${barHeight}" fill="#334155" />`
+            : `<line x1="${x}" y1="${annualChart.baselineY}" x2="${
+                x + annualChart.barWidth
+              }" y2="${
+                annualChart.baselineY
+              }" stroke="#cbd5e1" stroke-width="2" />`;
           return `
             <g>
               <text x="${labelX}" y="${Math.max(
@@ -1124,7 +1146,7 @@ export default function ReportsPage() {
               )}" text-anchor="middle" font-size="11" font-weight="700" fill="#334155">${escapeHtml(
                 String(month.tickets)
               )}</text>
-              <rect x="${x}" y="${y}" width="${annualChart.barWidth}" height="${barHeight}" fill="#334155" />
+              ${barShape}
               <text x="${labelX}" y="${
                 annualChart.baselineY + 16
               }" text-anchor="middle" font-size="14" font-weight="700" fill="#334155">${escapeHtml(
@@ -1656,15 +1678,15 @@ export default function ReportsPage() {
                     ) : null}
 
                     {monthlyData.map((month, index) => {
-                      const isCurrentMonth =
-                        selectedYear === todayYear && month.key === todayMonthKey.slice(5, 7);
+                      const isSelectedMonth =
+                        `${selectedYear}-${month.key}` === selectedMonthKey;
                       const hasSales = month.total > 0;
                       const barHeight = hasSales
                         ? Math.max(
-                            24,
+                            2,
                             (month.total / maxValue) * annualChart.chartHeight
                           )
-                        : 6;
+                        : 0;
                       const x =
                         annualChart.leftPadding +
                         index * annualChart.slotWidth +
@@ -1692,6 +1714,14 @@ export default function ReportsPage() {
                           <title>{`Tickets del mes: ${month.tickets}\nTotal del mes: ${formatMoney(
                             month.total
                           )}`}</title>
+                          <rect
+                            x={x}
+                            y={annualChart.baselineY - Math.max(24, barHeight)}
+                            width={annualChart.barWidth}
+                            height={Math.max(24, barHeight)}
+                            fill="transparent"
+                            pointerEvents="all"
+                          />
                           <text
                             x={labelX}
                             y={Math.max(14, y - 20)}
@@ -1712,19 +1742,24 @@ export default function ReportsPage() {
                           >
                             {month.tickets}
                           </text>
-                          <rect
-                            x={x}
-                            y={y}
-                            width={annualChart.barWidth}
-                            height={barHeight}
-                            fill={
-                              isCurrentMonth
-                                ? "#10b981"
-                                : hasSales
-                                ? "#334155"
-                                : "#cbd5e1"
-                            }
-                          />
+                          {hasSales ? (
+                            <rect
+                              x={x}
+                              y={y}
+                              width={annualChart.barWidth}
+                              height={barHeight}
+                              fill={isSelectedMonth ? "#10b981" : "#334155"}
+                            />
+                          ) : (
+                            <line
+                              x1={x}
+                              y1={annualChart.baselineY}
+                              x2={x + annualChart.barWidth}
+                              y2={annualChart.baselineY}
+                              stroke="#cbd5e1"
+                              strokeWidth="2"
+                            />
+                          )}
                           <text
                             x={labelX}
                             y={annualChart.baselineY + 16}
@@ -1738,6 +1773,27 @@ export default function ReportsPage() {
                         </g>
                       );
                     })}
+                    {selectedAnnualMonth ? (
+                      <line
+                        x1={0}
+                        y1={
+                          annualChart.baselineY - selectedAnnualBarHeight
+                        }
+                        x2={annualChart.width}
+                        y2={
+                          annualChart.baselineY - selectedAnnualBarHeight
+                        }
+                        stroke="#059669"
+                        strokeWidth="1.5"
+                        strokeOpacity="0.85"
+                        strokeDasharray="2 5"
+                        pointerEvents="none"
+                      >
+                        <title>{`Nivel de ${selectedAnnualMonth.label}: ${formatMoney(
+                          selectedAnnualMonth.total
+                        )}`}</title>
+                      </line>
+                    ) : null}
                     </svg>
                     {annualLoading ? (
                       <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[28px] bg-white/45 backdrop-blur-[1.5px]">
