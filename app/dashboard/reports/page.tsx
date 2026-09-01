@@ -282,8 +282,12 @@ export default function ReportsPage() {
   const dailyDetailRef = useRef<HTMLDivElement | null>(null);
   const annualAverageCardRef = useRef<HTMLButtonElement | null>(null);
   const annualLeaderCardRef = useRef<HTMLButtonElement | null>(null);
+  const annualTicketsCardRef = useRef<HTMLButtonElement | null>(null);
+  const monthlyTicketsCardRef = useRef<HTMLButtonElement | null>(null);
   const [showAnnualDailyAverage, setShowAnnualDailyAverage] = useState(false);
   const [showAnnualLeaderDay, setShowAnnualLeaderDay] = useState(false);
+  const [showAnnualAverageTicket, setShowAnnualAverageTicket] = useState(false);
+  const [showMonthlyAverageTicket, setShowMonthlyAverageTicket] = useState(false);
   const [annualTransitionActive, setAnnualTransitionActive] = useState(true);
   const [monthlyTransitionActive, setMonthlyTransitionActive] = useState(true);
   const [monthlySeries, setMonthlySeries] = useState<DashboardMonthlySalesPoint[]>([]);
@@ -785,22 +789,36 @@ export default function ReportsPage() {
   }, [authHeaders, canViewReportDataset, dayMethodMap, selectedDayKey]);
 
   useEffect(() => {
-    if (!showAnnualDailyAverage && !showAnnualLeaderDay) return;
+    if (
+      !showAnnualDailyAverage &&
+      !showAnnualLeaderDay &&
+      !showAnnualAverageTicket &&
+      !showMonthlyAverageTicket
+    ) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (annualAverageCardRef.current?.contains(target)) return;
       if (annualLeaderCardRef.current?.contains(target)) return;
+      if (annualTicketsCardRef.current?.contains(target)) return;
+      if (monthlyTicketsCardRef.current?.contains(target)) return;
       setShowAnnualDailyAverage(false);
       setShowAnnualLeaderDay(false);
+      setShowAnnualAverageTicket(false);
+      setShowMonthlyAverageTicket(false);
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
     };
-  }, [showAnnualDailyAverage, showAnnualLeaderDay]);
+  }, [
+    showAnnualAverageTicket,
+    showAnnualDailyAverage,
+    showAnnualLeaderDay,
+    showMonthlyAverageTicket,
+  ]);
 
   useEffect(() => {
     setAnnualTransitionActive(false);
@@ -854,16 +872,25 @@ export default function ReportsPage() {
     () => monthlyData.reduce((sum, item) => sum + item.total, 0),
     [monthlyData]
   );
-  const averageMonthDivisor = useMemo(() => {
-    if (selectedYear === todayYear) {
-      return Math.max(1, Number(todayMonthKey.slice(5, 7)));
-    }
-    return 12;
+  const closedMonthCount = useMemo(() => {
+    if (selectedYear !== todayYear) return 12;
+    return Math.max(0, Number(todayMonthKey.slice(5, 7)) - 1);
   }, [selectedYear, todayMonthKey, todayYear]);
-  const averageMonthSales = useMemo(
-    () => totalYearSales / averageMonthDivisor,
-    [averageMonthDivisor, totalYearSales]
-  );
+  const averageMonthScopeLabel =
+    selectedYear !== todayYear
+      ? "Año completo"
+      : closedMonthCount > 0
+        ? `${closedMonthCount} ${
+            closedMonthCount === 1 ? "mes cerrado" : "meses cerrados"
+          }`
+        : "Sin meses cerrados";
+  const averageMonthSales = useMemo(() => {
+    if (closedMonthCount <= 0) return 0;
+    const closedMonthSales = monthlyData
+      .slice(0, closedMonthCount)
+      .reduce((sum, month) => sum + month.total, 0);
+    return closedMonthSales / closedMonthCount;
+  }, [closedMonthCount, monthlyData]);
   const averageYearDayDivisor = useMemo(() => {
     const selectedYearNumber = Number(selectedYear);
     if (!Number.isFinite(selectedYearNumber)) return 365;
@@ -908,6 +935,10 @@ export default function ReportsPage() {
   const totalYearTickets = useMemo(
     () => monthlyData.reduce((sum, item) => sum + item.tickets, 0),
     [monthlyData]
+  );
+  const averageYearTicket = useMemo(
+    () => (totalYearTickets > 0 ? totalYearSales / totalYearTickets : 0),
+    [totalYearSales, totalYearTickets]
   );
   const previousYearTickets = useMemo(() => {
     return previousYearSeries.reduce(
@@ -1040,6 +1071,10 @@ export default function ReportsPage() {
   const totalMonthTickets = useMemo(
     () => dailyData.reduce((sum, item) => sum + item.tickets, 0),
     [dailyData]
+  );
+  const averageMonthTicket = useMemo(
+    () => (totalMonthTickets > 0 ? totalMonthSales / totalMonthTickets : 0),
+    [totalMonthSales, totalMonthTickets]
   );
   const previousMonthTickets = useMemo(() => {
     const isCurrentMonthComparison = selectedMonthKey === todayMonthKey;
@@ -1318,7 +1353,7 @@ export default function ReportsPage() {
       )}</div></div>
       <div class="kpi"><div class="label">Promedio mensual</div><div class="value">${escapeHtml(
         formatMoney(averageMonthSales)
-      )}</div></div>
+      )}</div><div class="meta">${escapeHtml(averageMonthScopeLabel)}</div></div>
     </div>
     <div class="chart-wrap">
       <svg viewBox="0 0 ${annualChart.width} ${annualChart.height}" width="100%">
@@ -1445,6 +1480,7 @@ export default function ReportsPage() {
     activeDay,
     annualChart,
     averageDaySales,
+    averageMonthScopeLabel,
     averageMonthSales,
     bestMonth,
     chartTicks,
@@ -1587,19 +1623,33 @@ export default function ReportsPage() {
                           : "$0"}
                     </p>
                   </button>
-                  <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
+                  <button
+                    type="button"
+                    ref={annualTicketsCardRef}
+                    onClick={() =>
+                      setShowAnnualAverageTicket((current) => !current)
+                    }
+                    aria-pressed={showAnnualAverageTicket}
+                    className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-left transition hover:border-emerald-200 hover:bg-emerald-50/40"
+                  >
                     <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
-                      Tickets del año
+                      {showAnnualAverageTicket
+                        ? "Ticket promedio anual"
+                        : "Tickets del año"}
                     </p>
                     <p className="report-chart-kpi-value mt-1 text-[18px] font-bold leading-none tracking-tight text-slate-900">
-                      {formatCount(totalYearTickets)}
+                      {showAnnualAverageTicket
+                        ? formatMoney(averageYearTicket)
+                        : formatCount(totalYearTickets)}
                     </p>
                     <p className="report-chart-kpi-meta mt-1 truncate whitespace-nowrap text-[12px] leading-tight text-slate-500">
-                      {yearTicketsChange
+                      {showAnnualAverageTicket
+                        ? "Venta promedio por ticket"
+                        : yearTicketsChange
                         ? `${yearTicketsChange} ${yearComparisonLabel}`
                         : "Sin base comparativa"}
                     </p>
-                  </div>
+                  </button>
                   <button
                     type="button"
                     ref={annualAverageCardRef}
@@ -1619,9 +1669,7 @@ export default function ReportsPage() {
                         ? selectedYear === todayYear
                           ? "Hasta hoy"
                           : "Año completo"
-                        : selectedYear === todayYear
-                          ? "Meses transcurridos"
-                          : "Año completo"}
+                        : averageMonthScopeLabel}
                     </p>
                   </button>
                 </div>
@@ -1866,15 +1914,29 @@ export default function ReportsPage() {
                       {activeDay ? formatMoney(activeDay.total) : "$0"}
                     </p>
                   </div>
-                  <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
+                  <button
+                    type="button"
+                    ref={monthlyTicketsCardRef}
+                    onClick={() =>
+                      setShowMonthlyAverageTicket((current) => !current)
+                    }
+                    aria-pressed={showMonthlyAverageTicket}
+                    className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-left transition hover:border-emerald-200 hover:bg-emerald-50/40"
+                  >
                     <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
-                      Tickets del mes
+                      {showMonthlyAverageTicket
+                        ? "Ticket promedio mensual"
+                        : "Tickets del mes"}
                     </p>
                     <p className="report-chart-kpi-value mt-1 text-[17px] font-bold leading-none tracking-tight text-slate-900">
-                      {formatCount(totalMonthTickets)}
+                      {showMonthlyAverageTicket
+                        ? formatMoney(averageMonthTicket)
+                        : formatCount(totalMonthTickets)}
                     </p>
                     <p className="report-chart-kpi-meta mt-1 truncate whitespace-nowrap text-[12px] leading-tight text-slate-500">
-                      {monthTicketsChange
+                      {showMonthlyAverageTicket
+                        ? "Venta promedio por ticket"
+                        : monthTicketsChange
                         ? `${monthTicketsChange} ${
                             selectedMonthKey === todayMonthKey
                               ? "vs corte mes anterior"
@@ -1882,7 +1944,7 @@ export default function ReportsPage() {
                           }`
                         : "Sin base comparativa"}
                     </p>
-                  </div>
+                  </button>
                   <div className="report-chart-kpi rounded-2xl border border-slate-200 bg-slate-50 px-3 py-1.5">
                     <p className="report-chart-kpi-label text-[10px] uppercase tracking-wide text-slate-500">
                       Promedio diario
