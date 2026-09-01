@@ -115,6 +115,7 @@ type InventorySort =
   | "price_stock_asc"
   | "price_stock_desc";
 type InventoryStockFilter = "all" | "positive" | "zero" | "negative";
+type StockHistoryRange = "year" | "6m" | "3m";
 
 type InventoryFiltersSnapshot = {
   savedAt: number;
@@ -185,9 +186,14 @@ export default function MovementsPage() {
   const [stockHistory, setStockHistory] = useState<InventoryStockTrendPoint[]>([]);
   const [stockHistoryLoading, setStockHistoryLoading] = useState(false);
   const [stockHistoryError, setStockHistoryError] = useState<string | null>(null);
+  const [stockHistoryRange, setStockHistoryRange] = useState<StockHistoryRange>("year");
   const weeklyStockHistory = useMemo(
     () => aggregateStockHistoryByWeek(stockHistory),
     [stockHistory]
+  );
+  const visibleWeeklyStockHistory = useMemo(
+    () => filterStockHistoryByRange(weeklyStockHistory, stockHistoryRange),
+    [weeklyStockHistory, stockHistoryRange]
   );
   const [latestEntries, setLatestEntries] = useState<InventoryLatestEntryRecord[]>([]);
   const [latestEntriesLoading, setLatestEntriesLoading] = useState(false);
@@ -4052,7 +4058,7 @@ export default function MovementsPage() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="stock-history-title"
-            className="w-full max-w-6xl rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            className="max-h-[92vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl sm:w-[85vw] sm:max-w-[1500px]"
           >
             <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
               <div>
@@ -4100,7 +4106,40 @@ export default function MovementsPage() {
                     />
                   </div>
                   <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-2 sm:p-4">
-                    <StockTrendChart points={weeklyStockHistory} height={280} labelMode="months" />
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+                          Unidades
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                          Valor de venta
+                        </span>
+                      </div>
+                      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1" aria-label="Rango de la gráfica">
+                        {([
+                          ["year", "Año"],
+                          ["6m", "6 meses"],
+                          ["3m", "3 meses"],
+                        ] as Array<[StockHistoryRange, string]>).map(([range, label]) => (
+                          <button
+                            key={range}
+                            type="button"
+                            onClick={() => setStockHistoryRange(range)}
+                            aria-pressed={stockHistoryRange === range}
+                            className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                              stockHistoryRange === range
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "text-slate-600 hover:bg-slate-100"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <StockTrendChart points={visibleWeeklyStockHistory} height={420} labelMode="months" />
                   </div>
                   <p className="mt-3 text-[11px] text-slate-500">
                     El histórico refleja los movimientos registrados. Si el inventario inicial fue cargado sin movimientos,
@@ -4866,6 +4905,21 @@ function aggregateStockHistoryByWeek(points: InventoryStockTrendPoint[]): StockT
   return [...weeks.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function filterStockHistoryByRange(
+  points: StockTrendChartPoint[],
+  range: StockHistoryRange
+) {
+  if (range === "year" || points.length === 0) return points;
+  const latestDate = parseTrendDate(points[points.length - 1].date);
+  if (!latestDate) return points;
+  const cutoff = new Date(latestDate);
+  cutoff.setMonth(cutoff.getMonth() - (range === "6m" ? 6 : 3));
+  return points.filter((point) => {
+    const date = parseTrendDate(point.date);
+    return date ? date >= cutoff : false;
+  });
+}
+
 function getWeekStart(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(year, Math.max(0, month - 1), day);
@@ -4881,6 +4935,106 @@ function StockHistoryMetric({ label, value }: { label: string; value: string }) 
       <p className="mt-1 text-lg font-semibold text-slate-900 tabular-nums">{value}</p>
     </div>
   );
+}
+
+type ChartCoordinate = { x: number; y: number };
+type ChartRect = { left: number; top: number; right: number; bottom: number };
+
+function findChartTooltipPosition({
+  anchorX,
+  anchorTopY,
+  anchorBottomY,
+  tooltipWidth,
+  tooltipHeight,
+  bounds,
+  series,
+}: {
+  anchorX: number;
+  anchorTopY: number;
+  anchorBottomY: number;
+  tooltipWidth: number;
+  tooltipHeight: number;
+  bounds: ChartRect;
+  series: ChartCoordinate[][];
+}) {
+  const gap = 12;
+  const clampX = (x: number) => Math.min(Math.max(x, bounds.left), bounds.right - tooltipWidth);
+  const clampY = (y: number) => Math.min(Math.max(y, bounds.top), bounds.bottom - tooltipHeight);
+  const centerY = (anchorTopY + anchorBottomY) / 2 - tooltipHeight / 2;
+  const candidates = [
+    { x: anchorX - tooltipWidth / 2, y: anchorTopY - tooltipHeight - gap },
+    { x: anchorX - tooltipWidth / 2, y: anchorBottomY + gap },
+    { x: anchorX - tooltipWidth - gap, y: centerY },
+    { x: anchorX + gap, y: centerY },
+    { x: anchorX - tooltipWidth - gap, y: anchorTopY - tooltipHeight - gap },
+    { x: anchorX + gap, y: anchorTopY - tooltipHeight - gap },
+    { x: anchorX - tooltipWidth - gap, y: anchorBottomY + gap },
+    { x: anchorX + gap, y: anchorBottomY + gap },
+  ].map((candidate) => ({ x: clampX(candidate.x), y: clampY(candidate.y) }));
+
+  const scoreCandidate = ({ x, y }: { x: number; y: number }) => {
+    const rect = {
+      left: x - 5,
+      top: y - 5,
+      right: x + tooltipWidth + 5,
+      bottom: y + tooltipHeight + 5,
+    };
+    let score = 0;
+
+    series.forEach((coordinates) => {
+      coordinates.forEach((point) => {
+        if (isPointInsideRect(point, rect)) score += 100;
+      });
+      for (let index = 1; index < coordinates.length; index += 1) {
+        if (doesSegmentIntersectRect(coordinates[index - 1], coordinates[index], rect)) {
+          score += 20;
+        }
+      }
+    });
+
+    const selectedPoints = [
+      { x: anchorX, y: anchorTopY },
+      { x: anchorX, y: anchorBottomY },
+    ];
+    selectedPoints.forEach((point) => {
+      if (isPointInsideRect(point, rect)) score += 1000;
+    });
+    return score;
+  };
+
+  return candidates.reduce((best, candidate) =>
+    scoreCandidate(candidate) < scoreCandidate(best) ? candidate : best
+  );
+}
+
+function isPointInsideRect(point: ChartCoordinate, rect: ChartRect) {
+  return point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom;
+}
+
+function doesSegmentIntersectRect(start: ChartCoordinate, end: ChartCoordinate, rect: ChartRect) {
+  if (isPointInsideRect(start, rect) || isPointInsideRect(end, rect)) return true;
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  let minimum = 0;
+  let maximum = 1;
+  const checks: Array<[number, number]> = [
+    [-deltaX, start.x - rect.left],
+    [deltaX, rect.right - start.x],
+    [-deltaY, start.y - rect.top],
+    [deltaY, rect.bottom - start.y],
+  ];
+
+  for (const [direction, distance] of checks) {
+    if (direction === 0) {
+      if (distance < 0) return false;
+      continue;
+    }
+    const ratio = distance / direction;
+    if (direction < 0) minimum = Math.max(minimum, ratio);
+    else maximum = Math.min(maximum, ratio);
+    if (minimum > maximum) return false;
+  }
+  return true;
 }
 
 function StockTrendChart({
@@ -4924,11 +5078,58 @@ function StockTrendChart({
   const selectedIndex = hoveredIndex ?? 0;
   const selected = points[selectedIndex];
   const selectedX = xAt(selectedIndex);
-  const tooltipWidth = 190;
-  const tooltipX = Math.min(Math.max(selectedX - tooltipWidth / 2, left), width - right - tooltipWidth);
+  const tooltipWidth = 220;
+  const tooltipHeight = 48;
+  const selectedTopY = Math.min(
+    unitCoordinates[selectedIndex]?.y ?? top,
+    valueCoordinates[selectedIndex]?.y ?? top
+  );
+  const selectedBottomY = Math.max(
+    unitCoordinates[selectedIndex]?.y ?? top,
+    valueCoordinates[selectedIndex]?.y ?? top
+  );
+  const tooltipPosition = findChartTooltipPosition({
+    anchorX: selectedX,
+    anchorTopY: selectedTopY,
+    anchorBottomY: selectedBottomY,
+    tooltipWidth,
+    tooltipHeight,
+    bounds: {
+      left,
+      top,
+      right: width - right,
+      bottom: top + plotHeight,
+    },
+    series: [unitCoordinates, valueCoordinates],
+  });
+  const tooltipX = tooltipPosition.x;
+  const tooltipY = tooltipPosition.y;
+  const latestIndex = Math.max(0, points.length - 1);
+  const maxValueIndex = values.indexOf(valueMax);
+  const previousValues = values.slice(0, -1);
+  const previousMax = previousValues.length ? Math.max(...previousValues) : values[latestIndex] ?? 0;
+  const latestValue = values[latestIndex] ?? 0;
+  const valueDifference = latestValue - previousMax;
+  const percentageDifference = previousMax === 0 ? null : (valueDifference / Math.abs(previousMax)) * 100;
+  const comparisonTone = valueDifference >= 0 ? "text-emerald-700" : "text-rose-700";
 
   return (
     <div className="w-full" onMouseLeave={() => setHoveredIndex(null)}>
+      <div className="mb-2 flex flex-wrap items-center gap-x-5 gap-y-1 px-1 text-[11px] text-slate-600">
+        <span>
+          Máximo del periodo: <strong className="font-semibold text-slate-800">{formatMoney(valueMax)}</strong>
+          {points[maxValueIndex] ? ` · ${formatTrendDate(points[maxValueIndex].date, true)}` : ""}
+        </span>
+        {points.length > 1 ? (
+          <span>
+            Actual vs. máximo anterior:{" "}
+            <strong className={`font-semibold ${comparisonTone}`}>
+              {formatSignedMoney(valueDifference)}
+              {percentageDifference == null ? "" : ` (${formatSignedPercentage(percentageDifference)})`}
+            </strong>
+          </span>
+        ) : null}
+      </div>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="w-full overflow-visible"
@@ -4936,36 +5137,52 @@ function StockTrendChart({
         role="img"
         aria-label="Gráfica del stock total en unidades y valor de venta"
       >
-        {[0, 0.5, 1].map((ratio) => {
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
           const y = top + ratio * plotHeight;
+          const unitValue = unitMax - ratio * (unitMax - unitMin);
+          const saleValue = valueMax - ratio * (valueMax - valueMin);
           return (
-            <line
-              key={ratio}
-              x1={left}
-              x2={width - right}
-              y1={y}
-              y2={y}
-              stroke="#e2e8f0"
-              strokeDasharray="4 5"
-            />
+            <g key={ratio}>
+              <line
+                x1={left}
+                x2={width - right}
+                y1={y}
+                y2={y}
+                stroke="#e2e8f0"
+                strokeDasharray="4 5"
+              />
+              <text x={left - 8} y={y + 4} textAnchor="end" className="fill-slate-400 text-[9px]">
+                {formatCompactNumber(unitValue)}
+              </text>
+              <text x={width - right + 8} y={y + 4} className="fill-slate-400 text-[9px]">
+                {formatCompactMoney(saleValue)}
+              </text>
+            </g>
           );
         })}
 
-        <text x={left - 8} y={top + 4} textAnchor="end" className="fill-slate-400 text-[10px]">
-          {formatCompactNumber(unitMax)}
-        </text>
-        <text x={left - 8} y={top + plotHeight + 4} textAnchor="end" className="fill-slate-400 text-[10px]">
-          {formatCompactNumber(unitMin)}
-        </text>
-        <text x={width - right + 8} y={top + 4} className="fill-slate-400 text-[10px]">
-          {formatCompactMoney(valueMax)}
-        </text>
-        <text x={width - right + 8} y={top + plotHeight + 4} className="fill-slate-400 text-[10px]">
-          {formatCompactMoney(valueMin)}
-        </text>
-
         <polyline points={unitLine} fill="none" stroke="#0ea5e9" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
         <polyline points={valueLine} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+
+        {[maxValueIndex, latestIndex].filter((index, position, indexes) => indexes.indexOf(index) === position).map((index) => (
+          <g key={`highlight-${index}`} pointerEvents="none">
+            <circle
+              cx={valueCoordinates[index].x}
+              cy={valueCoordinates[index].y}
+              r="7"
+              fill="#10b981"
+              opacity="0.16"
+            />
+            <circle
+              cx={valueCoordinates[index].x}
+              cy={valueCoordinates[index].y}
+              r="4"
+              fill="white"
+              stroke="#10b981"
+              strokeWidth="2.5"
+            />
+          </g>
+        ))}
 
         {hoveredIndex != null ? (
           <line x1={selectedX} x2={selectedX} y1={top} y2={top + plotHeight} stroke="#94a3b8" strokeDasharray="3 4" />
@@ -5000,13 +5217,13 @@ function StockTrendChart({
 
         {hoveredIndex != null ? (
           <g pointerEvents="none">
-            <rect x={tooltipX} y={24} width={tooltipWidth} height="48" rx="8" fill="#0f172a" opacity="0.94" />
-            <text x={tooltipX + 10} y={43} className="fill-slate-300 text-[10px]">
+            <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height={tooltipHeight} rx="8" fill="#0f172a" opacity="0.94" />
+            <text x={tooltipX + 10} y={tooltipY + 19} className="fill-slate-300 text-[10px]">
               {selected.period_start && selected.period_end
                 ? formatWeekRange(selected.period_start, selected.period_end)
                 : formatTrendDate(selected.date, true)}
             </text>
-            <text x={tooltipX + 10} y={61} className="fill-white text-[11px] font-semibold">
+            <text x={tooltipX + 10} y={tooltipY + 37} className="fill-white text-[11px] font-semibold">
               {formatQty(selected.stock_units)} uds · {formatMoney(selected.stock_sale_value)}
             </text>
           </g>
@@ -5108,6 +5325,16 @@ function formatCompactNumber(value: number) {
 
 function formatCompactMoney(value: number) {
   return `$${new Intl.NumberFormat("es-CO", { notation: "compact", maximumFractionDigits: 1 }).format(value)}`;
+}
+
+function formatSignedMoney(value: number) {
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  return `${sign}${formatMoney(Math.abs(value))}`;
+}
+
+function formatSignedPercentage(value: number) {
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  return `${sign}${new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 }).format(Math.abs(value))}%`;
 }
 
 function formatMoney(value: number) {
