@@ -19,6 +19,13 @@ export type OperationChainEntry = {
   document_number: string;
   status: string;
   created_at: string;
+  items: Array<{
+    action: "purchased" | "returned" | "received";
+    product_id: number;
+    product_name: string;
+    product_sku?: string | null;
+    quantity: number;
+  }>;
 };
 
 export type OperationDocument = {

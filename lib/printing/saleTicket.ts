@@ -169,6 +169,13 @@ export type OperationHistoryEntry = {
   document_number: string;
   status: string;
   created_at: string;
+  items?: Array<{
+    action: "purchased" | "returned" | "received";
+    product_id: number;
+    product_name: string;
+    product_sku?: string | null;
+    quantity: number;
+  }>;
 };
 
 export type ClosureTicketMethod = {
@@ -432,16 +439,28 @@ function renderOperationHistory(
       ? " · ANULADO"
       : "";
     const isCurrent = entry.document_number === currentDocumentNumber;
+    const productRows = (entry.items ?? []).map((item) => {
+      const actionLabel = item.action === "purchased"
+        ? "Compró"
+        : item.action === "received"
+          ? "Cliente recibió"
+          : "Cliente devolvió";
+      const quantity = Number.isInteger(item.quantity)
+        ? item.quantity.toString()
+        : item.quantity.toLocaleString("es-CO", { maximumFractionDigits: 3 });
+      return `<div class="history-product"><strong>${escapeHtml(actionLabel)}:</strong> ${escapeHtml(quantity)} × ${escapeHtml(item.product_name)}</div>`;
+    }).join("");
     return `<div class="history-row${isCurrent ? " history-current" : ""}">
       <div><strong>${escapeHtml(typeLabel)}</strong>${statusLabel}${isCurrent ? " · ESTE DOCUMENTO" : ""}</div>
       <div>${escapeHtml(entry.document_number)} · ${escapeHtml(formatDisplayDate(entry.created_at))}</div>
+      ${productRows}
     </div>`;
   }).join("");
   const changeCount = entries.filter((entry) => entry.document_type === "change").length;
   const returnCount = entries.filter((entry) => entry.document_type === "return").length;
   return `<div class="history">
     <div class="history-title">HISTORIAL DEL PROCESO</div>
-    <div class="history-summary">Esta venta registra ${changeCount} cambio(s) y ${returnCount} devolución(es).</div>
+    <div class="history-summary">Esta venta registra ${changeCount} ${changeCount === 1 ? "cambio" : "cambios"} y ${returnCount} ${returnCount === 1 ? "devolución" : "devoluciones"}.</div>
     ${rows}
   </div>`;
 }
@@ -532,6 +551,7 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
           .history-summary { margin: 4px 0 6px; font-weight: 700; }
           .history-row { border-top: 1px solid #000000; padding: 4px 0; line-height: 1.25; }
           .history-current { font-weight: 800; background: #eeeeee; }
+          .history-product { margin-top: 2px; padding-left: 6px; font-size: 11px; font-weight: 400; }
           .barcode { margin-top: 14px; text-align: center; }
           .barcode svg { width: 96%; height: auto; }
         </style>
@@ -681,6 +701,7 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
           .history-summary { margin: 4px 0 6px; font-weight: 700; }
           .history-row { border-top: 1px solid #000000; padding: 4px 0; line-height: 1.25; }
           .history-current { font-weight: 800; background: #eeeeee; }
+          .history-product { margin-top: 2px; padding-left: 6px; font-size: 11px; font-weight: 400; }
           .barcode { margin-top: 14px; text-align: center; }
           .barcode svg { width: 96%; height: auto; }
         </style>
