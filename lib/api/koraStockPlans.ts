@@ -25,6 +25,7 @@ export type KoraStockPlanItem = {
 export type KoraStockPlanContext = {
   scheduled_people?: number | null;
   scheduled_names: string[];
+  schedule_status?: "published" | "draft" | null;
   reserved_for_sales: number;
   reserved_for_receiving: number;
   available_people?: number | null;
@@ -35,7 +36,7 @@ export type KoraStockPlanContext = {
   workload_state: "quiet" | "normal" | "busy" | "unknown";
   automatic_plan_allowed: boolean;
   automatic_reason: string;
-  presence_basis: "published_schedule";
+  presence_basis: "published_schedule" | "configured_schedule";
 };
 
 export type KoraStockPlan = {

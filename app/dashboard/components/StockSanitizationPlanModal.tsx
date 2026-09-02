@@ -130,7 +130,7 @@ export default function StockSanitizationPlanModal({ plan, onClose, onOpenInvent
             <p className="mt-1 leading-5">
               {plan.context.scheduled_people == null
                 ? "Kora no confirmó un horario publicado; esta lista fue solicitada manualmente."
-                : `Según el horario hay ${plan.context.scheduled_people} personas en turno y ${plan.context.available_people ?? 0} con capacidad estimada después de reservar ventas${plan.context.open_receiving_count ? " y la recepción activa" : ""}.`}
+                : `Según el horario${plan.context.schedule_status === "draft" ? " en borrador" : ""} hay ${plan.context.scheduled_people} personas en turno y ${plan.context.available_people ?? 0} con capacidad estimada después de reservar ventas${plan.context.open_receiving_count ? " y la recepción activa" : ""}.`}
             </p>
           </div>
 
