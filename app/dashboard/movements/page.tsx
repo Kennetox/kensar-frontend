@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "../../providers/AuthProvider";
+import StockSanitizationPlanModal from "../components/StockSanitizationPlanModal";
 import {
   applyInventoryRecount,
   cancelInventoryRecount,
@@ -51,6 +52,12 @@ import {
   type ReceivingProductGroupOption,
   type ManualMovementDocumentRead,
 } from "@/lib/api/inventory";
+import {
+  convertKoraStockPlan,
+  fetchCurrentKoraStockPlan,
+  retrieveKoraStockPlan,
+  type KoraStockPlan,
+} from "@/lib/api/koraStockPlans";
 import {
   LABEL_AGENT_DEFAULT_FORMAT,
   LABEL_AGENT_DEFAULT_PRINT_URL,
@@ -271,6 +278,10 @@ export default function MovementsPage() {
   const [newRecountNotes, setNewRecountNotes] = useState("");
   const [creatingRecount, setCreatingRecount] = useState(false);
   const [recountView, setRecountView] = useState<"home" | "form" | "document">("home");
+  const [koraGuidedPlan, setKoraGuidedPlan] = useState<KoraStockPlan | null>(null);
+  const [koraGuidedModalOpen, setKoraGuidedModalOpen] = useState(false);
+  const [koraGuidedLoading, setKoraGuidedLoading] = useState(false);
+  const [koraGuidedStarting, setKoraGuidedStarting] = useState(false);
 
   const [receivingDocs, setReceivingDocs] = useState<ReceivingDocumentPage | null>(null);
   const [receivingLoading, setReceivingLoading] = useState(false);
@@ -1037,6 +1048,14 @@ export default function MovementsPage() {
         }
 
         if (cancelled || !mergedDetail) return;
+        if (
+          isDifferencesView &&
+          mergedDetail.recount.count_mode === "blind" &&
+          !["closed", "applied", "cancelled"].includes(mergedDetail.recount.status)
+        ) {
+          setRecountLineViewMode("counted");
+          return;
+        }
         mergedDetail.lines = allLines;
         setRecountDetail(mergedDetail);
         setRecountCountedDraft((prev) => {
@@ -1204,6 +1223,10 @@ export default function MovementsPage() {
       netQty,
     };
   }, [recountDetail]);
+
+  const hideRecountSystemQuantities =
+    recountDetail?.recount.count_mode === "blind" &&
+    !["closed", "applied", "cancelled"].includes(recountDetail.recount.status);
 
   const recountLinesVisible = useMemo(() => {
     const lines = recountDetail?.lines ?? [];
@@ -1374,6 +1397,105 @@ export default function MovementsPage() {
       setRecountFeedback(err instanceof Error ? err.message : "No se pudo crear el recuento.");
     } finally {
       setCreatingRecount(false);
+    }
+  };
+
+  const prepareKoraGuidedRecount = async () => {
+    if (!token || koraGuidedLoading) return;
+    if (recountCreationBlocked) {
+      setRecountFeedback(
+        "Límite alcanzado: aplica o cancela uno de los 2 recuentos actuales antes de pedir otro a Kora."
+      );
+      return;
+    }
+
+    setKoraGuidedLoading(true);
+    setRecountFeedback(null);
+    try {
+      const current = await fetchCurrentKoraStockPlan(token);
+      let plan = current.plan ?? null;
+
+      if (plan?.status === "converted") {
+        const linkedRecount = openRecountDocs.find(
+          (document) => document.id === plan?.converted_recount_id
+        );
+        if (linkedRecount?.source === "web") {
+          setSelectedRecountId(linkedRecount.id);
+          setRecountLineViewMode("counted");
+          setRecountView("document");
+          setRecountFeedback(`Continuando el recuento guiado ${linkedRecount.code}.`);
+        } else {
+          setRecountFeedback(
+            linkedRecount
+              ? `El plan ${plan.code} ya está activo en Metrik Stock como ${linkedRecount.code}.`
+              : `El plan ${plan.code} ya fue convertido en un recuento.`
+          );
+        }
+        return;
+      }
+
+      if (!plan) {
+        const retrieved = await retrieveKoraStockPlan(token, {
+          requestedCount: 15,
+          lookbackDays: 30,
+        });
+        plan = retrieved.plan ?? null;
+        if (!plan) {
+          setRecountFeedback(retrieved.message || "Kora no encontró productos para un recuento guiado.");
+          return;
+        }
+      }
+
+      if (plan.status !== "ready") {
+        setRecountFeedback(`El plan ${plan.code} no está disponible para iniciar un recuento.`);
+        return;
+      }
+
+      setKoraGuidedPlan(plan);
+      setKoraGuidedModalOpen(true);
+    } catch (err) {
+      setRecountFeedback(
+        err instanceof Error ? err.message : "No se pudo preparar el recuento guiado de Kora."
+      );
+    } finally {
+      setKoraGuidedLoading(false);
+    }
+  };
+
+  const startKoraGuidedRecount = async () => {
+    if (!token || !koraGuidedPlan || koraGuidedStarting) return;
+    if (recountCreationBlocked) {
+      setKoraGuidedModalOpen(false);
+      setRecountFeedback(
+        "Límite alcanzado: aplica o cancela uno de los 2 recuentos actuales antes de iniciar el guiado."
+      );
+      return;
+    }
+
+    setKoraGuidedStarting(true);
+    setRecountFeedback(null);
+    try {
+      const conversion = await convertKoraStockPlan(token, koraGuidedPlan.id, {
+        source: "web",
+        countMode: "blind",
+      });
+      setKoraGuidedPlan(conversion.plan);
+      setKoraGuidedModalOpen(false);
+      setRecountSearch("");
+      setRecountSearchApplied("");
+      setRecountLineViewMode("counted");
+      setSelectedRecountId(conversion.recount.id);
+      setRecountView("document");
+      setRecountFeedback(
+        `Recuento guiado ${conversion.recount.code} creado con ${conversion.recount.summary.total_lines} productos priorizados por Kora.`
+      );
+      setRefreshNonce((prev) => prev + 1);
+    } catch (err) {
+      setRecountFeedback(
+        err instanceof Error ? err.message : "No se pudo crear el recuento guiado de Kora."
+      );
+    } finally {
+      setKoraGuidedStarting(false);
     }
   };
 
@@ -3319,22 +3441,43 @@ export default function MovementsPage() {
                     />
                     <StatCard
                       label="Con diferencia"
-                      value={`${recountDetail.recount.summary.difference_lines}`}
+                      value={
+                        hideRecountSystemQuantities
+                          ? "Oculto"
+                          : `${recountDetail.recount.summary.difference_lines}`
+                      }
                     />
                     <StatCard
                       label="Diferencia total"
-                      value={formatQty(recountDetail.recount.summary.total_diff_qty)}
+                      value={
+                        hideRecountSystemQuantities
+                          ? "Oculto"
+                          : formatQty(recountDetail.recount.summary.total_diff_qty)
+                      }
                     />
                   </div>
                   <div className="mt-3 grid gap-3 sm:grid-cols-4">
-                    <StatCard label="Afectados" value={`${recountDiffSummary.affectedLines}`} />
-                    <StatCard label="Ajuste +" value={`+${formatQty(recountDiffSummary.plusQty)}`} />
-                    <StatCard label="Ajuste -" value={`-${formatQty(recountDiffSummary.minusQty)}`} />
+                    <StatCard
+                      label="Afectados"
+                      value={hideRecountSystemQuantities ? "Oculto" : `${recountDiffSummary.affectedLines}`}
+                    />
+                    <StatCard
+                      label="Ajuste +"
+                      value={hideRecountSystemQuantities ? "Oculto" : `+${formatQty(recountDiffSummary.plusQty)}`}
+                    />
+                    <StatCard
+                      label="Ajuste -"
+                      value={hideRecountSystemQuantities ? "Oculto" : `-${formatQty(recountDiffSummary.minusQty)}`}
+                    />
                     <StatCard
                       label="Neto unidades"
-                      value={`${recountDiffSummary.netQty > 0 ? "+" : ""}${formatQty(
-                        recountDiffSummary.netQty
-                      )}`}
+                      value={
+                        hideRecountSystemQuantities
+                          ? "Oculto"
+                          : `${recountDiffSummary.netQty > 0 ? "+" : ""}${formatQty(
+                              recountDiffSummary.netQty
+                            )}`
+                      }
                     />
                   </div>
 
@@ -3343,10 +3486,11 @@ export default function MovementsPage() {
                       <button
                         type="button"
                         onClick={() => setRecountLineViewMode("differences")}
+                        disabled={hideRecountSystemQuantities}
                         className={`rounded-md px-3 py-1 text-xs font-semibold ${
                           recountLineViewMode === "differences"
                             ? "bg-white text-slate-900 shadow-sm"
-                            : "text-slate-600 hover:text-slate-800"
+                            : "text-slate-600 hover:text-slate-800 disabled:cursor-not-allowed disabled:text-slate-400"
                         }`}
                       >
                         Solo diferencias
@@ -3422,11 +3566,13 @@ export default function MovementsPage() {
                           const effectiveCounted =
                             isEditable ? counted : line.counted_qty ?? null;
                           const diff =
-                            isEditable
+                            isEditable && !hideRecountSystemQuantities
                               ? counted == null || Number.isNaN(counted)
                                 ? null
                                 : counted - line.system_qty
-                              : line.diff_qty ?? null;
+                              : isEditable
+                                ? null
+                                : line.diff_qty ?? null;
                           return (
                             <tr key={line.id} className="odd:bg-white even:bg-slate-50">
                               <td className="px-2.5 py-1.5">
@@ -3434,7 +3580,7 @@ export default function MovementsPage() {
                                 <p className="text-[11px] text-slate-500">{line.sku || "-"}</p>
                               </td>
                               <td className="px-2.5 py-1.5 text-right tabular-nums text-slate-700">
-                                {formatQty(line.system_qty)}
+                                {hideRecountSystemQuantities ? "Oculto" : formatQty(line.system_qty)}
                               </td>
                               <td className="px-2.5 py-1.5 text-right">
                                 {isEditable ? (
@@ -3501,26 +3647,44 @@ export default function MovementsPage() {
             </div>
           ) : (
             <>
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
-                <h3 className="text-sm font-semibold text-slate-900">Iniciar recuento desde web</h3>
-                <p className="mt-1 text-xs text-slate-600">
-                  Crea el documento con un formulario dedicado, igual al flujo de formularios en Movimientos.
-                </p>
-                {recountCreationBlocked ? (
-                  <p className="mt-2 text-xs font-medium text-amber-700">
-                    Límite alcanzado: ya hay 2 recuentos en curso/pedientes.
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold text-slate-900">Iniciar recuento desde web</h3>
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-700">
+                      Kora disponible
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Configúralo manualmente o deja que Kora priorice los productos que más conviene sanear hoy.
                   </p>
-                ) : null}
-                <button
-                  onClick={() => {
-                    setRecountFeedback(null);
-                    setRecountView("form");
-                  }}
-                  disabled={recountCreationBlocked}
-                  className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Iniciar formulario
-                </button>
+                  {recountCreationBlocked ? (
+                    <p className="mt-1 text-xs font-medium text-amber-700">
+                      Límite alcanzado: ya hay 2 recuentos en curso o pendientes.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecountFeedback(null);
+                      setRecountView("form");
+                    }}
+                    disabled={recountCreationBlocked || koraGuidedLoading}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Recuento manual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void prepareKoraGuidedRecount()}
+                    disabled={recountCreationBlocked || koraGuidedLoading}
+                    className="rounded-lg border border-emerald-500 bg-emerald-500 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {koraGuidedLoading ? "Preparando..." : "Recuento guiado por Kora"}
+                  </button>
+                </div>
               </div>
 
               <div className="mt-3 grid gap-3.5 lg:grid-cols-2">
@@ -3894,6 +4058,18 @@ export default function MovementsPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {koraGuidedModalOpen && koraGuidedPlan ? (
+        <StockSanitizationPlanModal
+          plan={koraGuidedPlan}
+          hideSystemStock
+          startingGuidedRecount={koraGuidedStarting}
+          onStartGuidedRecount={() => void startKoraGuidedRecount()}
+          onClose={() => {
+            if (!koraGuidedStarting) setKoraGuidedModalOpen(false);
+          }}
+        />
       ) : null}
 
       {recountPrintModalOpen ? (

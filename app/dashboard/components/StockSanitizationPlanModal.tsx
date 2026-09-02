@@ -8,6 +8,9 @@ type Props = {
   plan: KoraStockPlan;
   onClose: () => void;
   onOpenInventory?: () => void;
+  onStartGuidedRecount?: () => void;
+  startingGuidedRecount?: boolean;
+  hideSystemStock?: boolean;
 };
 
 function formatNumber(value: number): string {
@@ -24,7 +27,14 @@ function workloadLabel(value: KoraStockPlan["workload_state"]): string {
   return "Actividad sin confirmar";
 }
 
-export default function StockSanitizationPlanModal({ plan, onClose, onOpenInventory }: Props) {
+export default function StockSanitizationPlanModal({
+  plan,
+  onClose,
+  onOpenInventory,
+  onStartGuidedRecount,
+  startingGuidedRecount = false,
+  hideSystemStock = false,
+}: Props) {
   const [copied, setCopied] = useState(false);
   const orderedItems = useMemo(
     () => [...plan.items].sort((left, right) => left.priority_rank - right.priority_rank),
@@ -47,10 +57,10 @@ export default function StockSanitizationPlanModal({ plan, onClose, onOpenInvent
   const copyList = async () => {
     const text = [
       `${plan.code} · ${plan.title}`,
-      ...orderedItems.map(
-        (item) =>
-          `${item.priority_rank}. ${item.product_name} · SKU ${item.sku || "sin SKU"} · stock ${formatNumber(item.system_qty)}`
-      ),
+      ...orderedItems.map((item) => {
+        const identity = `${item.priority_rank}. ${item.product_name} · SKU ${item.sku || "sin SKU"}`;
+        return hideSystemStock ? identity : `${identity} · stock ${formatNumber(item.system_qty)}`;
+      }),
     ].join("\n");
     try {
       await navigator.clipboard.writeText(text);
@@ -160,8 +170,12 @@ export default function StockSanitizationPlanModal({ plan, onClose, onOpenInvent
                     )}
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">Stock en Metrik</p>
-                    <p className="mt-0.5 text-lg font-bold text-rose-600">{formatNumber(item.system_qty)}</p>
+                    <p className="text-xs text-slate-500">
+                      {hideSystemStock ? "Conteo ciego" : "Stock en Metrik"}
+                    </p>
+                    <p className={`mt-0.5 text-lg font-bold ${hideSystemStock ? "text-slate-700" : "text-rose-600"}`}>
+                      {hideSystemStock ? "Oculto" : formatNumber(item.system_qty)}
+                    </p>
                   </div>
                   <div className="md:text-right">
                     <p className="text-xs text-slate-500">Impacto estimado a costo</p>
@@ -176,7 +190,9 @@ export default function StockSanitizationPlanModal({ plan, onClose, onOpenInvent
 
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-4 md:px-7">
           <p className="max-w-xl text-xs leading-5 text-slate-500">
-            El plan queda guardado en Metrik. La conexión para convertirlo en recuento se activará desde Metrik Stock.
+            {onStartGuidedRecount
+              ? "Al iniciar, Metrik creará un recuento ciego con estos productos y lo abrirá para captura en esta pantalla."
+              : "El plan queda guardado en Metrik y puede convertirse en un recuento dirigido desde Metrik Stock."}
           </p>
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" onClick={() => void copyList()} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
@@ -187,9 +203,20 @@ export default function StockSanitizationPlanModal({ plan, onClose, onOpenInvent
                 Ver inventario negativo
               </button>
             )}
-            <button type="button" onClick={onClose} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-600">
-              Entendido
-            </button>
+            {onStartGuidedRecount ? (
+              <button
+                type="button"
+                onClick={onStartGuidedRecount}
+                disabled={startingGuidedRecount}
+                className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-600 disabled:cursor-wait disabled:opacity-60"
+              >
+                {startingGuidedRecount ? "Creando recuento..." : "Crear recuento guiado"}
+              </button>
+            ) : (
+              <button type="button" onClick={onClose} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-600">
+                Entendido
+              </button>
+            )}
           </div>
         </footer>
       </section>

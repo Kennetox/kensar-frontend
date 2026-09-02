@@ -1,4 +1,5 @@
 import { getApiBase } from "@/lib/api/base";
+import type { InventoryRecountRecord } from "@/lib/api/inventory";
 
 export type KoraStockPlanItem = {
   id: number;
@@ -71,6 +72,11 @@ export type KoraStockPlanResponse = {
   plan?: KoraStockPlan | null;
 };
 
+export type KoraStockPlanConversion = {
+  plan: KoraStockPlan;
+  recount: InventoryRecountRecord;
+};
+
 function errorMessage(body: unknown, status: number): string {
   if (body && typeof body === "object" && "detail" in body) {
     const detail = (body as { detail?: unknown }).detail;
@@ -111,6 +117,25 @@ export async function retrieveKoraStockPlan(
       requested_count: options?.requestedCount ?? 15,
       lookback_days: options?.lookbackDays ?? 30,
       group_name: options?.groupName?.trim() || null,
+    }),
+  });
+}
+
+export async function convertKoraStockPlan(
+  token: string,
+  planId: number,
+  options?: {
+    source?: "web" | "app";
+    stockDeviceId?: string | null;
+    countMode?: "blind" | "visible";
+  }
+): Promise<KoraStockPlanConversion> {
+  return request<KoraStockPlanConversion>(token, `/kora/stock-sanitization-plans/${planId}/convert`, {
+    method: "POST",
+    body: JSON.stringify({
+      source: options?.source ?? "web",
+      stock_device_id: options?.stockDeviceId?.trim() || null,
+      count_mode: options?.countMode ?? "blind",
     }),
   });
 }
