@@ -51,6 +51,8 @@ export type QueryIntent =
   | "inventory_overview"
   | "inventory_critical"
   | "inventory_low"
+  | "stock_sanitization_plan"
+  | "stock_sanitization_plan_modal"
   | "sales_overview"
   | "sales_day_reading"
   | "sales_today"
@@ -154,6 +156,46 @@ function isWebOpportunityFollowUp(input: string) {
     "cuales convienen",
     "que oportunidades hay",
   ]);
+}
+
+function isStockSanitizationQuery(input: string) {
+  const text = normalizeQuery(input);
+  const hasInventorySignal =
+    text.includes("stock") ||
+    text.includes("inventario") ||
+    text.includes("producto") ||
+    text.includes("productos");
+  const hasNegativeSignal =
+    text.includes("negativo") ||
+    text.includes("negativos") ||
+    text.includes("sanear") ||
+    text.includes("saneamiento") ||
+    text.includes("depurar");
+  const asksForWork = hasPhrase(text, [
+    "dame una tarea",
+    "dame tarea",
+    "preparame una tarea",
+    "prepara una tarea",
+    "dame una lista",
+    "preparame una lista",
+    "prepara una lista",
+    "que podemos revisar",
+    "que puedo revisar",
+    "productos para revisar",
+    "revision de negativos",
+    "revisar negativos",
+    "lista de negativos",
+    "plan de saneamiento",
+    "saneamiento de stock",
+    "sanear el stock",
+    "sanear stock",
+    "sanear inventario",
+    "tarea de inventario",
+    "tarea de stock",
+    "saneamiento de hoy",
+    "lista de hoy",
+  ]);
+  return asksForWork && (hasInventorySignal || hasNegativeSignal) || (hasInventorySignal && hasNegativeSignal && text.includes("lista"));
 }
 
 function detectTaskSignal(text: string) {
@@ -295,6 +337,7 @@ export function detectIntent(input: string, resolveModuleFromQuery: ResolveModul
   const text = normalizeQuery(input);
   const tokens = tokenizeQuery(input);
   if (!text) return "unknown";
+  if (isStockSanitizationQuery(input)) return "stock_sanitization_plan";
 
   const hasModule = !!resolveModuleFromQuery(text);
   const salesAliases = [
@@ -858,6 +901,7 @@ export function resolveIntentWithContext(
   resolveModuleFromQuery: ResolveModuleFromQuery
 ): QueryIntent {
   const text = normalizeQuery(input);
+  if (isStockSanitizationQuery(input)) return "stock_sanitization_plan";
   const asksRestockFromSoldHistory = isRestockFromSoldHistory(text);
   const isCasualCheckIn = isCasualCheckInText(text);
   const asksAnySales =
@@ -1269,6 +1313,7 @@ export function buildIntentCandidates(input: string, resolveModuleFromQuery: Res
   const candidates: IntentCandidate[] = [];
   const push = (intent: QueryIntent, score: number) => candidates.push({ intent, score });
   const hasModule = !!resolveModuleFromQuery(text);
+  if (isStockSanitizationQuery(input)) push("stock_sanitization_plan", 99);
 
   const hasSales = hasTokenStartingWith(tokens, ["vent", "vend", "factur", "ingres", "ticket"]);
   const hasDate = !!parseSpecificDate(text);

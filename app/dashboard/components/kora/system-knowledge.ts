@@ -30,13 +30,14 @@ export const MODULE_SYSTEM_KNOWLEDGE: Record<KoraModuleKey, ModuleSystemKnowledg
   },
   movimientos: {
     frontendSurface: ["/dashboard/movements", "/dashboard/movements/form/:kind"],
-    backendCapabilities: ["/inventory/movements", "/inventory/recounts", "/manual-movements/documents", "/inventory/products/{id}/history"],
+    backendCapabilities: ["/inventory/movements", "/inventory/recounts", "/manual-movements/documents", "/inventory/products/{id}/history", "/kora/stock-sanitization-plans"],
     operatorCapabilities: [
       "explicar flujos de entrada, salida, ajuste y reconteo",
       "guiar cierre o cancelacion de documentos de movimiento",
       "ayudar a rastrear historial de inventario por producto",
+      "preparar y recuperar listas priorizadas para sanear stock negativo",
     ],
-    suggestedPrompts: ["como registrar entrada manual", "como hacer reconteo", "como revisar trazabilidad de un producto"],
+    suggestedPrompts: ["como registrar entrada manual", "dame una tarea para sanear stock", "como revisar trazabilidad de un producto"],
   },
   documentos: {
     frontendSurface: ["/dashboard/documents"],

@@ -619,6 +619,15 @@ export default function MovementsPage() {
   }, []);
 
   useEffect(() => {
+    if (searchParams.get("tab") !== "inventory") return;
+    if (searchParams.get("stock") !== "negative") return;
+    setInventoryStockFilter("negative");
+    setInventoryStatusFilter("all");
+    setInventorySort("stock_asc");
+    setInventoryPageNo(1);
+  }, [searchParams]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const snapshot: InventoryFiltersSnapshot = {
       savedAt: Date.now(),

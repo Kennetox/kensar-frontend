@@ -13,6 +13,12 @@ import {
 import WebOpportunityReviewModal from "./WebOpportunityReviewModal";
 import OperationalNotificationModal from "./OperationalNotificationModal";
 import NotificationReviewModal from "./NotificationReviewModal";
+import StockSanitizationPlanModal from "./StockSanitizationPlanModal";
+import {
+  fetchKoraStockPlan,
+  readKoraStockPlanFromNotificationPayload,
+  type KoraStockPlan,
+} from "@/lib/api/koraStockPlans";
 
 
 const severityStyle: Record<DashboardNotification["severity"], string> = {
@@ -55,6 +61,7 @@ export default function NotificationCenter({ token }: { token: string }) {
   const [webOpportunityNotification, setWebOpportunityNotification] = useState<DashboardNotification | null>(null);
   const [operationalNotification, setOperationalNotification] = useState<DashboardNotification | null>(null);
   const [detailNotification, setDetailNotification] = useState<DashboardNotification | null>(null);
+  const [stockPlan, setStockPlan] = useState<KoraStockPlan | null>(null);
   const centerRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async (silent = false) => {
@@ -120,6 +127,24 @@ export default function NotificationCenter({ token }: { token: string }) {
 
   const handleAction = async (notification: DashboardNotification) => {
     await markRead(notification);
+    if (notification.category === "stock_sanitization") {
+      setOpen(false);
+      const embeddedPlan = readKoraStockPlanFromNotificationPayload(notification.payload);
+      if (embeddedPlan) {
+        setStockPlan(embeddedPlan);
+        return;
+      }
+      const planId = Number(notification.payload?.plan_id);
+      if (Number.isFinite(planId) && planId > 0) {
+        try {
+          setStockPlan(await fetchKoraStockPlan(token, planId));
+          return;
+        } catch {
+          setError("No fue posible recuperar la lista propuesta por Kora.");
+        }
+      }
+      return;
+    }
     if (notification.category === "web_opportunity") {
       setOpen(false);
       setWebOpportunityNotification(notification);
@@ -405,6 +430,16 @@ export default function NotificationCenter({ token }: { token: string }) {
                 }
               : undefined
           }
+        />
+      )}
+      {stockPlan && (
+        <StockSanitizationPlanModal
+          plan={stockPlan}
+          onClose={() => setStockPlan(null)}
+          onOpenInventory={() => {
+            setStockPlan(null);
+            router.push("/dashboard/movements?tab=inventory&stock=negative");
+          }}
         />
       )}
     </div>

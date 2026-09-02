@@ -41,6 +41,11 @@ import {
   type KoraModuleKey,
 } from "./kora/module-knowledge";
 import { getModuleSystemKnowledge } from "./kora/system-knowledge";
+import {
+  retrieveKoraStockPlan,
+  type KoraStockPlan,
+} from "@/lib/api/koraStockPlans";
+import StockSanitizationPlanModal from "./StockSanitizationPlanModal";
 
 type KoraOpsAssistantProps = {
   enabled: boolean;
@@ -1033,6 +1038,8 @@ function intentLabel(intent: QueryIntent) {
     sales_overview: "Resumen comercial",
     sales_day_reading: "Lectura del día",
     inventory_overview: "Resumen inventario",
+    stock_sanitization_plan: "Preparar saneamiento de stock",
+    stock_sanitization_plan_modal: "Ver lista de saneamiento",
     web_opportunities: "Oportunidades para la web",
     web_overview: "Resumen comercio web",
   };
@@ -1155,6 +1162,7 @@ export default function KoraOpsAssistant({
   const [restockReport, setRestockReport] = useState<KoraRestockForecastResponse | null>(null);
   const [restockReportSaving, setRestockReportSaving] = useState(false);
   const [restockDebugOpen, setRestockDebugOpen] = useState(false);
+  const [stockSanitizationPlan, setStockSanitizationPlan] = useState<KoraStockPlan | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const nextIdRef = useRef(2);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -1177,6 +1185,7 @@ export default function KoraOpsAssistant({
   const nudgeReappearTimeoutRef = useRef<number | null>(null);
   const sessionContextRef = useRef<KoraSessionContext>(getInitialSessionContext());
   const latestRestockReportRef = useRef<KoraRestockForecastResponse | null>(null);
+  const latestStockSanitizationPlanRef = useRef<KoraStockPlan | null>(null);
   const initialQuickActionRunRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -4083,6 +4092,75 @@ export default function KoraOpsAssistant({
     setRestockReport(report);
   }
 
+  function requestedSanitizationCount(input: string): number {
+    const values = Array.from(normalizeQuery(input).matchAll(/\b(\d{1,2})\b/g))
+      .map((match) => Number(match[1]))
+      .filter((value) => Number.isFinite(value) && value >= 5 && value <= 30);
+    return values[0] ?? 15;
+  }
+
+  async function answerStockSanitizationPlan(input: string) {
+    if (!token) {
+      pushMessage("kora", "Necesito una sesión activa para consultar y guardar el plan de saneamiento.");
+      return;
+    }
+    setBusy(true);
+    lastTopicRef.current = "inventory";
+    lastEntityRef.current = { ...lastEntityRef.current, moduleKey: "movimientos" };
+    try {
+      const response = await retrieveKoraStockPlan(token, {
+        requestedCount: requestedSanitizationCount(input),
+        lookbackDays: 30,
+      });
+      const plan = response.plan;
+      if (!plan) {
+        pushMessage(
+          "kora",
+          response.message || "No encontré productos negativos elegibles para preparar una lista ahora."
+        );
+        return;
+      }
+      latestStockSanitizationPlanRef.current = plan;
+      const context = plan.context;
+      const retrievalText = response.state === "existing"
+        ? "Ya había una lista vigente y recuperé la misma para no duplicar el trabajo."
+        : "Preparé una nueva lista y quedó guardada en Metrik.";
+      const scheduleText = context.scheduled_people == null
+        ? "No usé el horario como condición porque tú la solicitaste directamente."
+        : `Según el horario hay ${context.scheduled_people} personas en turno; la capacidad estimada después de ventas${context.open_receiving_count ? " y recepción" : ""} es ${context.available_people ?? 0}.`;
+      pushMessage(
+        "kora",
+        `${retrievalText}\n\n${plan.selected_count} productos · ${formatMoney(plan.total_negative_units)} unidades negativas · impacto a costo ${formatMoney(plan.total_cost_impact)} COP.\n${scheduleText}\n\nLa revisión y el ajuste se realizan desde Metrik Stock; yo conservaré esta selección para que puedas volver a pedírmela.`,
+        [
+          {
+            id: `stock-sanitization-open-${plan.id}`,
+            label: "Ver lista propuesta",
+            intent: "stock_sanitization_plan_modal",
+          },
+          {
+            id: `stock-sanitization-inventory-${plan.id}`,
+            label: "Ver inventario negativo",
+            href: "/dashboard/movements?tab=inventory&stock=negative",
+          },
+        ]
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible preparar el plan.";
+      pushMessage("kora", `No pude recuperar el saneamiento ahora. ${message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openStockSanitizationPlanModal() {
+    const plan = latestStockSanitizationPlanRef.current;
+    if (!plan) {
+      pushMessage("kora", "Todavía no tengo una lista de saneamiento cargada. Pídeme que prepare una primero.");
+      return;
+    }
+    setStockSanitizationPlan(plan);
+  }
+
   async function refreshRestockReport() {
     const currentReport = restockReport ?? latestRestockReportRef.current;
     if (!currentReport || !ensureToken()) return;
@@ -4410,6 +4488,14 @@ export default function KoraOpsAssistant({
       await answerProductRestockAdvice(input);
       return "handled" as const;
     }
+    if (intent === "stock_sanitization_plan") {
+      await answerStockSanitizationPlan(input);
+      return "handled" as const;
+    }
+    if (intent === "stock_sanitization_plan_modal") {
+      openStockSanitizationPlanModal();
+      return "handled" as const;
+    }
     if (intent === "product_restock_general") {
       await answerProductRestockForecast(input, "general");
       return "handled" as const;
@@ -4643,7 +4729,9 @@ export default function KoraOpsAssistant({
     pendingCustomerSalesNavigationRef.current = null;
     lastUserInputRef.current = action.label;
     updateToneModeFromUserInput(action.label);
-    const shouldEchoAsUserMessage = action.intent !== "restock_report_modal";
+    const shouldEchoAsUserMessage =
+      action.intent !== "restock_report_modal" &&
+      action.intent !== "stock_sanitization_plan_modal";
     if (shouldEchoAsUserMessage) {
       pushMessage("user", action.label);
     }
@@ -4707,6 +4795,8 @@ export default function KoraOpsAssistant({
     setDraft("");
     setRestockReport(null);
     setRestockDebugOpen(false);
+    setStockSanitizationPlan(null);
+    latestStockSanitizationPlanRef.current = null;
     lastTopicRef.current = null;
     lastSaleLookupRef.current = null;
     lastEntityRef.current = {};
@@ -5113,6 +5203,17 @@ export default function KoraOpsAssistant({
           </form>
         </footer>
       </section>
+      {stockSanitizationPlan ? (
+        <StockSanitizationPlanModal
+          plan={stockSanitizationPlan}
+          onClose={() => setStockSanitizationPlan(null)}
+          onOpenInventory={() => {
+            setStockSanitizationPlan(null);
+            router.push("/dashboard/movements?tab=inventory&stock=negative");
+            setOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

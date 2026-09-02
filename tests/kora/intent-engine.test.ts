@@ -159,6 +159,19 @@ test("detectIntent inventory critical", () => {
   assertIntent("inventario critico", "inventory_critical");
 });
 
+test("detectIntent stock sanitization requests", () => {
+  assertIntent("Kora, dame una tarea para sanear el stock", "stock_sanitization_plan");
+  assertIntent("prepárame una lista de 15 productos negativos", "stock_sanitization_plan");
+  assertIntent("qué podemos revisar hoy del inventario negativo", "stock_sanitization_plan");
+});
+
+test("resolveIntentWithContext retrieves stock sanitization plan", () => {
+  assert.equal(
+    resolveIntentWithContext("muéstrame el plan de saneamiento de hoy", "inventory", {}, resolveModuleFromQuery),
+    "stock_sanitization_plan"
+  );
+});
+
 test("detectIntent web pending", () => {
   assertIntent("comercio web pendientes", "module_playbook_task");
 });
