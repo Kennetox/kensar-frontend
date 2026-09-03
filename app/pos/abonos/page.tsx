@@ -29,6 +29,7 @@ import {
   type PosAccessMode,
 } from "@/lib/api/posStations";
 import { formatBogotaDate, getBogotaDateKey } from "@/lib/time/bogota";
+import { buildSeparatedOrderLookups } from "@/lib/pos/separatedOrderLookup";
 
 const BLOCKED_PAYMENT_SLUGS = new Set(["separado", "credito"]);
 
@@ -489,19 +490,12 @@ export default function AbonosPage() {
       setResult(null);
       setSaleDetail(null);
       try {
-        const numericCandidate = trimmed.replace(/[^\d]/g, "");
-        const params: Parameters<typeof fetchSeparatedOrders>[0] = {
-          limit: 5,
-        };
-        if (numericCandidate) {
-          params.saleNumber = Number(numericCandidate);
+        let orders: SeparatedOrder[] = [];
+        const lookups = buildSeparatedOrderLookups(trimmed);
+        for (const lookup of lookups) {
+          orders = await fetchSeparatedOrders({ ...lookup, limit: 5 }, token);
+          if (orders.length) break;
         }
-        if (trimmed && /\D/.test(trimmed)) {
-          params.barcode = trimmed;
-        } else if (!numericCandidate) {
-          params.barcode = trimmed;
-        }
-        const orders = await fetchSeparatedOrders(params, token);
         if (!orders.length) {
           setLookupError("No se encontró un separado con ese código.");
           return;
