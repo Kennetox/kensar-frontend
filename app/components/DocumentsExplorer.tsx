@@ -999,6 +999,7 @@ export default function DocumentsExplorer({
             vendor: sale.vendor_name ?? undefined,
             status: sale.status,
             closureId: sale.closure_id ?? null,
+            isSummary: false,
             data: sale,
           },
         } as const;
@@ -1037,6 +1038,7 @@ export default function DocumentsExplorer({
             vendor: lot.closed_by_user_name ?? undefined,
             status: lot.status,
             closureId: null,
+            isSummary: false,
             data: {
               ...lot,
               lines_count: detail.items.length,
@@ -1080,6 +1082,7 @@ export default function DocumentsExplorer({
               undefined,
             status: recount.status,
             closureId: null,
+            isSummary: false,
             data: recount,
           },
           recountDetail: detail,
@@ -1117,6 +1120,7 @@ export default function DocumentsExplorer({
             vendor: doc.closed_by_user_name ?? doc.created_by_user_name ?? undefined,
             status: doc.status,
             closureId: null,
+            isSummary: false,
             data: doc,
           },
           manualMovementDetail: detail,
@@ -1600,7 +1604,10 @@ export default function DocumentsExplorer({
       setSelectedDoc((current) => {
         if (current) {
           const same = nextRows.find((row) => row.id === current.id);
-          if (same) return same;
+          // A background refresh only returns summary rows. Keep an already
+          // loaded detail so its products/payments are not replaced by the
+          // summary's intentionally empty arrays.
+          if (same) return current.isSummary === false ? current : same;
         }
         return nextRows[0] ?? null;
       });
