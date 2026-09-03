@@ -1602,6 +1602,11 @@ export default function DocumentsExplorer({
       setSearchRows(nextRows);
       setSearchHasMore(unifiedPage.has_more);
       setSelectedDoc((current) => {
+        // The detail opened from inventory can be outside the first search
+        // page. A list refresh must never evict it while its panel is open.
+        if (current?.isSummary === false && (isBackgroundLoad || documentDetailOpen)) {
+          return current;
+        }
         if (current) {
           const same = nextRows.find((row) => row.id === current.id);
           // A background refresh only returns summary rows. Keep an already
@@ -2933,6 +2938,11 @@ export default function DocumentsExplorer({
   ]);
 
 useEffect(() => {
+  // A directly opened detail does not have to belong to the current 50-row
+  // search page. Keep it mounted until the user explicitly returns to the list.
+  if (documentDetailOpen && selectedDoc?.isSummary === false) {
+    return;
+  }
   if (filteredDocuments.length === 0) {
     if (selectedDoc && fastOpenInProgressRef.current) {
       return;
