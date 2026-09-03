@@ -142,7 +142,10 @@ export default function ListaAbonosPage() {
   const timeFilteredOrders = useMemo(() => {
     if (!orders.length) return orders;
     const statusOrders = orders.filter((order) => {
-      if (status === "reservado") return !isOverdue(order);
+      // "Activos" represents every separated order that is still reserved
+      // and has not been paid or cancelled. Overdue orders remain actionable,
+      // so keep them visible here as well as in the dedicated overdue filter.
+      if (status === "reservado") return true;
       if (status === "vencido") return isOverdue(order);
       return true;
     });

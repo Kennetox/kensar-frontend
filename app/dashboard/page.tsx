@@ -32,7 +32,7 @@ import LoadingSpinner from "../components/ui/LoadingSpinner";
 
 const DASHBOARD_CACHE_PREFIX = "kensar_dashboard_cache:v3:";
 const RECENT_SALES_CACHE_KEY = "recent-sales:v3";
-const SEPARATED_ORDERS_CACHE_KEY = "separated-orders:v3";
+const SEPARATED_ORDERS_CACHE_KEY = "separated-orders:v4";
 const PAYMENT_METHODS_CACHE_VERSION = "v3";
 const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
 
@@ -1185,8 +1185,13 @@ export default function DashboardHomePage() {
     const separatedOrderBySaleId = new Map<number, SeparatedOrder>();
     const shortenText = (value: string, maxLength = 28) =>
       value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
-    const buildDetail = (sale: RecentSale) => {
-      const items = sale.items ?? [];
+    const buildItemsDetail = (
+      items: Array<{
+        product_name?: string | null;
+        name?: string | null;
+        quantity?: number | null;
+      }>
+    ) => {
       if (!items.length) return "Sin detalle";
       const parts = items.slice(0, 2).map((item) => {
         const name = item.product_name ?? item.name ?? "Producto";
@@ -1196,6 +1201,7 @@ export default function DashboardHomePage() {
       const remaining = items.length - parts.length;
       return remaining > 0 ? `${parts.join(" · ")} +${remaining}` : parts.join(" · ");
     };
+    const buildDetail = (sale: RecentSale) => buildItemsDetail(sale.items ?? []);
 
     recentSales.forEach((sale) => {
       if (!sale.is_separated) return;
@@ -1210,7 +1216,9 @@ export default function DashboardHomePage() {
         order.status?.toLowerCase() === "cancelado" || Boolean(order.cancelled_at);
       if (isCancelledOrder) return;
       const saleDetail = recentSeparatedSales.get(order.sale_id);
-      const orderDetail = saleDetail ? buildDetail(saleDetail) : "Sin detalle";
+      const orderDetail = buildItemsDetail(
+        saleDetail?.items?.length ? saleDetail.items : order.items ?? []
+      );
       const saleCreatedAt =
         saleDetail?.created_at ?? order.created_at ?? order.payments?.[0]?.paid_at ?? "";
       const orderBalance = resolveSeparatedOrderPending(order, saleDetail ?? null);
