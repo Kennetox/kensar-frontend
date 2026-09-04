@@ -42,6 +42,10 @@ import {
   type ManualMovementDocumentDetail,
 } from "@/lib/api/inventory";
 import {
+  buildNetPaymentAllocation,
+  capPaymentAllocation,
+} from "@/lib/pos/paymentAdjustments";
+import {
   buildBogotaDateFromKey,
   formatBogotaDate,
   getBogotaDateKey,
@@ -116,6 +120,7 @@ type SaleRecord = {
   closure_id?: number | null;
   total?: number;
  paid_amount?: number;
+ change_amount?: number;
  cart_discount_value?: number | null;
  cart_discount_percent?: number | null;
  items?: SaleItem[];
@@ -532,6 +537,56 @@ type LocalAdjustmentPatch = {
   paymentDelta: number;
   payload: Record<string, unknown>;
   reason: string;
+};
+
+const ADJUSTMENT_GUIDANCE: Record<
+  DocumentAdjustmentRecord["adjustment_type"],
+  { title: string; description: string; steps: string[]; caution: string }
+> = {
+  payment: {
+    title: "Úsalo cuando el total de la venta está bien, pero el medio de pago quedó mal.",
+    description:
+      "Por ejemplo: se registró efectivo, pero finalmente el cliente pagó por Nequi.",
+    steps: [
+      "Verifica el valor neto aplicado a la venta.",
+      "Selecciona los medios que realmente se usaron.",
+      "Distribuye únicamente el valor neto entre esos medios.",
+    ],
+    caution: "No incluyas el cambio entregado al cliente como parte del pago.",
+  },
+  total: {
+    title: "Úsalo cuando el valor final de la venta quedó registrado incorrectamente.",
+    description:
+      "Corrige el total del documento, por ejemplo por un precio digitado incorrectamente.",
+    steps: [
+      "Confirma el total correcto de la venta.",
+      "Revisa la diferencia que muestra el sistema.",
+      "Verifica si los pagos también requieren un ajuste separado.",
+    ],
+    caution: "Este ajuste no cambia automáticamente los medios ni los valores pagados.",
+  },
+  discount: {
+    title: "Úsalo cuando faltó registrar un descuento al momento de cobrar.",
+    description:
+      "El nuevo total y la distribución de pagos deben quedar cuadrados entre sí.",
+    steps: [
+      "Ingresa el total que debía pagar el cliente.",
+      "Revisa el descuento calculado.",
+      "Confirma cómo quedó distribuido el pago final.",
+    ],
+    caution: "No lo uses solamente para cambiar de Efectivo a Nequi u otro medio.",
+  },
+  note: {
+    title: "Úsalo para dejar una aclaración sin modificar valores.",
+    description:
+      "Sirve para documentar una novedad o contexto importante sobre la venta.",
+    steps: [
+      "Describe claramente lo ocurrido.",
+      "Incluye referencias útiles para una revisión posterior.",
+      "Confirma que no necesitas corregir pagos ni el total.",
+    ],
+    caution: "Una nota no altera caja, dashboard, inventario ni totales.",
+  },
 };
 
 function formatMoney(value: number | string | undefined | null): string {
@@ -1689,8 +1744,8 @@ export default function DocumentsExplorer({
     setAdjustReason("");
     setAdjustTotalDelta("");
     const basePayments =
-      displaySalePayments.length > 0
-        ? displaySalePayments.map((payment) => ({
+      adjustmentPaymentAllocation.length > 0
+        ? adjustmentPaymentAllocation.map((payment) => ({
             id: crypto.randomUUID(),
             method: payment.method,
             amount: formatMoney(payment.amount ?? 0),
@@ -1759,6 +1814,16 @@ export default function DocumentsExplorer({
 
   function removeAdjustPayment(id: string) {
     setAdjustPayments((prev) => prev.filter((entry) => entry.id !== id));
+  }
+
+  function restoreNetPaymentAllocation() {
+    setAdjustPayments(
+      adjustmentPaymentAllocation.map((payment) => ({
+        id: crypto.randomUUID(),
+        method: payment.method,
+        amount: formatMoney(payment.amount),
+      }))
+    );
   }
 
   async function submitVoid() {
@@ -1845,7 +1910,7 @@ export default function DocumentsExplorer({
             method: entry.method,
             amount: parseMoneyString(entry.amount || "0"),
           }))
-          .filter((entry) => Number.isFinite(entry.amount));
+          .filter((entry) => Number.isFinite(entry.amount) && entry.amount > 0);
         const adjustedTotal = payments.reduce(
           (sum, entry) => sum + entry.amount,
           0
@@ -1869,7 +1934,7 @@ export default function DocumentsExplorer({
             method: entry.method,
             amount: parseMoneyString(entry.amount || "0"),
           }))
-          .filter((entry) => Number.isFinite(entry.amount));
+          .filter((entry) => Number.isFinite(entry.amount) && entry.amount > 0);
         const adjustedTotal = payments.reduce(
           (sum, entry) => sum + entry.amount,
           0
@@ -3514,6 +3579,36 @@ const selectedSalePayments = useMemo(() => {
     (sum, entry) => sum + (Number(entry.amount) || 0),
     0
   );
+  const recordedSaleChange = Math.max(
+    0,
+    selectedSaleDocument?.change_amount ??
+      Math.max(
+        0,
+        selectedSalePaymentsTotal -
+          (selectedSaleDocument?.total ?? selectedSalePaymentsTotal)
+      )
+  );
+  const adjustmentPaymentAllocation = useMemo(
+    () =>
+      adjustedPayments
+        ? capPaymentAllocation(
+            adjustedPayments,
+            Math.max(
+              0,
+              (selectedSaleDocument?.total ?? selectedSalePaymentsTotal) +
+                totalAdjustmentsDelta
+            )
+          )
+        : buildNetPaymentAllocation(selectedSalePayments, recordedSaleChange),
+    [
+      adjustedPayments,
+      recordedSaleChange,
+      selectedSaleDocument?.total,
+      selectedSalePayments,
+      selectedSalePaymentsTotal,
+      totalAdjustmentsDelta,
+    ]
+  );
   const displaySalePaymentsTotal = adjustedPayments
     ? adjustedPayments.reduce((sum, entry) => sum + toNumber(entry.amount), 0)
     : selectedSalePaymentsTotal;
@@ -3553,6 +3648,13 @@ const selectedSalePayments = useMemo(() => {
     [adjustPayments]
   );
   const adjustPaymentsDelta = adjustPaymentsTotal - displaySalePaymentsTotal;
+  const adjustmentPaymentAllocationTotal = adjustmentPaymentAllocation.reduce(
+    (sum, entry) => sum + toNumber(entry.amount),
+    0
+  );
+  const adjustmentAllocationGap =
+    adjustPaymentsTotal - adjustmentPaymentAllocationTotal;
+  const adjustmentGuide = ADJUSTMENT_GUIDANCE[adjustType];
 
   useEffect(() => {
     if (adjustType !== "discount") {
@@ -6588,7 +6690,8 @@ useEffect(() => {
               Ajustar documento {adjustTarget.documentNumber}
             </div>
             <p className="mt-1 text-sm text-slate-400">
-              Registra un ajuste sin modificar el documento original.
+              Corrige cómo debe contabilizarse la venta. El documento original
+              y el historial del cambio se conservan.
             </p>
             <div className="mt-5 grid gap-4 text-sm">
               <label className="flex flex-col gap-1">
@@ -6602,12 +6705,38 @@ useEffect(() => {
                   }
                   className="h-12 rounded-lg border border-slate-700 bg-slate-950 px-4 text-slate-100 text-base"
                 >
-                  <option value="payment">Pagos</option>
-                  <option value="total">Total</option>
-                  <option value="discount">Descuento</option>
-                  <option value="note">Nota</option>
+                  <option value="payment">Corregir medios de pago</option>
+                  <option value="total">Corregir total de la venta</option>
+                  <option value="discount">Registrar descuento omitido</option>
+                  <option value="note">Agregar nota aclaratoria</option>
                 </select>
               </label>
+              <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sky-50">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-400/20 text-sm font-bold text-sky-200">
+                    ?
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-semibold">{adjustmentGuide.title}</div>
+                    <p className="mt-1 text-xs leading-relaxed text-sky-100/80">
+                      {adjustmentGuide.description}
+                    </p>
+                    <ol className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                      {adjustmentGuide.steps.map((step, index) => (
+                        <li key={step} className="flex items-start gap-2">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-300/20 font-semibold text-sky-100">
+                            {index + 1}
+                          </span>
+                          <span className="pt-0.5 text-sky-100/90">{step}</span>
+                        </li>
+                      ))}
+                    </ol>
+                    <div className="mt-3 border-t border-sky-400/20 pt-2 text-xs font-medium text-amber-200">
+                      Ten en cuenta: {adjustmentGuide.caution}
+                    </div>
+                  </div>
+                </div>
+              </div>
               {adjustType === "payment" && currentEffectiveSaleTotal <= 0 && (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                   Este documento tiene total en cero. Usa{" "}
@@ -6623,6 +6752,9 @@ useEffect(() => {
                   className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
                   placeholder="Describe el motivo del ajuste"
                 />
+                <span className="text-xs text-slate-500">
+                  Explica qué ocurrió y por qué debe corregirse. Este texto quedará en el historial.
+                </span>
               </label>
               {(adjustType === "discount" || adjustType === "total") && (
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -6729,8 +6861,65 @@ useEffect(() => {
               )}
               {(adjustType === "payment" || adjustType === "discount") && (
                 <div className="space-y-3">
-                  <div className="text-xs uppercase tracking-wide text-slate-500">
-                    Distribucion de pagos
+                  {adjustType === "payment" && (
+                    <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                        Valores de referencia
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                        <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
+                          <div className="text-[10px] uppercase text-slate-500">Total venta</div>
+                          <div className="mt-1 font-semibold text-slate-100">
+                            {formatMoney(currentEffectiveSaleTotal)}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
+                          <div className="text-[10px] uppercase text-slate-500">Recibido</div>
+                          <div className="mt-1 font-semibold text-slate-100">
+                            {formatMoney(displaySalePaymentsTotal)}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
+                          <div className="text-[10px] uppercase text-slate-500">Cambio entregado</div>
+                          <div className="mt-1 font-semibold text-amber-300">
+                            {formatMoney(recordedSaleChange)}
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                          <div className="text-[10px] uppercase text-emerald-300">A distribuir</div>
+                          <div className="mt-1 font-semibold text-emerald-200">
+                            {formatMoney(adjustmentPaymentAllocationTotal)}
+                          </div>
+                        </div>
+                      </div>
+                      {recordedSaleChange > 0.01 && (
+                        <p className="mt-3 text-xs leading-relaxed text-amber-200">
+                          Se recibieron {formatMoney(displaySalePaymentsTotal)} en efectivo y se
+                          entregaron {formatMoney(recordedSaleChange)} de cambio. Solo debes
+                          distribuir {formatMoney(adjustmentPaymentAllocationTotal)} entre los
+                          medios de pago definitivos.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs uppercase tracking-wide text-slate-500">
+                      Distribución final de pagos
+                    </div>
+                    {adjustType === "payment" && (
+                      <button
+                        type="button"
+                        onClick={restoreNetPaymentAllocation}
+                        className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                      >
+                        Restaurar valor neto
+                      </button>
+                    )}
+                  </div>
+                  <div className="hidden grid-cols-[1fr_180px_auto] gap-3 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:grid">
+                    <span>Medio utilizado</span>
+                    <span>Valor aplicado</span>
+                    <span className="w-[74px]">Acción</span>
                   </div>
                   <div className="space-y-2">
                     {adjustPayments.map((entry) => (
@@ -6787,24 +6976,30 @@ useEffect(() => {
                   </div>
                   <div className="grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
                     <div>
-                      Pagos actuales:{" "}
+                      Registrado antes:{" "}
                       <span className="text-slate-100">
                         {formatMoney(displaySalePaymentsTotal)}
                       </span>
                     </div>
                     <div>
-                      Pagos ajustados:{" "}
+                      Distribución final:{" "}
                       <span className="text-slate-100">
                         {formatMoney(adjustPaymentsTotal)}
                       </span>
                     </div>
                     <div>
-                      Delta pagos:{" "}
+                      Diferencia contable:{" "}
                       <span className="text-slate-100">
                         {formatMoney(adjustPaymentsDelta)}
                       </span>
                     </div>
                   </div>
+                  {adjustType === "payment" && Math.abs(adjustmentAllocationGap) > 0.01 && (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                      La distribución final difiere en {formatMoney(Math.abs(adjustmentAllocationGap))}
+                      del valor neto aplicado a la venta. Revisa los importes antes de guardar.
+                    </div>
+                  )}
                 </div>
               )}
               <label className="flex flex-col gap-1">
@@ -6815,7 +7010,24 @@ useEffect(() => {
                   rows={3}
                   className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
                 />
+                <span className="text-xs text-slate-500">
+                  Puedes agregar información adicional; no reemplaza el motivo obligatorio.
+                </span>
               </label>
+            </div>
+            <div className="mt-5 rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Resultado al guardar
+              </div>
+              <div className="mt-1 text-slate-200">
+                {adjustType === "payment"
+                  ? `La venta conservará su total de ${formatMoney(currentEffectiveSaleTotal)} y se contabilizarán ${formatMoney(adjustPaymentsTotal)} según la distribución indicada.`
+                  : adjustType === "total"
+                  ? `El total de la venta quedará en ${formatMoney(targetTotalPreview)}; los pagos registrados no cambiarán.`
+                  : adjustType === "discount"
+                  ? `La venta quedará en ${formatMoney(targetTotalPreview)}, con un descuento de ${formatMoney(discountAmount)} y pagos por ${formatMoney(adjustPaymentsTotal)}.`
+                  : "Se agregará una aclaración al historial sin modificar dinero, inventario ni totales."}
+              </div>
             </div>
             <div className="mt-5 flex justify-end gap-3">
               <button
