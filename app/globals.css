@@ -113,6 +113,300 @@ body {
   }
 }
 
+/* =========================
+   Administrative UI foundation
+   Light-only primitives scoped to the dashboard. POS routes are unaffected.
+   ========================= */
+.dashboard-theme {
+  color-scheme: light;
+  --admin-surface: #ffffff;
+  --admin-surface-subtle: #f8fafc;
+  --admin-surface-muted: #f1f5f9;
+  --admin-text: #0f172a;
+  --admin-text-muted: #475569;
+  --admin-text-soft: #64748b;
+  --admin-border: #d8e0ea;
+  --admin-border-strong: #c1ccd9;
+  --admin-focus: #0f8a4b;
+  --admin-info-surface: #eff6ff;
+  --admin-info-border: #93c5fd;
+  --admin-info-text: #1e3a5f;
+  --admin-warning-surface: #fffbeb;
+  --admin-warning-border: #fcd34d;
+  --admin-warning-text: #854d0e;
+  --admin-danger-surface: #fff1f2;
+  --admin-danger-border: #fda4af;
+  --admin-danger-text: #9f1239;
+  --admin-success-surface: #ecfdf5;
+  --admin-success-border: #6ee7b7;
+  --admin-success-text: #065f46;
+  --admin-backdrop: rgba(15, 23, 42, 0.58);
+}
+
+.dashboard-theme .admin-modal-backdrop,
+.dashboard-theme.admin-modal-backdrop {
+  background: var(--admin-backdrop);
+  backdrop-filter: blur(2px);
+}
+
+.dashboard-theme .admin-modal-panel {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border-strong);
+  color: var(--admin-text);
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.24);
+}
+
+.dashboard-theme .admin-title {
+  color: var(--admin-text);
+}
+
+.dashboard-theme .admin-text-muted {
+  color: var(--admin-text-muted);
+}
+
+.dashboard-theme .admin-help-text {
+  color: var(--admin-text-soft);
+}
+
+.dashboard-theme .admin-panel {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  box-shadow: var(--shadow-panel);
+}
+
+.dashboard-theme .admin-inline-link {
+  color: var(--admin-text-muted);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dashboard-theme .admin-inline-link:hover {
+  color: var(--admin-success-text);
+}
+
+.dashboard-theme .admin-error-text {
+  color: var(--admin-danger-text);
+}
+
+.dashboard-theme .admin-field-label {
+  color: #334155;
+  font-weight: 600;
+}
+
+.dashboard-theme .admin-field-control {
+  appearance: auto;
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border-strong);
+  color: var(--admin-text);
+  outline: none;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.dashboard-theme .admin-field-control::placeholder {
+  color: #8a94a3;
+}
+
+.dashboard-theme .admin-field-control:focus {
+  border-color: var(--admin-focus);
+  box-shadow: 0 0 0 3px rgba(15, 138, 75, 0.14);
+}
+
+.dashboard-theme .admin-callout {
+  border: 1px solid;
+  color: var(--admin-text);
+}
+
+.dashboard-theme .admin-callout-info {
+  background: var(--admin-info-surface);
+  border-color: var(--admin-info-border);
+  color: var(--admin-info-text);
+}
+
+.dashboard-theme .admin-callout-warning {
+  background: var(--admin-warning-surface);
+  border-color: var(--admin-warning-border);
+  color: var(--admin-warning-text);
+}
+
+.dashboard-theme .admin-callout-danger {
+  background: var(--admin-danger-surface);
+  border-color: var(--admin-danger-border);
+  color: var(--admin-danger-text);
+}
+
+.dashboard-theme .admin-callout-success {
+  background: var(--admin-success-surface);
+  border-color: var(--admin-success-border);
+  color: var(--admin-success-text);
+}
+
+.dashboard-theme .admin-callout-marker {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.dashboard-theme .admin-callout-caution {
+  border-color: rgba(30, 64, 175, 0.16);
+  color: #92400e;
+}
+
+.dashboard-theme .admin-summary-panel,
+.dashboard-theme .admin-result-panel {
+  background: var(--admin-surface-subtle);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+}
+
+.dashboard-theme .admin-table-shell {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+}
+
+.dashboard-theme .admin-table-head {
+  background: var(--admin-surface-muted);
+  color: var(--admin-text-muted);
+}
+
+.dashboard-theme .admin-table-body {
+  background: var(--admin-surface);
+  color: var(--admin-text);
+}
+
+.dashboard-theme .admin-table-row {
+  border-top: 1px solid var(--admin-border);
+}
+
+.dashboard-theme .admin-code {
+  color: var(--admin-success-text);
+  font-weight: 700;
+}
+
+.dashboard-theme .admin-loading-overlay {
+  background: rgba(248, 250, 252, 0.78);
+  color: var(--admin-text);
+}
+
+.dashboard-theme .admin-stat-card {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.dashboard-theme .admin-stat-card-warning {
+  background: var(--admin-warning-surface);
+  border-color: var(--admin-warning-border);
+  color: var(--admin-warning-text);
+}
+
+.dashboard-theme .admin-stat-card-success {
+  background: var(--admin-success-surface);
+  border-color: var(--admin-success-border);
+  color: var(--admin-success-text);
+}
+
+.dashboard-theme .admin-stat-card-danger {
+  background: var(--admin-danger-surface);
+  border-color: var(--admin-danger-border);
+  color: var(--admin-danger-text);
+}
+
+.dashboard-theme .admin-section-kicker {
+  color: var(--admin-text-muted);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dashboard-theme .admin-button-secondary {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border-strong);
+  color: #334155;
+  font-weight: 600;
+}
+
+.dashboard-theme .admin-button-secondary:hover:not(:disabled) {
+  background: var(--admin-surface-muted);
+  border-color: #94a3b8;
+  color: var(--admin-text);
+}
+
+.dashboard-theme .admin-button-primary {
+  background: #0f8a4b;
+  border: 1px solid #0f8a4b;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.dashboard-theme .admin-button-primary:hover:not(:disabled) {
+  background: #0b713e;
+  border-color: #0b713e;
+  color: #ffffff;
+}
+
+.dashboard-theme .admin-button-danger {
+  background: #e11d48;
+  border: 1px solid #e11d48;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.dashboard-theme .admin-button-danger:hover:not(:disabled) {
+  background: #be123c;
+  border-color: #be123c;
+  color: #ffffff;
+}
+
+.dashboard-theme .admin-button-primary:focus-visible,
+.dashboard-theme .admin-button-secondary:focus-visible,
+.dashboard-theme .admin-button-danger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(15, 138, 75, 0.18);
+}
+
+.dashboard-theme .admin-button-success-outline {
+  background: var(--admin-surface);
+  border: 1px solid #34d399;
+  color: var(--admin-success-text);
+  font-weight: 700;
+}
+
+.dashboard-theme .admin-button-success-outline:hover:not(:disabled) {
+  background: var(--admin-success-surface);
+  border-color: #10b981;
+  color: var(--admin-success-text);
+}
+
+.dashboard-theme button.admin-filter-chip {
+  background: var(--admin-surface-muted);
+  border: 1px solid var(--admin-border-strong);
+  color: var(--admin-text-muted);
+  font-weight: 600;
+}
+
+.dashboard-theme button.admin-filter-chip:hover:not(:disabled) {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+  color: var(--admin-text);
+}
+
+.dashboard-theme button.admin-button-soft {
+  background: #e7eef9;
+  border: 1px solid #b8c9e5;
+  color: #263a56;
+  font-weight: 700;
+}
+
+.dashboard-theme button.admin-button-soft:hover:not(:disabled) {
+  background: #dce7f7;
+  border-color: #9fb5d8;
+  color: #17263b;
+}
+
 .dashboard-shell,
 .dashboard-theme {
   font-family: inherit;

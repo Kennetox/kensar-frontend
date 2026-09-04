@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { createPortal } from "react-dom";
 import { useAuth } from "../providers/AuthProvider";
 import { getApiBase } from "@/lib/api/base";
 import {
@@ -62,6 +63,12 @@ const DOCUMENTS_STATE_KEY = "kensar_documents_state";
 const CHECKOUT_CONTEXT_NOTE_MARKER = "CHECKOUT_CONTEXT_JSON:";
 const OPEN_DOCUMENT_FOR_ACTION_MESSAGE =
   "Abre el documento con doble clic para cargar su información y usar esta acción.";
+
+function AdminModalPortal({ children }: { children: React.ReactNode }) {
+  if (typeof document === "undefined") return null;
+
+  return createPortal(children, document.body);
+}
 
 function sanitizeSaleNotesForDisplay(notes?: string | null): string {
   const raw = (notes ?? "").trim();
@@ -415,6 +422,7 @@ type DocumentRow = {
   documentNumber: string;
   reference: string;
   detail: string;
+  contentSummary?: string;
   total: number;
   paymentMethod?: string;
   paymentStage?: "initial" | "posterior";
@@ -493,6 +501,7 @@ function mapSearchItemToDocument(item: DocumentSearchItem): DocumentRow {
     documentNumber: item.document_number,
     reference: item.reference,
     detail: item.detail,
+    contentSummary: item.content_summary ?? undefined,
     total: item.total,
     paymentMethod: item.payment_method ?? undefined,
     paymentStage: item.payment_stage ?? undefined,
@@ -2951,7 +2960,8 @@ export default function DocumentsExplorer({
         term &&
         !doc.documentNumber.toLowerCase().includes(term) &&
         !doc.reference.toLowerCase().includes(term) &&
-        !doc.detail.toLowerCase().includes(term)
+        !doc.detail.toLowerCase().includes(term) &&
+        !(doc.contentSummary ?? "").toLowerCase().includes(term)
       ) {
         return false;
       }
@@ -4416,39 +4426,40 @@ useEffect(() => {
 
   return (
     <section className="documents-explorer-scale flex flex-col gap-6">
-      <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+      <header
+        className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
+        data-admin-section="documents-header"
+      >
         <div className="flex items-start gap-3">
           {backPath && (
             <button
               type="button"
               onClick={() => router.push(backPath)}
-              className="flex items-center gap-2 text-slate-300 hover:text-white
-                         px-3 py-1.5 rounded-md border border-slate-700
-                         hover:bg-slate-800 transition-colors text-xs"
+              className="admin-button-secondary flex items-center gap-2 rounded-md px-3 py-1.5 text-xs transition"
             >
               <span className="text-lg">←</span>
               {backLabel}
             </button>
           )}
           <div>
-            <h1 className="text-2xl font-semibold text-slate-50">Documentos</h1>
-            <p className="text-sm text-slate-400">
+            <h1 className="admin-title text-2xl font-semibold">Documentos</h1>
+            <p className="admin-text-muted text-sm">
               Historial de ventas, órdenes web y movimientos documentados.
             </p>
-            {error && <p className="text-xs text-red-400">{error}</p>}
+            {error && <p className="admin-error-text text-xs">{error}</p>}
           </div>
         </div>
         {!hideManageCustomers && (
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/dashboard/documents/separated"
-              className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-emerald-400/70 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+              className="admin-button-success-outline inline-flex cursor-pointer items-center gap-2 rounded-md px-4 py-2 text-xs transition"
             >
               Gestionar separados
             </Link>
             <Link
               href="/dashboard/customers"
-              className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-700 px-4 py-2 text-xs text-slate-100 hover:bg-slate-800"
+              className="admin-button-secondary inline-flex cursor-pointer items-center gap-2 rounded-md px-4 py-2 text-xs transition"
             >
               Gestionar clientes
             </Link>
@@ -4456,14 +4467,17 @@ useEffect(() => {
         )}
       </header>
 
-      <section className="documents-filter-panel relative rounded-2xl border border-slate-200 bg-white p-4 space-y-4 text-xs">
+      <section
+        className="admin-panel documents-filter-panel relative rounded-2xl p-4 space-y-4 text-xs"
+        data-admin-section="documents-filters"
+      >
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h2 className="text-sm font-semibold text-slate-200">Filtros avanzados</h2>
+          <h2 className="admin-title text-sm font-semibold">Filtros avanzados</h2>
           <div className="flex items-center gap-4">
             <button
               type="button"
               onClick={() => setShowDocumentGuide(true)}
-              className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+              className="admin-inline-link text-[11px]"
             >
               Guía de documentos
             </button>
@@ -4471,11 +4485,11 @@ useEffect(() => {
         </div>
         <div className="grid md:grid-cols-4 xl:grid-cols-8 gap-3">
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Tipo</span>
+            <span className="admin-field-label">Tipo</span>
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
+              className="admin-field-control rounded px-2 py-1"
             >
               <option value="all">Todos</option>
               <option value="venta">Ventas</option>
@@ -4495,39 +4509,39 @@ useEffect(() => {
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Desde</span>
+            <span className="admin-field-label">Desde</span>
             <input
               type="date"
               value={filterFrom}
               onChange={(e) => setFilterFrom(e.target.value)}
-              className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
+              className="admin-field-control rounded px-2 py-1"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Hasta</span>
+            <span className="admin-field-label">Hasta</span>
             <input
               type="date"
               value={filterTo}
               onChange={(e) => setFilterTo(e.target.value)}
-              className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
+              className="admin-field-control rounded px-2 py-1"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Documento / detalle</span>
+            <span className="admin-field-label">Documento / detalle</span>
             <input
               type="text"
               value={filterTerm}
               onChange={(e) => setFilterTerm(e.target.value)}
               placeholder="V-00021, devolución..."
-              className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
+              className="admin-field-control rounded px-2 py-1"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Método de pago</span>
+            <span className="admin-field-label">Método de pago</span>
             <select
               value={filterPayment}
               onChange={(e) => setFilterPayment(e.target.value)}
-              className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
+              className="admin-field-control rounded px-2 py-1"
             >
               <option value="">Todos</option>
               {filterOptions.payments.length === 0 ? (
@@ -4544,14 +4558,14 @@ useEffect(() => {
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Cliente</span>
+            <span className="admin-field-label">Cliente</span>
             <input
               type="text"
               value={filterCustomer}
               onChange={(e) => setFilterCustomer(e.target.value)}
               placeholder="Nombre del cliente"
               list="documents-customer-options"
-              className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
+              className="admin-field-control rounded px-2 py-1"
             />
             <datalist id="documents-customer-options">
               {filterOptions.customers.map((customer) => (
@@ -4560,14 +4574,14 @@ useEffect(() => {
             </datalist>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">POS</span>
+            <span className="admin-field-label">POS</span>
             <input
               type="text"
               value={filterPos}
               onChange={(e) => setFilterPos(e.target.value)}
               placeholder="Nombre del POS"
               list="documents-pos-options"
-              className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
+              className="admin-field-control rounded px-2 py-1"
             />
             <datalist id="documents-pos-options">
               {filterOptions.pos.map((posName) => (
@@ -4576,14 +4590,14 @@ useEffect(() => {
             </datalist>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-slate-400">Vendedor</span>
+            <span className="admin-field-label">Vendedor</span>
             <input
               type="text"
               value={filterVendor}
               onChange={(e) => setFilterVendor(e.target.value)}
               placeholder="Nombre del vendedor"
               list="documents-vendor-options"
-              className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-slate-50"
+              className="admin-field-control rounded px-2 py-1"
             />
             <datalist id="documents-vendor-options">
               {filterOptions.vendors.map((vendor) => (
@@ -4607,7 +4621,7 @@ useEffect(() => {
                 key={btn.id}
                 type="button"
                 onClick={() => applyQuickRange(btn.id)}
-                className="px-3 py-1 rounded-full border border-slate-700 text-slate-300 hover:border-emerald-400/60 hover:text-emerald-200 transition"
+                className="admin-filter-chip rounded-full px-3 py-1 transition"
               >
                 {btn.label}
               </button>
@@ -4616,7 +4630,7 @@ useEffect(() => {
           <button
             type="button"
             onClick={applyFiltersAndSearch}
-            className="relative ml-2 inline-flex min-h-[2.125rem] min-w-[9.25rem] cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#b8c9ea] bg-[#dce8fb] px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition hover:border-[#9fb7e6] hover:bg-[#d2e2fb]"
+            className="admin-button-soft relative ml-2 inline-flex min-h-[2.125rem] min-w-[9.25rem] cursor-pointer items-center justify-center gap-2 rounded-xl px-2.5 py-1.5 text-xs shadow-sm transition"
           >
             <svg viewBox="0 0 20 20" aria-hidden="true" className="h-3.5 w-3.5 fill-current">
               <path d="M8.5 2.5a6 6 0 1 0 3.74 10.68l3.29 3.3a1 1 0 0 0 1.42-1.42l-3.3-3.29A6 6 0 0 0 8.5 2.5Zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z" />
@@ -4627,10 +4641,10 @@ useEffect(() => {
             type="button"
             disabled={!hasActiveFilters}
             onClick={clearAllFilters}
-            className={`relative ml-2 min-h-[2.125rem] min-w-[9.25rem] rounded-xl border px-2.5 py-1.5 text-xs font-medium transition ${
+            className={`admin-button-secondary relative ml-2 min-h-[2.125rem] min-w-[9.25rem] rounded-xl px-2.5 py-1.5 text-xs transition ${
               hasActiveFilters
-                ? "cursor-pointer border-slate-400 bg-slate-100 text-slate-800 shadow-sm hover:border-slate-500"
-                : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+                ? "cursor-pointer shadow-sm"
+                : "cursor-not-allowed opacity-55"
             }`}
           >
             Limpiar filtros
@@ -4746,17 +4760,19 @@ useEffect(() => {
             <div className="overflow-hidden">
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "240px" }} />
+                  <col style={{ width: "220px" }} />
+                  <col style={{ width: "160px" }} />
                   <col style={{ width: "190px" }} />
                   <col style={{ width: "auto" }} />
-                  <col style={{ width: "180px" }} />
-                  <col style={{ width: "260px" }} />
+                  <col style={{ width: "150px" }} />
+                  <col style={{ width: "240px" }} />
                 </colgroup>
                 <thead className="bg-[var(--surface-2)] text-[11px] text-slate-700">
                   <tr>
                     <th className="text-left px-3 py-2 font-normal">Documento</th>
                     <th className="text-left px-3 py-2 font-normal">Tipo</th>
                     <th className="text-left px-3 py-2 font-normal">Detalle</th>
+                    <th className="text-left px-3 py-2 font-normal">Productos / contenido</th>
                     <th className="text-right px-3 py-2 font-normal">Total</th>
                     <th className="text-right px-3 py-2 font-normal">Método / Cliente</th>
                   </tr>
@@ -4772,23 +4788,24 @@ useEffect(() => {
             >
               <table className="w-full text-xs table-fixed">
                 <colgroup>
-                  <col style={{ width: "240px" }} />
+                  <col style={{ width: "220px" }} />
+                  <col style={{ width: "160px" }} />
                   <col style={{ width: "190px" }} />
                   <col style={{ width: "auto" }} />
-                  <col style={{ width: "180px" }} />
-                  <col style={{ width: "260px" }} />
+                  <col style={{ width: "150px" }} />
+                  <col style={{ width: "240px" }} />
                 </colgroup>
                 <tbody>
                   {loading && (
                     <tr>
-                      <td colSpan={5} className="px-4 py-10">
+                      <td colSpan={6} className="px-4 py-10">
                         <LoadingSpinner size={46} label="Buscando documentos..." />
                       </td>
                     </tr>
                   )}
                   {!loading && filteredDocuments.length === 0 && (
                     <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-[11px] text-slate-500">
+                        <td colSpan={6} className="px-4 py-6 text-center text-[11px] text-slate-500">
                           No se encontraron documentos con los filtros actuales.
                         </td>
                       </tr>
@@ -4947,6 +4964,14 @@ useEffect(() => {
                                 Ajustado
                               </span>
                             )}
+                          </span>
+                        </td>
+                        <td
+                          className="px-3 py-2 align-middle text-xs text-slate-200"
+                          title={doc.contentSummary ?? doc.detail}
+                        >
+                          <span className="block truncate font-medium">
+                            {doc.contentSummary ?? doc.detail}
                           </span>
                         </td>
                         <td className="px-3 py-2 text-right font-semibold text-slate-100 tabular-nums align-middle">
@@ -6558,7 +6583,7 @@ useEffect(() => {
             </div>
           )}
           {loading ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/35 backdrop-blur-[1.5px]">
+            <div className="admin-loading-overlay absolute inset-0 z-10 flex items-center justify-center backdrop-blur-[1.5px]">
               <LoadingSpinner size={52} label="Cargando detalle..." />
             </div>
           ) : null}
@@ -6566,34 +6591,46 @@ useEffect(() => {
         ) : null}
       </div>
       {showDocumentGuide && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-xl">
+        <AdminModalPortal>
+          <div
+            className="dashboard-theme admin-modal-backdrop fixed inset-0 z-50 flex items-center justify-center px-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="document-guide-title"
+            data-admin-dialog="document-guide"
+          >
+          <div className="admin-modal-panel w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-xl p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-base font-semibold text-slate-100">Guía de documentos</h3>
-                <p className="mt-1 text-xs text-slate-400">
+                <h3
+                  id="document-guide-title"
+                  className="admin-title text-base font-semibold"
+                >
+                  Guía de documentos
+                </h3>
+                <p className="admin-text-muted mt-1 text-xs">
                   Prefijos oficiales del ecosistema Metrik y su significado operativo.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowDocumentGuide(false)}
-                className="rounded-md border border-slate-600 px-2 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                className="admin-button-secondary rounded-md px-2 py-1 text-xs transition"
               >
                 Cerrar
               </button>
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-lg border border-slate-700">
+            <div className="admin-table-shell mt-4 overflow-x-auto rounded-lg">
               <table className="w-full text-xs">
-                <thead className="bg-slate-800 text-slate-200">
+                <thead className="admin-table-head">
                   <tr>
                     <th className="px-3 py-2 text-left font-semibold">Prefijo</th>
                     <th className="px-3 py-2 text-left font-semibold">Documento</th>
                     <th className="px-3 py-2 text-left font-semibold">Uso</th>
                   </tr>
                 </thead>
-                <tbody className="bg-slate-900 text-slate-200">
+                <tbody className="admin-table-body">
                   {[
                     ["V-", "Venta POS", "Ticket o factura de venta en caja."],
                     ["DV-", "Devolución", "Documento de devolución asociado a una venta."],
@@ -6608,21 +6645,22 @@ useEffect(() => {
                     ["PD-", "Pérdida / daño", "Registro manual por merma o daño."],
                     ["MM-", "Movimiento manual (fallback)", "Prefijo de respaldo para tipos manuales no mapeados."],
                   ].map((row) => (
-                    <tr key={row[0]} className="border-t border-slate-800">
-                      <td className="px-3 py-2 font-semibold text-emerald-500">{row[0]}</td>
+                    <tr key={row[0]} className="admin-table-row">
+                      <td className="admin-code px-3 py-2">{row[0]}</td>
                       <td className="px-3 py-2">{row[1]}</td>
-                      <td className="px-3 py-2 text-slate-300">{row[2]}</td>
+                      <td className="admin-text-muted px-3 py-2">{row[2]}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            <p className="mt-3 text-[11px] text-slate-500">
-              Nota: el número completo suele tener formato <span className="text-slate-300">PREFIJO-000001</span>.
+            <p className="admin-help-text mt-3 text-[11px]">
+              Nota: el número completo suele tener formato <span className="admin-title font-semibold">PREFIJO-000001</span>.
             </p>
           </div>
-        </div>
+          </div>
+        </AdminModalPortal>
       )}
       {toast && (
         <div className="fixed right-6 top-24 z-[60] w-[340px] max-w-[90vw]">
@@ -6646,28 +6684,38 @@ useEffect(() => {
         </div>
       )}
       {voidTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-md rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-xl">
-            <div className="text-sm font-semibold text-slate-100">
+        <AdminModalPortal>
+          <div
+            className="dashboard-theme admin-modal-backdrop fixed inset-0 z-50 flex items-center justify-center px-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="void-document-title"
+            data-admin-dialog="void-document"
+          >
+          <div className="admin-modal-panel w-full max-w-md rounded-xl p-4">
+            <div
+              id="void-document-title"
+              className="admin-title text-sm font-semibold"
+            >
               {voidActionLabel} documento {voidTarget.documentNumber}
             </div>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="admin-text-muted mt-1 text-xs">
               Esta acción genera un ajuste y no elimina el registro.
             </p>
-            <label className="mt-3 block text-xs text-slate-300">
+            <label className="admin-field-label mt-3 block text-xs">
               Motivo (opcional)
             </label>
             <textarea
               value={voidReason}
               onChange={(e) => setVoidReason(e.target.value)}
               rows={3}
-              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 focus:border-rose-400 outline-none"
+              className="admin-field-control mt-1 w-full rounded-md px-3 py-2 text-xs"
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={closeVoidModal}
-                className="px-4 py-2 rounded-md border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-sm hover:bg-slate-100 hover:border-slate-400 transition"
+                className="admin-button-secondary rounded-md px-4 py-2 text-xs transition"
               >
                 Cancelar
               </button>
@@ -6675,27 +6723,38 @@ useEffect(() => {
                 type="button"
                 onClick={submitVoid}
                 disabled={voiding}
-                className="px-4 py-2 rounded-md border border-rose-500 bg-rose-500 text-white text-xs font-semibold shadow-sm hover:bg-rose-600 hover:border-rose-600 transition disabled:opacity-50"
+                className="admin-button-danger rounded-md px-4 py-2 text-xs transition disabled:opacity-50"
               >
                 {voiding ? "Procesando..." : voidActionLabel}
               </button>
             </div>
           </div>
-        </div>
+          </div>
+        </AdminModalPortal>
       )}
       {adjustTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-xl">
-            <div className="text-lg font-semibold text-slate-100">
+        <AdminModalPortal>
+          <div
+            className="dashboard-theme admin-modal-backdrop fixed inset-0 z-50 flex items-center justify-center px-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="adjust-document-title"
+            data-admin-dialog="adjustment"
+          >
+          <div className="admin-modal-panel w-full max-w-4xl max-h-[85vh] overflow-y-auto rounded-2xl p-6">
+            <div
+              id="adjust-document-title"
+              className="admin-title text-lg font-semibold"
+            >
               Ajustar documento {adjustTarget.documentNumber}
             </div>
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="admin-text-muted mt-1 text-sm">
               Corrige cómo debe contabilizarse la venta. El documento original
               y el historial del cambio se conservan.
             </p>
             <div className="mt-5 grid gap-4 text-sm">
               <label className="flex flex-col gap-1">
-                <span className="text-slate-300">Tipo de ajuste</span>
+                <span className="admin-field-label">Tipo de ajuste</span>
                 <select
                   value={adjustType}
                   onChange={(e) =>
@@ -6703,7 +6762,7 @@ useEffect(() => {
                       e.target.value as "payment" | "discount" | "total" | "note"
                     )
                   }
-                  className="h-12 rounded-lg border border-slate-700 bg-slate-950 px-4 text-slate-100 text-base"
+                  className="admin-field-control h-12 rounded-lg px-4 text-base"
                 >
                   <option value="payment">Corregir medios de pago</option>
                   <option value="total">Corregir total de la venta</option>
@@ -6711,99 +6770,99 @@ useEffect(() => {
                   <option value="note">Agregar nota aclaratoria</option>
                 </select>
               </label>
-              <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4 text-sky-50">
+              <div className="admin-callout admin-callout-info rounded-xl p-4">
                 <div className="flex items-start gap-3">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-400/20 text-sm font-bold text-sky-200">
+                  <div className="admin-callout-marker flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold">
                     ?
                   </div>
                   <div className="min-w-0">
                     <div className="font-semibold">{adjustmentGuide.title}</div>
-                    <p className="mt-1 text-xs leading-relaxed text-sky-100/80">
+                    <p className="mt-1 text-xs leading-relaxed opacity-80">
                       {adjustmentGuide.description}
                     </p>
                     <ol className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
                       {adjustmentGuide.steps.map((step, index) => (
                         <li key={step} className="flex items-start gap-2">
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-300/20 font-semibold text-sky-100">
+                          <span className="admin-callout-marker flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-semibold">
                             {index + 1}
                           </span>
-                          <span className="pt-0.5 text-sky-100/90">{step}</span>
+                          <span className="pt-0.5 opacity-90">{step}</span>
                         </li>
                       ))}
                     </ol>
-                    <div className="mt-3 border-t border-sky-400/20 pt-2 text-xs font-medium text-amber-200">
+                    <div className="admin-callout-caution mt-3 border-t pt-2 text-xs font-medium">
                       Ten en cuenta: {adjustmentGuide.caution}
                     </div>
                   </div>
                 </div>
               </div>
               {adjustType === "payment" && currentEffectiveSaleTotal <= 0 && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                <div className="admin-callout admin-callout-warning rounded-xl px-4 py-3 text-sm">
                   Este documento tiene total en cero. Usa{" "}
                   <span className="font-semibold">Ajuste de total</span> antes
                   de corregir pagos.
                 </div>
               )}
               <label className="flex flex-col gap-1">
-                <span className="text-slate-300">Motivo</span>
+                <span className="admin-field-label">Motivo</span>
                 <input
                   value={adjustReason}
                   onChange={(e) => setAdjustReason(e.target.value)}
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
+                  className="admin-field-control rounded-lg px-4 py-2.5"
                   placeholder="Describe el motivo del ajuste"
                 />
-                <span className="text-xs text-slate-500">
+                <span className="admin-help-text text-xs">
                   Explica qué ocurrió y por qué debe corregirse. Este texto quedará en el historial.
                 </span>
               </label>
               {(adjustType === "discount" || adjustType === "total") && (
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
-                    <div className="text-xs uppercase tracking-wide text-slate-600">
+                  <div className="admin-summary-panel sm:col-span-2 rounded-xl p-4 space-y-2">
+                    <div className="admin-section-kicker text-xs">
                       Referencia de la venta
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                        <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                      <div className="admin-stat-card rounded-lg p-3">
+                        <div className="admin-help-text text-[10px] uppercase tracking-wide">
                           Subtotal bruto
                         </div>
-                        <div className="text-base font-semibold text-slate-900">
+                        <div className="admin-title text-base font-semibold">
                           {formatMoney(selectedSaleGrossSubtotal)}
                         </div>
                       </div>
-                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 shadow-sm">
-                        <div className="text-[10px] uppercase tracking-wide text-rose-700">
+                      <div className="admin-stat-card admin-stat-card-danger rounded-lg p-3">
+                        <div className="text-[10px] uppercase tracking-wide">
                           Descuento por línea
                         </div>
-                        <div className="text-base font-semibold text-rose-700">
+                        <div className="text-base font-semibold">
                           -{formatMoney(selectedSaleLineDiscountTotal)}
                         </div>
                       </div>
-                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 shadow-sm">
-                        <div className="text-[10px] uppercase tracking-wide text-rose-700">
+                      <div className="admin-stat-card admin-stat-card-danger rounded-lg p-3">
+                        <div className="text-[10px] uppercase tracking-wide">
                           Descuento global
                         </div>
-                        <div className="text-base font-semibold text-rose-700">
+                        <div className="text-base font-semibold">
                           {selectedSaleGlobalDiscountValue > 0
                             ? `-${formatMoney(selectedSaleGlobalDiscountValue)}`
                             : "0"}
                         </div>
                       </div>
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 shadow-sm">
-                        <div className="text-[10px] uppercase tracking-wide text-emerald-700">
+                      <div className="admin-stat-card admin-stat-card-success rounded-lg p-3">
+                        <div className="text-[10px] uppercase tracking-wide">
                           Total actual
                         </div>
-                        <div className="text-base font-semibold text-emerald-700">
+                        <div className="text-base font-semibold">
                           {formatMoney(currentEffectiveSaleTotal)}
                         </div>
                       </div>
                     </div>
-                    <div className="text-[11px] text-slate-600">
+                    <div className="admin-help-text text-[11px]">
                       Este documento se vendió con descuento global, así que aquí verás el valor original y el descuento aplicado antes de ajustar.
                     </div>
                   </div>
                   <label className="flex flex-col gap-1">
-                    <span className="text-slate-300">
+                    <span className="admin-field-label">
                       {adjustType === "total"
                         ? "Total corregido"
                         : "Total con descuento"}
@@ -6814,10 +6873,10 @@ useEffect(() => {
                         setAdjustTotalDelta(formatMoneyInput(e.target.value))
                       }
                       inputMode="numeric"
-                      className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
+                      className="admin-field-control rounded-lg px-4 py-2.5"
                       placeholder="0"
                     />
-                    <span className="text-xs text-slate-500">
+                    <span className="admin-help-text text-xs">
                       Total actual: {formatMoney(currentEffectiveSaleTotal)}
                     </span>
                   </label>
@@ -6845,14 +6904,14 @@ useEffect(() => {
                     </div>
                   )}
                   {totalAdjustmentNeedsWarning && (
-                    <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-sm">
+                    <div className="admin-callout admin-callout-warning sm:col-span-2 rounded-xl px-4 py-3 text-sm">
                       <div className="font-semibold">
                         Atención: este ajuste de total no cuadra con los pagos.
                       </div>
                       <div className="mt-1">
                         {totalAdjustmentWarningLabel}
                       </div>
-                      <div className="mt-1 text-[11px] text-amber-700">
+                      <div className="mt-1 text-[11px] opacity-80">
                         Si guardas así, el documento quedará con esa diferencia en saldo.
                       </div>
                     </div>
@@ -6862,38 +6921,38 @@ useEffect(() => {
               {(adjustType === "payment" || adjustType === "discount") && (
                 <div className="space-y-3">
                   {adjustType === "payment" && (
-                    <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-4">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                    <div className="admin-summary-panel rounded-xl p-4">
+                      <div className="admin-section-kicker text-xs">
                         Valores de referencia
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-4">
-                        <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
-                          <div className="text-[10px] uppercase text-slate-500">Total venta</div>
-                          <div className="mt-1 font-semibold text-slate-100">
+                        <div className="admin-stat-card rounded-lg p-3">
+                          <div className="admin-help-text text-[10px] uppercase">Total venta</div>
+                          <div className="admin-title mt-1 font-semibold">
                             {formatMoney(currentEffectiveSaleTotal)}
                           </div>
                         </div>
-                        <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
-                          <div className="text-[10px] uppercase text-slate-500">Recibido</div>
-                          <div className="mt-1 font-semibold text-slate-100">
+                        <div className="admin-stat-card rounded-lg p-3">
+                          <div className="admin-help-text text-[10px] uppercase">Recibido</div>
+                          <div className="admin-title mt-1 font-semibold">
                             {formatMoney(displaySalePaymentsTotal)}
                           </div>
                         </div>
-                        <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
-                          <div className="text-[10px] uppercase text-slate-500">Cambio entregado</div>
-                          <div className="mt-1 font-semibold text-amber-300">
+                        <div className="admin-stat-card admin-stat-card-warning rounded-lg p-3">
+                          <div className="text-[10px] uppercase">Cambio entregado</div>
+                          <div className="mt-1 font-semibold">
                             {formatMoney(recordedSaleChange)}
                           </div>
                         </div>
-                        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
-                          <div className="text-[10px] uppercase text-emerald-300">A distribuir</div>
-                          <div className="mt-1 font-semibold text-emerald-200">
+                        <div className="admin-stat-card admin-stat-card-success rounded-lg p-3">
+                          <div className="text-[10px] uppercase">A distribuir</div>
+                          <div className="mt-1 font-semibold">
                             {formatMoney(adjustmentPaymentAllocationTotal)}
                           </div>
                         </div>
                       </div>
                       {recordedSaleChange > 0.01 && (
-                        <p className="mt-3 text-xs leading-relaxed text-amber-200">
+                        <p className="admin-callout-caution mt-3 text-xs leading-relaxed">
                           Se recibieron {formatMoney(displaySalePaymentsTotal)} en efectivo y se
                           entregaron {formatMoney(recordedSaleChange)} de cambio. Solo debes
                           distribuir {formatMoney(adjustmentPaymentAllocationTotal)} entre los
@@ -6903,20 +6962,20 @@ useEffect(() => {
                     </div>
                   )}
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="text-xs uppercase tracking-wide text-slate-500">
+                    <div className="admin-section-kicker text-xs">
                       Distribución final de pagos
                     </div>
                     {adjustType === "payment" && (
                       <button
                         type="button"
                         onClick={restoreNetPaymentAllocation}
-                        className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                        className="admin-button-secondary rounded-lg px-3 py-1.5 text-xs transition"
                       >
                         Restaurar valor neto
                       </button>
                     )}
                   </div>
-                  <div className="hidden grid-cols-[1fr_180px_auto] gap-3 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:grid">
+                  <div className="admin-section-kicker hidden grid-cols-[1fr_180px_auto] gap-3 px-1 text-[10px] sm:grid">
                     <span>Medio utilizado</span>
                     <span>Valor aplicado</span>
                     <span className="w-[74px]">Acción</span>
@@ -6936,7 +6995,7 @@ useEffect(() => {
                               e.target.value
                             )
                           }
-                          className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
+                          className="admin-field-control rounded-lg px-4 py-2.5"
                         >
                           {paymentMethodOptions.map((method) => (
                             <option key={method.value} value={method.value}>
@@ -6954,13 +7013,13 @@ useEffect(() => {
                             )
                           }
                           inputMode="numeric"
-                          className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
+                          className="admin-field-control rounded-lg px-4 py-2.5"
                           placeholder="0"
                         />
                         <button
                           type="button"
                           onClick={() => removeAdjustPayment(entry.id)}
-                          className="px-4 py-2.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800"
+                          className="admin-button-secondary rounded-lg px-4 py-2.5 transition"
                         >
                           Quitar
                         </button>
@@ -6969,33 +7028,33 @@ useEffect(() => {
                     <button
                       type="button"
                       onClick={addAdjustPayment}
-                      className="px-4 py-2.5 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800"
+                      className="admin-button-secondary rounded-lg px-4 py-2.5 transition"
                     >
                       Agregar metodo
                     </button>
                   </div>
-                  <div className="grid gap-2 text-xs text-slate-400 sm:grid-cols-3">
+                  <div className="admin-text-muted grid gap-2 text-xs sm:grid-cols-3">
                     <div>
                       Registrado antes:{" "}
-                      <span className="text-slate-100">
+                      <span className="admin-title font-semibold">
                         {formatMoney(displaySalePaymentsTotal)}
                       </span>
                     </div>
                     <div>
                       Distribución final:{" "}
-                      <span className="text-slate-100">
+                      <span className="admin-title font-semibold">
                         {formatMoney(adjustPaymentsTotal)}
                       </span>
                     </div>
                     <div>
                       Diferencia contable:{" "}
-                      <span className="text-slate-100">
+                      <span className="admin-title font-semibold">
                         {formatMoney(adjustPaymentsDelta)}
                       </span>
                     </div>
                   </div>
                   {adjustType === "payment" && Math.abs(adjustmentAllocationGap) > 0.01 && (
-                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    <div className="admin-callout admin-callout-warning rounded-xl px-4 py-3 text-sm">
                       La distribución final difiere en {formatMoney(Math.abs(adjustmentAllocationGap))}
                       del valor neto aplicado a la venta. Revisa los importes antes de guardar.
                     </div>
@@ -7003,23 +7062,23 @@ useEffect(() => {
                 </div>
               )}
               <label className="flex flex-col gap-1">
-                <span className="text-slate-300">Nota interna (opcional)</span>
+                <span className="admin-field-label">Nota interna (opcional)</span>
                 <textarea
                   value={adjustNote}
                   onChange={(e) => setAdjustNote(e.target.value)}
                   rows={3}
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-slate-100"
+                  className="admin-field-control rounded-lg px-4 py-2.5"
                 />
-                <span className="text-xs text-slate-500">
+                <span className="admin-help-text text-xs">
                   Puedes agregar información adicional; no reemplaza el motivo obligatorio.
                 </span>
               </label>
             </div>
-            <div className="mt-5 rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="admin-result-panel mt-5 rounded-xl px-4 py-3 text-sm">
+              <div className="admin-section-kicker text-xs">
                 Resultado al guardar
               </div>
-              <div className="mt-1 text-slate-200">
+              <div className="admin-title mt-1">
                 {adjustType === "payment"
                   ? `La venta conservará su total de ${formatMoney(currentEffectiveSaleTotal)} y se contabilizarán ${formatMoney(adjustPaymentsTotal)} según la distribución indicada.`
                   : adjustType === "total"
@@ -7033,7 +7092,7 @@ useEffect(() => {
               <button
                 type="button"
                 onClick={closeAdjustModal}
-                className="px-4 py-2.5 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800 text-sm"
+                className="admin-button-secondary rounded-lg px-4 py-2.5 text-sm transition"
               >
                 Cancelar
               </button>
@@ -7041,13 +7100,14 @@ useEffect(() => {
                 type="button"
                 onClick={submitAdjustment}
                 disabled={adjusting}
-                className="px-4 py-2.5 rounded-lg border border-amber-500/40 text-amber-100 hover:bg-amber-500/10 text-sm disabled:opacity-50"
+                className="admin-button-primary rounded-lg px-4 py-2.5 text-sm transition disabled:opacity-50"
               >
                 {adjusting ? "Procesando..." : "Registrar ajuste"}
               </button>
             </div>
           </div>
-        </div>
+          </div>
+        </AdminModalPortal>
       )}
     </section>
   );

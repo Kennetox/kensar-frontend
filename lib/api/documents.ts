@@ -9,6 +9,7 @@ export type DocumentSearchItem = {
   document_number: string;
   reference: string;
   detail: string;
+  content_summary?: string | null;
   total: number;
   payment_method?: string | null;
   payment_stage?: "initial" | "posterior" | null;
