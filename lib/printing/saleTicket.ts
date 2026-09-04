@@ -1698,24 +1698,10 @@ export function renderClosureTicket(options: ClosureTicketOptions): string {
           .join("")
       : "";
   const showSeparatedClarification = Boolean(options.separatedSummary);
-  const dayBaseWithoutSeparated = showSeparatedClarification
-    ? Number(
-        normalizedSeparatedSummary?.dayCollectedTotal ??
-          Math.max(
-            Number(options.totals.net) -
-              Number(normalizedSeparatedSummary?.pendingTotal ?? 0),
-            0
-          )
-      )
-    : Number(options.totals.net);
-  const headerRegisteredTotal = showSeparatedClarification
-    ? dayBaseWithoutSeparated
-    : Number(options.totals.registered);
-  const headerNetTotal = showSeparatedClarification
-    ? dayBaseWithoutSeparated
-    : Number(options.totals.net);
+  const headerRegisteredTotal = Number(options.totals.registered);
+  const headerNetTotal = Number(options.totals.net);
   const separatedDayCollectedTotal = showSeparatedClarification
-    ? dayBaseWithoutSeparated
+    ? Number(normalizedSeparatedSummary?.dayCollectedTotal ?? headerNetTotal)
     : 0;
   const notesBlock =
     options.notes && options.notes.trim().length

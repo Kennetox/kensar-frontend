@@ -202,6 +202,9 @@ type PosClosureResult = {
     station_type?: string | null;
     sales_count?: number | null;
     total_amount?: number | null;
+    total_refunds?: number | null;
+    change_extra_total?: number | null;
+    change_refund_total?: number | null;
     pending_total?: number | null;
     net_amount?: number | null;
     net_amount_without_separated_pending?: number | null;
@@ -231,6 +234,9 @@ type PosClosurePreviewResult = {
   notes?: string | null;
   total_surcharge?: number | null;
   sales_count?: number | null;
+  methods_breakdown?: PosClosureResult["methods_breakdown"];
+  user_breakdown?: PosClosureResult["user_breakdown"];
+  separated_summary?: PosClosureResult["separated_summary"];
   station_breakdown?: {
     station_id?: string | null;
     station_label: string;
@@ -4010,11 +4016,44 @@ const matchesStationLabel = useCallback(
                 )
             );
           }
+          if (Array.isArray(previewData.methods_breakdown)) {
+            setClosureMethodDetails(
+              previewData.methods_breakdown
+                .map((method) => ({
+                  label: method.label || "Otro método",
+                  gross: Number(method.gross ?? method.net ?? 0),
+                  refunds: Number(method.refunds ?? 0),
+                  net: Number(method.net ?? method.gross ?? 0),
+                }))
+                .filter(
+                  (method) =>
+                    method.gross !== 0 || method.refunds !== 0 || method.net !== 0
+                )
+            );
+          }
+          if (Array.isArray(previewData.user_breakdown)) {
+            setClosureUsers(
+              previewData.user_breakdown.map((entry) => ({
+                name: entry.name,
+                total: Number(entry.total ?? 0),
+              }))
+            );
+          }
+          if (previewData.separated_summary !== undefined) {
+            setClosureSeparatedInfo(
+              normalizeClosureSeparatedSummary(previewData.separated_summary)
+            );
+          }
         } else {
-          console.warn("No se pudo obtener preview de cierre; usando cálculo local.");
+          throw new Error(
+            "No se pudo obtener el cálculo oficial del cierre desde el servidor."
+          );
         }
       } catch (previewErr) {
-        console.warn("Preview de cierre no disponible; usando cálculo local.", previewErr);
+        console.error("Preview oficial de cierre no disponible.", previewErr);
+        throw new Error(
+          "No se pudo validar el cierre con el servidor. No se generó ningún reporte."
+        );
       }
 
       setClosureForm((prev) => ({
@@ -4348,8 +4387,12 @@ const matchesStationLabel = useCallback(
   );
 
   const closureDisplayTotal = useMemo(
-    () => Number(closureSummary.total_amount ?? closureNetAmount ?? 0),
-    [closureSummary.total_amount, closureNetAmount]
+    () => Number(closureSummary.net_amount ?? closureNetAmount ?? 0),
+    [closureSummary.net_amount, closureNetAmount]
+  );
+
+  const closureDisplayDifference = Number(
+    closureSummary.difference ?? closureDifference ?? 0
   );
 
   const closureMethods = useMemo(() => {
@@ -4545,19 +4588,7 @@ const matchesStationLabel = useCallback(
       const backendSeparatedSummary = normalizeClosureSeparatedSummary(
         data.separated_summary
       );
-      const normalizedSeparated =
-        backendSeparatedSummary ??
-        (closureSeparatedInfo
-          ? {
-              ...closureSeparatedInfo,
-              dayCollectedTotal:
-                closureSeparatedInfo.dayCollectedTotal ??
-                Number((data.net_amount ?? 0).toFixed(2)),
-              dayWithPendingTotal:
-                closureSeparatedInfo.dayWithPendingTotal ??
-                (data.net_amount ?? 0),
-            }
-          : null);
+      const normalizedSeparated = backendSeparatedSummary;
       const normalizedCustomMethods =
         (Array.isArray(data.custom_methods) && data.custom_methods.length > 0
           ? data.custom_methods
@@ -4569,7 +4600,7 @@ const matchesStationLabel = useCallback(
                   amount: method.net ?? 0,
                   slug: method.key ?? null,
                 }))
-            : closureCustomMethods
+            : []
         )
           .map((method) => ({
             label: method.label,
@@ -4618,6 +4649,69 @@ const matchesStationLabel = useCallback(
           : data.separated_summary ?? null,
       };
       setClosureCustomMethods(normalizedCustomMethods);
+      setClosureForm((previous) => ({
+        ...previous,
+        totalAmount: adjustedTotals.total_amount,
+        totalCash: adjustedTotals.total_cash,
+        totalCard: adjustedTotals.total_card,
+        totalQr: adjustedTotals.total_qr,
+        totalNequi: adjustedTotals.total_nequi,
+        totalDaviplata: adjustedTotals.total_daviplata,
+        totalCredit: adjustedTotals.total_credit,
+        totalRefunds: adjustedTotals.total_refunds,
+        changeExtraTotal: adjustedTotals.change_extra_total ?? 0,
+        changeRefundTotal: adjustedTotals.change_refund_total ?? 0,
+        changeCount: adjustedTotals.change_count ?? 0,
+        countedCash: adjustedTotals.counted_cash,
+      }));
+      if (Array.isArray(data.methods_breakdown)) {
+        setClosureMethodDetails(
+          data.methods_breakdown
+            .map((method) => ({
+              label: method.label || "Otro método",
+              gross: Number(method.gross ?? method.net ?? 0),
+              refunds: Number(method.refunds ?? 0),
+              net: Number(method.net ?? method.gross ?? 0),
+            }))
+            .filter(
+              (method) =>
+                method.gross !== 0 || method.refunds !== 0 || method.net !== 0
+            )
+        );
+      }
+      if (Array.isArray(data.user_breakdown)) {
+        setClosureUsers(
+          data.user_breakdown.map((entry) => ({
+            name: entry.name,
+            total: Number(entry.total ?? 0),
+          }))
+        );
+      }
+      if (Array.isArray(data.station_breakdown)) {
+        const savedStationBreakdown = data.station_breakdown.map(
+          (row): ClosureStationContribution => ({
+            stationId: row.station_id || "unassigned",
+            stationLabel: row.station_label || "Sin estación",
+            stationType: row.station_type === "tablet" ? "tablet" : "desktop",
+            isPrimary: (row.station_id || null) === (activeStationId || null),
+            salesCount: Number(row.sales_count ?? 0),
+            gross: Number(row.total_amount ?? 0),
+            refunds: Number(row.total_refunds ?? 0),
+            changeExtra: Number(row.change_extra_total ?? 0),
+            changeRefund: Number(row.change_refund_total ?? 0),
+            pending: Number(row.pending_total ?? 0),
+            net: Number(row.net_amount ?? 0),
+            netWithoutSeparatedPending: Number(
+              row.net_amount_without_separated_pending ?? row.net_amount ?? 0
+            ),
+          })
+        );
+        setClosureStationBreakdown(savedStationBreakdown);
+        setClosureHasAuxiliaryScope(
+          savedStationBreakdown.some((row) => row.stationType === "tablet")
+        );
+      }
+      setClosureSeparatedInfo(normalizedSeparated);
       setClosureResult(enrichedData);
       setPendingClosureAlert(null);
       handlePrintClosureTicket(enrichedData, preOpenedWindow);
@@ -4677,13 +4771,11 @@ const matchesStationLabel = useCallback(
       const dynamicMethods =
         (payload.custom_methods && payload.custom_methods.length > 0
           ? payload.custom_methods
-          : closureCustomMethods) ?? [];
+          : []) ?? [];
       const methodDetailsForPrint: ClosureMethodDetail[] =
         backendMethodDetails.length > 0
           ? backendMethodDetails
-          : closureMethodDetails.length > 0
-            ? closureMethodDetails
-            : [
+          : [
               {
                 label: "Efectivo",
                 gross: totalsSource.total_cash,
@@ -4737,28 +4829,14 @@ const matchesStationLabel = useCallback(
           amount: method.net,
         }));
       const userBreakdown =
-        closureUsers.length > 0
-          ? closureUsers
-              .filter((user) => user.total > 0)
-              .map((user) => ({ name: user.name, total: user.total }))
-          : payload.user_breakdown && payload.user_breakdown.length > 0
+        payload.user_breakdown && payload.user_breakdown.length > 0
             ? payload.user_breakdown
                 .filter((user) => (user.total ?? 0) > 0)
                 .map((user) => ({ name: user.name, total: user.total }))
           : undefined;
-      const separatedSummary =
-        normalizeClosureSeparatedSummary(payload.separated_summary) ??
-        (closureSeparatedInfo
-          ? {
-              ...closureSeparatedInfo,
-              dayCollectedTotal:
-                closureSeparatedInfo.dayCollectedTotal ??
-                Number(totalsSource.net_amount.toFixed(2)),
-              dayWithPendingTotal:
-                closureSeparatedInfo.dayWithPendingTotal ??
-                totalsSource.net_amount,
-            }
-          : null);
+      const separatedSummary = normalizeClosureSeparatedSummary(
+        payload.separated_summary
+      );
       const stationBreakdown =
         payload.station_breakdown?.map((row) => ({
           stationId: row.station_id ?? null,
@@ -4905,11 +4983,7 @@ const matchesStationLabel = useCallback(
     },
     [
       closureResult,
-      closureUsers,
       posSettings,
-      closureSeparatedInfo,
-      closureCustomMethods,
-      closureMethodDetails,
       closureHasAuxiliaryScope,
       resolvedPosName,
       closureRange,
@@ -8001,14 +8075,14 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                       <span className="text-slate-400">Diferencia en caja:</span>{" "}
                       <span
                         className={
-                          closureDifference === 0
+                          closureDisplayDifference === 0
                             ? "text-slate-100"
-                            : closureDifference > 0
+                            : closureDisplayDifference > 0
                             ? "text-emerald-300"
                             : "text-rose-300"
                         }
                       >
-                        {formatMoney(closureDifference)}
+                        {formatMoney(closureDisplayDifference)}
                       </span>
                     </p>
                   </div>
