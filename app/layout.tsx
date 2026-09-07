@@ -8,6 +8,7 @@ import { ThemePreviewer } from "./providers/ThemePreviewer";
 import { SystemStatusProvider } from "./providers/SystemStatusProvider";
 import CookieConsentBanner from "./components/CookieConsentBanner";
 import { COOKIE_CONSENT_COOKIE_NAME, parseCookieConsent } from "@/lib/cookieConsent";
+import { TabletPrintAgent } from "./pos/components/TabletPrintAgent";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://metrikpos.com"),
@@ -79,6 +80,7 @@ export default async function RootLayout({
   return (
     <html lang="es">
       <body data-theme="dark" className="min-h-screen">
+        <TabletPrintAgent />
         <AuthProvider>
           <SystemStatusProvider />
           <Suspense fallback={null}>
