@@ -5,6 +5,13 @@ import { useAuth } from "../../providers/AuthProvider";
 import type { Product as PosProduct } from "../../pos/poscontext";
 import { getApiBase } from "@/lib/api/base";
 import { exportLabelsExcel } from "@/lib/api/labels";
+import {
+  fetchReceivingLotDetail,
+  fetchReceivingLots,
+  type ReceivingLotDetail,
+  type ReceivingLotRead,
+} from "@/lib/api/inventory";
+import { formatBogotaDate } from "@/lib/time/bogota";
 
 type ProductSearchResult = Pick<
   PosProduct,
@@ -42,8 +49,140 @@ export default function LabelsPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [labelStateReady, setLabelStateReady] = useState(false);
   const [searchStateReady, setSearchStateReady] = useState(false);
+  const [recentReceivingLots, setRecentReceivingLots] = useState<ReceivingLotRead[]>([]);
+  const [receivingLotsLoading, setReceivingLotsLoading] = useState(false);
+  const [receivingLotsError, setReceivingLotsError] = useState<string | null>(null);
+  const [receivingDetails, setReceivingDetails] = useState<Record<number, ReceivingLotDetail>>({});
+  const [receivingActionLotId, setReceivingActionLotId] = useState<number | null>(null);
+  const [previewLot, setPreviewLot] = useState<ReceivingLotRead | null>(null);
+  const [loadedReceivingLotIds, setLoadedReceivingLotIds] = useState<number[]>([]);
+  const [receivingMessage, setReceivingMessage] = useState<string | null>(null);
 
   const canUseApi = !!authHeaders;
+
+  const loadRecentReceivingLots = useCallback(async () => {
+    if (!token) return;
+    try {
+      setReceivingLotsLoading(true);
+      setReceivingLotsError(null);
+      const page = await fetchReceivingLots(token, {
+        status: "closed",
+        limit: 5,
+      });
+      const sorted = [...page.items].sort((a, b) => {
+        const aTime = new Date(a.closed_at ?? a.updated_at ?? a.created_at).getTime();
+        const bTime = new Date(b.closed_at ?? b.updated_at ?? b.created_at).getTime();
+        return bTime - aTime;
+      });
+      setRecentReceivingLots(sorted.slice(0, 5));
+    } catch (err) {
+      console.error("Error al cargar recepciones recientes", err);
+      setReceivingLotsError(
+        err instanceof Error ? err.message : "No pudimos cargar las recepciones recientes."
+      );
+    } finally {
+      setReceivingLotsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadRecentReceivingLots();
+  }, [loadRecentReceivingLots]);
+
+  const getReceivingDetail = useCallback(
+    async (lot: ReceivingLotRead) => {
+      const cached = receivingDetails[lot.id];
+      if (cached) return cached;
+      if (!token) throw new Error("Inicia sesión para consultar la recepción.");
+      setReceivingActionLotId(lot.id);
+      setReceivingLotsError(null);
+      try {
+        const detail = await fetchReceivingLotDetail(token, lot.id);
+        setReceivingDetails((prev) => ({ ...prev, [lot.id]: detail }));
+        return detail;
+      } finally {
+        setReceivingActionLotId((current) => (current === lot.id ? null : current));
+      }
+    },
+    [receivingDetails, token]
+  );
+
+  const appendReceivingDetail = useCallback((detail: ReceivingLotDetail) => {
+    const validItems = detail.items.filter(
+      (item) => item.product_id > 0 && Number(item.qty_received) > 0
+    );
+    if (!validItems.length) {
+      setReceivingLotsError("Esta recepción no tiene productos con cantidades para etiquetar.");
+      return false;
+    }
+    setLabelItems((prev) => {
+      const next = [...prev];
+      validItems.forEach((item) => {
+        const quantity = Math.max(1, Math.round(Number(item.qty_received) || 0));
+        const existingIndex = next.findIndex(
+          (labelItem) => labelItem.productId === item.product_id
+        );
+        if (existingIndex >= 0) {
+          next[existingIndex] = {
+            ...next[existingIndex],
+            quantity: next[existingIndex].quantity + quantity,
+          };
+          return;
+        }
+        next.push({
+          productId: item.product_id,
+          sku: item.sku_snapshot ?? "",
+          name: item.product_name_snapshot,
+          barcode: item.barcode_snapshot ?? "",
+          price: Number(item.unit_price_snapshot) || 0,
+          quantity,
+        });
+      });
+      return next;
+    });
+    setLoadedReceivingLotIds((prev) =>
+      prev.includes(detail.lot.id) ? prev : [...prev, detail.lot.id]
+    );
+    setReceivingMessage(
+      `${detail.lot.lot_number}: ${validItems.length.toLocaleString("es-CO")} referencia${
+        validItems.length === 1 ? "" : "s"
+      } agregada${validItems.length === 1 ? "" : "s"}.`
+    );
+    setReceivingLotsError(null);
+    return true;
+  }, []);
+
+  const handlePreviewReceivingLot = useCallback(
+    async (lot: ReceivingLotRead) => {
+      setPreviewLot(lot);
+      setReceivingLotsError(null);
+      try {
+        await getReceivingDetail(lot);
+      } catch (err) {
+        console.error("Error al cargar el detalle de la recepción", err);
+        setReceivingLotsError(
+          err instanceof Error ? err.message : "No pudimos abrir esta recepción."
+        );
+      }
+    },
+    [getReceivingDetail]
+  );
+
+  const handleLoadReceivingLot = useCallback(
+    async (lot: ReceivingLotRead, closePreview = false) => {
+      try {
+        const detail = await getReceivingDetail(lot);
+        const loaded = appendReceivingDetail(detail);
+        if (loaded && closePreview) setPreviewLot(null);
+      } catch (err) {
+        console.error("Error al cargar la recepción en etiquetas", err);
+        setReceivingLotsError(
+          err instanceof Error ? err.message : "No pudimos cargar esta recepción."
+        );
+      }
+    },
+    [appendReceivingDetail, getReceivingDetail]
+  );
 
   const handleSearch = useCallback(
     async (e?: React.FormEvent) => {
@@ -373,9 +512,26 @@ export default function LabelsPage() {
     }
   }, [canUseApi, labelItems, token]);
 
+  useEffect(() => {
+    if (!previewLot) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewLot(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [previewLot]);
+
+  const previewDetail = previewLot ? receivingDetails[previewLot.id] ?? null : null;
+  const previewReferenceCount = previewDetail?.items.length ?? 0;
+  const previewUnitsTotal =
+    previewDetail?.items.reduce(
+      (sum, item) => sum + Number(item.qty_received || 0),
+      0
+    ) ?? 0;
+
   return (
     <main className="flex-1 px-6 py-4 dashboard-theme text-slate-900">
-      <div className="labels-workspace-scale w-full max-w-7xl mx-auto space-y-4">
+      <div className="labels-workspace-scale w-full max-w-[1480px] mx-auto space-y-4">
         {/* Encabezado principal */}
         <header className="space-y-1">
           <p className="text-xs uppercase tracking-wide text-emerald-700 font-semibold">
@@ -388,6 +544,8 @@ export default function LabelsPage() {
           </p>
         </header>
 
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="min-w-0 space-y-4">
         {/* Bloque 1: búsqueda de productos */}
         <section className="labels-panel rounded-2xl ui-surface p-4">
           <div className="space-y-3">
@@ -659,7 +817,268 @@ export default function LabelsPage() {
             </p>
           </div>
         </section>
+          </div>
+
+          <aside className="labels-panel rounded-2xl ui-surface p-3 xl:sticky xl:top-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">
+                  Últimas recepciones
+                </h2>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  Cinco recepciones cerradas recientes.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadRecentReceivingLots()}
+                disabled={receivingLotsLoading || !canUseApi}
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                title="Actualizar recepciones"
+              >
+                {receivingLotsLoading ? "Cargando…" : "Actualizar"}
+              </button>
+            </div>
+
+            {receivingMessage && (
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                {receivingMessage}
+              </div>
+            )}
+            {receivingLotsError && !previewLot && (
+              <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                {receivingLotsError}
+              </div>
+            )}
+
+            <div className="mt-2 space-y-1.5">
+              {!receivingLotsLoading && recentReceivingLots.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 px-3 py-6 text-center text-xs text-slate-500">
+                  No hay recepciones completadas para mostrar.
+                </div>
+              ) : (
+                recentReceivingLots.map((lot) => {
+                  const cachedDetail = receivingDetails[lot.id];
+                  const loaded = loadedReceivingLotIds.includes(lot.id);
+                  const isActionLoading = receivingActionLotId === lot.id;
+                  const itemCount = cachedDetail?.items.length;
+                  const units = cachedDetail?.items.reduce(
+                    (sum, item) => sum + Number(item.qty_received || 0),
+                    0
+                  );
+                  return (
+                    <article
+                      key={lot.id}
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
+                    >
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <div className="truncate text-sm font-semibold text-slate-900">
+                          {lot.lot_number}
+                        </div>
+                        <div className="shrink-0 text-[10px] text-slate-500">
+                          {formatBogotaDate(lot.closed_at ?? lot.updated_at, {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: true,
+                          })}
+                        </div>
+                      </div>
+                      <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+                        <div className="truncate text-[10px] text-slate-500">
+                          {lot.origin_name || "Origen no definido"}
+                          {itemCount != null && (
+                            <> · {itemCount} ref. · {units?.toLocaleString("es-CO")} und.</>
+                          )}
+                        </div>
+                        {loaded && (
+                          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            Cargada
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => void handlePreviewReceivingLot(lot)}
+                          disabled={isActionLoading}
+                          className="rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                          title="Ver productos de la recepción"
+                        >
+                          {isActionLoading ? "Abriendo…" : "Ver"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleLoadReceivingLot(lot)}
+                          disabled={isActionLoading}
+                          className="rounded-md border border-emerald-500 bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-600 disabled:opacity-50"
+                          title="Cargar productos en la lista de etiquetas"
+                        >
+                          {isActionLoading ? "Cargando…" : "Cargar"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+        </div>
       </div>
+
+      {previewLot && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="receiving-preview-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPreviewLot(null);
+          }}
+        >
+          <div className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                  Vista previa de recepción
+                </p>
+                <h2 id="receiving-preview-title" className="mt-1 text-xl font-bold text-slate-900">
+                  {previewLot.lot_number}
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {previewLot.origin_name} · {formatBogotaDate(
+                    previewLot.closed_at ?? previewLot.updated_at,
+                    { dateStyle: "medium", timeStyle: "short" }
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewLot(null)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto p-5">
+              {receivingActionLotId === previewLot.id && !previewDetail ? (
+                <div className="py-12 text-center text-sm text-slate-500">
+                  Cargando productos de la recepción…
+                </div>
+              ) : receivingLotsError && !previewDetail ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-700">
+                  {receivingLotsError}
+                </div>
+              ) : previewDetail?.items.length ? (
+                <div className="space-y-3">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Abrió
+                      </div>
+                      <div className="mt-0.5 truncate text-sm font-semibold text-slate-900">
+                        {previewDetail.lot.created_by_user_name || "No disponible"}
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-slate-500">
+                        {formatBogotaDate(previewDetail.lot.created_at, {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Terminó
+                      </div>
+                      <div className="mt-0.5 truncate text-sm font-semibold text-slate-900">
+                        {previewDetail.lot.closed_by_user_name || "No disponible"}
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-slate-500">
+                        {previewDetail.lot.closed_at
+                          ? formatBogotaDate(previewDetail.lot.closed_at, {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })
+                          : "Sin fecha de cierre"}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Referencias
+                      </div>
+                      <div className="mt-1 text-lg font-bold text-slate-900">
+                        {previewReferenceCount.toLocaleString("es-CO")}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                        Total productos
+                      </div>
+                      <div className="mt-1 text-lg font-bold text-emerald-800">
+                        {previewUnitsTotal.toLocaleString("es-CO")}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <table className="w-full min-w-[620px] text-left text-sm">
+                    <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+                      <tr>
+                        <th className="px-3 py-2">SKU</th>
+                        <th className="px-3 py-2">Producto</th>
+                        <th className="px-3 py-2">Código de barras</th>
+                        <th className="px-3 py-2 text-right">Precio</th>
+                        <th className="px-3 py-2 text-right">Cantidad recibida</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {previewDetail.items.map((item) => (
+                        <tr key={item.id} className="text-slate-700">
+                          <td className="px-3 py-2 font-mono text-xs">{item.sku_snapshot || "—"}</td>
+                          <td className="px-3 py-2 font-medium text-slate-900">
+                            {item.product_name_snapshot}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {item.barcode_snapshot || "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {formatPriceForUi(Number(item.unit_price_snapshot) || 0)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold">
+                            {Number(item.qty_received).toLocaleString("es-CO")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-12 text-center text-sm text-slate-500">
+                  Esta recepción no tiene productos registrados.
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4">
+              <p className="text-xs text-slate-500">
+                Las cantidades podrán editarse después de cargar la recepción.
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleLoadReceivingLot(previewLot, true)}
+                disabled={!previewDetail?.items.length || receivingActionLotId === previewLot.id}
+                className="rounded-lg border border-emerald-500 bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cargar productos en etiquetas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
