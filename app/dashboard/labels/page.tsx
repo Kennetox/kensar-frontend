@@ -29,6 +29,7 @@ type LabelItem = {
 
 const LOCAL_STORAGE_KEY = "kensar_labels_items";
 const LOCAL_STORAGE_SEARCH_KEY = "kensar_labels_search";
+const HIGH_QUANTITY_WARNING_THRESHOLD = 20;
 
 export default function LabelsPage() {
   const { token } = useAuth();
@@ -57,6 +58,7 @@ export default function LabelsPage() {
   const [previewLot, setPreviewLot] = useState<ReceivingLotRead | null>(null);
   const [loadedReceivingLotIds, setLoadedReceivingLotIds] = useState<number[]>([]);
   const [receivingMessage, setReceivingMessage] = useState<string | null>(null);
+  const [exportWarningOpen, setExportWarningOpen] = useState(false);
 
   const canUseApi = !!authHeaders;
 
@@ -313,6 +315,7 @@ export default function LabelsPage() {
 
   const handleRemoveItem = useCallback((productId: number) => {
     setLabelItems((prev) => prev.filter((p) => p.productId !== productId));
+    setReceivingMessage(null);
   }, []);
 
   const handleQuantityChange = useCallback(
@@ -348,6 +351,9 @@ export default function LabelsPage() {
   const handleClearList = useCallback(() => {
     setLabelItems([]);
     setExportError(null);
+    setLoadedReceivingLotIds([]);
+    setReceivingMessage(null);
+    setExportWarningOpen(false);
   }, []);
 
   useEffect(() => {
@@ -418,6 +424,13 @@ export default function LabelsPage() {
     () => labelItems.reduce((sum, item) => sum + item.quantity, 0),
     [labelItems]
   );
+  const highQuantityItems = useMemo(
+    () =>
+      labelItems.filter(
+        (item) => item.quantity >= HIGH_QUANTITY_WARNING_THRESHOLD
+      ),
+    [labelItems]
+  );
 
 
   const formatPriceForUi = (value: number) => {
@@ -431,7 +444,7 @@ export default function LabelsPage() {
     })}`;
   };
 
-  const handleExport = useCallback(async () => {
+  const performExport = useCallback(async () => {
     if (!canUseApi || !labelItems.length) return;
     try {
       setExportLoading(true);
@@ -512,14 +525,24 @@ export default function LabelsPage() {
     }
   }, [canUseApi, labelItems, token]);
 
+  const handleExport = useCallback(() => {
+    if (highQuantityItems.length > 0) {
+      setExportWarningOpen(true);
+      return;
+    }
+    void performExport();
+  }, [highQuantityItems.length, performExport]);
+
   useEffect(() => {
-    if (!previewLot) return;
+    if (!previewLot && !exportWarningOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPreviewLot(null);
+      if (event.key !== "Escape") return;
+      setPreviewLot(null);
+      setExportWarningOpen(false);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [previewLot]);
+  }, [exportWarningOpen, previewLot]);
 
   const previewDetail = previewLot ? receivingDetails[previewLot.id] ?? null : null;
   const previewReferenceCount = previewDetail?.items.length ?? 0;
@@ -713,6 +736,15 @@ export default function LabelsPage() {
                 {exportError}
               </div>
             )}
+            {highQuantityItems.length > 0 && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <span aria-hidden="true">⚠</span>
+                <span>
+                  Revisa {highQuantityItems.length} línea
+                  {highQuantityItems.length === 1 ? "" : "s"} con 20 o más etiquetas antes de exportar.
+                </span>
+              </div>
+            )}
 
             <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
               <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 text-xs text-slate-600">
@@ -761,34 +793,45 @@ export default function LabelsPage() {
                             {item.barcode || "—"}
                           </td>
                           <td className="px-3 py-2">
-                            <div className="flex items-center justify-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleDecrement(item.productId)}
-                                className="w-7 h-7 flex items-center justify-center rounded-md border border-slate-300 text-slate-600 bg-white hover:bg-slate-50"
-                              >
-                                −
-                              </button>
-                              <input
-                                type="number"
-                                min={1}
-                                step={1}
-                                value={item.quantity}
-                                onChange={(e) =>
-                                  handleQuantityChange(
-                                    item.productId,
-                                    Number(e.target.value)
-                                  )
-                                }
-                                className="w-16 rounded-md border border-slate-300 bg-white px-2 py-1 text-center text-slate-700"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleIncrement(item.productId)}
-                                className="w-7 h-7 flex items-center justify-center rounded-md border border-slate-300 text-slate-600 bg-white hover:bg-slate-50"
-                              >
-                                +
-                              </button>
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDecrement(item.productId)}
+                                  className="w-7 h-7 flex items-center justify-center rounded-md border border-slate-300 text-slate-600 bg-white hover:bg-slate-50"
+                                >
+                                  −
+                                </button>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  step={1}
+                                  value={item.quantity}
+                                  onChange={(e) =>
+                                    handleQuantityChange(
+                                      item.productId,
+                                      Number(e.target.value)
+                                    )
+                                  }
+                                  className={`w-16 rounded-md border bg-white px-2 py-1 text-center text-slate-700 ${
+                                    item.quantity >= HIGH_QUANTITY_WARNING_THRESHOLD
+                                      ? "border-amber-400 ring-1 ring-amber-200"
+                                      : "border-slate-300"
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleIncrement(item.productId)}
+                                  className="w-7 h-7 flex items-center justify-center rounded-md border border-slate-300 text-slate-600 bg-white hover:bg-slate-50"
+                                >
+                                  +
+                                </button>
+                              </div>
+                              {item.quantity >= HIGH_QUANTITY_WARNING_THRESHOLD && (
+                                <span className="text-[10px] font-semibold text-amber-700">
+                                  Cantidad elevada
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="px-3 py-2 text-center">
@@ -859,7 +902,34 @@ export default function LabelsPage() {
               ) : (
                 recentReceivingLots.map((lot) => {
                   const cachedDetail = receivingDetails[lot.id];
-                  const loaded = loadedReceivingLotIds.includes(lot.id);
+                  const receptionQuantities = new Map<number, number>();
+                  cachedDetail?.items.forEach((item) => {
+                    const quantity = Math.max(
+                      1,
+                      Math.round(Number(item.qty_received) || 0)
+                    );
+                    if (Number(item.qty_received) <= 0) return;
+                    receptionQuantities.set(
+                      item.product_id,
+                      (receptionQuantities.get(item.product_id) ?? 0) + quantity
+                    );
+                  });
+                  const matchingProducts = Array.from(
+                    receptionQuantities.entries()
+                  ).filter(([productId, receivedQuantity]) =>
+                    labelItems.some(
+                      (item) =>
+                        item.productId === productId &&
+                        item.quantity >= receivedQuantity
+                    )
+                  ).length;
+                  const loadedInSession = loadedReceivingLotIds.includes(lot.id);
+                  const fullyLoaded =
+                    loadedInSession &&
+                    receptionQuantities.size > 0 &&
+                    matchingProducts === receptionQuantities.size;
+                  const partiallyLoaded =
+                    loadedInSession && matchingProducts > 0 && !fullyLoaded;
                   const isActionLoading = receivingActionLotId === lot.id;
                   const itemCount = cachedDetail?.items.length;
                   const units = cachedDetail?.items.reduce(
@@ -893,9 +963,15 @@ export default function LabelsPage() {
                             <> · {itemCount} ref. · {units?.toLocaleString("es-CO")} und.</>
                           )}
                         </div>
-                        {loaded && (
-                          <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                            Cargada
+                        {(fullyLoaded || partiallyLoaded) && (
+                          <span
+                            className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                              fullyLoaded
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-amber-200 bg-amber-50 text-amber-700"
+                            }`}
+                          >
+                            {fullyLoaded ? "Cargada" : "Parcial"}
                           </span>
                         )}
                       </div>
@@ -1074,6 +1150,88 @@ export default function LabelsPage() {
                 className="rounded-lg border border-emerald-500 bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cargar productos en etiquetas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {exportWarningOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/65 px-4 py-6 backdrop-blur-sm"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="high-quantity-warning-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setExportWarningOpen(false);
+          }}
+        >
+          <div className="flex max-h-[82vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-2xl">
+            <div className="border-b border-amber-200 bg-amber-50 px-5 py-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-lg text-amber-800">
+                  !
+                </div>
+                <div>
+                  <h2 id="high-quantity-warning-title" className="text-lg font-bold text-slate-900">
+                    Confirma las cantidades antes de exportar
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Estas líneas generarán 20 o más etiquetas cada una. Revisa que no sean productos que normalmente se reciben sin etiquetar.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto p-5">
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <div className="grid grid-cols-[90px_minmax(0,1fr)_90px] bg-slate-100 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                  <span>SKU</span>
+                  <span>Producto</span>
+                  <span className="text-right">Etiquetas</span>
+                </div>
+                <div className="divide-y divide-slate-200">
+                  {highQuantityItems.map((item) => (
+                    <div
+                      key={item.productId}
+                      className="grid grid-cols-[90px_minmax(0,1fr)_90px] items-center px-3 py-2 text-sm"
+                    >
+                      <span className="truncate font-mono text-xs text-slate-500">
+                        {item.sku || "—"}
+                      </span>
+                      <span className="truncate font-medium text-slate-900" title={item.name}>
+                        {item.name}
+                      </span>
+                      <span className="text-right text-base font-bold text-amber-700">
+                        {item.quantity.toLocaleString("es-CO")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-slate-500">
+                Si alguna cantidad no es correcta, vuelve a la lista para modificarla o quitar el producto.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setExportWarningOpen(false)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Volver y revisar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExportWarningOpen(false);
+                  void performExport();
+                }}
+                disabled={exportLoading}
+                className="rounded-lg border border-amber-500 bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+              >
+                {exportLoading ? "Generando…" : "Sí, exportar estas cantidades"}
               </button>
             </div>
           </div>
