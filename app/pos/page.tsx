@@ -4292,18 +4292,12 @@ const matchesStationLabel = useCallback(
     }));
   };
 
+  // El preview oficial del backend ya entrega totalAmount conciliado por método:
+  // incluye devoluciones, excedentes y reembolsos de cambios. Esos campos se
+  // conservan para explicar el movimiento, pero no deben descontarse otra vez.
   const closureNetAmount = useMemo(
-    () =>
-      closureForm.totalAmount -
-      closureForm.totalRefunds +
-      closureForm.changeExtraTotal -
-      closureForm.changeRefundTotal,
-    [
-      closureForm.totalAmount,
-      closureForm.totalRefunds,
-      closureForm.changeExtraTotal,
-      closureForm.changeRefundTotal,
-    ]
+    () => closureForm.totalAmount,
+    [closureForm.totalAmount]
   );
 
   const closureDifference = useMemo(
@@ -4469,18 +4463,21 @@ const matchesStationLabel = useCallback(
   const closureRegisteredTotals = useMemo(
     () =>
       [
-        { label: "Total registrado del día", value: closureSummary.total_amount },
-        { label: "Reembolsos del período", value: -closureSummary.total_refunds },
+        { label: "Total registrado del día (neto)", value: closureSummary.total_amount },
+        {
+          label: "Reembolsos del período (ya incluidos)",
+          value: -closureSummary.total_refunds,
+        },
         ...(closureSummary.change_extra_total ||
         closureSummary.change_refund_total ||
         closureSummary.change_count
           ? [
               {
-                label: "Cambios (excedente)",
+                label: "Cambios (excedente ya incluido)",
                 value: closureSummary.change_extra_total ?? 0,
               },
               {
-                label: "Cambios (reembolsos)",
+                label: "Cambios (reembolsos ya incluidos)",
                 value: -(closureSummary.change_refund_total ?? 0),
               },
               ...(closureSummary.change_count
