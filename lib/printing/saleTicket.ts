@@ -1,6 +1,9 @@
 import type { PosSettingsPayload } from "@/lib/api/settings";
 import { generateCode128Svg } from "@/lib/utils/barcode";
 import { formatBogotaDate } from "@/lib/time/bogota";
+import type { SeparatedTicketReconciliation } from "./separatedTicket";
+
+export { buildSeparatedTicketReconciliations } from "./separatedTicket";
 
 export type SaleTicketItem = {
   name: string;
@@ -123,8 +126,10 @@ export type SaleTicketOptions = {
   separatedInfo?: {
     dueDate?: string | null;
     balance?: number;
+    appliedTotal?: number;
     initialPayments?: SeparatedTicketPayment[];
     payments: SeparatedTicketPayment[];
+    reconciliations?: SeparatedTicketReconciliation[];
   };
 };
 
@@ -811,6 +816,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           ...(options.separatedInfo?.initialPayments ?? []),
           ...(options.separatedInfo?.payments ?? []),
         ];
+        const reconciliations = options.separatedInfo?.reconciliations ?? [];
         const paymentsRows = payments.length
           ? payments
               .map((entry) => {
@@ -833,6 +839,42 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
               })
               .join("")
           : '<div class="row separated-row"><div class="sep-label">Sin abonos registrados</div><span>0</span></div>';
+        const reconciliationRows = reconciliations
+          .map((entry, index) => {
+            const metaParts: string[] = [];
+            if (entry.reference) metaParts.push(`Ref. ${entry.reference}`);
+            if (entry.reconciledAt) {
+              metaParts.push(formatDisplayDate(entry.reconciledAt));
+            }
+            const meta = metaParts.length
+              ? `<div class="sep-meta">${metaParts
+                  .map((part) => escapeHtml(part))
+                  .join(" · ")}</div>`
+              : "";
+            const label =
+              reconciliations.length > 1
+                ? `Pago conciliado ${index + 1}`
+                : "Pago conciliado";
+            return `<div class="row separated-row">
+              <div>
+                <div class="sep-label">${escapeHtml(label)}</div>
+                ${meta}
+              </div>
+              <span>${formatMoney(entry.amount)}</span>
+            </div>`;
+          })
+          .join("");
+        const calculatedAppliedTotal =
+          payments.reduce((sum, entry) => sum + Number(entry.amount || 0), 0) +
+          reconciliations.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+        const totalApplied =
+          typeof options.separatedInfo?.appliedTotal === "number"
+            ? Math.max(options.separatedInfo.appliedTotal, 0)
+            : calculatedAppliedTotal;
+        const totalAppliedLine = `<div class="row separated-row balance-row">
+          <div class="sep-label">Total aplicado</div>
+          <span>${formatMoney(totalApplied)}</span>
+        </div>`;
         const dueLine = options.separatedInfo?.dueDate
           ? `<div class="line"><span>Fecha límite</span><span>${formatDisplayDateOnly(
               options.separatedInfo?.dueDate
@@ -850,6 +892,8 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
             <div class="line-title">Detalle de abonos</div>
             ${dueLine}
             <div class="payments">${paymentsRows}</div>
+            ${reconciliationRows ? `<div class="payments">${reconciliationRows}</div>` : ""}
+            ${totalAppliedLine}
             ${balanceLine}
           </div>`;
       })()

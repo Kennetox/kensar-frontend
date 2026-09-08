@@ -26,6 +26,7 @@ import {
   renderClosureTicket,
   renderChangeTicket,
   buildSaleTicketCustomer,
+  buildSeparatedTicketReconciliations,
 } from "@/lib/printing/saleTicket";
 import { usePaymentMethodLabelResolver } from "@/app/hooks/usePaymentMethodLabelResolver";
 import {
@@ -4133,12 +4134,19 @@ useEffect(() => {
         ? {
             dueDate: selectedSeparatedOrder.due_date ?? null,
             balance: Math.max(selectedSalePendingAmount, 0),
+            appliedTotal: Math.max(
+              Number(selectedSeparatedOrder.total_amount || 0) -
+                Number(selectedSeparatedOrder.balance || 0),
+              0
+            ),
             payments: separatedPaymentEntries.map((entry) => ({
               label: entry.label,
               amount: entry.amount,
               paidAt: entry.paidAt ?? undefined,
               method: entry.methodLabel,
             })),
+            reconciliations:
+              buildSeparatedTicketReconciliations(selectedSeparatedOrder),
         }
         : undefined;
     const hasSaleAdjustment =

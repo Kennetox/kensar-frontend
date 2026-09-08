@@ -61,6 +61,13 @@ function formatMoney(value?: number | null) {
   return moneyFormatter.format(Number(value || 0));
 }
 
+function formatWholeMoneyInput(value: string) {
+  const digits = value.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+  if (!digits) return "";
+  const numeric = Number(digits);
+  return Number.isFinite(numeric) ? numeric.toLocaleString("es-CO") : "";
+}
+
 function formatDate(value?: string | null, includeTime = false) {
   if (!value) return "Sin definir";
   return (
@@ -554,7 +561,9 @@ function SeparatedResolutionModal({
 }) {
   const [action, setAction] = useState<ResolutionMode>(mode);
   const [amount, setAmount] = useState(
-    String(Math.round(mode === "refund_pending" ? Number(order.pending_refund_amount || 0) : Number(order.balance || 0)))
+    mode === "refund_pending"
+      ? String(Math.round(Number(order.pending_refund_amount || 0)))
+      : ""
   );
   const [reference, setReference] = useState("");
   const [reason, setReason] = useState("");
@@ -575,14 +584,23 @@ function SeparatedResolutionModal({
   const selectAction = (next: ResolutionMode) => {
     setAction(next);
     setError("");
-    if (next === "reconcile") setAmount(String(Math.round(Number(order.balance || 0))));
+    if (next === "reconcile") setAmount("");
     if (next === "refund_pending") setAmount(String(Math.round(Number(order.pending_refund_amount || 0))));
   };
 
   const submit = async () => {
     const payload: SeparatedOrderResolutionPayload = { action };
     if (action === "reconcile") {
-      payload.amount = Number(amount);
+      const numericAmount = Number(amount);
+      if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+        setError("Digita un valor conciliado mayor a cero.");
+        return;
+      }
+      if (numericAmount - Number(order.balance || 0) > 0.01) {
+        setError("El valor conciliado no puede superar el saldo pendiente.");
+        return;
+      }
+      payload.amount = numericAmount;
       payload.reference = reference.trim();
       payload.reason = reason.trim() || "Pago registrado en otro documento";
       payload.notes = notes.trim() || undefined;
@@ -678,7 +696,15 @@ function SeparatedResolutionModal({
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <FormField label="Valor conciliado">
-                    <input type="number" min="1" max={order.balance} value={amount} onChange={(event) => setAmount(event.target.value)} className={RESOLUTION_CONTROL_CLASS} />
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={formatWholeMoneyInput(amount)}
+                      onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))}
+                      placeholder="Ej. 50.000"
+                      className={RESOLUTION_CONTROL_CLASS}
+                    />
                   </FormField>
                   <FormField label="Documento donde quedó pagado">
                     <input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Ej. V-007642 o comprobante" className={RESOLUTION_CONTROL_CLASS} />

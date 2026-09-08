@@ -43,6 +43,7 @@ import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
 import { PosNavigationOverlay } from "../../components/PosNavigationOverlay";
 import { useGuardedPosNavigation } from "../../hooks/useGuardedPosNavigation";
 import { isCustomerEligibleForSeparated } from "@/lib/customers/validation";
+import { getDefaultSeparatedDueDate } from "@/lib/pos/separatedDueDate";
 
 type PaymentMethodSlug = string;
 
@@ -612,12 +613,6 @@ export default function PagoMultiplePage() {
 
   const hasCreditLike = payments.some((p) => creditMethodSlugs.has(p.method));
 
-  function getDefaultDueDate(): string {
-    const due = new Date();
-    due.setMonth(due.getMonth() + 2);
-    return due.toISOString();
-  }
-
   useEffect(() => {
     if (typeof window === "undefined") return;
     const raw = window.sessionStorage.getItem(
@@ -1046,7 +1041,7 @@ export default function PagoMultiplePage() {
         basePayload.customer_id = selectedCustomer.id;
       }
       if (isSeparatedSale) {
-        basePayload.due_date = getDefaultDueDate();
+        basePayload.due_date = getDefaultSeparatedDueDate();
       }
       if (cartSurcharge.enabled && cartSurcharge.amount > 0) {
         basePayload.surcharge_amount = cartSurcharge.amount;

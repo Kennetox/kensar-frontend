@@ -43,6 +43,7 @@ import { buildScopedPosStorageKey } from "@/lib/pos/storageScope";
 import { PosNavigationOverlay } from "../components/PosNavigationOverlay";
 import { useGuardedPosNavigation } from "../hooks/useGuardedPosNavigation";
 import { isCustomerEligibleForSeparated } from "@/lib/customers/validation";
+import { getDefaultSeparatedDueDate } from "@/lib/pos/separatedDueDate";
 
 type PaymentMethodSlug = string;
 
@@ -769,12 +770,6 @@ function formatMoney(value: number): string {
   });
 }
 
-function getDefaultDueDate(): string {
-  const due = new Date();
-  due.setMonth(due.getMonth() + 2);
-  return due.toISOString();
-}
-
 const amountDisplayFormatter = new Intl.NumberFormat("es-CO", {
   minimumFractionDigits: 0,
   maximumFractionDigits: 0,
@@ -1095,7 +1090,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       }
 
       if (isSeparatedSale) {
-        basePayload.due_date = getDefaultDueDate();
+        basePayload.due_date = getDefaultSeparatedDueDate();
       }
 
       // 3) Si es CRÉDITO / SEPARADO, mandamos también la lista de pagos

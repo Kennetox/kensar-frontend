@@ -36,6 +36,7 @@ import {
   renderChangeTicket,
   renderSaleTicket,
   buildSaleTicketCustomer,
+  buildSeparatedTicketReconciliations,
 } from "@/lib/printing/saleTicket";
 import { resolveOperationDocument } from "@/lib/api/operationDocuments";
 import {
@@ -1655,18 +1656,17 @@ export default function SalesHistoryContent({
     ];
     return {
       dueDate: selectedSeparatedOrder.due_date,
-      balance: Math.max(
-        (selectedSaleSeparatedTotal ?? selectedSeparatedOrder.total_amount ?? 0) -
-          (selectedSeparatedOrder.initial_payment +
-            selectedSeparatedOrder.payments.reduce(
-              (sum, payment) => sum + (payment.amount ?? 0),
-              0
-            )),
+      balance: Math.max(selectedSeparatedOrder.balance ?? 0, 0),
+      appliedTotal: Math.max(
+        Number(selectedSeparatedOrder.total_amount || 0) -
+          Number(selectedSeparatedOrder.balance || 0),
         0
       ),
       payments,
+      reconciliations:
+        buildSeparatedTicketReconciliations(selectedSeparatedOrder),
     };
-  }, [selectedSeparatedOrder, selectedSale, selectedSaleSeparatedTotal, mapPaymentMethod]);
+  }, [selectedSeparatedOrder, selectedSale, mapPaymentMethod]);
 
   useEffect(() => {
     if (!selectedSale) {
@@ -1894,7 +1894,6 @@ export default function SalesHistoryContent({
     combinedSaleNotes,
     selectedSale,
     selectedSaleSummary,
-    selectedSeparatedOrder,
     separatedTicketInfo,
     posSettings,
     mapPaymentMethod,

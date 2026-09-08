@@ -15,6 +15,7 @@ import { getApiBase } from "@/lib/api/base";
 import {
   renderSaleTicket,
   buildSaleTicketCustomer,
+  buildSeparatedTicketReconciliations,
 } from "@/lib/printing/saleTicket";
 import { fetchPosSettings, type PosSettingsPayload } from "@/lib/api/settings";
 import {
@@ -30,6 +31,7 @@ import {
 } from "@/lib/api/posStations";
 import { formatBogotaDate, getBogotaDateKey } from "@/lib/time/bogota";
 import { buildSeparatedOrderLookups } from "@/lib/pos/separatedOrderLookup";
+import { getDefaultSeparatedDueDate } from "@/lib/pos/separatedDueDate";
 
 const BLOCKED_PAYMENT_SLUGS = new Set(["separado", "credito"]);
 
@@ -687,8 +689,7 @@ export default function AbonosPage() {
     if (result.due_date) return formatDateOnly(result.due_date);
     const created = result.created_at ? new Date(result.created_at) : null;
     if (created && !Number.isNaN(created.getTime())) {
-      created.setMonth(created.getMonth() + 3);
-      return formatDateOnly(created.toISOString());
+      return formatDateOnly(getDefaultSeparatedDueDate(created));
     }
     return "Sin definir";
   }, [result]);
@@ -995,8 +996,13 @@ export default function AbonosPage() {
       separatedInfo: {
         dueDate: order.due_date,
         balance: Math.max(order.balance ?? 0, 0),
+        appliedTotal: Math.max(
+          Number(order.total_amount || 0) - Number(order.balance || 0),
+          0
+        ),
         initialPayments,
         payments: separatedPayments,
+        reconciliations: buildSeparatedTicketReconciliations(order),
       },
       settings: posSettings,
     });
