@@ -2444,7 +2444,7 @@ const matchesStationLabel = useCallback(
   const [closureMethodDetails, setClosureMethodDetails] = useState<
     ClosureMethodDetail[]
   >([]);
-  const [closureMovementReport, setClosureMovementReport] =
+  const [, setClosureMovementReport] =
     useState<ClosureMovementReportState>({ returns: [], changes: [] });
   const [closureTotalsLoading, setClosureTotalsLoading] = useState(false);
   const [closureEmailStatus, setClosureEmailStatus] = useState<
@@ -4991,6 +4991,40 @@ const matchesStationLabel = useCallback(
     ]
   );
 
+  const fetchClosureMovementReport = useCallback(
+    async (closureId: number): Promise<ClosureMovementReportState> => {
+      if (!token) return { returns: [], changes: [] };
+      const apiBase = getApiBase();
+      const [returnsRes, changesRes] = await Promise.all([
+        fetch(`${apiBase}/pos/returns?closure_id=${closureId}&skip=0&limit=500`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+          cache: "no-store",
+        }),
+        fetch(`${apiBase}/pos/changes?closure_id=${closureId}&skip=0&limit=500`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          credentials: "include",
+          cache: "no-store",
+        }),
+      ]);
+      if (!returnsRes.ok) {
+        throw new Error(`Error ${returnsRes.status} al obtener devoluciones del cierre.`);
+      }
+      if (!changesRes.ok) {
+        throw new Error(`Error ${changesRes.status} al obtener cambios del cierre.`);
+      }
+      return {
+        returns: (await returnsRes.json()) as ClosureReturnRecord[],
+        changes: (await changesRes.json()) as ClosureChangeRecord[],
+      };
+    },
+    [token]
+  );
+
   const handleSubmitClosure = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!token) {
@@ -5015,23 +5049,20 @@ const matchesStationLabel = useCallback(
       printerConfig.mode !== "qz-tray" ||
       !printerConfig.printerName.trim() ||
       !qzInstance;
-    const movementReportSnapshot = closureMovementReport;
-    const shouldPrintCashExpenses =
-      ENABLE_POS_CASH_EXPENSES && cashExpenses.length > 0;
-    const shouldPrintMovements =
-      ENABLE_POS_MOVEMENT_CLOSURE_TICKET &&
-      (movementReportSnapshot.returns.length > 0 ||
-        movementReportSnapshot.changes.length > 0);
     const preOpenedWindow =
       shouldPreOpenWindow && typeof window !== "undefined"
         ? window.open("", "_blank", "width=420,height=640")
         : null;
     const preOpenedExpenseWindow =
-      shouldPreOpenWindow && shouldPrintCashExpenses && typeof window !== "undefined"
+      shouldPreOpenWindow &&
+      ENABLE_POS_CASH_EXPENSES &&
+      typeof window !== "undefined"
         ? window.open("", "_blank", "width=420,height=640")
         : null;
     const preOpenedMovementWindow =
-      shouldPreOpenWindow && shouldPrintMovements && typeof window !== "undefined"
+      shouldPreOpenWindow &&
+      ENABLE_POS_MOVEMENT_CLOSURE_TICKET &&
+      typeof window !== "undefined"
         ? window.open("", "_blank", "width=420,height=640")
         : null;
     try {
@@ -5237,11 +5268,28 @@ const matchesStationLabel = useCallback(
         preOpenedExpenseWindow.close();
       }
       if (ENABLE_POS_MOVEMENT_CLOSURE_TICKET) {
-        await printClosureMovementTicket(
-          enrichedData,
-          movementReportSnapshot,
-          preOpenedMovementWindow
-        );
+        try {
+          const movementReport = await fetchClosureMovementReport(data.id);
+          setClosureMovementReport(movementReport);
+          await printClosureMovementTicket(
+            enrichedData,
+            movementReport,
+            preOpenedMovementWindow
+          );
+        } catch (movementErr) {
+          if (preOpenedMovementWindow && !preOpenedMovementWindow.closed) {
+            preOpenedMovementWindow.close();
+          }
+          console.error(
+            "No se pudo generar el ticket de devoluciones/cambios",
+            movementErr
+          );
+          setClosureError(
+            movementErr instanceof Error
+              ? `Reporte Z creado, pero no se pudo generar el ticket de devoluciones/cambios: ${movementErr.message}`
+              : "Reporte Z creado, pero no se pudo generar el ticket de devoluciones/cambios."
+          );
+        }
       } else if (preOpenedMovementWindow && !preOpenedMovementWindow.closed) {
         preOpenedMovementWindow.close();
       }
