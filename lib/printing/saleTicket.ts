@@ -242,6 +242,69 @@ export type ClosureTicketOptions = {
   };
 };
 
+export type CashExpenseTicketLine = {
+  id: number;
+  categoryLabel: string;
+  description?: string | null;
+  amount: number;
+  createdAt: string;
+  createdBy: string;
+};
+
+export type CashExpenseTicketOptions = {
+  documentNumber: string;
+  closedAt: Date;
+  posName?: string | null;
+  responsible: string;
+  totalToday: number;
+  expectedCash: number;
+  countedCash: number;
+  expenses: CashExpenseTicketLine[];
+  settings?: PosSettingsPayload | null;
+};
+
+export type ClosureMovementPaymentLine = {
+  method: string;
+  amount: number;
+};
+
+export type ClosureReturnMovementLine = {
+  id: number;
+  documentNumber?: string | null;
+  saleDocumentNumber?: string | null;
+  createdAt?: string | null;
+  createdBy?: string | null;
+  totalRefund: number;
+  payments: ClosureMovementPaymentLine[];
+  items: { name: string; quantity: number; total?: number | null }[];
+};
+
+export type ClosureChangeMovementLine = {
+  id: number;
+  documentNumber?: string | null;
+  saleDocumentNumber?: string | null;
+  createdAt?: string | null;
+  createdBy?: string | null;
+  totalCredit: number;
+  totalNew: number;
+  extraPayment: number;
+  refundDue: number;
+  refundMethod?: string | null;
+  payments: ClosureMovementPaymentLine[];
+  returnedItems: { name: string; quantity: number; total?: number | null }[];
+  newItems: { name: string; quantity: number; total?: number | null }[];
+};
+
+export type ClosureMovementTicketOptions = {
+  documentNumber: string;
+  closedAt: Date;
+  posName?: string | null;
+  responsible: string;
+  returns: ClosureReturnMovementLine[];
+  changes: ClosureChangeMovementLine[];
+  settings?: PosSettingsPayload | null;
+};
+
 function normalizeClosureSeparatedSummary(
   separatedSummary?: ClosureTicketOptions["separatedSummary"]
 ): ClosureTicketOptions["separatedSummary"] | undefined {
@@ -1290,6 +1353,339 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
             .join("")}
         </div>
       </div>
+    </body>
+  </html>`;
+}
+
+export function renderCashExpenseClosureTicket(
+  options: CashExpenseTicketOptions
+): string {
+  const companyName =
+    options.settings?.company_name?.trim() || FALLBACK_COMPANY.name;
+  const address = options.settings?.address?.trim() || FALLBACK_COMPANY.address;
+  const phone =
+    options.settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
+  const email =
+    options.settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
+  const taxId = options.settings?.tax_id?.trim() || FALLBACK_COMPANY.taxId;
+  const logoUrl = resolveLogoUrl(extractSettingsLogo(options.settings));
+  const expensesTotal = options.expenses.reduce(
+    (sum, expense) => sum + Math.max(Number(expense.amount || 0), 0),
+    0
+  );
+  const finalExpectedCash = Number(options.expectedCash || 0) - expensesTotal;
+  const adjustedDifference = Number(options.countedCash || 0) - finalExpectedCash;
+  const expenseRows = options.expenses.length
+    ? options.expenses
+        .map((expense) => {
+          const description = expense.description?.trim()
+            ? `<div class="muted">${escapeHtml(expense.description)}</div>`
+            : "";
+          return `
+            <div class="expense">
+              <div>
+                <div class="strong">${escapeHtml(expense.categoryLabel)}</div>
+                ${description}
+                <div class="muted">${formatDisplayDate(expense.createdAt)} · ${escapeHtml(expense.createdBy)}</div>
+              </div>
+              <div class="amount">${formatMoney(expense.amount)}</div>
+            </div>`;
+        })
+        .join("")
+    : `<div class="muted center">No se registraron gastos de caja.</div>`;
+
+  return `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta charSet="utf-8" />
+      <title>Gastos ${escapeHtml(options.documentNumber)}</title>
+      <style>
+        @page { margin: 4mm; }
+        body {
+          font-family: "Helvetica Neue", Arial, sans-serif;
+          width: 80mm;
+          margin: 0 auto;
+          font-size: 12px;
+          color: #0f172a;
+        }
+        h1 { font-size: 18px; text-align: center; margin: 2px 0; }
+        .center { text-align: center; }
+        .muted { color: #374151; font-size: 11px; }
+        .subtitle { font-size: 12px; font-weight: 700; }
+        .block { margin-top: 10px; }
+        .strong { font-weight: 700; }
+        hr { border: none; border-top: 1px solid #111827; margin: 8px 0; }
+        .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+        .row.emphasize { font-weight: 700; padding-bottom: 4px; margin-bottom: 2px; }
+        .expense {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 8px;
+          padding: 6px 0;
+          border-bottom: 1px dashed #94a3b8;
+        }
+        .expense:last-child { border-bottom: none; }
+        .amount { font-weight: 700; text-align: right; white-space: nowrap; }
+        .logo { text-align: center; margin-bottom: 8px; }
+        .logo img { max-height: 28mm; max-width: 60mm; object-fit: contain; }
+      </style>
+    </head>
+    <body>
+      ${logoUrl ? `<div class="logo"><img src="${escapeHtml(logoUrl)}" alt="Logo" /></div>` : ""}
+      <h1>${escapeHtml(companyName)}</h1>
+      <div class="center muted">${escapeHtml(address)}</div>
+      <div class="center muted">${escapeHtml(phone)}</div>
+      <div class="center muted">${escapeHtml(email)}</div>
+      <div class="center muted">${escapeHtml(taxId)}</div>
+      <div class="center muted subtitle" style="margin-top:4px;">Gastos de caja</div>
+      <hr />
+      <div class="block">
+        <div class="row"><span>Cierre</span><span>${escapeHtml(options.documentNumber)}</span></div>
+        <div class="row"><span>Fecha cierre</span><span>${formatBogotaDate(
+          options.closedAt,
+          { dateStyle: "short", timeStyle: "short" }
+        )}</span></div>
+        ${options.posName ? `<div class="row"><span>POS</span><span>${escapeHtml(options.posName)}</span></div>` : ""}
+        <div class="row"><span>Responsable</span><span>${escapeHtml(options.responsible)}</span></div>
+      </div>
+      <hr />
+      <div class="block">
+        <div class="row emphasize"><span>Total de HOY</span><span>${formatMoney(options.totalToday)}</span></div>
+        <div class="row"><span>Efectivo esperado</span><span>${formatMoney(options.expectedCash)}</span></div>
+        <div class="row"><span>Total gastos</span><span>- ${formatMoney(expensesTotal)}</span></div>
+        <div class="row emphasize"><span>Efectivo final esperado</span><span>${formatMoney(finalExpectedCash)}</span></div>
+        <div class="row"><span>Efectivo contado</span><span>${formatMoney(options.countedCash)}</span></div>
+        <div class="row"><span>Diferencia ajustada</span><span>${formatMoney(adjustedDifference)}</span></div>
+      </div>
+      <hr />
+      <div class="block">
+        <div class="muted">Detalle de gastos</div>
+        ${expenseRows}
+      </div>
+    </body>
+  </html>`;
+}
+
+export function renderClosureMovementTicket(
+  options: ClosureMovementTicketOptions
+): string {
+  const companyName =
+    options.settings?.company_name?.trim() || FALLBACK_COMPANY.name;
+  const address = options.settings?.address?.trim() || FALLBACK_COMPANY.address;
+  const phone =
+    options.settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
+  const email =
+    options.settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
+  const taxId = options.settings?.tax_id?.trim() || FALLBACK_COMPANY.taxId;
+  const logoUrl = resolveLogoUrl(extractSettingsLogo(options.settings));
+  const returnTotal = options.returns.reduce(
+    (sum, item) => sum + Math.max(Number(item.totalRefund || 0), 0),
+    0
+  );
+  const changeEntryTotal = options.changes.reduce(
+    (sum, item) => sum + Math.max(Number(item.extraPayment || 0), 0),
+    0
+  );
+  const changeExitTotal = options.changes.reduce(
+    (sum, item) => sum + Math.max(Number(item.refundDue || 0), 0),
+    0
+  );
+  const totalEntries = changeEntryTotal;
+  const totalExits = returnTotal + changeExitTotal;
+  const netTotal = totalEntries - totalExits;
+  const methodMap = new Map<string, { method: string; entries: number; exits: number }>();
+  const addMethod = (method: string | null | undefined, amount: number, kind: "entry" | "exit") => {
+    const label = method?.trim() || "Otro método";
+    const key = label.toLowerCase();
+    const current = methodMap.get(key) ?? { method: label, entries: 0, exits: 0 };
+    if (kind === "entry") current.entries += amount;
+    if (kind === "exit") current.exits += amount;
+    methodMap.set(key, current);
+  };
+
+  options.returns.forEach((ret) => {
+    const payments = ret.payments.length
+      ? ret.payments
+      : [{ method: "Efectivo", amount: ret.totalRefund }];
+    payments.forEach((payment) => addMethod(payment.method, payment.amount, "exit"));
+  });
+  options.changes.forEach((change) => {
+    const entryPayments = change.payments.length
+      ? change.payments
+      : change.extraPayment > 0
+        ? [{ method: "Efectivo", amount: change.extraPayment }]
+        : [];
+    entryPayments.forEach((payment) => addMethod(payment.method, payment.amount, "entry"));
+    if (change.refundDue > 0) {
+      addMethod(change.refundMethod || "Efectivo", change.refundDue, "exit");
+    }
+  });
+
+  const methodRows = Array.from(methodMap.values())
+    .filter((row) => row.entries > 0 || row.exits > 0)
+    .sort((a, b) => a.method.localeCompare(b.method, "es"))
+    .map(
+      (row) => `
+        <div class="method-row">
+          <div class="strong">${escapeHtml(row.method)}</div>
+          <div>${formatMoney(row.entries)}</div>
+          <div>${formatMoney(row.exits)}</div>
+          <div class="strong">${formatMoney(row.entries - row.exits)}</div>
+        </div>`
+    )
+    .join("");
+
+  const itemSummary = (items: { name: string; quantity: number; total?: number | null }[]) =>
+    items.length
+      ? items
+          .map(
+            (item) =>
+              `${escapeHtml(String(item.quantity))} x ${escapeHtml(item.name)}${
+                item.total ? ` (${formatMoney(item.total)})` : ""
+              }`
+          )
+          .join("<br />")
+      : "Sin productos";
+
+  const paymentSummary = (payments: ClosureMovementPaymentLine[]) =>
+    payments.length
+      ? payments
+          .map((payment) => `${escapeHtml(payment.method)} ${formatMoney(payment.amount)}`)
+          .join("<br />")
+      : "Efectivo";
+
+  const returnRows = options.returns.length
+    ? options.returns
+        .map(
+          (ret) => `
+            <div class="movement">
+              <div class="movement-head">
+                <div>
+                  <div class="strong">${escapeHtml(ret.documentNumber || `DV-${ret.id}`)}</div>
+                  <div class="muted">Origen ${escapeHtml(ret.saleDocumentNumber || "Sin documento")}</div>
+                </div>
+                <div class="amount exit">${formatMoney(ret.totalRefund)}</div>
+              </div>
+              <div class="muted">${formatDisplayDate(ret.createdAt)} · ${escapeHtml(ret.createdBy || "Sin usuario")}</div>
+              <div class="muted">${itemSummary(ret.items)}</div>
+              <div class="muted">Métodos: ${paymentSummary(ret.payments)}</div>
+            </div>`
+        )
+        .join("")
+    : `<div class="muted center">Sin devoluciones en este cierre.</div>`;
+
+  const changeRows = options.changes.length
+    ? options.changes
+        .map(
+          (change) => `
+            <div class="movement">
+              <div class="movement-head">
+                <div>
+                  <div class="strong">${escapeHtml(change.documentNumber || `CB-${change.id}`)}</div>
+                  <div class="muted">Origen ${escapeHtml(change.saleDocumentNumber || "Sin documento")}</div>
+                </div>
+                <div class="amount">${formatMoney(change.extraPayment - change.refundDue)}</div>
+              </div>
+              <div class="muted">${formatDisplayDate(change.createdAt)} · ${escapeHtml(change.createdBy || "Sin usuario")}</div>
+              <div class="muted">Devuelve: ${itemSummary(change.returnedItems)}</div>
+              <div class="muted">Entrega: ${itemSummary(change.newItems)}</div>
+              <div class="row"><span>Crédito devuelto</span><span>${formatMoney(change.totalCredit)}</span></div>
+              <div class="row"><span>Nuevo total</span><span>${formatMoney(change.totalNew)}</span></div>
+              <div class="row"><span>Entrada</span><span>${formatMoney(change.extraPayment)}</span></div>
+              <div class="row"><span>Salida</span><span>${formatMoney(change.refundDue)}</span></div>
+              <div class="muted">Métodos entrada: ${paymentSummary(change.payments)}</div>
+              ${
+                change.refundDue > 0
+                  ? `<div class="muted">Método salida: ${escapeHtml(change.refundMethod || "Efectivo")}</div>`
+                  : ""
+              }
+            </div>`
+        )
+        .join("")
+    : `<div class="muted center">Sin cambios en este cierre.</div>`;
+
+  return `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta charSet="utf-8" />
+      <title>Movimientos ${escapeHtml(options.documentNumber)}</title>
+      <style>
+        @page { margin: 4mm; }
+        body {
+          font-family: "Helvetica Neue", Arial, sans-serif;
+          width: 80mm;
+          margin: 0 auto;
+          font-size: 12px;
+          color: #0f172a;
+        }
+        h1 { font-size: 18px; text-align: center; margin: 2px 0; }
+        h2 { font-size: 13px; margin: 10px 0 4px; text-transform: uppercase; }
+        .center { text-align: center; }
+        .muted { color: #374151; font-size: 11px; }
+        .subtitle { font-size: 12px; font-weight: 700; }
+        .strong { font-weight: 700; }
+        .amount { font-weight: 700; text-align: right; white-space: nowrap; }
+        .exit { color: #be123c; }
+        hr { border: none; border-top: 1px solid #111827; margin: 8px 0; }
+        .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+        .row.emphasize { font-weight: 700; padding-bottom: 4px; margin-bottom: 2px; }
+        .method-head,
+        .method-row {
+          display: grid;
+          grid-template-columns: 1.1fr 0.85fr 0.85fr 0.85fr;
+          gap: 4px;
+          align-items: start;
+          font-size: 10px;
+          text-align: right;
+        }
+        .method-head div:first-child,
+        .method-row div:first-child { text-align: left; }
+        .method-head { font-weight: 700; border-bottom: 1px solid #111827; padding-bottom: 3px; }
+        .method-row { border-bottom: 1px dashed #94a3b8; padding: 4px 0; }
+        .movement { border-bottom: 1px dashed #94a3b8; padding: 7px 0; }
+        .movement:last-child { border-bottom: none; }
+        .movement-head { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+        .logo { text-align: center; margin-bottom: 8px; }
+        .logo img { max-height: 28mm; max-width: 60mm; object-fit: contain; }
+      </style>
+    </head>
+    <body>
+      ${logoUrl ? `<div class="logo"><img src="${escapeHtml(logoUrl)}" alt="Logo" /></div>` : ""}
+      <h1>${escapeHtml(companyName)}</h1>
+      <div class="center muted">${escapeHtml(address)}</div>
+      <div class="center muted">${escapeHtml(phone)}</div>
+      <div class="center muted">${escapeHtml(email)}</div>
+      <div class="center muted">${escapeHtml(taxId)}</div>
+      <div class="center muted subtitle" style="margin-top:4px;">Devoluciones y cambios</div>
+      <hr />
+      <div>
+        <div class="row"><span>Cierre</span><span>${escapeHtml(options.documentNumber)}</span></div>
+        <div class="row"><span>Fecha cierre</span><span>${formatBogotaDate(
+          options.closedAt,
+          { dateStyle: "short", timeStyle: "short" }
+        )}</span></div>
+        ${options.posName ? `<div class="row"><span>POS</span><span>${escapeHtml(options.posName)}</span></div>` : ""}
+        <div class="row"><span>Responsable</span><span>${escapeHtml(options.responsible)}</span></div>
+      </div>
+      <hr />
+      <div>
+        <div class="row"><span>Devoluciones</span><span>${options.returns.length}</span></div>
+        <div class="row"><span>Salidas por devoluciones</span><span>${formatMoney(returnTotal)}</span></div>
+        <div class="row"><span>Cambios</span><span>${options.changes.length}</span></div>
+        <div class="row"><span>Entradas por cambios</span><span>${formatMoney(changeEntryTotal)}</span></div>
+        <div class="row"><span>Salidas por cambios</span><span>${formatMoney(changeExitTotal)}</span></div>
+        <div class="row emphasize"><span>Neto movimientos</span><span>${formatMoney(netTotal)}</span></div>
+      </div>
+      <hr />
+      <h2>Métodos</h2>
+      <div class="method-head"><div>Método</div><div>Entrada</div><div>Salida</div><div>Neto</div></div>
+      ${methodRows || `<div class="muted center" style="padding:6px 0;">Sin métodos.</div>`}
+      <hr />
+      <h2>Devoluciones</h2>
+      ${returnRows}
+      <hr />
+      <h2>Cambios</h2>
+      ${changeRows}
     </body>
   </html>`;
 }

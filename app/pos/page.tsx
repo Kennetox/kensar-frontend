@@ -37,9 +37,22 @@ import {
   type SeparatedOrder,
   type SeparatedOrderPayment,
 } from "@/lib/api/separatedOrders";
+import {
+  attachCashExpensesToClosure,
+  createCashExpense,
+  fetchOpenCashExpenses,
+  updateCashExpense,
+  voidCashExpense,
+  type PosCashExpense,
+  type PosCashExpenseCategory,
+} from "@/lib/api/posCashExpenses";
 import { usePaymentMethodsCatalog } from "@/app/hooks/usePaymentMethodsCatalog";
 import type { PaymentMethodRecord } from "@/lib/api/paymentMethods";
-import { renderClosureTicket } from "@/lib/printing/saleTicket";
+import {
+  renderCashExpenseClosureTicket,
+  renderClosureMovementTicket,
+  renderClosureTicket,
+} from "@/lib/printing/saleTicket";
 import LoadingSpinner from "../components/ui/LoadingSpinner";
 import {
   buildBogotaDateFromKey,
@@ -48,6 +61,8 @@ import {
   getBogotaDateParts,
 } from "@/lib/time/bogota";
 import {
+  ENABLE_POS_CASH_EXPENSES,
+  ENABLE_POS_MOVEMENT_CLOSURE_TICKET,
   REQUIRE_FREE_SALE_REASON,
   SHOW_FREE_SALE_TRACEABILITY_REPORT,
 } from "@/lib/config/featureFlags";
@@ -299,16 +314,27 @@ type ClosureReturnPayment = {
   amount: number;
 };
 
+type ClosureMovementItem = {
+  product_name: string;
+  quantity: number;
+  total?: number | null;
+  total_credit?: number | null;
+};
+
 type ClosureReturnRecord = {
   id: number;
   created_at?: string;
   closure_id?: number | null;
   sale_id?: number;
+  document_number?: string | null;
+  sale_document_number?: string | null;
   status?: string | null;
   pos_name?: string | null;
   station_id?: string | null;
   total_refund?: number | null;
   payments?: ClosureReturnPayment[];
+  items?: ClosureMovementItem[];
+  created_by?: string | null;
   vendor_name?: string | null;
 };
 
@@ -322,12 +348,27 @@ type ClosureChangeRecord = {
   created_at?: string;
   closure_id?: number | null;
   sale_id?: number;
+  document_number?: string | null;
+  sale_document_number?: string | null;
   status?: string | null;
   pos_name?: string | null;
   station_id?: string | null;
+  total_credit?: number | null;
+  total_new?: number | null;
+  net_total?: number | null;
   extra_payment?: number | null;
   refund_due?: number | null;
+  refund_method?: string | null;
   payments?: ClosureChangePayment[];
+  items_returned?: ClosureMovementItem[];
+  items_new?: ClosureMovementItem[];
+  created_by?: string | null;
+  seller_name?: string | null;
+};
+
+type ClosureMovementReportState = {
+  returns: ClosureReturnRecord[];
+  changes: ClosureChangeRecord[];
 };
 
 type TotalsByMethod = {
@@ -404,11 +445,41 @@ type ClosureMethodDetail = {
   net: number;
 };
 
+type CashExpenseFormState = {
+  category: PosCashExpenseCategory;
+  description: string;
+  amount: string;
+};
+
 type PendingClosureInfo = {
   count: number;
   dateLabel: string;
   dateKey: string;
 };
+
+const CASH_EXPENSE_CATEGORY_OPTIONS: {
+  value: PosCashExpenseCategory;
+  label: string;
+}[] = [
+  { value: "nomina", label: "Nómina" },
+  { value: "almuerzo", label: "Almuerzos" },
+  { value: "flete", label: "Fletes" },
+  { value: "compra", label: "Compras" },
+  { value: "otro", label: "Otro" },
+];
+
+const initialCashExpenseForm: CashExpenseFormState = {
+  category: "otro",
+  description: "",
+  amount: "",
+};
+
+function getCashExpenseCategoryLabel(category: PosCashExpenseCategory): string {
+  return (
+    CASH_EXPENSE_CATEGORY_OPTIONS.find((option) => option.value === category)
+      ?.label ?? "Otro"
+  );
+}
 
 const STANDARD_METHOD_SLUGS = new Set([
   "cash",
@@ -2373,6 +2444,8 @@ const matchesStationLabel = useCallback(
   const [closureMethodDetails, setClosureMethodDetails] = useState<
     ClosureMethodDetail[]
   >([]);
+  const [closureMovementReport, setClosureMovementReport] =
+    useState<ClosureMovementReportState>({ returns: [], changes: [] });
   const [closureTotalsLoading, setClosureTotalsLoading] = useState(false);
   const [closureEmailStatus, setClosureEmailStatus] = useState<
     "idle" | "sending" | "sent" | "error"
@@ -2388,6 +2461,15 @@ const matchesStationLabel = useCallback(
   const [closureEmailFeedback, setClosureEmailFeedback] = useState<string | null>(null);
   const [closureEmailError, setClosureEmailError] = useState<string | null>(null);
   const lastClosureEmailedRef = useRef<number | null>(null);
+  const [cashExpenseModalOpen, setCashExpenseModalOpen] = useState(false);
+  const [cashExpenses, setCashExpenses] = useState<PosCashExpense[]>([]);
+  const [cashExpensesLoading, setCashExpensesLoading] = useState(false);
+  const [cashExpenseSaving, setCashExpenseSaving] = useState(false);
+  const [cashExpenseError, setCashExpenseError] = useState<string | null>(null);
+  const [cashExpenseEditingId, setCashExpenseEditingId] = useState<number | null>(null);
+  const [cashExpenseForm, setCashExpenseForm] = useState<CashExpenseFormState>(
+    initialCashExpenseForm
+  );
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [userMenuClosing, setUserMenuClosing] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
@@ -2462,6 +2544,7 @@ const matchesStationLabel = useCallback(
     setClosureHasAuxiliaryScope(false);
     setClosureCustomMethods([]);
     setClosureMethodDetails([]);
+    setClosureMovementReport({ returns: [], changes: [] });
     setClosureSaving(false);
     setClosureEmailStatus("idle");
     setClosureEmailStatusMessage(null);
@@ -2474,6 +2557,149 @@ const matchesStationLabel = useCallback(
     setClosureRange(null);
     lastClosureEmailedRef.current = null;
   }, []);
+
+  const loadOpenCashExpenses = useCallback(async () => {
+    if (!token) return;
+    setCashExpensesLoading(true);
+    setCashExpenseError(null);
+    try {
+      const summary = await fetchOpenCashExpenses(token, {
+        stationId: activeStationId,
+        posName: resolvedPosName,
+      });
+      setCashExpenses(summary.expenses ?? []);
+    } catch (err) {
+      console.error(err);
+      setCashExpenseError(
+        err instanceof Error
+          ? err.message
+          : "No se pudieron cargar los gastos de caja."
+      );
+    } finally {
+      setCashExpensesLoading(false);
+    }
+  }, [activeStationId, resolvedPosName, token]);
+
+  const resetCashExpenseForm = useCallback(() => {
+    setCashExpenseForm(initialCashExpenseForm);
+    setCashExpenseEditingId(null);
+    setCashExpenseError(null);
+  }, []);
+
+  const openCashExpenseModal = useCallback(() => {
+    setCashExpenseModalOpen(true);
+    resetCashExpenseForm();
+    void loadOpenCashExpenses();
+  }, [loadOpenCashExpenses, resetCashExpenseForm]);
+
+  const cashExpensesTotal = useMemo(
+    () =>
+      cashExpenses.reduce(
+        (sum, expense) => sum + Math.max(Number(expense.amount || 0), 0),
+        0
+      ),
+    [cashExpenses]
+  );
+
+  const submitCashExpense = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!token) {
+        setCashExpenseError("Sesión expirada, inicia sesión nuevamente.");
+        return;
+      }
+      const amount = parseCashInput(cashExpenseForm.amount);
+      if (amount <= 0) {
+        setCashExpenseError("Ingresa un monto mayor a cero.");
+        return;
+      }
+      setCashExpenseSaving(true);
+      setCashExpenseError(null);
+      try {
+        const payload = {
+          category: cashExpenseForm.category,
+          amount,
+          description: cashExpenseForm.description.trim() || undefined,
+          station_id: activeStationId,
+          pos_name: resolvedPosName,
+        };
+        if (cashExpenseEditingId) {
+          await updateCashExpense(token, cashExpenseEditingId, payload);
+        } else {
+          await createCashExpense(token, payload);
+        }
+        resetCashExpenseForm();
+        await loadOpenCashExpenses();
+      } catch (err) {
+        console.error(err);
+        setCashExpenseError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo guardar el gasto de caja."
+        );
+      } finally {
+        setCashExpenseSaving(false);
+      }
+    },
+    [
+      activeStationId,
+      cashExpenseEditingId,
+      cashExpenseForm,
+      loadOpenCashExpenses,
+      resetCashExpenseForm,
+      resolvedPosName,
+      token,
+    ]
+  );
+
+  const startEditCashExpense = useCallback((expense: PosCashExpense) => {
+    setCashExpenseEditingId(expense.id);
+    setCashExpenseForm({
+      category: expense.category,
+      description: expense.description ?? "",
+      amount: formatCashInput(expense.amount),
+    });
+    setCashExpenseError(null);
+  }, []);
+
+  const handleVoidCashExpense = useCallback(
+    async (expense: PosCashExpense) => {
+      if (!token) return;
+      const confirmed = window.confirm(
+        `¿Anular el gasto de ${getCashExpenseCategoryLabel(expense.category)} por $ ${formatMoney(expense.amount)}?`
+      );
+      if (!confirmed) return;
+      setCashExpenseSaving(true);
+      setCashExpenseError(null);
+      try {
+        await voidCashExpense(token, expense.id, "Anulado desde POS");
+        if (cashExpenseEditingId === expense.id) {
+          resetCashExpenseForm();
+        }
+        await loadOpenCashExpenses();
+      } catch (err) {
+        console.error(err);
+        setCashExpenseError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo anular el gasto de caja."
+        );
+      } finally {
+        setCashExpenseSaving(false);
+      }
+    },
+    [
+      cashExpenseEditingId,
+      loadOpenCashExpenses,
+      resetCashExpenseForm,
+      token,
+    ]
+  );
+
+  useEffect(() => {
+    if (!ENABLE_POS_CASH_EXPENSES || !token) return;
+    void loadOpenCashExpenses();
+  }, [loadOpenCashExpenses, token]);
 
   const pendingSalesScope = useMemo(
     () => ({
@@ -3188,6 +3414,10 @@ const matchesStationLabel = useCallback(
               return isPosWebName(posName);
             })
           : pendingChanges;
+      setClosureMovementReport({
+        returns: filteredPendingReturns,
+        changes: filteredPendingChanges,
+      });
       let totalGrossCollected = 0;
       let fallbackRefundsTotal = 0;
       let refundsFromReturnsTotal = 0;
@@ -4086,6 +4316,7 @@ const matchesStationLabel = useCallback(
       );
       setClosureCustomMethods([]);
       setClosureMethodDetails([]);
+      setClosureMovementReport({ returns: [], changes: [] });
       setClosureStationBreakdown([]);
       setClosureHasAuxiliaryScope(false);
     } finally {
@@ -4512,6 +4743,254 @@ const matchesStationLabel = useCallback(
     return `Mostrando movimientos (ventas, devoluciones, cambios y abonos) registrados desde ${closureRange.startLabel} hasta ${closureRange.endLabel}.`;
   }, [closureRange]);
 
+  const printCashExpenseTicket = useCallback(
+    async (
+      closure: PosClosureResult,
+      expenses: PosCashExpense[],
+      targetWindow?: Window | null
+    ) => {
+      if (!expenses.length) {
+        if (targetWindow && !targetWindow.closed) targetWindow.close();
+        return;
+      }
+      const totalsSource = closure.adjusted_totals ?? {
+        total_cash: closure.total_cash,
+        total_amount: closure.total_amount,
+        net_amount: closure.net_amount,
+        counted_cash: closure.counted_cash,
+      };
+      const closedAt = closure.closed_at ? new Date(closure.closed_at) : new Date();
+      const documentNumber =
+        closure.consecutive ?? `CL-${closure.id.toString().padStart(5, "0")}`;
+      const html = renderCashExpenseClosureTicket({
+        documentNumber,
+        closedAt,
+        posName: closure.pos_name ?? resolvedPosName,
+        responsible: closure.closed_by_user_name,
+        totalToday: Number(totalsSource.net_amount ?? totalsSource.total_amount ?? 0),
+        expectedCash: Number(totalsSource.total_cash ?? 0),
+        countedCash: Number(totalsSource.counted_cash ?? closure.counted_cash ?? 0),
+        expenses: expenses.map((expense) => ({
+          id: expense.id,
+          categoryLabel: getCashExpenseCategoryLabel(expense.category),
+          description: expense.description,
+          amount: expense.amount,
+          createdAt: expense.created_at,
+          createdBy: expense.created_by_user_name,
+        })),
+        settings: posSettings,
+      });
+
+      const printWithQz = async (): Promise<boolean> => {
+        if (printerConfig.mode !== "qz-tray") return false;
+        if (!printerConfig.printerName.trim() || !qzInstance) return false;
+        if (!configureQzSecurity()) return false;
+        try {
+          if (!qzInstance.websocket.isActive()) {
+            await qzInstance.websocket.connect();
+          }
+          const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+          const cfg = qzInstance.configs.create(printerConfig.printerName, {
+            altPrinting: true,
+            units: "mm",
+            size: { width: sizeWidth },
+            margins: { top: 0, right: 0, bottom: 0, left: 0 },
+          });
+          await qzInstance.print(cfg, [{ type: "html", format: "plain", data: html }]);
+          if (targetWindow && !targetWindow.closed) targetWindow.close();
+          return true;
+        } catch (err) {
+          console.error("No se pudo imprimir el ticket de gastos con QZ Tray", err);
+          return false;
+        }
+      };
+
+      const printedWithQz = await printWithQz();
+      if (printedWithQz) return;
+
+      const winCandidate =
+        targetWindow && !targetWindow.closed
+          ? targetWindow
+          : typeof window !== "undefined"
+            ? window.open("", "_blank", "width=420,height=640")
+            : null;
+      if (!winCandidate) return;
+      winCandidate.document.write(html);
+      winCandidate.document.close();
+      const shouldAutoClose = winCandidate !== targetWindow;
+      const triggerPrint = () => {
+        try {
+          winCandidate.focus();
+          winCandidate.print();
+        } catch (err) {
+          console.error("No se pudo iniciar la impresión del ticket de gastos", err);
+        }
+      };
+      if ("onafterprint" in winCandidate) {
+        winCandidate.onafterprint = () => {
+          if (shouldAutoClose) winCandidate.close();
+        };
+      }
+      if (shouldAutoClose) {
+        setTimeout(() => {
+          if (!winCandidate.closed) winCandidate.close();
+        }, 2000);
+      }
+      setTimeout(triggerPrint, 350);
+    },
+    [
+      configureQzSecurity,
+      posSettings,
+      printerConfig.mode,
+      printerConfig.printerName,
+      printerConfig.width,
+      qzInstance,
+      resolvedPosName,
+    ]
+  );
+
+  const printClosureMovementTicket = useCallback(
+    async (
+      closure: PosClosureResult,
+      report: ClosureMovementReportState,
+      targetWindow?: Window | null
+    ) => {
+      const hasMovements = report.returns.length > 0 || report.changes.length > 0;
+      if (!hasMovements) {
+        if (targetWindow && !targetWindow.closed) targetWindow.close();
+        return;
+      }
+      const closedAt = closure.closed_at ? new Date(closure.closed_at) : new Date();
+      const documentNumber =
+        closure.consecutive ?? `CL-${closure.id.toString().padStart(5, "0")}`;
+      const html = renderClosureMovementTicket({
+        documentNumber,
+        closedAt,
+        posName: closure.pos_name ?? resolvedPosName,
+        responsible: closure.closed_by_user_name,
+        returns: report.returns.map((ret) => ({
+          id: ret.id,
+          documentNumber: ret.document_number ?? null,
+          saleDocumentNumber: ret.sale_document_number ?? null,
+          createdAt: ret.created_at ?? null,
+          createdBy: ret.created_by ?? ret.vendor_name ?? null,
+          totalRefund: Number(ret.total_refund ?? 0),
+          payments:
+            ret.payments
+              ?.filter((payment) => Number(payment.amount ?? 0) > 0)
+              .map((payment) => ({
+                method: payment.method || "Otro método",
+                amount: Number(payment.amount ?? 0),
+              })) ?? [],
+          items:
+            ret.items?.map((item) => ({
+              name: item.product_name,
+              quantity: Number(item.quantity ?? 0),
+              total: item.total ?? item.total_credit ?? null,
+            })) ?? [],
+        })),
+        changes: report.changes.map((change) => ({
+          id: change.id,
+          documentNumber: change.document_number ?? null,
+          saleDocumentNumber: change.sale_document_number ?? null,
+          createdAt: change.created_at ?? null,
+          createdBy: change.created_by ?? change.seller_name ?? null,
+          totalCredit: Number(change.total_credit ?? 0),
+          totalNew: Number(change.total_new ?? 0),
+          extraPayment: Number(change.extra_payment ?? 0),
+          refundDue: Number(change.refund_due ?? 0),
+          refundMethod: change.refund_method ?? null,
+          payments:
+            change.payments
+              ?.filter((payment) => Number(payment.amount ?? 0) > 0)
+              .map((payment) => ({
+                method: payment.method || "Otro método",
+                amount: Number(payment.amount ?? 0),
+              })) ?? [],
+          returnedItems:
+            change.items_returned?.map((item) => ({
+              name: item.product_name,
+              quantity: Number(item.quantity ?? 0),
+              total: item.total ?? item.total_credit ?? null,
+            })) ?? [],
+          newItems:
+            change.items_new?.map((item) => ({
+              name: item.product_name,
+              quantity: Number(item.quantity ?? 0),
+              total: item.total ?? null,
+            })) ?? [],
+        })),
+        settings: posSettings,
+      });
+
+      const printWithQz = async (): Promise<boolean> => {
+        if (printerConfig.mode !== "qz-tray") return false;
+        if (!printerConfig.printerName.trim() || !qzInstance) return false;
+        if (!configureQzSecurity()) return false;
+        try {
+          if (!qzInstance.websocket.isActive()) {
+            await qzInstance.websocket.connect();
+          }
+          const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+          const cfg = qzInstance.configs.create(printerConfig.printerName, {
+            altPrinting: true,
+            units: "mm",
+            size: { width: sizeWidth },
+            margins: { top: 0, right: 0, bottom: 0, left: 0 },
+          });
+          await qzInstance.print(cfg, [{ type: "html", format: "plain", data: html }]);
+          if (targetWindow && !targetWindow.closed) targetWindow.close();
+          return true;
+        } catch (err) {
+          console.error("No se pudo imprimir el ticket de movimientos con QZ Tray", err);
+          return false;
+        }
+      };
+
+      const printedWithQz = await printWithQz();
+      if (printedWithQz) return;
+
+      const winCandidate =
+        targetWindow && !targetWindow.closed
+          ? targetWindow
+          : typeof window !== "undefined"
+            ? window.open("", "_blank", "width=420,height=640")
+            : null;
+      if (!winCandidate) return;
+      winCandidate.document.write(html);
+      winCandidate.document.close();
+      const shouldAutoClose = winCandidate !== targetWindow;
+      const triggerPrint = () => {
+        try {
+          winCandidate.focus();
+          winCandidate.print();
+        } catch (err) {
+          console.error("No se pudo iniciar la impresión del ticket de movimientos", err);
+        }
+      };
+      if ("onafterprint" in winCandidate) {
+        winCandidate.onafterprint = () => {
+          if (shouldAutoClose) winCandidate.close();
+        };
+      }
+      if (shouldAutoClose) {
+        setTimeout(() => {
+          if (!winCandidate.closed) winCandidate.close();
+        }, 2000);
+      }
+      setTimeout(triggerPrint, 350);
+    },
+    [
+      configureQzSecurity,
+      posSettings,
+      printerConfig.mode,
+      printerConfig.printerName,
+      printerConfig.width,
+      qzInstance,
+      resolvedPosName,
+    ]
+  );
+
   const handleSubmitClosure = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!token) {
@@ -4536,8 +5015,23 @@ const matchesStationLabel = useCallback(
       printerConfig.mode !== "qz-tray" ||
       !printerConfig.printerName.trim() ||
       !qzInstance;
+    const movementReportSnapshot = closureMovementReport;
+    const shouldPrintCashExpenses =
+      ENABLE_POS_CASH_EXPENSES && cashExpenses.length > 0;
+    const shouldPrintMovements =
+      ENABLE_POS_MOVEMENT_CLOSURE_TICKET &&
+      (movementReportSnapshot.returns.length > 0 ||
+        movementReportSnapshot.changes.length > 0);
     const preOpenedWindow =
       shouldPreOpenWindow && typeof window !== "undefined"
+        ? window.open("", "_blank", "width=420,height=640")
+        : null;
+    const preOpenedExpenseWindow =
+      shouldPreOpenWindow && shouldPrintCashExpenses && typeof window !== "undefined"
+        ? window.open("", "_blank", "width=420,height=640")
+        : null;
+    const preOpenedMovementWindow =
+      shouldPreOpenWindow && shouldPrintMovements && typeof window !== "undefined"
         ? window.open("", "_blank", "width=420,height=640")
         : null;
     try {
@@ -4630,7 +5124,7 @@ const matchesStationLabel = useCallback(
           ? normalizedCustomMethods
           : null,
         adjusted_totals: adjustedTotals,
-            separated_summary: normalizedSeparated
+        separated_summary: normalizedSeparated
           ? {
               tickets: normalizedSeparated.tickets,
               payments_total: normalizedSeparated.paymentsTotal,
@@ -4712,9 +5206,54 @@ const matchesStationLabel = useCallback(
       setClosureResult(enrichedData);
       setPendingClosureAlert(null);
       handlePrintClosureTicket(enrichedData, preOpenedWindow);
+      if (ENABLE_POS_CASH_EXPENSES) {
+        try {
+          const attachedExpenses = await attachCashExpensesToClosure(
+            token,
+            data.id,
+            {
+              stationId: activeStationId,
+              posName: resolvedPosName,
+            }
+          );
+          setCashExpenses([]);
+          await printCashExpenseTicket(
+            enrichedData,
+            attachedExpenses.expenses ?? [],
+            preOpenedExpenseWindow
+          );
+        } catch (expenseErr) {
+          if (preOpenedExpenseWindow && !preOpenedExpenseWindow.closed) {
+            preOpenedExpenseWindow.close();
+          }
+          console.error("No se pudo asociar/imprimir gastos de caja", expenseErr);
+          setClosureError(
+            expenseErr instanceof Error
+              ? `Reporte Z creado, pero no se pudo generar el ticket de gastos: ${expenseErr.message}`
+              : "Reporte Z creado, pero no se pudo generar el ticket de gastos."
+          );
+        }
+      } else if (preOpenedExpenseWindow && !preOpenedExpenseWindow.closed) {
+        preOpenedExpenseWindow.close();
+      }
+      if (ENABLE_POS_MOVEMENT_CLOSURE_TICKET) {
+        await printClosureMovementTicket(
+          enrichedData,
+          movementReportSnapshot,
+          preOpenedMovementWindow
+        );
+      } else if (preOpenedMovementWindow && !preOpenedMovementWindow.closed) {
+        preOpenedMovementWindow.close();
+      }
     } catch (err) {
       if (preOpenedWindow && !preOpenedWindow.closed) {
         preOpenedWindow.close();
+      }
+      if (preOpenedExpenseWindow && !preOpenedExpenseWindow.closed) {
+        preOpenedExpenseWindow.close();
+      }
+      if (preOpenedMovementWindow && !preOpenedMovementWindow.closed) {
+        preOpenedMovementWindow.close();
       }
       console.error(err);
       setClosureError(
@@ -6665,6 +7204,35 @@ const matchesStationLabel = useCallback(
                       pendingCount={pendingSales.length}
                     />
                   </div>
+                  {ENABLE_POS_CASH_EXPENSES && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeUserMenu();
+                        openCashExpenseModal();
+                      }}
+                      className={`fixed right-[22.5rem] top-[16rem] z-40 hidden w-[17rem] rounded-2xl border border-amber-300/50 bg-amber-400/10 px-4 py-4 text-left text-amber-50 shadow-[0_20px_48px_rgba(0,0,0,0.42)] backdrop-blur-xl transition hover:border-amber-200 hover:bg-amber-400/20 md:block ${
+                        userMenuClosing
+                          ? "animate-[slideOut_180ms_ease-in]"
+                          : "animate-[slideIn_180ms_ease-out]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-amber-200">
+                          Caja principal
+                        </span>
+                        <span className="rounded-full border border-amber-300/40 px-2 py-0.5 text-[11px] font-semibold text-amber-100">
+                          {cashExpenses.length}
+                        </span>
+                      </div>
+                      <div className="mt-2 text-lg font-semibold">Gastos de caja</div>
+                      <div className="mt-1 text-sm text-amber-100/80">
+                        {cashExpensesTotal > 0
+                          ? `$ ${formatMoney(cashExpensesTotal)} pendientes`
+                          : "Registrar salidas antes del cierre"}
+                      </div>
+                    </button>
+                  )}
                   <aside
                     className={`hidden md:flex fixed top-6 z-40 h-[calc(100vh-3rem)] w-72 flex-col overflow-hidden rounded-[26px] border border-sky-500/40 bg-slate-900/95 shadow-[0_24px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl ${
                       userMenuClosing
@@ -7897,6 +8465,218 @@ sudo cp ~/Downloads/qz_api.crt &quot;/Applications/QZ Tray.app/Contents/Resource
                   Entendido
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ENABLE_POS_CASH_EXPENSES && cashExpenseModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 px-4 py-6 backdrop-blur-sm sm:items-center sm:py-0">
+          <div className="w-full max-w-5xl overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 text-slate-100 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-800 px-6 py-5">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-amber-300">
+                  Caja principal
+                </p>
+                <h2 className="mt-1 text-2xl font-semibold">Gastos de caja</h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  Salidas de efectivo abiertas para descontar en el ticket adicional del cierre.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCashExpenseModalOpen(false);
+                  resetCashExpenseForm();
+                }}
+                className="text-2xl leading-none text-slate-400 hover:text-slate-100"
+                aria-label="Cerrar gastos de caja"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="grid max-h-[calc(100vh-8rem)] gap-0 overflow-y-auto lg:grid-cols-[0.9fr_1.1fr]">
+              <form
+                onSubmit={submitCashExpense}
+                className="space-y-4 border-b border-slate-800 p-6 lg:border-b-0 lg:border-r"
+              >
+                <div className="rounded-xl border border-amber-300/30 bg-amber-400/10 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.2em] text-amber-200">
+                    Total abierto
+                  </div>
+                  <div className="mt-1 text-3xl font-semibold text-amber-50">
+                    $ {formatMoney(cashExpensesTotal)}
+                  </div>
+                </div>
+
+                <label className="block text-sm text-slate-300">
+                  Tipo de gasto
+                  <select
+                    value={cashExpenseForm.category}
+                    onChange={(event) =>
+                      setCashExpenseForm((previous) => ({
+                        ...previous,
+                        category: event.target.value as PosCashExpenseCategory,
+                      }))
+                    }
+                    className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 outline-none focus:border-amber-300"
+                  >
+                    {CASH_EXPENSE_CATEGORY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block text-sm text-slate-300">
+                  Monto
+                  <input
+                    inputMode="numeric"
+                    value={cashExpenseForm.amount}
+                    onChange={(event) =>
+                      setCashExpenseForm((previous) => ({
+                        ...previous,
+                        amount: formatPriceInputValue(event.target.value),
+                      }))
+                    }
+                    placeholder="0"
+                    className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-2xl font-semibold text-slate-100 outline-none focus:border-amber-300"
+                  />
+                </label>
+
+                <label className="block text-sm text-slate-300">
+                  Detalle
+                  <textarea
+                    value={cashExpenseForm.description}
+                    onChange={(event) =>
+                      setCashExpenseForm((previous) => ({
+                        ...previous,
+                        description: event.target.value,
+                      }))
+                    }
+                    rows={4}
+                    placeholder="Ej: almuerzos, flete, nómina..."
+                    className="mt-2 w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-slate-100 outline-none focus:border-amber-300"
+                  />
+                </label>
+
+                {cashExpenseError && (
+                  <div className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                    {cashExpenseError}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap justify-end gap-3 pt-2">
+                  {cashExpenseEditingId && (
+                    <button
+                      type="button"
+                      onClick={resetCashExpenseForm}
+                      disabled={cashExpenseSaving}
+                      className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      Cancelar edición
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={cashExpenseSaving}
+                    className="rounded-xl bg-amber-300 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {cashExpenseSaving
+                      ? "Guardando..."
+                      : cashExpenseEditingId
+                        ? "Actualizar gasto"
+                        : "Agregar gasto"}
+                  </button>
+                </div>
+              </form>
+
+              <section className="flex min-h-[360px] flex-col p-6">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold">Líneas abiertas</h3>
+                    <p className="text-sm text-slate-400">
+                      Se asociarán al próximo cierre de esta caja.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadOpenCashExpenses()}
+                    disabled={cashExpensesLoading}
+                    className="rounded-xl border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {cashExpensesLoading ? "Cargando..." : "Refrescar"}
+                  </button>
+                </div>
+
+                {cashExpensesLoading && !cashExpenses.length ? (
+                  <div className="flex flex-1 items-center justify-center">
+                    <LoadingSpinner size={46} label="Cargando gastos..." />
+                  </div>
+                ) : cashExpenses.length ? (
+                  <div className="space-y-3">
+                    {cashExpenses.map((expense) => (
+                      <div
+                        key={expense.id}
+                        className="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full border border-amber-300/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-200">
+                                {getCashExpenseCategoryLabel(expense.category)}
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                {formatBogotaDate(expense.created_at, {
+                                  dateStyle: "short",
+                                  timeStyle: "short",
+                                })}
+                              </span>
+                            </div>
+                            <div className="mt-2 truncate text-sm font-medium text-slate-100">
+                              {expense.description || "Sin detalle"}
+                            </div>
+                            {expense.created_by_user_name && (
+                              <div className="mt-1 text-xs text-slate-500">
+                                Registrado por {expense.created_by_user_name}
+                              </div>
+                            )}
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="text-lg font-semibold text-amber-100">
+                              $ {formatMoney(expense.amount)}
+                            </div>
+                            <div className="mt-2 flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startEditCashExpense(expense)}
+                                disabled={cashExpenseSaving}
+                                className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleVoidCashExpense(expense)}
+                                disabled={cashExpenseSaving}
+                                className="rounded-lg border border-rose-400/50 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+                              >
+                                Anular
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-6 py-10 text-center text-sm text-slate-400">
+                    No hay gastos abiertos para esta caja.
+                  </div>
+                )}
+              </section>
             </div>
           </div>
         </div>
