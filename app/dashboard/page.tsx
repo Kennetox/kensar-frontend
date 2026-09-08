@@ -217,6 +217,11 @@ function resolveSeparatedOrderPending(
   order?: SeparatedOrder | null,
   sale?: RecentSale | null
 ): number {
+  const officialBalance = Number(order?.balance);
+  if (order && Number.isFinite(officialBalance)) {
+    return Math.max(officialBalance, 0);
+  }
+
   const total = resolveSeparatedOrderTotal(order, sale);
   if (total <= 0) return 0;
   const initial = Math.max(
@@ -224,7 +229,8 @@ function resolveSeparatedOrderPending(
     0
   );
   const laterPayments = sumSeparatedOrderPayments(order);
-  return Math.max(total - initial - laterPayments, 0);
+  const reconciledAmount = Math.max(Number(order?.reconciled_amount ?? 0), 0);
+  return Math.max(total - initial - laterPayments - reconciledAmount, 0);
 }
 
 type DocumentAdjustmentRecord = {
