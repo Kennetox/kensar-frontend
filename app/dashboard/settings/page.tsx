@@ -41,6 +41,7 @@ import {
   sendMonthlyQuickReportNow,
   fetchStockDevices,
   updateStockDevice,
+  createPosStationSetupCode,
   createStockDeviceSetupCode,
   deleteStockDevice,
   StockDeviceRecord,
@@ -835,6 +836,11 @@ export default function SettingsPage() {
   const [stationMessage, setStationMessage] = useState<string | null>(null);
   const [stationFormError, setStationFormError] = useState<string | null>(null);
   const [updatingStationId, setUpdatingStationId] = useState<string | null>(null);
+  const [stationSetupCode, setStationSetupCode] = useState<{
+    stationName: string;
+    code: string;
+    expiresAt: string;
+  } | null>(null);
   const [stationNoticeModalOpen, setStationNoticeModalOpen] = useState(false);
   const [stationNoticeTarget, setStationNoticeTarget] = useState<PosStationRecord | null>(null);
   const [stationNoticeMessage, setStationNoticeMessage] = useState("");
@@ -1920,6 +1926,42 @@ export default function SettingsPage() {
         err instanceof Error
           ? err.message
           : "No pudimos desvincular la estación."
+      );
+    } finally {
+      setUpdatingStationId(null);
+    }
+  }
+
+  async function handleCreateStationSetupCode(station: PosStationRecord) {
+    if (!token) return;
+    if ((station.station_type ?? "desktop") !== "tablet") {
+      setStationsError("Solo las estaciones tablet usan código de vinculación.");
+      return;
+    }
+    try {
+      setStationsError(null);
+      setStationMessage(null);
+      setUpdatingStationId(station.id);
+      const response = await createPosStationSetupCode(station.id, token);
+      const updatedStation = response.station;
+      setStations((prev) =>
+        prev.map((item) => (item.id === updatedStation.id ? updatedStation : item))
+      );
+      setStationSetupCode({
+        stationName: updatedStation.label,
+        code: response.setup_code,
+        expiresAt: response.expires_at,
+      });
+      setStationMessage(
+        "Código de vinculación generado. Introdúcelo en la tablet POS antes de que expire."
+      );
+      await loadStations();
+    } catch (err) {
+      console.error(err);
+      setStationsError(
+        err instanceof Error
+          ? err.message
+          : "No pudimos generar el código de vinculación."
       );
     } finally {
       setUpdatingStationId(null);
@@ -3473,6 +3515,46 @@ export default function SettingsPage() {
           {stationMessage}
         </div>
       )}
+      {stationSetupCode && (
+        <div className="rounded-xl border border-emerald-400/40 bg-emerald-50 p-4 text-slate-900">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">
+                Código para {stationSetupCode.stationName}
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
+                Úsalo en la app POS tablet para vincular esta caja auxiliar.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setStationSetupCode(null)}
+              className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+            >
+              Ocultar
+            </button>
+          </div>
+          <div className="mt-3">
+            <p className="text-xs font-medium text-slate-600">Código de vinculación</p>
+            <div className="mt-2 flex gap-2">
+              {stationSetupCode.code.split("").map((digit, index) => (
+                <span
+                  key={`${stationSetupCode.code}-${index}`}
+                  className="flex h-11 w-10 items-center justify-center rounded-lg border border-emerald-200 bg-white text-xl font-bold text-slate-900 shadow-sm"
+                >
+                  {digit}
+                </span>
+              ))}
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-slate-600">
+            Vence:{" "}
+            <span className="font-semibold text-slate-800">
+              {formatDateLabel(stationSetupCode.expiresAt)}
+            </span>
+          </p>
+        </div>
+      )}
       {!stationsLoading && stations.length > 0 && (
         <p className="text-[11px] text-slate-500">
           Las estaciones inactivas se mantienen visibles para conservar el historial.
@@ -3653,6 +3735,19 @@ export default function SettingsPage() {
                           Enviar aviso
                         </button>
                         <span className="text-slate-600">|</span>
+                        {station.station_type === "tablet" && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleCreateStationSetupCode(station)}
+                              disabled={isUpdating || !station.is_active}
+                              className="text-slate-300 hover:text-sky-300 disabled:opacity-40"
+                            >
+                              Generar código
+                            </button>
+                            <span className="text-slate-600">|</span>
+                          </>
+                        )}
                         <button
                           type="button"
                           onClick={() => openEditStationModal(station)}

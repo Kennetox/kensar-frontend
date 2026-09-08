@@ -138,6 +138,8 @@ export type PosStationRecord = {
   last_login_at?: string | null;
   bound_device_id?: string | null;
   bound_device_label?: string | null;
+  has_pending_setup_code?: boolean;
+  setup_code_expires_at?: string | null;
   bound_at?: string | null;
   bound_by_user_id?: number | null;
   bound_by_user_name?: string | null;
@@ -148,6 +150,12 @@ export type PosStationRecord = {
 export type PosStationResponse = {
   station: PosStationRecord;
   pin_plain?: string | null;
+};
+
+export type PosStationSetupCodeResponse = {
+  station: PosStationRecord;
+  setup_code: string;
+  expires_at: string;
 };
 
 export type PosStationNotice = {
@@ -1048,6 +1056,20 @@ export async function unbindPosStation(
 ): Promise<PosStationRecord> {
   return request<PosStationRecord>(
     `/pos/stations/${stationId}/unbind`,
+    {
+      method: "POST",
+    },
+    undefined,
+    token
+  );
+}
+
+export async function createPosStationSetupCode(
+  stationId: string,
+  token?: string | null
+): Promise<PosStationSetupCodeResponse> {
+  return request<PosStationSetupCodeResponse>(
+    `/pos/stations/${stationId}/setup-code`,
     {
       method: "POST",
     },

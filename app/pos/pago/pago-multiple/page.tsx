@@ -803,6 +803,23 @@ export default function PagoMultiplePage() {
         return;
       }
 
+      const zeroAmountPayment = payments.find((p) => p.amount <= 0);
+      if (zeroAmountPayment) {
+        const lineLabel =
+          zeroAmountPayment.method === "separado"
+            ? zeroAmountPayment.separatedRealMethod
+              ? `abono inicial en ${getMethodLabel(
+                  zeroAmountPayment.separatedRealMethod,
+                  paymentCatalog
+                )}`
+              : "abono inicial separado"
+            : getMethodLabel(zeroAmountPayment.method, paymentCatalog);
+        setErrorWithToast(
+          `La línea de ${lineLabel} está en $0. Ingresa el monto o elimina esa línea antes de confirmar.`
+        );
+        return;
+      }
+
       const totalPaidNow = payments.reduce(
         (sum, p) => sum + p.amount,
         0
