@@ -4712,7 +4712,6 @@ const matchesStationLabel = useCallback(
       setClosureResult(enrichedData);
       setPendingClosureAlert(null);
       handlePrintClosureTicket(enrichedData, preOpenedWindow);
-      void fetchPendingClosureTotals();
     } catch (err) {
       if (preOpenedWindow && !preOpenedWindow.closed) {
         preOpenedWindow.close();
