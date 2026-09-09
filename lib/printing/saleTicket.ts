@@ -1360,15 +1360,6 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
 export function renderCashExpenseClosureTicket(
   options: CashExpenseTicketOptions
 ): string {
-  const companyName =
-    options.settings?.company_name?.trim() || FALLBACK_COMPANY.name;
-  const address = options.settings?.address?.trim() || FALLBACK_COMPANY.address;
-  const phone =
-    options.settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
-  const email =
-    options.settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
-  const taxId = options.settings?.tax_id?.trim() || FALLBACK_COMPANY.taxId;
-  const logoUrl = resolveLogoUrl(extractSettingsLogo(options.settings));
   const expensesTotal = options.expenses.reduce(
     (sum, expense) => sum + Math.max(Number(expense.amount || 0), 0),
     0
@@ -1426,18 +1417,11 @@ export function renderCashExpenseClosureTicket(
         }
         .expense:last-child { border-bottom: none; }
         .amount { font-weight: 700; text-align: right; white-space: nowrap; }
-        .logo { text-align: center; margin-bottom: 8px; }
-        .logo img { max-height: 28mm; max-width: 60mm; object-fit: contain; }
       </style>
     </head>
     <body>
-      ${logoUrl ? `<div class="logo"><img src="${escapeHtml(logoUrl)}" alt="Logo" /></div>` : ""}
-      <h1>${escapeHtml(companyName)}</h1>
-      <div class="center muted">${escapeHtml(address)}</div>
-      <div class="center muted">${escapeHtml(phone)}</div>
-      <div class="center muted">${escapeHtml(email)}</div>
-      <div class="center muted">${escapeHtml(taxId)}</div>
-      <div class="center muted subtitle" style="margin-top:4px;">Gastos de caja</div>
+      <h1>Gastos de caja</h1>
+      <div class="center muted subtitle" style="margin-top:4px;">Ticket complementario</div>
       <hr />
       <div class="block">
         <div class="row"><span>Cierre</span><span>${escapeHtml(options.documentNumber)}</span></div>
@@ -1469,15 +1453,6 @@ export function renderCashExpenseClosureTicket(
 export function renderClosureMovementTicket(
   options: ClosureMovementTicketOptions
 ): string {
-  const companyName =
-    options.settings?.company_name?.trim() || FALLBACK_COMPANY.name;
-  const address = options.settings?.address?.trim() || FALLBACK_COMPANY.address;
-  const phone =
-    options.settings?.contact_phone?.trim() || FALLBACK_COMPANY.phone;
-  const email =
-    options.settings?.contact_email?.trim() || FALLBACK_COMPANY.email;
-  const taxId = options.settings?.tax_id?.trim() || FALLBACK_COMPANY.taxId;
-  const logoUrl = resolveLogoUrl(extractSettingsLogo(options.settings));
   const returnTotal = options.returns.reduce(
     (sum, item) => sum + Math.max(Number(item.totalRefund || 0), 0),
     0
@@ -1645,18 +1620,11 @@ export function renderClosureMovementTicket(
         .movement { border-bottom: 1px dashed #94a3b8; padding: 7px 0; }
         .movement:last-child { border-bottom: none; }
         .movement-head { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
-        .logo { text-align: center; margin-bottom: 8px; }
-        .logo img { max-height: 28mm; max-width: 60mm; object-fit: contain; }
       </style>
     </head>
     <body>
-      ${logoUrl ? `<div class="logo"><img src="${escapeHtml(logoUrl)}" alt="Logo" /></div>` : ""}
-      <h1>${escapeHtml(companyName)}</h1>
-      <div class="center muted">${escapeHtml(address)}</div>
-      <div class="center muted">${escapeHtml(phone)}</div>
-      <div class="center muted">${escapeHtml(email)}</div>
-      <div class="center muted">${escapeHtml(taxId)}</div>
-      <div class="center muted subtitle" style="margin-top:4px;">Devoluciones y cambios</div>
+      <h1>Devoluciones y cambios</h1>
+      <div class="center muted subtitle" style="margin-top:4px;">Ticket complementario</div>
       <hr />
       <div>
         <div class="row"><span>Cierre</span><span>${escapeHtml(options.documentNumber)}</span></div>
