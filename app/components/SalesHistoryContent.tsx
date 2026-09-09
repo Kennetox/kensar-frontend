@@ -209,6 +209,12 @@ type Sale = {
   balance?: number | null;
   surcharge_amount?: number | null;
   surcharge_label?: string | null;
+  reward?: {
+    amount: number;
+    minimum_purchase: number;
+    expires_at: string;
+    public_url?: string | null;
+  } | null;
 };
 
 type SalesHistoryPageResponse = {
@@ -1833,6 +1839,7 @@ export default function SalesHistoryContent({
         address: selectedSale.customer_address ?? undefined,
       }),
       separatedInfo: separatedTicketInfo,
+      rewardPublicUrl: selectedSale.reward?.public_url ?? null,
     });
 
     const printTicketWithQz = async () => {

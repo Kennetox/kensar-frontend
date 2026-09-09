@@ -2,6 +2,7 @@ import type { PosSettingsPayload } from "@/lib/api/settings";
 import { generateCode128Svg } from "@/lib/utils/barcode";
 import { formatBogotaDate } from "@/lib/time/bogota";
 import type { SeparatedTicketReconciliation } from "./separatedTicket";
+import { generateQrSvg } from "./qr";
 
 export { buildSeparatedTicketReconciliations } from "./separatedTicket";
 
@@ -131,6 +132,7 @@ export type SaleTicketOptions = {
     payments: SeparatedTicketPayment[];
     reconciliations?: SeparatedTicketReconciliation[];
   };
+  rewardPublicUrl?: string | null;
 };
 
 export type ReturnTicketOptions = {
@@ -1037,6 +1039,15 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
     includeTextFontSize: 12,
     quietZoneModules: 10,
   });
+  const rewardQrBlock = options.rewardPublicUrl
+    ? `<div class="separator"></div>
+        <div class="loyalty-block">
+          <div class="loyalty-title">¡TU COMPRA TIENE BENEFICIO!</div>
+          <div class="loyalty-copy">Escanea este QR para descubrir y activar tu descuento para una próxima compra.</div>
+          <div class="loyalty-qr">${generateQrSvg(options.rewardPublicUrl, 3, 2)}</div>
+          <div class="loyalty-terms">Beneficio sujeto a condiciones y vigencia.</div>
+        </div>`
+    : "";
 
   return `<!DOCTYPE html>
   <html>
@@ -1211,6 +1222,34 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           width: 96%;
           height: auto;
         }
+        .loyalty-block {
+          text-align: center;
+          margin: 12px 0;
+          page-break-inside: avoid;
+        }
+        .loyalty-title {
+          font-size: 14px;
+          font-weight: 900;
+          letter-spacing: 0.04em;
+          margin-bottom: 5px;
+        }
+        .loyalty-copy,
+        .loyalty-terms {
+          font-size: 11px;
+          line-height: 1.35;
+          color: #111827;
+        }
+        .loyalty-qr {
+          margin: 8px auto 6px;
+          width: 34mm;
+          height: 34mm;
+        }
+        .loyalty-qr svg {
+          width: 34mm;
+          height: 34mm;
+          display: block;
+          margin: 0 auto;
+        }
         .footer {
           margin-top: 16px;
           text-align: center;
@@ -1352,6 +1391,8 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
             .map((line) => `<div>${escapeHtml(line)}</div>`)
             .join("")}
         </div>
+
+        ${rewardQrBlock}
       </div>
     </body>
   </html>`;

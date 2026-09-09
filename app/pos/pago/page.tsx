@@ -71,6 +71,12 @@ type SaleResponse = {
   surcharge_label?: string | null;
   cart_discount_value?: number | null;
   cart_discount_percent?: number | null;
+  reward?: {
+    amount: number;
+    minimum_purchase: number;
+    expires_at: string;
+    public_url?: string | null;
+  } | null;
   items?: SaleTicketSourceItem[];
   payments?: { method: PaymentMethodSlug; amount: number }[];
 };
@@ -99,6 +105,7 @@ type SuccessSaleSummary = {
     initialPayments: { label: string; amount: number; paidAt?: string; method?: string }[];
     payments: { label: string; amount: number; paidAt?: string; method?: string }[];
   };
+  rewardPublicUrl?: string | null;
 };
 
 type SeparatedInitialPaymentLine = {
@@ -1528,6 +1535,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         showChange: shouldShowChange,
         customer: ticketCustomer,
         separatedInfo,
+        rewardPublicUrl: saleResponse?.reward?.public_url ?? null,
       });
 
       if (shouldOpenDrawer) {
@@ -1594,6 +1602,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
       settings: posSettings,
       customer: buildSaleTicketCustomer(successSale.customer),
       separatedInfo: successSale.separatedInfo,
+      rewardPublicUrl: successSale.rewardPublicUrl,
     };
     if (variant === "invoice") {
       return renderSaleInvoice(payload);

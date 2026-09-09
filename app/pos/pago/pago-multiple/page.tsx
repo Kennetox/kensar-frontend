@@ -78,6 +78,12 @@ type SaleResponse = {
   surcharge_label?: string | null;
   cart_discount_value?: number | null;
   cart_discount_percent?: number | null;
+  reward?: {
+    amount: number;
+    minimum_purchase: number;
+    expires_at: string;
+    public_url?: string | null;
+  } | null;
   items?: SaleTicketSourceItem[];
   payments?: { method: PaymentMethodSlug; amount: number }[];
 };
@@ -105,6 +111,7 @@ type SuccessSaleSummary = {
     balance: number;
     payments: { label: string; amount: number; paidAt?: string; method?: string }[];
   };
+  rewardPublicUrl?: string | null;
 };
 
 const RESUME_HELD_SALE_KEY_BASE = "kensar_pos_resume_held_sale_v1";
@@ -207,7 +214,16 @@ export default function PagoMultiplePage() {
   } = usePos();
   const { token, user, tenant } = useAuth();
   const isOnline = useOnlineStatus();
-  const totalToPay = cartTotal;
+  const [loyaltyCodeInput, setLoyaltyCodeInput] = useState("");
+  const [appliedLoyalty, setAppliedLoyalty] = useState<{
+    code: string;
+    discountAmount: number;
+    minimumPurchase: number;
+  } | null>(null);
+  const [loyaltyMessage, setLoyaltyMessage] = useState<string | null>(null);
+  const [loyaltyValidating, setLoyaltyValidating] = useState(false);
+  const previousCartTotalRef = useRef(cartTotal);
+  const totalToPay = Math.max(0, cartTotal - (appliedLoyalty?.discountAmount ?? 0));
   const freeSaleReasons = useMemo(
     () => (REQUIRE_FREE_SALE_REASON ? getFreeSaleReasonsFromCart(cart) : []),
     [cart]
@@ -216,6 +232,14 @@ export default function PagoMultiplePage() {
     () => buildCombinedSaleNotes(freeSaleReasons, saleNotes),
     [freeSaleReasons, saleNotes]
   );
+
+  useEffect(() => {
+    if (previousCartTotalRef.current === cartTotal) return;
+    previousCartTotalRef.current = cartTotal;
+    if (!appliedLoyalty) return;
+    setAppliedLoyalty(null);
+    setLoyaltyMessage("Vuelve a validar el código porque cambió el total.");
+  }, [cartTotal, appliedLoyalty]);
 
   const [payments, setPayments] = useState<PaymentLine[]>([]);
   const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(
@@ -1002,6 +1026,7 @@ export default function PagoMultiplePage() {
         surcharge_amount?: number;
         surcharge_label?: string;
         station_id?: string;
+        loyalty_discount_code?: string;
       };
 
       if (!token) {
@@ -1033,6 +1058,7 @@ export default function PagoMultiplePage() {
         vendor_name: user?.name ?? undefined,
         reservation_id: reservationId ?? undefined,
         client_request_id: saleAttemptId,
+        loyalty_discount_code: appliedLoyalty?.code,
       };
       if (activeStationId) {
         basePayload.station_id = activeStationId;
@@ -1474,6 +1500,7 @@ export default function PagoMultiplePage() {
         showChange: shouldShowChange,
         customer: ticketCustomer,
         separatedInfo,
+        rewardPublicUrl: saleResponse?.reward?.public_url ?? null,
       });
 
       if (shouldOpenDrawer) {
@@ -1495,6 +1522,53 @@ export default function PagoMultiplePage() {
     } finally {
       confirmInFlightRef.current = false;
       setIsConfirmingSale(false);
+    }
+  }
+
+  async function handleApplyLoyaltyCode() {
+    const code = loyaltyCodeInput.trim().toUpperCase();
+    if (!code) {
+      setLoyaltyMessage("Ingresa un código.");
+      return;
+    }
+    if (!token) {
+      setLoyaltyMessage("Sesión expirada. Inicia sesión nuevamente.");
+      return;
+    }
+    if (!isOnline) {
+      setLoyaltyMessage("Debes estar en línea para validar beneficios.");
+      return;
+    }
+    setLoyaltyValidating(true);
+    setLoyaltyMessage(null);
+    try {
+      const res = await fetch(`${getApiBase()}/pos/discount-codes/validate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          code,
+          purchase_amount: cartTotal,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.valid) {
+        throw new Error(data?.detail || data?.message || "El código no está disponible.");
+      }
+      setAppliedLoyalty({
+        code: data.code || code,
+        discountAmount: Number(data.effective_discount_amount ?? data.discount_amount ?? 0),
+        minimumPurchase: Number(data.minimum_purchase || 0),
+      });
+      setLoyaltyCodeInput(data.code || code);
+      setLoyaltyMessage(data.message || "Código aplicado.");
+    } catch (err) {
+      setAppliedLoyalty(null);
+      setLoyaltyMessage(err instanceof Error ? err.message : "No se pudo validar el código.");
+    } finally {
+      setLoyaltyValidating(false);
     }
   }
 
@@ -1539,6 +1613,7 @@ export default function PagoMultiplePage() {
       settings: posSettings,
       customer: buildSaleTicketCustomer(successSale.customer),
       separatedInfo: successSale.separatedInfo,
+      rewardPublicUrl: successSale.rewardPublicUrl,
     };
     if (variant === "invoice") {
       return renderSaleInvoice(payload);
@@ -1981,6 +2056,38 @@ export default function PagoMultiplePage() {
                   ? `${formatMoney(cartSurcharge.amount)}`
                   : "0"}
               </span>
+            </div>
+            <div className="rounded-lg border border-slate-700/70 bg-slate-950/60 p-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={loyaltyCodeInput}
+                  onChange={(event) => {
+                    setLoyaltyCodeInput(event.target.value.toUpperCase());
+                    if (appliedLoyalty) setAppliedLoyalty(null);
+                    if (loyaltyMessage) setLoyaltyMessage(null);
+                  }}
+                  placeholder="Código beneficio"
+                  className="min-w-0 flex-1 rounded-md border border-slate-700 bg-[#020713] px-2 py-1.5 text-sm text-slate-50 outline-none focus:border-emerald-400"
+                />
+                <button
+                  type="button"
+                  onClick={handleApplyLoyaltyCode}
+                  disabled={loyaltyValidating || cart.length === 0}
+                  className="rounded-md border border-emerald-500/50 px-2 py-1.5 text-xs font-semibold text-emerald-200 disabled:opacity-50"
+                >
+                  {loyaltyValidating ? "..." : "Aplicar"}
+                </button>
+              </div>
+              {appliedLoyalty ? (
+                <div className="mt-1 flex items-center justify-between text-xs text-emerald-300">
+                  <span>{appliedLoyalty.code}</span>
+                  <span>-{formatMoney(appliedLoyalty.discountAmount)}</span>
+                </div>
+              ) : null}
+              {loyaltyMessage ? (
+                <p className="mt-1 text-xs text-slate-400">{loyaltyMessage}</p>
+              ) : null}
             </div>
             <div className="flex items-center justify-between pt-1">
               <span className="text-base font-bold text-slate-200">

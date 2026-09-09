@@ -51,6 +51,18 @@ import {
   type ComercioWebDiscountCodeUsageRow,
 } from "@/lib/api/comercioWebDiscountCodes";
 import {
+  createLoyaltyRedemptionRule,
+  createLoyaltyRewardRule,
+  fetchLoyaltyRedemptionRules,
+  fetchLoyaltyRewardMetrics,
+  fetchLoyaltyRewardRules,
+  updateLoyaltyRedemptionRule,
+  updateLoyaltyRewardRule,
+  type LoyaltyRedemptionRule,
+  type LoyaltyRewardMetrics,
+  type LoyaltyRewardRule,
+} from "@/lib/api/loyaltyRewards";
+import {
   fetchComercioWebHomeSliders,
   updateComercioWebHomeSlider,
   type ComercioWebHomeSlider,
@@ -2015,6 +2027,27 @@ export default function ComercioWebPage() {
   const [discountCodeHistoryTotal, setDiscountCodeHistoryTotal] = useState(0);
   const [discountCodeHistoryLoading, setDiscountCodeHistoryLoading] = useState(false);
   const [discountCodeHistoryError, setDiscountCodeHistoryError] = useState<string | null>(null);
+  const [loyaltyRules, setLoyaltyRules] = useState<LoyaltyRewardRule[]>([]);
+  const [loyaltyRedemptionRules, setLoyaltyRedemptionRules] = useState<LoyaltyRedemptionRule[]>([]);
+  const [loyaltyMetrics, setLoyaltyMetrics] = useState<LoyaltyRewardMetrics | null>(null);
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [loyaltyError, setLoyaltyError] = useState<string | null>(null);
+  const [loyaltyDraft, setLoyaltyDraft] = useState({
+    min_purchase: "",
+    max_purchase: "",
+    reward_amount: "",
+    minimum_purchase: "",
+    validity_days: "30",
+    sort_order: "0",
+    is_active: true,
+  });
+  const [loyaltyRedemptionDraft, setLoyaltyRedemptionDraft] = useState({
+    min_purchase: "",
+    max_purchase: "",
+    discount_amount: "",
+    sort_order: "0",
+    is_active: true,
+  });
   const [catalogCategories, setCatalogCategories] = useState<ComercioWebCatalogCategory[]>([]);
   const [catalogCategoryLoading, setCatalogCategoryLoading] = useState(false);
   const [catalogCategoryError, setCatalogCategoryError] = useState<string | null>(null);
@@ -4625,6 +4658,82 @@ export default function ComercioWebPage() {
     }
   }, [discountCodePage, discountCodeStatusFilter, token]);
 
+  const loadLoyalty = useCallback(async () => {
+    if (!token) return;
+    try {
+      setLoyaltyLoading(true);
+      setLoyaltyError(null);
+      const [rules, redemptionRules, metrics] = await Promise.all([
+        fetchLoyaltyRewardRules(token),
+        fetchLoyaltyRedemptionRules(token),
+        fetchLoyaltyRewardMetrics(token),
+      ]);
+      setLoyaltyRules(rules);
+      setLoyaltyRedemptionRules(redemptionRules);
+      setLoyaltyMetrics(metrics);
+    } catch (err) {
+      setLoyaltyError(err instanceof Error ? err.message : "No se pudo cargar fidelización");
+    } finally {
+      setLoyaltyLoading(false);
+    }
+  }, [token]);
+
+  const handleCreateLoyaltyRule = useCallback(async () => {
+    if (!token || !canManage) return;
+    const input = {
+      min_purchase: Number(loyaltyDraft.min_purchase || 0),
+      max_purchase: loyaltyDraft.max_purchase ? Number(loyaltyDraft.max_purchase) : null,
+      reward_amount: Number(loyaltyDraft.reward_amount || 0),
+      minimum_purchase: Number(loyaltyDraft.minimum_purchase || 0),
+      validity_days: Number(loyaltyDraft.validity_days || 30),
+      sort_order: Number(loyaltyDraft.sort_order || 0),
+      is_active: loyaltyDraft.is_active,
+    };
+    try {
+      setLoyaltyError(null);
+      await createLoyaltyRewardRule(token, input);
+      setLoyaltyDraft({
+        min_purchase: "",
+        max_purchase: "",
+        reward_amount: "",
+        minimum_purchase: "",
+        validity_days: "30",
+        sort_order: "0",
+        is_active: true,
+      });
+      await loadLoyalty();
+      showToast("Regla loyalty creada.");
+    } catch (err) {
+      setLoyaltyError(err instanceof Error ? err.message : "No se pudo crear la regla");
+    }
+  }, [canManage, loadLoyalty, loyaltyDraft, showToast, token]);
+
+  const handleCreateLoyaltyRedemptionRule = useCallback(async () => {
+    if (!token || !canManage) return;
+    const input = {
+      min_purchase: Number(loyaltyRedemptionDraft.min_purchase || 0),
+      max_purchase: loyaltyRedemptionDraft.max_purchase ? Number(loyaltyRedemptionDraft.max_purchase) : null,
+      discount_amount: Number(loyaltyRedemptionDraft.discount_amount || 0),
+      sort_order: Number(loyaltyRedemptionDraft.sort_order || 0),
+      is_active: loyaltyRedemptionDraft.is_active,
+    };
+    try {
+      setLoyaltyError(null);
+      await createLoyaltyRedemptionRule(token, input);
+      setLoyaltyRedemptionDraft({
+        min_purchase: "",
+        max_purchase: "",
+        discount_amount: "",
+        sort_order: "0",
+        is_active: true,
+      });
+      await loadLoyalty();
+      showToast("Regla de redención creada.");
+    } catch (err) {
+      setLoyaltyError(err instanceof Error ? err.message : "No se pudo crear la regla de redención");
+    }
+  }, [canManage, loadLoyalty, loyaltyRedemptionDraft, showToast, token]);
+
   const searchCatalogProducts = useCallback(async () => {
     if (!token) return;
     const term = catalogSearchTerm.trim();
@@ -4686,6 +4795,7 @@ export default function ComercioWebPage() {
     const timer = window.setTimeout(() => {
       if (catalogWorkspaceView === "discount_codes") {
         void loadDiscountCodes();
+        void loadLoyalty();
         return;
       }
       if (catalogWorkspaceView === "combos") {
@@ -4709,6 +4819,7 @@ export default function ComercioWebPage() {
     loadCatalogCombos,
     loadCatalogProducts,
     loadDiscountCodes,
+    loadLoyalty,
     loadCatalogCategories,
     loadDescriptionTemplates,
   ]);
@@ -10431,6 +10542,7 @@ export default function ComercioWebPage() {
             </div>
           ) : null}
           {catalogWorkspaceView === "discount_codes" ? (
+            <>
             <SectionCard
               title="Códigos de descuento"
               subtitle="Crea, activa y controla vigencia de códigos promocionales para el canal web."
@@ -10657,6 +10769,200 @@ export default function ComercioWebPage() {
                 ) : null}
               </div>
             </SectionCard>
+            <SectionCard
+              title="Fidelización"
+              subtitle="Reglas activas, escaneos y redenciones de beneficios emitidos desde ventas POS."
+            >
+              <div className="space-y-4">
+                {loyaltyError ? (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    {loyaltyError}
+                  </div>
+                ) : null}
+                <div className="grid gap-3 md:grid-cols-4">
+                  {[
+                    ["Emitidos", loyaltyMetrics?.emitted_count ?? 0],
+                    ["Activados", loyaltyMetrics?.activated ?? 0],
+                    ["Redimidos", loyaltyMetrics?.redeemed ?? 0],
+                    ["Escaneos", loyaltyMetrics?.scan_count_total ?? 0],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-slate-500">{label}</p>
+                      <p className="mt-1 text-xl font-bold text-slate-900">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="text-xs text-slate-500">Beneficios emitidos</p>
+                    <p className="text-lg font-semibold text-slate-900">
+                      {formatMoney(loyaltyMetrics?.issued_amount_total ?? 0)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="text-xs text-slate-500">Máximo redimido</p>
+                    <p className="text-lg font-semibold text-slate-900">
+                      {formatMoney(loyaltyMetrics?.redeemed_amount_total ?? 0)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="text-xs text-slate-500">Descuento real usado</p>
+                    <p className="text-lg font-semibold text-slate-900">
+                      {formatMoney(loyaltyMetrics?.redeemed_discount_amount_total ?? 0)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="text-xs text-slate-500">Ventas atribuidas</p>
+                    <p className="text-lg font-semibold text-slate-900">
+                      {formatMoney(loyaltyMetrics?.attributed_sales_total ?? 0)}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-200">
+                  <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                    <h3 className="text-sm font-semibold text-slate-900">Reglas de emisión</h3>
+                  </div>
+                  <div className="overflow-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-4 py-2">Tramo</th>
+                          <th className="px-4 py-2">Reward</th>
+                          <th className="px-4 py-2">Mínima</th>
+                          <th className="px-4 py-2">Días</th>
+                          <th className="px-4 py-2">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loyaltyRules.map((rule) => (
+                          <tr key={rule.id} className="border-t border-slate-100">
+                            <td className="px-4 py-2">
+                              {formatMoney(rule.min_purchase)} - {rule.max_purchase ? formatMoney(rule.max_purchase) : "+"}
+                            </td>
+                            <td className="px-4 py-2">{formatMoney(rule.reward_amount)}</td>
+                            <td className="px-4 py-2">{formatMoney(rule.minimum_purchase)}</td>
+                            <td className="px-4 py-2">{rule.validity_days}</td>
+                            <td className="px-4 py-2">
+                              <button
+                                type="button"
+                                disabled={!canManage || loyaltyLoading}
+                                onClick={async () => {
+                                  if (!token) return;
+                                  await updateLoyaltyRewardRule(token, rule.id, { is_active: !rule.is_active });
+                                  await loadLoyalty();
+                                }}
+                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
+                              >
+                                {rule.is_active ? "Activo" : "Inactivo"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="grid gap-2 md:grid-cols-7">
+                  {[
+                    ["min_purchase", "Desde"],
+                    ["max_purchase", "Hasta"],
+                    ["reward_amount", "Reward"],
+                    ["minimum_purchase", "Mínima"],
+                    ["validity_days", "Días"],
+                    ["sort_order", "Orden"],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+                      {label}
+                      <input
+                        value={loyaltyDraft[key as keyof typeof loyaltyDraft] as string}
+                        onChange={(event) =>
+                          setLoyaltyDraft((prev) => ({ ...prev, [key]: event.target.value }))
+                        }
+                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                      />
+                    </label>
+                  ))}
+                  <button
+                    type="button"
+                    disabled={!canManage || loyaltyLoading}
+                    onClick={() => void handleCreateLoyaltyRule()}
+                    className="self-end rounded-lg border border-blue-700 bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  >
+                    Crear regla
+                  </button>
+                </div>
+                <div className="rounded-2xl border border-slate-200">
+                  <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                    <h3 className="text-sm font-semibold text-slate-900">Reglas de redención</h3>
+                  </div>
+                  <div className="overflow-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-4 py-2">Compra futura</th>
+                          <th className="px-4 py-2">Descuento máximo</th>
+                          <th className="px-4 py-2">Orden</th>
+                          <th className="px-4 py-2">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loyaltyRedemptionRules.map((rule) => (
+                          <tr key={rule.id} className="border-t border-slate-100">
+                            <td className="px-4 py-2">
+                              {formatMoney(rule.min_purchase)} - {rule.max_purchase ? formatMoney(rule.max_purchase) : "+"}
+                            </td>
+                            <td className="px-4 py-2">{formatMoney(rule.discount_amount)}</td>
+                            <td className="px-4 py-2">{rule.sort_order}</td>
+                            <td className="px-4 py-2">
+                              <button
+                                type="button"
+                                disabled={!canManage || loyaltyLoading}
+                                onClick={async () => {
+                                  if (!token) return;
+                                  await updateLoyaltyRedemptionRule(token, rule.id, { is_active: !rule.is_active });
+                                  await loadLoyalty();
+                                }}
+                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 disabled:opacity-50"
+                              >
+                                {rule.is_active ? "Activo" : "Inactivo"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="grid gap-2 md:grid-cols-5">
+                  {[
+                    ["min_purchase", "Desde"],
+                    ["max_purchase", "Hasta"],
+                    ["discount_amount", "Descuento"],
+                    ["sort_order", "Orden"],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+                      {label}
+                      <input
+                        value={loyaltyRedemptionDraft[key as keyof typeof loyaltyRedemptionDraft] as string}
+                        onChange={(event) =>
+                          setLoyaltyRedemptionDraft((prev) => ({ ...prev, [key]: event.target.value }))
+                        }
+                        className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                      />
+                    </label>
+                  ))}
+                  <button
+                    type="button"
+                    disabled={!canManage || loyaltyLoading}
+                    onClick={() => void handleCreateLoyaltyRedemptionRule()}
+                    className="self-end rounded-lg border border-blue-700 bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  >
+                    Crear redención
+                  </button>
+                </div>
+              </div>
+            </SectionCard>
+            </>
           ) : null}
           </section>
         ) : null}
