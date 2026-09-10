@@ -44,6 +44,8 @@ import { PosNavigationOverlay } from "../components/PosNavigationOverlay";
 import { useGuardedPosNavigation } from "../hooks/useGuardedPosNavigation";
 import { isCustomerEligibleForSeparated } from "@/lib/customers/validation";
 import { getDefaultSeparatedDueDate } from "@/lib/pos/separatedDueDate";
+import { getWarrantyReminderItems, type WarrantyReminderItem } from "@/lib/pos/warrantyReminder";
+import { WarrantyReminderModal } from "../components/WarrantyReminderModal";
 
 type PaymentMethodSlug = string;
 
@@ -235,7 +237,9 @@ export default function PagoPage() {
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
   const [isConfirmingSale, setIsConfirmingSale] = useState(false);
+  const [warrantyReminderItems, setWarrantyReminderItems] = useState<WarrantyReminderItem[] | null>(null);
   const confirmInFlightRef = useRef(false);
+  const notesInputRef = useRef<HTMLTextAreaElement>(null);
   const apiBase = useMemo(() => getApiBase(), []);
   const [printerConfig, setPrinterConfig] = useState<PosStationPrinterConfig>({
     mode: "qz-tray",
@@ -855,7 +859,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
     });
   }
 
-  async function handleConfirm() {
+  async function handleConfirm(skipWarrantyReminder = false) {
     if (confirmInFlightRef.current) return;
     confirmInFlightRef.current = true;
     setIsConfirmingSale(true);
@@ -918,6 +922,12 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
           "No se pudo obtener el consecutivo de venta. Intentando nuevamente…"
         );
         await refreshSaleNumber();
+        return;
+      }
+
+      const warrantyItems = getWarrantyReminderItems(cart, saleNotes);
+      if (!skipWarrantyReminder && warrantyItems.length > 0) {
+        setWarrantyReminderItems(warrantyItems);
         return;
       }
 
@@ -2319,6 +2329,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
                     ))}
                   </div>
                   <textarea
+                    ref={notesInputRef}
                     value={saleNotes}
                     onChange={(e) => setSaleNotes(e.target.value)}
                     rows={4}
@@ -2357,7 +2368,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
 
             <button
               type="button"
-              onClick={handleConfirm}
+              onClick={() => void handleConfirm()}
               className="w-full h-[5.5rem] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-lg font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
               disabled={confirmDisabled || isConfirmingSale}
             >
@@ -2387,6 +2398,23 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
             </div>
           </div>
         </div>
+      )}
+
+      {warrantyReminderItems && (
+        <WarrantyReminderModal
+          items={warrantyReminderItems}
+          onAddWarranty={() => {
+            setWarrantyReminderItems(null);
+            window.setTimeout(() => {
+              notesInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              notesInputRef.current?.focus();
+            }, 0);
+          }}
+          onContinueWithoutWarranty={() => {
+            setWarrantyReminderItems(null);
+            void handleConfirm(true);
+          }}
+        />
       )}
 
       {/* Modal de éxito de venta */}

@@ -44,6 +44,8 @@ import { PosNavigationOverlay } from "../../components/PosNavigationOverlay";
 import { useGuardedPosNavigation } from "../../hooks/useGuardedPosNavigation";
 import { isCustomerEligibleForSeparated } from "@/lib/customers/validation";
 import { getDefaultSeparatedDueDate } from "@/lib/pos/separatedDueDate";
+import { getWarrantyReminderItems, type WarrantyReminderItem } from "@/lib/pos/warrantyReminder";
+import { WarrantyReminderModal } from "../../components/WarrantyReminderModal";
 
 type PaymentMethodSlug = string;
 
@@ -247,7 +249,9 @@ export default function PagoMultiplePage() {
   const [emailMessage, setEmailMessage] = useState("");
   const [emailSending, setEmailSending] = useState(false);
   const [isConfirmingSale, setIsConfirmingSale] = useState(false);
+  const [warrantyReminderItems, setWarrantyReminderItems] = useState<WarrantyReminderItem[] | null>(null);
   const confirmInFlightRef = useRef(false);
+  const notesInputRef = useRef<HTMLTextAreaElement>(null);
   const [emailDocumentType, setEmailDocumentType] = useState<
     "ticket" | "invoice"
   >("ticket");
@@ -788,7 +792,7 @@ export default function PagoMultiplePage() {
     });
   }
 
-  async function handleConfirm() {
+  async function handleConfirm(skipWarrantyReminder = false) {
     if (confirmInFlightRef.current) return;
     confirmInFlightRef.current = true;
     setIsConfirmingSale(true);
@@ -881,6 +885,12 @@ export default function PagoMultiplePage() {
           );
           return;
         }
+      }
+
+      const warrantyItems = getWarrantyReminderItems(cart, saleNotes);
+      if (!skipWarrantyReminder && warrantyItems.length > 0) {
+        setWarrantyReminderItems(warrantyItems);
+        return;
       }
       const change_amount = isSeparatedSale
         ? 0
@@ -2301,6 +2311,7 @@ export default function PagoMultiplePage() {
                   ))}
                 </div>
                 <textarea
+                  ref={notesInputRef}
                   value={saleNotes}
                   onChange={(e) => setSaleNotes(e.target.value)}
                   rows={4}
@@ -2340,7 +2351,7 @@ export default function PagoMultiplePage() {
 
             <button
               type="button"
-              onClick={handleConfirm}
+              onClick={() => void handleConfirm()}
               className="w-full h-[5.5rem] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-lg font-semibold text-slate-950 transition-colors shadow-lg shadow-emerald-900/30 disabled:opacity-50"
               disabled={confirmDisabled}
             >
@@ -2365,6 +2376,23 @@ export default function PagoMultiplePage() {
             <p className="mt-1 text-sm text-slate-100/90">{toast.message}</p>
           </div>
         </div>
+      )}
+
+      {warrantyReminderItems && (
+        <WarrantyReminderModal
+          items={warrantyReminderItems}
+          onAddWarranty={() => {
+            setWarrantyReminderItems(null);
+            window.setTimeout(() => {
+              notesInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              notesInputRef.current?.focus();
+            }, 0);
+          }}
+          onContinueWithoutWarranty={() => {
+            setWarrantyReminderItems(null);
+            void handleConfirm(true);
+          }}
+        />
       )}
 
       {/* Modal de éxito */}
