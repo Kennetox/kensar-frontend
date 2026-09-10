@@ -1153,16 +1153,22 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           font-size: 12px;
         }
         .line {
-          display: flex;
-          justify-content: space-between;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 30mm;
+          column-gap: 2mm;
           font-size: 13px;
           margin-bottom: 2px;
           line-height: 1.4;
         }
+        .line span:first-child {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
         .line span:last-child {
-          min-width: 38mm;
+          min-width: 0;
           text-align: right;
           font-weight: 700;
+          white-space: nowrap;
         }
         .items {
           display: flex;
@@ -1170,19 +1176,22 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           gap: 6px;
         }
         .item-row {
-          display: flex;
-          justify-content: space-between;
-          gap: 4mm;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 24mm;
+          column-gap: 2mm;
+          width: 100%;
         }
         .item-row > div:first-child {
-          max-width: 46mm;
+          min-width: 0;
         }
         .item-name {
           font-weight: 600;
+          overflow-wrap: anywhere;
         }
         .item-meta {
           color: #0f172a;
           font-size: 11px;
+          overflow-wrap: anywhere;
         }
         .item-discount {
           color: #0f172a;
@@ -1190,8 +1199,9 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         }
         .item-total {
           font-weight: 600;
-          min-width: 25mm;
+          min-width: 0;
           text-align: right;
+          white-space: nowrap;
         }
         .totals {
           display: flex;
@@ -1208,14 +1218,20 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           font-weight: 800;
         }
         .payments .row {
-          display: flex;
-          justify-content: space-between;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 30mm;
+          column-gap: 2mm;
           font-size: 13px;
           margin-bottom: 2px;
         }
+        .payments .row > :first-child {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
         .payments .row span:last-child {
-          min-width: 30mm;
+          min-width: 0;
           text-align: right;
+          white-space: nowrap;
         }
         .separated-badge {
           display: table;
