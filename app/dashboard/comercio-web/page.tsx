@@ -101,7 +101,8 @@ type CommerceTab =
   | "personalization_home_images"
   | "payments"
   | "customers"
-  | "sliders";
+  | "sliders"
+  | "loyalty";
 
 type PaymentRow = {
   paymentId: number;
@@ -372,6 +373,7 @@ const COMMERCE_WEB_LIVE_ORDER_TABS: CommerceTab[] = [
 const TABS: Array<{ id: CommerceTab; label: string }> = [
   { id: "overview", label: "Resumen" },
   { id: "catalog", label: "Catálogo Web" },
+  { id: "loyalty", label: "Fidelización" },
   { id: "sliders", label: "Sliders Inicio" },
   { id: "orders", label: "Órdenes" },
   { id: "personalization", label: "Personalización" },
@@ -4823,6 +4825,11 @@ export default function ComercioWebPage() {
     loadCatalogCategories,
     loadDescriptionTemplates,
   ]);
+
+  useEffect(() => {
+    if (activeTab !== "loyalty") return;
+    void loadLoyalty();
+  }, [activeTab, loadLoyalty]);
 
   useEffect(() => {
     if (activeTab !== "catalog" && activeTab !== "personalization_home_images") return;
@@ -10770,8 +10777,8 @@ export default function ComercioWebPage() {
               </div>
             </SectionCard>
             <SectionCard
-              title="Fidelización"
-              subtitle="Emisión universal desde ventas POS y redención calculada por la compra futura."
+              title="Configuración de fidelización"
+              subtitle="Reglas avanzadas de emisión y redención. Las métricas se consultan en la pestaña Fidelización."
             >
               <div className="space-y-4">
                 {loyaltyError ? (
@@ -10964,6 +10971,80 @@ export default function ComercioWebPage() {
             </SectionCard>
             </>
           ) : null}
+          </section>
+        ) : null}
+
+        {activeTab === "loyalty" ? (
+          <section className="space-y-4">
+            <SectionCard
+              title="Resultados de fidelización"
+              subtitle="Lectura simple del impacto de los beneficios QR en las compras futuras."
+            >
+              {loyaltyError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {loyaltyError}
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                    {[
+                      ["Beneficios emitidos", loyaltyMetrics?.emitted_count ?? 0, "Tickets que entregaron una invitación"],
+                      ["QR escaneados", loyaltyMetrics?.scan_count_total ?? 0, "Interés generado por los tickets"],
+                      [
+                        "Activación",
+                        `${Math.round((((loyaltyMetrics?.activated ?? 0) + (loyaltyMetrics?.redeemed ?? 0)) / Math.max(1, loyaltyMetrics?.emitted_count ?? 0)) * 100)}%`,
+                        "Personas que guardaron su beneficio",
+                      ],
+                      ["Beneficios usados", loyaltyMetrics?.redeemed ?? 0, "Clientes que volvieron a comprar"],
+                      ["Ventas atribuidas", formatMoney(loyaltyMetrics?.attributed_sales_total ?? 0), "Ventas donde se aplicó el beneficio"],
+                    ].map(([label, value, description]) => (
+                      <div key={String(label)} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+                        <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700">Costo real de beneficios</p>
+                      <p className="mt-2 text-2xl font-bold text-emerald-900">
+                        {formatMoney(loyaltyMetrics?.redeemed_discount_amount_total ?? 0)}
+                      </p>
+                      <p className="mt-1 text-sm text-emerald-800">Solo descuentos que efectivamente se usaron.</p>
+                    </div>
+                    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-blue-700">Retorno atribuido</p>
+                      <p className="mt-2 text-2xl font-bold text-blue-900">
+                        {loyaltyMetrics?.redeemed_discount_amount_total
+                          ? `${(
+                              (loyaltyMetrics.attributed_sales_total || 0) /
+                              loyaltyMetrics.redeemed_discount_amount_total
+                            ).toFixed(1)}×`
+                          : "Aún sin redenciones"}
+                      </p>
+                      <p className="mt-1 text-sm text-blue-800">Ventas atribuidas por cada peso descontado.</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+                    <p className="max-w-2xl text-sm text-slate-600">
+                      Estas métricas son acumuladas y no muestran códigos individuales. Los códigos QR automáticos se
+                      gestionan aquí como una campaña, no como una lista operativa.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCatalogWorkspaceView("discount_codes");
+                        setActiveTab("catalog");
+                      }}
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                    >
+                      Configurar reglas
+                    </button>
+                  </div>
+                </div>
+              )}
+            </SectionCard>
           </section>
         ) : null}
 
