@@ -6624,7 +6624,11 @@ const matchesStationLabel = useCallback(
       setPromotionMessage(data.message || "Código aplicado.");
     } catch (err) {
       setLoyaltyDiscount(null);
-      setPromotionMessage(err instanceof Error ? err.message : "No se pudo validar el código.");
+      const message = err instanceof Error ? err.message : "No se pudo validar el código.";
+      setPromotionMessage(message);
+      if (/\b(ya fue usado|ya fue utilizado|venci[oó])\b/i.test(message)) {
+        showHoldSaleError(message);
+      }
     } finally {
       setPromotionValidating(false);
     }
