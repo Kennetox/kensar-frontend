@@ -2348,6 +2348,18 @@ export default function SalesHistoryContent({
     setFilterTo(value);
   };
 
+  const openDatePicker = (input: HTMLInputElement) => {
+    // Chrome/Windows does not always open the native date picker when the
+    // text portion of a date field is clicked. Request it explicitly when
+    // the browser exposes the standard picker API; Safari keeps its native
+    // behavior through the same click.
+    try {
+      input.showPicker?.();
+    } catch {
+      // Unsupported browsers simply retain their native input behavior.
+    }
+  };
+
   useEffect(() => {
     if (!filteredSales.length) {
       setSelectedSale(null);
@@ -2585,6 +2597,7 @@ export default function SalesHistoryContent({
                 type="date"
                 value={filterFrom}
                 onChange={(e) => handleManualFromChange(e.target.value)}
+                onClick={(e) => openDatePicker(e.currentTarget)}
                 disabled={!canUseSalesHistoryRange}
                 className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
@@ -2595,6 +2608,7 @@ export default function SalesHistoryContent({
                 type="date"
                 value={filterTo}
                 onChange={(e) => handleManualToChange(e.target.value)}
+                onClick={(e) => openDatePicker(e.currentTarget)}
                 disabled={!canUseSalesHistoryRange}
                 className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-50 focus:ring-1 focus:ring-emerald-500"
               />
