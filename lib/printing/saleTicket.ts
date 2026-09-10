@@ -1071,7 +1071,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           <div class="loyalty-title">¡TIENES UN BENEFICIO PARA TU PRÓXIMA COMPRA!</div>
           <div class="loyalty-copy">Escanea este QR para descubrirlo y activarlo.</div>
           <div class="loyalty-qr"><img src="${generateQrDataUrl(ticketRewardPublicUrl)}" alt="Código QR del beneficio" /></div>
-          <div class="loyalty-terms">Beneficio sujeto a condiciones y vigencia.</div>
+          <div class="loyalty-terms">¡No lo dejes para después! Escanéalo ahora, activa tu beneficio y guárdalo para tu próxima compra.<br /><span>Sujeto a condiciones y vigencia.</span></div>
         </div>`
     : "";
   const pagePrintCss = ticketRewardPublicUrl
@@ -1281,6 +1281,9 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           font-size: 11px;
           line-height: 1.35;
           color: #111827;
+        }
+        .loyalty-terms span {
+          font-size: 10px;
         }
         .loyalty-qr {
           margin: 8px auto 6px;
