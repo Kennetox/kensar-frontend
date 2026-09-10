@@ -1352,6 +1352,8 @@ const matchesStationLabel = useCallback(
     cartDiscountPercent,
     setCartDiscountValue,
     setCartDiscountPercent,
+    loyaltyDiscount,
+    setLoyaltyDiscount,
     cartSurcharge,
     setCartSurcharge,
     saleNumber,
@@ -1959,6 +1961,10 @@ const matchesStationLabel = useCallback(
   const [discountScope, setDiscountScope] = useState<DiscountScope>("item");
   const [discountMode, setDiscountMode] = useState<DiscountMode>("value");
   const [discountInput, setDiscountInput] = useState<string>("");
+  const [promotionCodeOpen, setPromotionCodeOpen] = useState(false);
+  const [promotionCode, setPromotionCode] = useState("");
+  const [promotionMessage, setPromotionMessage] = useState<string | null>(null);
+  const [promotionValidating, setPromotionValidating] = useState(false);
   const discountInputRef = useRef<HTMLInputElement | null>(null);
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -2277,6 +2283,15 @@ const matchesStationLabel = useCallback(
     },
     [discountMode]
   );
+
+  const previousCartTotalRef = useRef(cartTotal);
+  useEffect(() => {
+    if (previousCartTotalRef.current === cartTotal) return;
+    previousCartTotalRef.current = cartTotal;
+    if (!loyaltyDiscount) return;
+    setLoyaltyDiscount(null);
+    setPromotionMessage("Vuelve a validar el código porque cambió el total.");
+  }, [cartTotal, loyaltyDiscount, setLoyaltyDiscount]);
   const adjustQuantityValue = useCallback((delta: number) => {
     setQuantityValue((prev) => {
       const parsed = parseInt(prev, 10);
@@ -2296,6 +2311,10 @@ const matchesStationLabel = useCallback(
   >(null);
 
   const baseTotalForSurcharge = cartTotalBeforeSurcharge;
+  const payableCartTotal = Math.max(
+    0,
+    cartTotal - (loyaltyDiscount?.discountAmount ?? 0)
+  );
 
   type PresetSurchargeMethod = Exclude<SurchargeMethod, "manual" | null>;
 
@@ -6566,6 +6585,51 @@ const matchesStationLabel = useCallback(
     setDiscountModalOpen(false);
   }
 
+  async function handleApplyPromotionCode() {
+    const code = promotionCode.trim().toUpperCase();
+    if (!code) {
+      setPromotionMessage("Ingresa un código promocional.");
+      return;
+    }
+    if (!token) {
+      setPromotionMessage("Sesión expirada. Inicia sesión nuevamente.");
+      return;
+    }
+    if (!isOnline) {
+      setPromotionMessage("Debes estar en línea para validar beneficios.");
+      return;
+    }
+
+    setPromotionValidating(true);
+    setPromotionMessage(null);
+    try {
+      const res = await fetch(`${getApiBase()}/pos/discount-codes/validate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code, purchase_amount: cartTotal }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.valid) {
+        throw new Error(data?.detail || data?.message || "El código no está disponible.");
+      }
+      setLoyaltyDiscount({
+        code: data.code || code,
+        discountAmount: Number(data.effective_discount_amount ?? data.discount_amount ?? 0),
+        minimumPurchase: Number(data.minimum_purchase || 0),
+      });
+      setPromotionCode(data.code || code);
+      setPromotionMessage(data.message || "Código aplicado.");
+    } catch (err) {
+      setLoyaltyDiscount(null);
+      setPromotionMessage(err instanceof Error ? err.message : "No se pudo validar el código.");
+    } finally {
+      setPromotionValidating(false);
+    }
+  }
+
   function handleNewOrder() {
     // Limpiar venta actual (carrito, descuentos, número de venta +1)
     clearSale();
@@ -7933,6 +7997,12 @@ const matchesStationLabel = useCallback(
                   : "0"}
               </span>
             </div>
+            {loyaltyDiscount ? (
+              <div className="flex justify-between px-4 py-2 text-emerald-400">
+                <span>Código {loyaltyDiscount.code}</span>
+                <span>-{formatMoney(loyaltyDiscount.discountAmount)}</span>
+              </div>
+            ) : null}
             {cartSurcharge.enabled && cartSurcharge.amount > 0 && (
               <div className="flex justify-between px-4 py-2 text-amber-300">
                 <span>
@@ -7962,7 +8032,7 @@ const matchesStationLabel = useCallback(
             )}
             <div className="flex justify-between px-4 py-5 bg-slate-900 font-extrabold text-3xl">
               <span>TOTAL</span>
-              <span>{formatMoney(cartTotal)}</span>
+              <span>{formatMoney(payableCartTotal)}</span>
             </div>
           </div>
 
@@ -8369,6 +8439,54 @@ const matchesStationLabel = useCallback(
               }
               className="w-full rounded-2xl bg-slate-950 border border-slate-700 px-5 py-4 outline-none focus:border-emerald-400 text-2xl"
             />
+
+            <div className="border-t border-slate-700/70 pt-4">
+              <button
+                type="button"
+                onClick={() => setPromotionCodeOpen((open) => !open)}
+                className="text-sm font-medium text-emerald-300 hover:text-emerald-200"
+              >
+                {promotionCodeOpen ? "Ocultar código promocional" : "¿Tienes un código promocional?"}
+              </button>
+              {promotionCodeOpen ? (
+                <div className="mt-3 rounded-2xl border border-emerald-500/30 bg-slate-950/50 p-4">
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      value={promotionCode}
+                      onChange={(event) => {
+                        setPromotionCode(event.target.value.toUpperCase());
+                        if (loyaltyDiscount) setLoyaltyDiscount(null);
+                        if (promotionMessage) setPromotionMessage(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        void handleApplyPromotionCode();
+                      }}
+                      placeholder="Código promocional"
+                      className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-[#020713] px-4 py-3 text-base uppercase text-slate-50 outline-none focus:border-emerald-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleApplyPromotionCode()}
+                      disabled={promotionValidating || cart.length === 0}
+                      className="rounded-xl border border-emerald-500/50 px-4 py-3 text-sm font-semibold text-emerald-200 disabled:opacity-50"
+                    >
+                      {promotionValidating ? "Validando…" : "Aplicar código"}
+                    </button>
+                  </div>
+                  {loyaltyDiscount ? (
+                    <p className="mt-2 text-sm text-emerald-300">
+                      {loyaltyDiscount.code} · -{formatMoney(loyaltyDiscount.discountAmount)}
+                    </p>
+                  ) : null}
+                  {promotionMessage ? (
+                    <p className="mt-2 text-sm text-slate-300">{promotionMessage}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
 
             <div className="flex justify-end gap-4 pt-3">
               <button

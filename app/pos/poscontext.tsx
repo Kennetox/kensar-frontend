@@ -69,6 +69,12 @@ export type PosCustomer = {
   address?: string | null;
 };
 
+export type LoyaltyDiscount = {
+  code: string;
+  discountAmount: number;
+  minimumPurchase: number;
+};
+
 type PosContextValue = {
   cart: CartItem[];
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
@@ -93,6 +99,8 @@ type PosContextValue = {
   cartDiscountPercent: number;
   setCartDiscountValue: React.Dispatch<React.SetStateAction<number>>;
   setCartDiscountPercent: React.Dispatch<React.SetStateAction<number>>;
+  loyaltyDiscount: LoyaltyDiscount | null;
+  setLoyaltyDiscount: React.Dispatch<React.SetStateAction<LoyaltyDiscount | null>>;
   cartSurcharge: SurchargeState;
   setCartSurcharge: React.Dispatch<React.SetStateAction<SurchargeState>>;
 
@@ -126,6 +134,7 @@ type PersistedSession = {
   selectedCustomer: PosCustomer | null;
   cartDiscountValue: number;
   cartDiscountPercent: number;
+  loyaltyDiscount?: LoyaltyDiscount | null;
   cartSurcharge: SurchargeState;
   reservedSaleId?: number | null;
   reservedSaleNumber?: number | null;
@@ -143,6 +152,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartDiscountValue, setCartDiscountValue] = useState(0);
   const [cartDiscountPercent, setCartDiscountPercent] = useState(0);
+  const [loyaltyDiscount, setLoyaltyDiscount] = useState<LoyaltyDiscount | null>(null);
   const [saleNumber, setSaleNumber] = useState<number>(1);
   const [saleNotes, setSaleNotes] = useState("");
   const [selectedCustomer, setSelectedCustomer] =
@@ -243,6 +253,14 @@ export function PosProvider({ children }: { children: ReactNode }) {
           }
           if (typeof parsed.cartDiscountPercent === "number") {
             setCartDiscountPercent(parsed.cartDiscountPercent);
+          }
+          if (
+            parsed.loyaltyDiscount &&
+            typeof parsed.loyaltyDiscount === "object" &&
+            typeof parsed.loyaltyDiscount.code === "string" &&
+            typeof parsed.loyaltyDiscount.discountAmount === "number"
+          ) {
+            setLoyaltyDiscount(parsed.loyaltyDiscount);
           }
           if (
             parsed.cartSurcharge &&
@@ -348,6 +366,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
       !!selectedCustomer ||
       cartDiscountValue > 0 ||
       cartDiscountPercent > 0 ||
+      !!loyaltyDiscount ||
       cartSurcharge.enabled ||
       cartSurcharge.amount > 0;
 
@@ -364,6 +383,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
       selectedCustomer,
       cartDiscountValue,
       cartDiscountPercent,
+      loyaltyDiscount,
       cartSurcharge,
       reservedSaleId,
       reservedSaleNumber,
@@ -385,6 +405,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
     selectedCustomer,
     cartDiscountValue,
     cartDiscountPercent,
+    loyaltyDiscount,
     cartSurcharge,
     reservedSaleId,
     reservedSaleNumber,
@@ -437,6 +458,7 @@ export function PosProvider({ children }: { children: ReactNode }) {
     setCart([]);
     setCartDiscountPercent(0);
     setCartDiscountValue(0);
+    setLoyaltyDiscount(null);
     setSaleNotes("");
     setSelectedCustomer(null);
     setReservedSaleId(null);
@@ -475,6 +497,8 @@ export function PosProvider({ children }: { children: ReactNode }) {
     cartDiscountPercent,
     setCartDiscountValue,
     setCartDiscountPercent,
+    loyaltyDiscount,
+    setLoyaltyDiscount,
     cartSurcharge,
     setCartSurcharge,
     saleNumber,

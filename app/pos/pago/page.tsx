@@ -176,6 +176,7 @@ export default function PagoPage() {
     cartLineDiscountTotal,
     cartDiscountPercent,
     cartDiscountValue,
+    loyaltyDiscount,
     cartSurcharge,
     clearSale,
     saleNumber,
@@ -192,7 +193,7 @@ export default function PagoPage() {
   } = usePos();
 
   // Total real de la venta
-  const totalToPay = cartTotal;
+  const totalToPay = Math.max(0, cartTotal - (loyaltyDiscount?.discountAmount ?? 0));
   const requiredReasonsByLabel = useMemo(
     () => (REQUIRE_FREE_SALE_REASON ? getRequiredReasonsFromCart(cart) : {}),
     [cart]
@@ -1067,6 +1068,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         customer_id?: number;
         due_date?: string;
         station_id?: string;
+        loyalty_discount_code?: string;
       };
 
       const basePayload: Omit<SaleSubmissionPayload, "sale_number_preassigned"> = {
@@ -1082,6 +1084,7 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         vendor_name: user?.name ?? undefined,
         reservation_id: reservationId ?? undefined,
         client_request_id: saleAttemptId,
+        loyalty_discount_code: loyaltyDiscount?.code,
       };
       if (activeStationId) {
         basePayload.station_id = activeStationId;
