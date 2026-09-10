@@ -1688,15 +1688,11 @@ export default function PagoMultiplePage() {
         await qzClient.websocket.connect();
       }
       const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
-      const hasRewardQr = html.includes('class="loyalty-qr"');
       const cfg = qzClient.configs.create(printerConfig.printerName, {
         altPrinting: true,
         units: "mm",
         size: { width: sizeWidth },
         margins: { top: 0, right: 0, bottom: 0, left: 0 },
-        // Preserve the QR ticket's original proportions. QZ otherwise scales
-        // the whole HTML page to fit, which softens text as well as the QR.
-        scaleContent: hasRewardQr ? false : true,
       });
       await qzClient.print(cfg, [{ type: "html", format: "plain", data: html }]);
       setError(null);
