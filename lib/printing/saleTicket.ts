@@ -1070,43 +1070,25 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         <div class="loyalty-block">
           <div class="loyalty-title">¡TIENES UN BENEFICIO PARA TU PRÓXIMA COMPRA!</div>
           <div class="loyalty-copy">Escanea este QR para descubrirlo y activarlo.</div>
-          <div class="loyalty-qr">${generateQrSvg(ticketRewardPublicUrl, 3, 2)}</div>
+          <div class="loyalty-qr">${generateQrSvg(ticketRewardPublicUrl, 3, 2, 34)}</div>
           <div class="loyalty-terms">Beneficio sujeto a condiciones y vigencia.</div>
         </div>`
     : "";
-  const pagePrintCss = ticketRewardPublicUrl
-    ? `@page {
-          size: 80mm auto;
-          margin: 0;
-        }
-        html {
-          width: 80mm;
-          margin: 0;
-          padding: 0;
-        }`
-    : `@page { margin: 4mm; }`;
-  const bodyMargin = ticketRewardPublicUrl ? "0" : "0 auto";
-  const printQualityCss = ticketRewardPublicUrl
-    ? `
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;`
-    : "";
-
   return `<!DOCTYPE html>
   <html>
     <head>
       <meta charSet="utf-8" />
       <title>Ticket ${escapeHtml(options.documentNumber)}</title>
       <style>
-        ${pagePrintCss}
+        @page { margin: 4mm; }
         * { box-sizing: border-box; }
         body {
           font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
           width: 80mm;
-          margin: ${bodyMargin};
+          margin: 0 auto;
           font-size: 13px;
           color: #0f172a;
-          background: #ffffff;${printQualityCss}
+          background: #ffffff;
         }
         .ticket {
           padding: 3mm 3mm 8mm;
@@ -1284,12 +1266,8 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         }
         .loyalty-qr {
           margin: 8px auto 6px;
-          width: 34mm;
-          height: 34mm;
         }
         .loyalty-qr svg {
-          width: 34mm;
-          height: 34mm;
           display: block;
           margin: 0 auto;
           shape-rendering: crispEdges;
