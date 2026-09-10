@@ -3,7 +3,7 @@ import { generateCode128Svg } from "@/lib/utils/barcode";
 import { formatBogotaDate } from "@/lib/time/bogota";
 import { ENABLE_LOYALTY_QR_TICKETS } from "@/lib/config/featureFlags";
 import type { SeparatedTicketReconciliation } from "./separatedTicket";
-import { generateQrSvg } from "./qr";
+import { generateQrDataUrl } from "./qr";
 
 export { buildSeparatedTicketReconciliations } from "./separatedTicket";
 
@@ -1070,7 +1070,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         <div class="loyalty-block">
           <div class="loyalty-title">¡TIENES UN BENEFICIO PARA TU PRÓXIMA COMPRA!</div>
           <div class="loyalty-copy">Escanea este QR para descubrirlo y activarlo.</div>
-          <div class="loyalty-qr">${generateQrSvg(ticketRewardPublicUrl, 3, 2)}</div>
+          <div class="loyalty-qr"><img src="${generateQrDataUrl(ticketRewardPublicUrl)}" alt="Código QR del beneficio" /></div>
           <div class="loyalty-terms">Beneficio sujeto a condiciones y vigencia.</div>
         </div>`
     : "";
@@ -1287,12 +1287,13 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           width: 34mm;
           height: 34mm;
         }
-        .loyalty-qr svg {
+        .loyalty-qr img {
           width: 34mm;
           height: 34mm;
           display: block;
           margin: 0 auto;
-          shape-rendering: crispEdges;
+          image-rendering: pixelated;
+          image-rendering: crisp-edges;
         }
         .footer {
           margin-top: 6px;
