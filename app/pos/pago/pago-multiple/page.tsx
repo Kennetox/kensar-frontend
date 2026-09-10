@@ -2082,7 +2082,11 @@ export default function PagoMultiplePage() {
               {appliedLoyalty ? (
                 <div className="mt-1 flex items-center justify-between text-xs text-emerald-300">
                   <span>{appliedLoyalty.code}</span>
-                  <span>-{formatMoney(appliedLoyalty.discountAmount)}</span>
+                  <span>
+                    {appliedLoyalty.discountAmount > 0
+                      ? `-${formatMoney(appliedLoyalty.discountAmount)}`
+                      : "Disponible"}
+                  </span>
                 </div>
               ) : null}
               {loyaltyMessage ? (

@@ -789,6 +789,7 @@ export default function SettingsPage() {
     [token]
   );
   const logoFileInputRef = useRef<HTMLInputElement | null>(null);
+  const ticketFooterTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
   const [logoUploadMessage, setLogoUploadMessage] = useState<string | null>(null);
@@ -2411,6 +2412,25 @@ export default function SettingsPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const wrapTicketFooterSelection = useCallback(
+    (prefix: string, suffix = prefix) => {
+      const textarea = ticketFooterTextareaRef.current;
+      const value = form.ticketFooter ?? "";
+      const selectionStart = textarea?.selectionStart ?? value.length;
+      const selectionEnd = textarea?.selectionEnd ?? value.length;
+      const selected = value.slice(selectionStart, selectionEnd);
+      const nextValue = `${value.slice(0, selectionStart)}${prefix}${selected}${suffix}${value.slice(selectionEnd)}`;
+      updateForm("ticketFooter", nextValue);
+      window.requestAnimationFrame(() => {
+        const cursorStart = selectionStart + prefix.length;
+        const cursorEnd = cursorStart + selected.length;
+        ticketFooterTextareaRef.current?.focus();
+        ticketFooterTextareaRef.current?.setSelectionRange(cursorStart, cursorEnd);
+      });
+    },
+    [form.ticketFooter]
+  );
+
   function updateNotification<K extends keyof SettingsFormState["notifications"]>(
     key: K,
     value: boolean
@@ -3178,11 +3198,20 @@ export default function SettingsPage() {
                 {option.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => wrapTicketFooterSelection("**")}
+              className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm font-black text-slate-100 transition hover:border-slate-500"
+              title="Negrita"
+            >
+              B
+            </button>
           </div>
           <textarea
+            ref={ticketFooterTextareaRef}
             value={form.ticketFooter ?? ""}
             onChange={(e) => updateForm("ticketFooter", e.target.value)}
-            rows={3}
+            rows={8}
             style={{ textAlign: previewFooterAlign }}
             className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
           />

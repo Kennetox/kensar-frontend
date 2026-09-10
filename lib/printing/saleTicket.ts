@@ -459,6 +459,28 @@ function escapeHtml(value?: string | null): string {
     .replace(/'/g, "&#39;");
 }
 
+function renderInlineTicketFooterMarkup(value: string): string {
+  const escaped = escapeHtml(value);
+  const parts = escaped.split("**");
+  if (parts.length === 1) return escaped;
+  return parts
+    .map((part, index) => {
+      if (index % 2 === 0) return part;
+      return `<strong>${part}</strong>`;
+    })
+    .join("");
+}
+
+function renderTicketFooterHtml(value: string): string {
+  const lines = value.replace(/\r\n/g, "\n").split("\n");
+  return lines
+    .map((line) => {
+      const content = line.length > 0 ? renderInlineTicketFooterMarkup(line) : "&nbsp;";
+      return `<div>${content}</div>`;
+    })
+    .join("");
+}
+
 function formatMoney(value: number): string {
   return `$ ${value.toLocaleString("es-CO", {
     minimumFractionDigits: 0,
@@ -615,7 +637,7 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
           .item-meta { font-size: 13px; color: #000000; }
           .item-total { font-size: 14px; text-align: right; color: #000000; font-weight: 700; }
           .total { font-size: 16px; font-weight: 800; color: #000000; }
-          .muted { font-size: 13px; color: #000000; }
+          .muted { font-size: 13px; color: #000000; white-space: pre-wrap; }
           .history { margin-top: 12px; border: 2px solid #000000; padding: 8px; font-size: 12px; }
           .history-title { font-size: 13px; font-weight: 900; text-align: center; }
           .history-summary { margin: 4px 0 6px; font-weight: 700; }
@@ -665,7 +687,7 @@ export function renderReturnTicket(options: ReturnTicketOptions): string {
           ${options.notes ? `<div class="section muted">Notas: ${escapeHtml(options.notes)}</div>` : ""}
           <div class="barcode">${barcodeSvg}</div>
           <div class="line"></div>
-          <div class="muted" style="text-align:${footerAlign};">${escapeHtml(footer)}</div>
+          <div class="muted" style="text-align:${footerAlign};">${renderTicketFooterHtml(footer)}</div>
         </div>
       </body>
     </html>
@@ -765,7 +787,7 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
           .item-meta { font-size: 13px; color: #000000; }
           .item-total { font-size: 14px; text-align: right; color: #000000; font-weight: 700; }
           .total { font-size: 16px; font-weight: 800; color: #000000; }
-          .muted { font-size: 13px; color: #000000; }
+          .muted { font-size: 13px; color: #000000; white-space: pre-wrap; }
           .history { margin-top: 12px; border: 2px solid #000000; padding: 8px; font-size: 12px; }
           .history-title { font-size: 13px; font-weight: 900; text-align: center; }
           .history-summary { margin: 4px 0 6px; font-weight: 700; }
@@ -833,7 +855,7 @@ export function renderChangeTicket(options: ChangeTicketOptions): string {
           ${options.notes ? `<div class="section muted">Notas: ${escapeHtml(options.notes)}</div>` : ""}
           <div class="barcode">${barcodeSvg}</div>
           <div class="line"></div>
-          <div class="muted" style="text-align:${footerAlign};">${escapeHtml(footer)}</div>
+          <div class="muted" style="text-align:${footerAlign};">${renderTicketFooterHtml(footer)}</div>
         </div>
       </body>
     </html>
@@ -1042,11 +1064,28 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
   const rewardQrBlock = options.rewardPublicUrl
     ? `<div class="separator"></div>
         <div class="loyalty-block">
-          <div class="loyalty-title">¡TU COMPRA TIENE BENEFICIO!</div>
-          <div class="loyalty-copy">Escanea este QR para descubrir y activar tu descuento para una próxima compra.</div>
+          <div class="loyalty-title">¡TIENES UN BENEFICIO PARA TU PRÓXIMA COMPRA!</div>
+          <div class="loyalty-copy">Escanea este QR para descubrirlo y activarlo.</div>
           <div class="loyalty-qr">${generateQrSvg(options.rewardPublicUrl, 3, 2)}</div>
           <div class="loyalty-terms">Beneficio sujeto a condiciones y vigencia.</div>
         </div>`
+    : "";
+  const pagePrintCss = options.rewardPublicUrl
+    ? `@page {
+          size: 80mm auto;
+          margin: 0;
+        }
+        html {
+          width: 80mm;
+          margin: 0;
+          padding: 0;
+        }`
+    : `@page { margin: 4mm; }`;
+  const bodyMargin = options.rewardPublicUrl ? "0" : "0 auto";
+  const printQualityCss = options.rewardPublicUrl
+    ? `
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;`
     : "";
 
   return `<!DOCTYPE html>
@@ -1055,15 +1094,15 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
       <meta charSet="utf-8" />
       <title>Ticket ${escapeHtml(options.documentNumber)}</title>
       <style>
-        @page { margin: 4mm; }
+        ${pagePrintCss}
         * { box-sizing: border-box; }
         body {
           font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
           width: 80mm;
-          margin: 0 auto;
+          margin: ${bodyMargin};
           font-size: 13px;
           color: #0f172a;
-          background: #ffffff;
+          background: #ffffff;${printQualityCss}
         }
         .ticket {
           padding: 3mm 3mm 8mm;
@@ -1249,13 +1288,15 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           height: 34mm;
           display: block;
           margin: 0 auto;
+          shape-rendering: crispEdges;
         }
         .footer {
-          margin-top: 16px;
+          margin-top: 6px;
           text-align: center;
           font-size: 12px;
           color: #111827;
           line-height: 1.4;
+          white-space: pre-wrap;
         }
       </style>
     </head>
@@ -1386,10 +1427,7 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
         <div class="barcode">${barcodeSvg}</div>
 
         <div class="footer" style="text-align:${footerAlign};">
-          ${footer
-            .split("\n")
-            .map((line) => `<div>${escapeHtml(line)}</div>`)
-            .join("")}
+          ${renderTicketFooterHtml(footer)}
         </div>
 
         ${rewardQrBlock}
@@ -1923,6 +1961,7 @@ export function renderSaleInvoice(options: SaleTicketOptions): string {
           font-size: 11.5px;
           text-align: center;
           color: #475569;
+          white-space: pre-wrap;
         }
         footer {
           margin-top: 18px;
@@ -2042,10 +2081,7 @@ export function renderSaleInvoice(options: SaleTicketOptions): string {
         </table>
 
         <div class="footer-note" style="text-align:${footerAlign};">
-          ${footer
-            .split("\n")
-            .map((line) => `<div>${escapeHtml(line)}</div>`)
-            .join("")}
+          ${renderTicketFooterHtml(footer)}
         </div>
         <footer>Página 1</footer>
       </div>

@@ -2033,10 +2033,10 @@ export default function ComercioWebPage() {
   const [loyaltyLoading, setLoyaltyLoading] = useState(false);
   const [loyaltyError, setLoyaltyError] = useState<string | null>(null);
   const [loyaltyDraft, setLoyaltyDraft] = useState({
-    min_purchase: "",
+    min_purchase: "0",
     max_purchase: "",
-    reward_amount: "",
-    minimum_purchase: "",
+    reward_amount: "100000",
+    minimum_purchase: "0",
     validity_days: "30",
     sort_order: "0",
     is_active: true,
@@ -4693,10 +4693,10 @@ export default function ComercioWebPage() {
       setLoyaltyError(null);
       await createLoyaltyRewardRule(token, input);
       setLoyaltyDraft({
-        min_purchase: "",
+        min_purchase: "0",
         max_purchase: "",
-        reward_amount: "",
-        minimum_purchase: "",
+        reward_amount: "100000",
+        minimum_purchase: "0",
         validity_days: "30",
         sort_order: "0",
         is_active: true,
@@ -10771,7 +10771,7 @@ export default function ComercioWebPage() {
             </SectionCard>
             <SectionCard
               title="Fidelización"
-              subtitle="Reglas activas, escaneos y redenciones de beneficios emitidos desde ventas POS."
+              subtitle="Emisión universal desde ventas POS y redención calculada por la compra futura."
             >
               <div className="space-y-4">
                 {loyaltyError ? (
@@ -10794,13 +10794,13 @@ export default function ComercioWebPage() {
                 </div>
                 <div className="grid gap-3 md:grid-cols-4">
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <p className="text-xs text-slate-500">Beneficios emitidos</p>
+                    <p className="text-xs text-slate-500">Valor emitido referencial</p>
                     <p className="text-lg font-semibold text-slate-900">
                       {formatMoney(loyaltyMetrics?.issued_amount_total ?? 0)}
                     </p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <p className="text-xs text-slate-500">Máximo redimido</p>
+                    <p className="text-xs text-slate-500">Valor redimido referencial</p>
                     <p className="text-lg font-semibold text-slate-900">
                       {formatMoney(loyaltyMetrics?.redeemed_amount_total ?? 0)}
                     </p>
@@ -10820,15 +10820,15 @@ export default function ComercioWebPage() {
                 </div>
                 <div className="rounded-2xl border border-slate-200">
                   <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                    <h3 className="text-sm font-semibold text-slate-900">Reglas de emisión</h3>
+                    <h3 className="text-sm font-semibold text-slate-900">Regla universal de emisión</h3>
                   </div>
                   <div className="overflow-auto">
                     <table className="min-w-full text-sm">
                       <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
                         <tr>
                           <th className="px-4 py-2">Tramo</th>
-                          <th className="px-4 py-2">Reward</th>
-                          <th className="px-4 py-2">Mínima</th>
+                          <th className="px-4 py-2">Valor ref.</th>
+                          <th className="px-4 py-2">Mínima legacy</th>
                           <th className="px-4 py-2">Días</th>
                           <th className="px-4 py-2">Estado</th>
                         </tr>
@@ -10866,8 +10866,8 @@ export default function ComercioWebPage() {
                   {[
                     ["min_purchase", "Desde"],
                     ["max_purchase", "Hasta"],
-                    ["reward_amount", "Reward"],
-                    ["minimum_purchase", "Mínima"],
+                    ["reward_amount", "Valor ref."],
+                    ["minimum_purchase", "Mínima legacy"],
                     ["validity_days", "Días"],
                     ["sort_order", "Orden"],
                   ].map(([key, label]) => (
@@ -10893,7 +10893,7 @@ export default function ComercioWebPage() {
                 </div>
                 <div className="rounded-2xl border border-slate-200">
                   <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                    <h3 className="text-sm font-semibold text-slate-900">Reglas de redención</h3>
+                    <h3 className="text-sm font-semibold text-slate-900">Reglas de redención por compra futura</h3>
                   </div>
                   <div className="overflow-auto">
                     <table className="min-w-full text-sm">
