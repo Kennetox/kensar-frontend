@@ -9,6 +9,7 @@ const parseBooleanFlag = (value: string | undefined, defaultValue: boolean) => {
 const DEFAULT_REQUIRE_FREE_SALE_REASON = true;
 const DEFAULT_ENABLE_POS_CASH_EXPENSES = true;
 const DEFAULT_ENABLE_POS_MOVEMENT_CLOSURE_TICKET = true;
+const DEFAULT_ENABLE_LOYALTY_QR_TICKETS = true;
 
 export const REQUIRE_FREE_SALE_REASON = parseBooleanFlag(
   process.env.NEXT_PUBLIC_REQUIRE_FREE_SALE_REASON,
@@ -28,4 +29,9 @@ export const ENABLE_POS_CASH_EXPENSES = parseBooleanFlag(
 export const ENABLE_POS_MOVEMENT_CLOSURE_TICKET = parseBooleanFlag(
   process.env.NEXT_PUBLIC_ENABLE_POS_MOVEMENT_CLOSURE_TICKET,
   DEFAULT_ENABLE_POS_MOVEMENT_CLOSURE_TICKET
+);
+
+export const ENABLE_LOYALTY_QR_TICKETS = parseBooleanFlag(
+  process.env.NEXT_PUBLIC_ENABLE_LOYALTY_QR_TICKETS,
+  DEFAULT_ENABLE_LOYALTY_QR_TICKETS
 );

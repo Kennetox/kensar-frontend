@@ -1,6 +1,7 @@
 import type { PosSettingsPayload } from "@/lib/api/settings";
 import { generateCode128Svg } from "@/lib/utils/barcode";
 import { formatBogotaDate } from "@/lib/time/bogota";
+import { ENABLE_LOYALTY_QR_TICKETS } from "@/lib/config/featureFlags";
 import type { SeparatedTicketReconciliation } from "./separatedTicket";
 import { generateQrSvg } from "./qr";
 
@@ -1061,16 +1062,19 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
     includeTextFontSize: 12,
     quietZoneModules: 10,
   });
-  const rewardQrBlock = options.rewardPublicUrl
+  const ticketRewardPublicUrl = ENABLE_LOYALTY_QR_TICKETS
+    ? options.rewardPublicUrl
+    : null;
+  const rewardQrBlock = ticketRewardPublicUrl
     ? `<div class="separator"></div>
         <div class="loyalty-block">
           <div class="loyalty-title">¡TIENES UN BENEFICIO PARA TU PRÓXIMA COMPRA!</div>
           <div class="loyalty-copy">Escanea este QR para descubrirlo y activarlo.</div>
-          <div class="loyalty-qr">${generateQrSvg(options.rewardPublicUrl, 3, 2)}</div>
+          <div class="loyalty-qr">${generateQrSvg(ticketRewardPublicUrl, 3, 2)}</div>
           <div class="loyalty-terms">Beneficio sujeto a condiciones y vigencia.</div>
         </div>`
     : "";
-  const pagePrintCss = options.rewardPublicUrl
+  const pagePrintCss = ticketRewardPublicUrl
     ? `@page {
           size: 80mm auto;
           margin: 0;
@@ -1081,8 +1085,8 @@ export function renderSaleTicket(options: SaleTicketOptions): string {
           padding: 0;
         }`
     : `@page { margin: 4mm; }`;
-  const bodyMargin = options.rewardPublicUrl ? "0" : "0 auto";
-  const printQualityCss = options.rewardPublicUrl
+  const bodyMargin = ticketRewardPublicUrl ? "0" : "0 auto";
+  const printQualityCss = ticketRewardPublicUrl
     ? `
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;`
