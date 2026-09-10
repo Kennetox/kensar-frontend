@@ -18,6 +18,7 @@ import {
   renderSaleInvoice,
   buildSaleTicketCustomer,
 } from "@/lib/printing/saleTicket";
+import { measureQzThermalPage } from "@/lib/printing/qzThermalPage";
 import {
   buildSaleTicketDisplayBreakdown,
   type SaleTicketSourceItem,
@@ -1681,13 +1682,24 @@ const getSurchargeMethodLabel = (method: SurchargeMethod | null) => {
         await qzClient.websocket.connect();
       }
       const sizeWidth = printerConfig.width === "58mm" ? 58 : 80;
+      const thermalPage = await measureQzThermalPage(html, sizeWidth);
       const cfg = qzClient.configs.create(printerConfig.printerName, {
         altPrinting: true,
         units: "mm",
-        size: { width: sizeWidth },
+        size: thermalPage
+          ? { width: sizeWidth, height: thermalPage.heightMm, custom: true }
+          : { width: sizeWidth },
         margins: { top: 0, right: 0, bottom: 0, left: 0 },
+        ...(thermalPage ? { scaleContent: false } : {}),
       });
-      await qzClient.print(cfg, [{ type: "html", format: "plain", data: html }]);
+      await qzClient.print(cfg, [
+        {
+          type: "html",
+          format: "plain",
+          data: html,
+          ...(thermalPage ? { options: thermalPage.htmlOptions } : {}),
+        },
+      ]);
       setError(null);
       return true;
     } catch (err) {
