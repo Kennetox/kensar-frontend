@@ -33,6 +33,7 @@ type Product = {
   group_name: string | null;
   brand: string | null;
   supplier: string | null;
+  internal_notes: string | null;
   preferred_qty: number;
   reorder_point: number;
   low_stock_alert: boolean;
@@ -69,6 +70,7 @@ type ProductForm = {
   group_name: string;
   brand: string;
   supplier: string;
+  internal_notes: string;
   preferred_qty: string;
   reorder_point: string;
   low_stock_alert: boolean;
@@ -91,6 +93,7 @@ const emptyForm: ProductForm = {
   group_name: "",
   brand: "",
   supplier: "",
+  internal_notes: "",
   preferred_qty: "0",
   reorder_point: "0",
   low_stock_alert: false,
@@ -285,6 +288,7 @@ function formatAuditFieldLabel(field: string): string {
     group_name: "grupo",
     brand: "marca",
     supplier: "proveedor",
+    internal_notes: "nota interna",
   };
   return labels[field] ?? field.replace(/_/g, " ");
 }
@@ -514,6 +518,7 @@ export default function ProductsPage() {
 
   // creación
   const [createOpen, setCreateOpen] = useState(false);
+  const [notesPanelOpen, setNotesPanelOpen] = useState(false);
   const [createForm, setCreateForm] = useState<ProductForm>(emptyForm);
   const [savingCreate, setSavingCreate] = useState(false);
   const [createSkuLocked, setCreateSkuLocked] = useState(true);
@@ -913,7 +918,7 @@ export default function ProductsPage() {
 
   // utilidades
   function handleFormChange(
-    e: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+    e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
     setState: React.Dispatch<React.SetStateAction<ProductForm>>,
   ) {
     const { name, value, type } = e.target;
@@ -1329,6 +1334,7 @@ export default function ProductsPage() {
 
   function handleCloseCreateModal() {
     setCreateOpen(false);
+    setNotesPanelOpen(false);
     setCreateForm(emptyForm);
     setCreateSkuLocked(true);
     setCreateBarcodeLocked(true);
@@ -1346,6 +1352,7 @@ export default function ProductsPage() {
 
   function handleCloseEditModal() {
     setEditOpen(false);
+    setNotesPanelOpen(false);
     setEditId(null);
     setEditForm(emptyForm);
     setEditOriginalPrice(null);
@@ -2149,6 +2156,7 @@ export default function ProductsPage() {
         group_name: createForm.group_name || null,
         brand: createForm.brand || null,
         supplier: createForm.supplier || null,
+        internal_notes: createForm.internal_notes.trim() || null,
         preferred_qty: parseInt(createForm.preferred_qty || "0", 10),
         reorder_point: parseInt(createForm.reorder_point || "0", 10),
         low_stock_alert: createForm.low_stock_alert,
@@ -2211,6 +2219,7 @@ export default function ProductsPage() {
       group_name: product.group_name ?? "",
       brand: product.brand ?? "",
       supplier: product.supplier ?? "",
+      internal_notes: product.internal_notes ?? "",
       preferred_qty: (product.preferred_qty ?? 0).toString(),
       reorder_point: (product.reorder_point ?? 0).toString(),
       low_stock_alert: product.low_stock_alert,
@@ -2222,6 +2231,7 @@ export default function ProductsPage() {
     setEditLabelFormatLocked(true);
     setEditCostSuggestionMode("balanced");
     setEditCostSuggestion(null);
+    setNotesPanelOpen(false);
     setEditOpen(true);
   }
 
@@ -2344,6 +2354,7 @@ export default function ProductsPage() {
       payload.group_name = editForm.group_name || null;
       payload.brand = editForm.brand || null;
       payload.supplier = editForm.supplier || null;
+      payload.internal_notes = editForm.internal_notes.trim() || null;
       payload.low_stock_alert = editForm.low_stock_alert;
       payload.allow_price_change = editForm.allow_price_change;
       payload.cost_suggestion_meta = buildCostSuggestionMeta(
@@ -2530,8 +2541,10 @@ export default function ProductsPage() {
       }
       setSuccessMessage("Producto eliminado correctamente.");
     } catch (err: unknown) {
-      if (err instanceof Error) setError(err.message);
-      else setError("Error desconocido al eliminar");
+      const message =
+        err instanceof Error ? err.message : "Error desconocido al eliminar";
+      setError(message);
+      setErrorToastMessage(message);
     }
   }
 
@@ -3039,6 +3052,7 @@ export default function ProductsPage() {
             <button
               onClick={() => {
                 prepareCreateFormWithSuggestions();
+                setNotesPanelOpen(false);
                 setCreateOpen(true);
               }}
               className="inline-flex items-center rounded-lg bg-emerald-500 hover:bg-emerald-400 px-3.5 py-2 text-sm font-semibold text-slate-950 transition"
@@ -3752,7 +3766,7 @@ export default function ProductsPage() {
       {/* MODAL CREACIÓN */}
       {createOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="w-full max-w-5xl rounded-xl bg-slate-900 border border-slate-700 shadow-2xl max-h-[88vh] overflow-hidden flex flex-col">
+          <div className="relative w-full max-w-5xl rounded-xl bg-slate-900 border border-slate-700 shadow-2xl max-h-[88vh] overflow-visible flex flex-col">
             <div className="shrink-0 flex items-center justify-between border-b border-slate-700 bg-slate-900 px-5 py-4">
               <h2 className="text-base font-semibold">Nuevo producto</h2>
               <button
@@ -4287,7 +4301,46 @@ export default function ProductsPage() {
                 )}
               </div>
 
-                </div>
+              </div>
+
+              </div>
+
+              <div className="absolute left-full top-16 z-10 ml-3 hidden xl:block">
+                <button
+                  type="button"
+                  onClick={() => setNotesPanelOpen((open) => !open)}
+                  aria-expanded={notesPanelOpen}
+                  aria-label="Mostrar notas internas"
+                  title="Notas internas"
+                  className="grid h-10 w-10 place-items-center rounded-full border border-slate-600 bg-slate-900 text-lg text-slate-200 shadow-lg transition hover:border-emerald-400 hover:text-emerald-300"
+                >
+                  📝
+                </button>
+                <aside
+                  className={
+                    "absolute left-12 top-0 w-64 rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-2xl transition-all duration-200 ease-out " +
+                    (notesPanelOpen
+                      ? "translate-x-0 scale-100 opacity-100"
+                      : "pointer-events-none -translate-x-2 scale-95 opacity-0")
+                  }
+                >
+                  <label className="block text-sm font-semibold text-slate-100">Notas internas</label>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                    Solo visible en Panel Metrik. No aparece en POS ni en Comercio Web.
+                  </p>
+                  <textarea
+                    name="internal_notes"
+                    value={createForm.internal_notes}
+                    onChange={(e) => handleFormChange(e, setCreateForm)}
+                    maxLength={4000}
+                    rows={10}
+                    placeholder="Ej.: Producto creado para catálogo temporal."
+                    className="mt-3 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400"
+                  />
+                  <p className="mt-1 text-right text-[10px] text-slate-500">
+                    {createForm.internal_notes.length}/4000
+                  </p>
+                </aside>
               </div>
 
               <div className="shrink-0 flex justify-end gap-2 border-t border-slate-700 bg-slate-900 px-5 py-4">
@@ -4314,7 +4367,7 @@ export default function ProductsPage() {
       {/* MODAL EDICIÓN */}
       {editOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="w-full max-w-5xl rounded-xl bg-slate-900 border border-slate-700 shadow-2xl max-h-[88vh] overflow-hidden flex flex-col">
+          <div className="relative w-full max-w-5xl rounded-xl bg-slate-900 border border-slate-700 shadow-2xl max-h-[88vh] overflow-visible flex flex-col">
             <div className="shrink-0 flex items-center justify-between border-b border-slate-700 bg-slate-900 px-5 py-4">
               <h2 className="text-base font-semibold">
                 Editar producto #{editId}
@@ -4864,7 +4917,46 @@ export default function ProductsPage() {
                 </div>
               )}
 
-                </div>
+              </div>
+
+              </div>
+
+              <div className="absolute left-full top-16 z-10 ml-3 hidden xl:block">
+                <button
+                  type="button"
+                  onClick={() => setNotesPanelOpen((open) => !open)}
+                  aria-expanded={notesPanelOpen}
+                  aria-label="Mostrar notas internas"
+                  title="Notas internas"
+                  className="grid h-10 w-10 place-items-center rounded-full border border-slate-600 bg-slate-900 text-lg text-slate-200 shadow-lg transition hover:border-emerald-400 hover:text-emerald-300"
+                >
+                  📝
+                </button>
+                <aside
+                  className={
+                    "absolute left-12 top-0 w-64 rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-2xl transition-all duration-200 ease-out " +
+                    (notesPanelOpen
+                      ? "translate-x-0 scale-100 opacity-100"
+                      : "pointer-events-none -translate-x-2 scale-95 opacity-0")
+                  }
+                >
+                  <label className="block text-sm font-semibold text-slate-100">Notas internas</label>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-400">
+                    Solo visible en Panel Metrik. No aparece en POS ni en Comercio Web.
+                  </p>
+                  <textarea
+                    name="internal_notes"
+                    value={editForm.internal_notes}
+                    onChange={(e) => handleFormChange(e, setEditForm)}
+                    maxLength={4000}
+                    rows={10}
+                    placeholder="Ej.: Desactivado porque el proveedor lo descontinuó."
+                    className="mt-3 w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-emerald-400"
+                  />
+                  <p className="mt-1 text-right text-[10px] text-slate-500">
+                    {editForm.internal_notes.length}/4000
+                  </p>
+                </aside>
               </div>
 
               <div className="shrink-0 flex justify-between items-center gap-2 border-t border-slate-700 bg-slate-900 px-5 py-4">
