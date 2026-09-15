@@ -91,6 +91,7 @@ import {
 const PENDING_ALERT_ACK_STORAGE_KEY = "metrik_pos_pending_ack_v1";
 const HELD_SALE_STORAGE_KEY_BASE = "kensar_pos_held_sale_v1";
 const RESUME_HELD_SALE_KEY_BASE = "kensar_pos_resume_held_sale_v1";
+const ACCESS_EXPIRY_TOAST_SNOOZE_MS = 4 * 60 * 60 * 1000;
 const POS_NOTICE_HEARTBEAT_MS = 10 * 60 * 1000;
 const PAYMENT_ROUTE = "/pos/pago";
 const PAYMENT_NAVIGATION_TIMEOUT_MS = 10_000;
@@ -928,6 +929,7 @@ export default function PosPage() {
   const dismissedStationNoticeIdsRef = useRef<Set<number>>(new Set());
   const [heldSaleSnapshot, setHeldSaleSnapshot] = useState<HeldSaleSnapshot | null>(null);
   const [posMode, setPosMode] = useState<PosAccessMode | null>(null);
+  const [accessExpiryToastVisible, setAccessExpiryToastVisible] = useState(false);
   const [stationInfo, setStationInfo] = useState<PosStationAccess | null>(null);
   const [openedAsNewTab, setOpenedAsNewTab] = useState<boolean>(() => {
     if (typeof window === "undefined") return newTabQuery;
@@ -942,6 +944,42 @@ export default function PosPage() {
   const isWebMode = posMode === "web";
   const isKioskMode = isStationMode;
   const activeStationId = isStationMode ? stationInfo?.id ?? null : null;
+  const accessDaysRemaining = tenant?.access_days_remaining;
+  const hasAccessExpiryWarning =
+    accessDaysRemaining != null && accessDaysRemaining <= 14;
+
+  useEffect(() => {
+    if (!hasAccessExpiryWarning || typeof window === "undefined") {
+      setAccessExpiryToastVisible(false);
+      return;
+    }
+
+    const storageKey = `metrik_pos_access_expiry_notice:${tenant?.id ?? "unknown"}:${tenant?.access_expires_on ?? ""}`;
+    const dismissedUntil = Number(window.localStorage.getItem(storageKey) ?? 0);
+    const remainingDelay = dismissedUntil - Date.now();
+
+    if (remainingDelay <= 0) {
+      setAccessExpiryToastVisible(true);
+      return;
+    }
+
+    setAccessExpiryToastVisible(false);
+    const timerId = window.setTimeout(() => {
+      window.localStorage.removeItem(storageKey);
+      setAccessExpiryToastVisible(true);
+    }, remainingDelay);
+    return () => window.clearTimeout(timerId);
+  }, [hasAccessExpiryWarning, tenant?.access_expires_on, tenant?.id]);
+
+  const dismissAccessExpiryToast = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const storageKey = `metrik_pos_access_expiry_notice:${tenant?.id ?? "unknown"}:${tenant?.access_expires_on ?? ""}`;
+    window.localStorage.setItem(
+      storageKey,
+      String(Date.now() + ACCESS_EXPIRY_TOAST_SNOOZE_MS)
+    );
+    setAccessExpiryToastVisible(false);
+  }, [tenant?.access_expires_on, tenant?.id]);
 
   useEffect(() => {
     if (loading) return;
@@ -6956,11 +6994,41 @@ const matchesStationLabel = useCallback(
       };
   return (
     <main className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
-      {tenant?.access_days_remaining != null && tenant.access_days_remaining <= 14 && (
-        <div className="absolute left-1/2 top-2 z-[70] -translate-x-1/2 rounded-full border border-amber-300/60 bg-amber-950/95 px-4 py-1.5 text-xs font-medium text-amber-100 shadow-lg">
-          {tenant.access_days_remaining === 0
-            ? "Tu acceso a Metrik vence hoy."
-            : `Tu acceso a Metrik vence en ${tenant.access_days_remaining} días.`}
+      {hasAccessExpiryWarning && (
+        <div className="pointer-events-none absolute right-4 top-[76px] z-[55] rounded-full border border-amber-300/50 bg-slate-950/95 px-3 py-1 text-[11px] font-semibold text-amber-200 shadow-lg">
+          {accessDaysRemaining === 0
+            ? "Acceso vence hoy"
+            : `Acceso: ${accessDaysRemaining} días`}
+        </div>
+      )}
+      {hasAccessExpiryWarning && (
+        <div
+          className={
+            "absolute right-4 top-[108px] z-[60] w-[292px] max-w-[calc(100vw-2rem)] transition-all duration-300 " +
+            (accessExpiryToastVisible
+              ? "translate-y-0 opacity-100"
+              : "pointer-events-none -translate-y-2 opacity-0")
+          }
+        >
+          <div className="rounded-2xl border border-amber-300/50 bg-slate-900/95 px-4 py-3 pr-10 text-amber-100 shadow-[0_14px_38px_rgba(15,23,42,0.5)] backdrop-blur">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-200">
+              Aviso de vencimiento
+            </p>
+            <p className="mt-1 text-sm font-medium">
+              {accessDaysRemaining === 0
+                ? "El acceso a Metrik vence hoy."
+                : `Quedan ${accessDaysRemaining} días de acceso a Metrik.`}
+            </p>
+            <button
+              type="button"
+              onClick={dismissAccessExpiryToast}
+              className="absolute right-3 top-3 rounded p-1 text-amber-100/70 transition hover:bg-amber-100/10 hover:text-amber-50"
+              aria-label="Ocultar aviso de vencimiento por cuatro horas"
+              title="Ocultar por 4 horas"
+            >
+              ×
+            </button>
+          </div>
         </div>
       )}
       <div className="relative flex min-h-0 flex-1 w-full flex-col">

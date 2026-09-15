@@ -356,8 +356,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout("Tu sesión expiró. Ingresa nuevamente.");
         return;
       }
-      const data = (await res.json()) as { status?: string; reason?: string | null };
-      if (data.status === "active") return;
+      const data = (await res.json()) as {
+        status?: string;
+        reason?: string | null;
+        tenant?: AuthTenant | null;
+      };
+      if (data.status === "active") {
+        if (data.tenant) {
+          setTenant(data.tenant);
+        }
+        return;
+      }
       if (data.reason === "replaced") {
         logout("Se inició sesión con este usuario en otro lugar.");
         return;
@@ -371,6 +380,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // ignore status check failures
     }
   }, [token, logout]);
+
+  useEffect(() => {
+    if (!token) return;
+    void checkSessionStatus();
+  }, [token, checkSessionStatus]);
 
   useEffect(() => {
     if (!token) return;
