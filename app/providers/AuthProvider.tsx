@@ -41,6 +41,8 @@ type AuthTenant = {
   trial_started_at?: string | null;
   trial_ends_at?: string | null;
   trial_days_remaining?: number | null;
+  access_expires_on?: string | null;
+  access_days_remaining?: number | null;
   enabled_modules?: string[];
   module_access?: Record<string, boolean>;
 };

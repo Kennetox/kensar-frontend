@@ -6956,6 +6956,13 @@ const matchesStationLabel = useCallback(
       };
   return (
     <main className="relative h-screen w-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden">
+      {tenant?.access_days_remaining != null && tenant.access_days_remaining <= 14 && (
+        <div className="absolute left-1/2 top-2 z-[70] -translate-x-1/2 rounded-full border border-amber-300/60 bg-amber-950/95 px-4 py-1.5 text-xs font-medium text-amber-100 shadow-lg">
+          {tenant.access_days_remaining === 0
+            ? "Tu acceso a Metrik vence hoy."
+            : `Tu acceso a Metrik vence en ${tenant.access_days_remaining} días.`}
+        </div>
+      )}
       <div className="relative flex min-h-0 flex-1 w-full flex-col">
       {catalogNotice && (
         <div className="fixed right-6 top-24 z-40 w-[360px] max-w-[90vw]">

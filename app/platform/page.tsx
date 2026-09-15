@@ -404,6 +404,46 @@ export default function PlatformPage() {
     }
   }
 
+  async function handleSetAccessExpiry(tenant: PlatformTenant) {
+    if (!token) return;
+    const value = window.prompt(
+      "Fecha límite de acceso (AAAA-MM-DD). Déjala vacía para quitar el vencimiento.",
+      tenant.access_expires_on ?? ""
+    );
+    if (value === null) return;
+    const normalized = value.trim();
+    if (normalized && !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      setTenantFeedback((prev) => ({
+        ...prev,
+        [tenant.id]: { kind: "error", text: "Usa el formato AAAA-MM-DD." },
+      }));
+      return;
+    }
+    try {
+      setUpdatingTenantId(tenant.id);
+      const updated = await updatePlatformTenant(
+        tenant.id,
+        { access_expires_on: normalized || null },
+        token
+      );
+      setTenants((prev) => prev.map((item) => (item.id === tenant.id ? updated : item)));
+      setTenantFeedback((prev) => ({
+        ...prev,
+        [tenant.id]: {
+          kind: "success",
+          text: normalized ? "Fecha límite actualizada." : "Vencimiento eliminado; acceso sin fecha límite.",
+        },
+      }));
+    } catch (err) {
+      setTenantFeedback((prev) => ({
+        ...prev,
+        [tenant.id]: { kind: "error", text: err instanceof Error ? err.message : "No se pudo actualizar el vencimiento." },
+      }));
+    } finally {
+      setUpdatingTenantId(null);
+    }
+  }
+
   async function handleToggleTenantModule(
     tenant: PlatformTenant,
     moduleId: string
@@ -733,6 +773,16 @@ export default function PlatformPage() {
                           Archivar
                         </button>
                       )}
+                      {tenant.lifecycle_stage !== "archived" && (
+                        <button
+                          type="button"
+                          onClick={() => void handleSetAccessExpiry(tenant)}
+                          disabled={updatingTenantId === tenant.id}
+                          className="min-w-[160px] rounded-lg border border-amber-400/40 px-3 py-2 text-center text-sm text-amber-200 hover:bg-amber-500/10 disabled:opacity-60"
+                        >
+                          {tenant.access_expires_on ? "Gestionar vencimiento" : "Definir vencimiento"}
+                        </button>
+                      )}
                       {tenant.lifecycle_stage === "demo" && (
                         <>
                           <button
@@ -790,6 +840,10 @@ export default function PlatformPage() {
                             <DetailField
                               label="Vencimiento demo"
                               value={formatDateTime(tenant.trial_ends_at)}
+                            />
+                            <DetailField
+                              label="Límite de acceso"
+                              value={tenant.access_expires_on ?? "Sin vencimiento"}
                             />
                           </div>
                         </section>

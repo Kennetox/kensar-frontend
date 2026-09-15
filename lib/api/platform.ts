@@ -9,10 +9,12 @@ export type PlatformTenant = {
   lifecycle_stage: "demo" | "active" | "inactive" | "suspended" | "archived";
   trial_started_at: string | null;
   trial_ends_at: string | null;
+  access_expires_on: string | null;
   converted_at: string | null;
   enabled_modules: string[];
   module_user_access: Record<string, number[]>;
   trial_days_remaining: number | null;
+  access_days_remaining: number | null;
   created_at: string;
   updated_at: string;
   module_catalog: TenantModuleCatalogItem[];
@@ -117,6 +119,7 @@ export async function updatePlatformTenant(
     enabled_modules?: string[];
     module_user_access?: Record<string, number[]>;
     lifecycle_stage?: "demo" | "active" | "inactive" | "suspended" | "archived";
+    access_expires_on?: string | null;
   },
   token: string
 ): Promise<PlatformTenant> {

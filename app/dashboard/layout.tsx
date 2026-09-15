@@ -1142,6 +1142,15 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               <span className="font-semibold text-amber-950">{tenant.name}</span>.
             </div>
           )}
+          {tenant?.access_days_remaining != null && tenant.access_days_remaining <= 14 && (
+            <div className="mb-5 shrink-0 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
+              <span className="font-semibold">Aviso de vencimiento.</span>{" "}
+              {tenant.access_days_remaining === 0
+                ? "Tu acceso vence hoy."
+                : `Quedan ${tenant.access_days_remaining} días de acceso a Metrik.`}{" "}
+              Contáctanos para renovarlo.
+            </div>
+          )}
           {isFixedWorkspaceRoute ? (
             <div className="flex-1 min-h-0 min-w-0">{children}</div>
           ) : (
