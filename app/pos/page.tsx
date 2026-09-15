@@ -91,7 +91,7 @@ import {
 const PENDING_ALERT_ACK_STORAGE_KEY = "metrik_pos_pending_ack_v1";
 const HELD_SALE_STORAGE_KEY_BASE = "kensar_pos_held_sale_v1";
 const RESUME_HELD_SALE_KEY_BASE = "kensar_pos_resume_held_sale_v1";
-const ACCESS_EXPIRY_TOAST_SNOOZE_MS = 4 * 60 * 60 * 1000;
+const ACCESS_EXPIRY_TOAST_SNOOZE_MS = 10 * 60 * 1000;
 const POS_NOTICE_HEARTBEAT_MS = 10 * 60 * 1000;
 const PAYMENT_ROUTE = "/pos/pago";
 const PAYMENT_NAVIGATION_TIMEOUT_MS = 10_000;
@@ -954,7 +954,7 @@ export default function PosPage() {
       return;
     }
 
-    const storageKey = `metrik_pos_access_expiry_notice:${tenant?.id ?? "unknown"}:${tenant?.access_expires_on ?? ""}`;
+    const storageKey = `metrik_pos_access_expiry_notice_v2:${tenant?.id ?? "unknown"}:${tenant?.access_expires_on ?? ""}`;
     const dismissedUntil = Number(window.localStorage.getItem(storageKey) ?? 0);
     const remainingDelay = dismissedUntil - Date.now();
 
@@ -973,7 +973,7 @@ export default function PosPage() {
 
   const dismissAccessExpiryToast = useCallback(() => {
     if (typeof window === "undefined") return;
-    const storageKey = `metrik_pos_access_expiry_notice:${tenant?.id ?? "unknown"}:${tenant?.access_expires_on ?? ""}`;
+    const storageKey = `metrik_pos_access_expiry_notice_v2:${tenant?.id ?? "unknown"}:${tenant?.access_expires_on ?? ""}`;
     window.localStorage.setItem(
       storageKey,
       String(Date.now() + ACCESS_EXPIRY_TOAST_SNOOZE_MS)
@@ -7023,8 +7023,8 @@ const matchesStationLabel = useCallback(
               type="button"
               onClick={dismissAccessExpiryToast}
               className="absolute right-3 top-3 rounded p-1 text-amber-100/70 transition hover:bg-amber-100/10 hover:text-amber-50"
-              aria-label="Ocultar aviso de vencimiento por cuatro horas"
-              title="Ocultar por 4 horas"
+              aria-label="Ocultar aviso de vencimiento por diez minutos"
+              title="Ocultar por 10 minutos"
             >
               ×
             </button>
