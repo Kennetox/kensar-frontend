@@ -1147,8 +1147,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
               <span className="font-semibold">Aviso de vencimiento.</span>{" "}
               {tenant.access_days_remaining === 0
                 ? "Tu acceso vence hoy."
-                : `Quedan ${tenant.access_days_remaining} días de acceso a Metrik.`}{" "}
-              Contáctanos para renovarlo.
+                : `Quedan ${tenant.access_days_remaining} días de acceso a Metrik.`}
             </div>
           )}
           {isFixedWorkspaceRoute ? (
