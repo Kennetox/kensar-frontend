@@ -2543,7 +2543,6 @@ export default function ProductsPage() {
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Error desconocido al eliminar";
-      setError(message);
       setErrorToastMessage(message);
     }
   }
@@ -3251,7 +3250,7 @@ export default function ProductsPage() {
           </p>
         )}
 
-        {!loading && !error && (
+        {!loading && (
           <div className="overflow-hidden rounded-xl ui-surface dashboard-kpi-card shadow-lg h-full min-h-0 min-w-0 flex flex-col">
             <div
               ref={topScrollRef}
