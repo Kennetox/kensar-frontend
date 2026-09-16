@@ -5563,13 +5563,13 @@ useEffect(() => {
                   ) : null}
                   {selectedReceivingDetail?.items?.length ? (
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-xs text-amber-100">
-                        <span className="text-amber-200/80">Costo comprado</span>
-                        <div className="mt-1 text-base font-semibold">{formatMoney(selectedReceivingTotals.cost)}</div>
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                        <span className="text-amber-800">Costo comprado</span>
+                        <div className="mt-1 text-base font-semibold text-amber-950">{formatMoney(selectedReceivingTotals.cost)}</div>
                       </div>
-                      <div className="rounded-xl border border-emerald-300/40 bg-emerald-500/10 p-3 text-xs text-emerald-100">
-                        <span className="text-emerald-200/80">Valor a precio de venta</span>
-                        <div className="mt-1 text-base font-semibold">{formatMoney(selectedReceivingTotals.price)}</div>
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">
+                        <span className="text-emerald-800">Valor a precio de venta</span>
+                        <div className="mt-1 text-base font-semibold text-emerald-950">{formatMoney(selectedReceivingTotals.price)}</div>
                       </div>
                     </div>
                   ) : null}
@@ -5650,26 +5650,26 @@ useEffect(() => {
                                 <td className="px-3 py-2 text-right font-mono">
                                   {Number(item.qty_received ?? 0)}
                                 </td>
-                                <td className="px-3 py-2 text-right font-mono text-amber-100">
+                                <td className="px-3 py-2 text-right font-mono font-medium text-amber-800">
                                   {formatMoney(item.unit_cost_snapshot)}
                                 </td>
-                                <td className="px-3 py-2 text-right font-mono text-amber-100">
+                                <td className="px-3 py-2 text-right font-mono font-medium text-amber-800">
                                   {formatMoney(toNumber(item.qty_received) * toNumber(item.unit_cost_snapshot))}
                                 </td>
-                                <td className="px-3 py-2 text-right font-mono text-emerald-100">
+                                <td className="px-3 py-2 text-right font-mono font-medium text-emerald-800">
                                   {formatMoney(item.unit_price_snapshot)}
                                 </td>
-                                <td className="px-3 py-2 text-right font-mono text-emerald-100">
+                                <td className="px-3 py-2 text-right font-mono font-medium text-emerald-800">
                                   {formatMoney(toNumber(item.qty_received) * toNumber(item.unit_price_snapshot))}
                                 </td>
                               </tr>
                             ))}
                           </tbody>
-                          <tfoot className="border-t border-slate-700 bg-slate-950/70 font-semibold text-slate-100">
+                          <tfoot className="border-t border-slate-200 bg-slate-100 font-semibold text-slate-900">
                             <tr>
                               <td colSpan={4} className="px-3 py-2 text-right">Totales</td>
-                              <td colSpan={2} className="px-3 py-2 text-right text-amber-100">{formatMoney(selectedReceivingTotals.cost)}</td>
-                              <td colSpan={2} className="px-3 py-2 text-right text-emerald-100">{formatMoney(selectedReceivingTotals.price)}</td>
+                              <td colSpan={2} className="px-3 py-2 text-right text-amber-800">{formatMoney(selectedReceivingTotals.cost)}</td>
+                              <td colSpan={2} className="px-3 py-2 text-right text-emerald-800">{formatMoney(selectedReceivingTotals.price)}</td>
                             </tr>
                           </tfoot>
                         </table>
