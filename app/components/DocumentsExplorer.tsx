@@ -393,6 +393,8 @@ type ReceivingLotItemRecord = {
   sku_snapshot?: string | null;
   barcode_snapshot?: string | null;
   qty_received: number;
+  unit_cost_snapshot: number;
+  unit_price_snapshot: number;
 };
 
 type ReceivingLotDetailRecord = {
@@ -3218,6 +3220,18 @@ const selectedDetails = selectedDoc?.data;
     (selectedDoc?.type === "recepcion"
       ? (selectedDetails as ReceivingDocumentRecord | null)?.notes?.trim()
       : "");
+  const selectedReceivingTotals = useMemo(() => {
+    const items = selectedReceivingDetail?.items ?? [];
+    return items.reduce(
+      (totals, item) => {
+        const quantity = toNumber(item.qty_received);
+        totals.cost += quantity * toNumber(item.unit_cost_snapshot);
+        totals.price += quantity * toNumber(item.unit_price_snapshot);
+        return totals;
+      },
+      { cost: 0, price: 0 }
+    );
+  }, [selectedReceivingDetail?.items]);
   const selectedManualMovementDocument =
     selectedManualMovementDetail?.document ??
     (selectedDoc?.type === "movimiento_manual"
@@ -5547,6 +5561,18 @@ useEffect(() => {
                       <span>{selectedReceivingNotes}</span>
                     </div>
                   ) : null}
+                  {selectedReceivingDetail?.items?.length ? (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+                        <span className="text-amber-200/80">Costo comprado</span>
+                        <div className="mt-1 text-base font-semibold">{formatMoney(selectedReceivingTotals.cost)}</div>
+                      </div>
+                      <div className="rounded-xl border border-emerald-300/40 bg-emerald-500/10 p-3 text-xs text-emerald-100">
+                        <span className="text-emerald-200/80">Valor a precio de venta</span>
+                        <div className="mt-1 text-base font-semibold">{formatMoney(selectedReceivingTotals.price)}</div>
+                      </div>
+                    </div>
+                  ) : null}
                   {selectedSupportFileUrl && (
                     <div className="rounded-xl border border-slate-700 bg-slate-900/90 p-3 text-xs shadow-sm">
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -5602,6 +5628,10 @@ useEffect(() => {
                               <th className="px-3 py-2 font-normal">SKU</th>
                               <th className="px-3 py-2 font-normal">Código barras</th>
                               <th className="px-3 py-2 font-normal text-right">Cantidad</th>
+                              <th className="px-3 py-2 font-normal text-right">Costo u.</th>
+                              <th className="px-3 py-2 font-normal text-right">Costo total</th>
+                              <th className="px-3 py-2 font-normal text-right">Precio u.</th>
+                              <th className="px-3 py-2 font-normal text-right">Precio total</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -5620,9 +5650,28 @@ useEffect(() => {
                                 <td className="px-3 py-2 text-right font-mono">
                                   {Number(item.qty_received ?? 0)}
                                 </td>
+                                <td className="px-3 py-2 text-right font-mono text-amber-100">
+                                  {formatMoney(item.unit_cost_snapshot)}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-amber-100">
+                                  {formatMoney(toNumber(item.qty_received) * toNumber(item.unit_cost_snapshot))}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-emerald-100">
+                                  {formatMoney(item.unit_price_snapshot)}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-emerald-100">
+                                  {formatMoney(toNumber(item.qty_received) * toNumber(item.unit_price_snapshot))}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
+                          <tfoot className="border-t border-slate-700 bg-slate-950/70 font-semibold text-slate-100">
+                            <tr>
+                              <td colSpan={4} className="px-3 py-2 text-right">Totales</td>
+                              <td colSpan={2} className="px-3 py-2 text-right text-amber-100">{formatMoney(selectedReceivingTotals.cost)}</td>
+                              <td colSpan={2} className="px-3 py-2 text-right text-emerald-100">{formatMoney(selectedReceivingTotals.price)}</td>
+                            </tr>
+                          </tfoot>
                         </table>
                       </div>
                     </div>

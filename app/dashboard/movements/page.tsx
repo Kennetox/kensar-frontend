@@ -2057,6 +2057,18 @@ export default function MovementsPage() {
     }
   };
 
+  const receivingDetailTotals = useMemo(
+    () =>
+      (lotDetail?.items ?? []).reduce(
+        (totals, item) => ({
+          cost: totals.cost + item.qty_received * item.unit_cost_snapshot,
+          price: totals.price + item.qty_received * item.unit_price_snapshot,
+        }),
+        { cost: 0, price: 0 }
+      ),
+    [lotDetail?.items]
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-[84rem] min-w-0 flex-col gap-4 px-20 xl:px-24">
       <section className="min-w-0">
@@ -3892,16 +3904,18 @@ export default function MovementsPage() {
 
           <div className="mt-3.5 min-w-0 overflow-hidden rounded-xl border border-slate-200">
             <div className="overflow-auto">
-            <div className="grid min-w-[900px] grid-cols-[0.8fr_0.7fr_0.9fr_0.8fr_0.9fr_0.9fr_0.8fr] gap-3 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+            <div className="grid min-w-[1120px] grid-cols-[0.75fr_0.65fr_0.85fr_0.7fr_0.8fr_0.8fr_0.8fr_0.85fr_0.5fr] gap-3 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
               <span>Lote</span>
               <span>Tipo</span>
               <span>Origen</span>
               <span>Ítems / uds</span>
+              <span className="text-right">Costo</span>
+              <span className="text-right">Venta</span>
               <span>Factura</span>
               <span>Cerrado</span>
               <span></span>
             </div>
-            <div className="min-w-[900px] divide-y divide-slate-200 bg-white">
+            <div className="min-w-[1120px] divide-y divide-slate-200 bg-white">
               {receivingLoading ? (
                 <div className="px-3 py-5 text-xs text-slate-500">Cargando recepciones...</div>
               ) : receivingError ? (
@@ -3916,13 +3930,15 @@ export default function MovementsPage() {
                       row.origin_name
                     } · ${row.lines_count} / ${formatQty(row.units_total)} · ${
                       row.invoice_reference || "-"
-                    } · ${row.closed_at ? formatDate(row.closed_at) : "-"}`}
-                    className="grid grid-cols-[0.8fr_0.7fr_0.9fr_0.8fr_0.9fr_0.9fr_0.8fr] items-center gap-3 px-3 py-2 text-[12px]"
+                    } · Costo ${formatMoney(row.total_cost)} · Venta ${formatMoney(row.total_price)} · ${row.closed_at ? formatDate(row.closed_at) : "-"}`}
+                    className="grid grid-cols-[0.75fr_0.65fr_0.85fr_0.7fr_0.8fr_0.8fr_0.8fr_0.85fr_0.5fr] items-center gap-3 px-3 py-2 text-[12px]"
                   >
                     <span className="truncate font-medium text-slate-900">{row.lot_number}</span>
                     <span className="truncate text-slate-700">{row.purchase_type === "invoice" ? "Factura" : "Efectivo"}</span>
                     <span className="truncate text-slate-600">{row.origin_name}</span>
                     <span className="truncate text-slate-600">{row.lines_count} / {formatQty(row.units_total)}</span>
+                    <span className="truncate text-right font-medium text-amber-700">{formatMoney(row.total_cost)}</span>
+                    <span className="truncate text-right font-medium text-emerald-700">{formatMoney(row.total_price)}</span>
                     <span className="truncate text-slate-600">{row.invoice_reference || "-"}</span>
                     <span className="truncate text-slate-600">{row.closed_at ? formatDate(row.closed_at) : "-"}</span>
                     <div className="flex items-center justify-end gap-1.5">
@@ -4467,7 +4483,7 @@ export default function MovementsPage() {
                 <p className="text-sm text-rose-600">{lotDetailError}</p>
               ) : lotDetail ? (
                 <>
-                  <div className="grid gap-3 sm:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-6">
                     <StatCard label="Tipo" value={lotDetail.lot.purchase_type === "invoice" ? "Factura" : "Efectivo"} />
                     <StatCard label="Origen" value={lotDetail.lot.origin_name} />
                     <StatCard label="Estado" value={lotStatusLabel(lotDetail.lot.status)} />
@@ -4475,6 +4491,8 @@ export default function MovementsPage() {
                       label="Cierre"
                       value={lotDetail.lot.closed_at ? formatDate(lotDetail.lot.closed_at) : "-"}
                     />
+                    <StatCard label="Costo comprado" value={formatMoney(receivingDetailTotals.cost)} />
+                    <StatCard label="Valor de venta" value={formatMoney(receivingDetailTotals.price)} />
                   </div>
                   <div className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 sm:grid-cols-2">
                     <div className="min-w-0">
@@ -4520,8 +4538,10 @@ export default function MovementsPage() {
                           <th className="px-3 py-2">Producto</th>
                           <th className="px-3 py-2">SKU</th>
                           <th className="px-3 py-2 text-right">Cant.</th>
-                          <th className="px-3 py-2 text-right">Costo</th>
-                          <th className="px-3 py-2 text-right">Precio</th>
+                          <th className="px-3 py-2 text-right">Costo u.</th>
+                          <th className="px-3 py-2 text-right">Costo total</th>
+                          <th className="px-3 py-2 text-right">Precio u.</th>
+                          <th className="px-3 py-2 text-right">Precio total</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4539,12 +4559,25 @@ export default function MovementsPage() {
                             <td className={`px-3 py-2 text-right text-slate-700 ${index > 0 ? "border-t border-slate-200/50" : ""}`}>
                               {formatMoney(item.unit_cost_snapshot)}
                             </td>
+                            <td className={`px-3 py-2 text-right font-medium text-amber-700 ${index > 0 ? "border-t border-slate-200/50" : ""}`}>
+                              {formatMoney(item.qty_received * item.unit_cost_snapshot)}
+                            </td>
                             <td className={`px-3 py-2 text-right text-slate-700 ${index > 0 ? "border-t border-slate-200/50" : ""}`}>
                               {formatMoney(item.unit_price_snapshot)}
+                            </td>
+                            <td className={`px-3 py-2 text-right font-medium text-emerald-700 ${index > 0 ? "border-t border-slate-200/50" : ""}`}>
+                              {formatMoney(item.qty_received * item.unit_price_snapshot)}
                             </td>
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot className="border-t border-slate-200 bg-slate-50 font-semibold">
+                        <tr>
+                          <td colSpan={4} className="px-3 py-2 text-right text-slate-700">Totales</td>
+                          <td className="px-3 py-2 text-right text-amber-700">{formatMoney(receivingDetailTotals.cost)}</td>
+                          <td colSpan={2} className="px-3 py-2 text-right text-emerald-700">{formatMoney(receivingDetailTotals.price)}</td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </>

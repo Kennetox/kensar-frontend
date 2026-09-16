@@ -804,6 +804,8 @@ export type ReceivingDocumentRow = {
   origin_name: string;
   lines_count: number;
   units_total: number;
+  total_cost: number;
+  total_price: number;
   created_by_user_id?: number | null;
   created_by_user_name?: string | null;
   closed_by_user_id?: number | null;
