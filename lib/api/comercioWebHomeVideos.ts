@@ -7,6 +7,7 @@ export type ComercioWebHomeVideo = {
   slot: number;
   enabled: boolean;
   video_url?: string | null;
+  poster_url?: string | null;
   sort_order: number;
   content_updated_at?: string | null;
   created_at: string;
@@ -14,7 +15,7 @@ export type ComercioWebHomeVideo = {
 };
 
 export type ComercioWebHomeVideoUpdate = Partial<
-  Pick<ComercioWebHomeVideo, "enabled" | "video_url" | "sort_order">
+  Pick<ComercioWebHomeVideo, "enabled" | "video_url" | "poster_url" | "sort_order">
 >;
 
 function buildHeaders(token: string): HeadersInit {

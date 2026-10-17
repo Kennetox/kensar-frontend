@@ -339,6 +339,7 @@ type UploadProductImageResponse = {
 
 type UploadProductVideoResponse = {
   url: string;
+  poster_url?: string | null;
   duration_seconds?: number | null;
   size_bytes: number;
 };
@@ -5584,6 +5585,7 @@ export default function ComercioWebPage() {
       const data: UploadProductVideoResponse = await uploadRes.json();
       const saved = await updateComercioWebHomeVideo(token, slot, {
         video_url: data.url,
+        poster_url: data.poster_url ?? null,
         enabled: true,
       });
       patchHomeVideoLocal(slot, () => saved);
